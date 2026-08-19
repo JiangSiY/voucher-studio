@@ -1,0 +1,107 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//! Voucher Studio 桌面应用入口（Tauri 壳）
+
+mod commands;
+mod platform;
+
+use std::sync::Arc;
+
+use tauri::Manager;
+use voucher_core::utils::file_lock::FileLockGuard;
+use voucher_core::utils::paths::AppPaths;
+use voucher_core::CoreContext;
+
+/// 持有数据目录文件锁（进程存活期间不释放；字段仅在 Drop 时起作用）
+#[allow(dead_code)]
+struct DataLock(FileLockGuard);
+
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
+        .setup(|app| {
+            // 1. 落位待恢复备份（restore 命令重启生效机制）
+            let paths = AppPaths::resolve(None)?;
+            paths.ensure_all()?;
+            platform::apply_pending_restore(&paths);
+
+            // 2. 数据目录文件锁：同一目录同一时刻只允许一个实例写入
+            let guard = FileLockGuard::try_acquire(&paths.lock_file()).map_err(|e| {
+                Box::<dyn std::error::Error>::from(format!(
+                    "{e}。若确认没有其他实例在运行，可删除 {} 后重试。",
+                    paths.lock_file().display()
+                ))
+            })?;
+            app.manage(DataLock(guard));
+
+            // 3. 核心上下文（打开数据库、建表、加载配置）
+            let ctx = Arc::new(CoreContext::init(None)?);
+            app.manage(ctx.clone());
+
+            // 3.5 本地 OCR 模型：首次启动从安装源复制到数据目录（幂等）
+            for src in voucher_core::services::ocr_local::default_model_sources() {
+                match voucher_core::LocalOcr::ensure_installed(&src, &ctx.paths.models) {
+                    Ok(true) => {
+                        log::info!("本地 OCR 模型已从 {} 安装", src.display());
+                        break;
+                    }
+                    Ok(false) => {
+                        if voucher_core::LocalOcr::is_installed(&ctx.paths.models) {
+                            break;
+                        }
+                    }
+                    Err(e) => log::warn!("本地 OCR 模型安装失败（{}）: {e}", src.display()),
+                }
+            }
+
+            // 4. 微信监听 + 定时备份调度（配置启用时生效）
+            platform::spawn_wechat_if_enabled(app.handle().clone(), &ctx);
+            platform::spawn_backup_scheduler(app.handle().clone(), ctx);
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_app_info,
+            commands::open_path,
+            commands::restart_app,
+            commands::get_config,
+            commands::save_config,
+            commands::validate_naming_template,
+            commands::preview_voucher_no,
+            commands::list_secrets,
+            commands::set_secret,
+            commands::delete_secret,
+            commands::list_vouchers,
+            commands::get_voucher,
+            commands::create_voucher,
+            commands::update_voucher,
+            commands::delete_voucher,
+            commands::set_voucher_status,
+            commands::voucher_stats,
+            commands::search_vouchers,
+            commands::import_images,
+            commands::delete_attachment,
+            commands::attachment_abs_path,
+            commands::run_ocr,
+            commands::run_ocr_pending,
+            commands::local_ocr_status,
+            commands::export_pdf,
+            commands::list_export_batches,
+            commands::run_backup,
+            commands::list_backups,
+            commands::inspect_backup,
+            commands::restore_backup,
+        ])
+        .run(tauri::generate_context!())
+        .expect("Voucher Studio 启动失败");
+}

@@ -1,0 +1,29 @@
+[package]
+name = "voucher-core"
+description = "Voucher Studio 业务核心（不依赖 Tauri，可独立测试）"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+log.workspace = true
+md5 = "0.7"
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+directories = "5"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+printpdf = { version = "0.7", features = ["embedded_images"] }
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+notify = "6"
+base64 = "0.22"
+# 本地 OCR（G1 Spike B 验证路线）：ort = ONNX Runtime 的 Rust 绑定
+ort = "=2.0.0-rc.13"
+
+[dev-dependencies]
+tempfile = "3"

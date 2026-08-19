@@ -1,0 +1,18 @@
+[package]
+name = "ocr-poc"
+description = "G1 Spike B：ort + RapidOCR(PP-OCRv4) 本地 OCR 可行性验证"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+voucher-core = { path = "../../crates/voucher-core" }
+serde.workspace = true
+serde_json.workspace = true
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+
+[[bin]]
+name = "ocr-poc"
+path = "src/main.rs"

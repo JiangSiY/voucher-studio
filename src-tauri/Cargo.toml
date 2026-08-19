@@ -1,0 +1,28 @@
+[package]
+name = "voucher-studio"
+description = "Voucher Studio 桌面应用（Tauri 壳）"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+voucher-core = { path = "../crates/voucher-core" }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+chrono.workspace = true
+tokio = { version = "1", features = ["time"] }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-log = "2"
+
+[features]
+default = []
+# 生产模式：内嵌打包好的前端（dist/），双击即可离线运行，不依赖开发服务器
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,85 @@
+//! 文件锁（对应 v4.3 的 `file_lock.py`）
+//!
+//! 语义：同一数据目录同一时刻只允许一个实例写入。
+//! Windows 实现：`share_mode(0)` 独占句柄——其他进程（或本进程）任何打开操作
+//! 都会失败；进程退出后 OS 自动关闭句柄，残留的锁文件下次启动时按「陈锁」清理。
+//! Tauri 层另有单实例插件，这里做第二道防线。
+
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use crate::{CoreError, Result};
+
+pub struct FileLockGuard {
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl FileLockGuard {
+    /// 尝试获取锁；被其他实例持有时返回 [`CoreError::LockHeld`]
+    pub fn try_acquire(path: &Path) -> Result<Self> {
+        if path.exists() {
+            // 独占探测：能打开说明只是陈锁（无进程持有句柄），删除后重建
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                match OpenOptions::new().write(true).share_mode(0).open(path) {
+                    Ok(_) => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    Err(_) => return Err(CoreError::LockHeld),
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                // POSIX：按陈锁处理（重建即可）
+                let _ = std::fs::remove_file(path);
+            }
+        }
+
+        let mut opts = OpenOptions::new();
+        opts.create_new(true).write(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            opts.share_mode(0);
+        }
+        let mut file = opts.open(path).map_err(|_| CoreError::LockHeld)?;
+        let _ = writeln!(file, "{}", std::process::id());
+        Ok(Self {
+            file: Some(file),
+            path: path.to_path_buf(),
+        })
+    }
+}
+
+impl Drop for FileLockGuard {
+    fn drop(&mut self) {
+        // 先关句柄再删文件，Windows 上顺序不能反
+        self.file = None;
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_acquire_and_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join(".lock");
+
+        let guard = FileLockGuard::try_acquire(&lock_path).unwrap();
+        // 同一路径二次获取：句柄独占 → LockHeld
+        assert!(matches!(
+            FileLockGuard::try_acquire(&lock_path),
+            Err(CoreError::LockHeld)
+        ));
+
+        drop(guard);
+        // 释放后可重新获取
+        assert!(FileLockGuard::try_acquire(&lock_path).is_ok());
+    }
+}
