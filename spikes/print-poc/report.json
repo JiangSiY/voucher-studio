@@ -1,0 +1,30 @@
+{
+  "approach": "printpdf (Rust backend, direct data-to-PDF) instead of WebView print",
+  "criteria": {
+    "a4_and_margins": {
+      "evidence": "every MediaBox = 595.27563 x 841.88983 pt (210x297mm), margins by geometry constants (10mm)",
+      "pass": true
+    },
+    "cjk_no_tofu": {
+      "evidence": "FontFile2 embedded + Identity-H CID encoding + manual sample review",
+      "manual_review": "spikes/print-poc/sample-voucher-sheet.pdf",
+      "pass": true
+    },
+    "no_controls_in_output": {
+      "evidence": "card pages contain zero Image XObjects; PDF generated from data, WebView DOM never involved",
+      "pass": true
+    },
+    "pagination_exact": {
+      "evidence": "44 cards -> ceil(44/21)=3 pages, 6 images -> ceil(6/4)=2 pages, total 5 pages",
+      "pass": true
+    }
+  },
+  "date": "2026-08-20",
+  "known_tradeoff": "printpdf embeds full font (no subsetting) -> ~10MB PDF; acceptable for desktop app, revisit if size matters",
+  "layout_note": "original Spike A criterion assumed WebView print at 4 cards/page; final layout is 3 cols x 7 rows = 21 cards/page (ink-saving design per UI scheme). Criterion semantics = exact pagination, verified against final layout.",
+  "platforms": {
+    "macos": "pending device; font candidates include PingFang/STHeiti/Songti, re-verify per risk register item 'Spike conclusion expiry'",
+    "windows": "verified (automated + manual sample)"
+  },
+  "spike": "A-print"
+}
