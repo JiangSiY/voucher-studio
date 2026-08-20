@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use chrono::Datelike;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
 use voucher_core::models::{NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
-use voucher_core::services::{backup, export, ingestion, ocr, reports, search, voucher_mgr};
+use voucher_core::services::{
+    backup, export, ingestion, ocr, recovery, reports, search, voucher_mgr,
+};
 use voucher_core::{CoreContext, CoreError, Result};
 
 fn test_ctx() -> (tempfile::TempDir, CoreContext) {
@@ -811,6 +813,67 @@ fn monthly_summary_pivots_and_zero_fills() -> Result<()> {
     assert_eq!(s1[0].month, this_month);
     assert_eq!(s1[0].count, 3);
     assert!(reports::monthly_summary(&ctx, 0)?.is_empty());
+    Ok(())
+}
+
+/// 崩溃恢复（recovery_window 后端）：会话 marker 状态机 + 只读健康检查
+#[test]
+fn recovery_marker_and_health_check() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+
+    // 首次启动：无 marker → 正常
+    assert!(
+        recovery::mark_running(&ctx)?.is_none(),
+        "首次启动不应报告异常退出"
+    );
+
+    // 未正常退出（模拟崩溃）→ marker 残留 → 第二次启动检测到
+    let second = recovery::mark_running(&ctx)?;
+    let last = second.expect("marker 残留应被识别为异常退出");
+    assert!(!last.started_at.is_empty());
+    assert!(last.pid > 0);
+
+    // 正常退出 → 清除 marker → 再启动恢复为正常
+    recovery::mark_clean_exit(&ctx)?;
+    assert!(recovery::mark_running(&ctx)?.is_none());
+
+    // 健康检查：空库基线
+    let report = recovery::check_health(&ctx)?;
+    assert!(report.db_ok, "空库完整性应通过");
+    assert_eq!(report.attachment_total, 0);
+    assert_eq!(report.attachment_missing_count, 0);
+    assert!(report.attachment_missing.is_empty());
+    assert!(report.last_backup.is_none());
+
+    // 带附件 + 备份的健康检查
+    let img = dir.path().join("a.png");
+    make_png(&img);
+    let s = ingestion::import_images(&ctx, &[img], None, false)?;
+    backup::run_backup(&ctx)?;
+    let report2 = recovery::check_health(&ctx)?;
+    assert!(report2.db_ok);
+    assert_eq!(report2.attachment_total, 1);
+    assert_eq!(report2.attachment_missing_count, 0);
+    assert!(report2.last_backup.is_some(), "已有备份应出现在报告中");
+
+    // 附件缺失场景：删掉物理文件 → 报告缺失
+    let rel = s.imported[0].file_path.clone();
+    std::fs::remove_file(ctx.paths.attachment_abs(&rel))?;
+    let report3 = recovery::check_health(&ctx)?;
+    assert_eq!(report3.attachment_missing_count, 1);
+    assert_eq!(report3.attachment_missing.len(), 1);
+    assert_eq!(report3.attachment_missing[0], s.imported[0].file_name);
+
+    // 组合入口：异常退出状态正确汇入报告
+    let _ = recovery::mark_clean_exit(&ctx);
+    assert!(!recovery::check_recovery(&ctx)?.abnormal_exit);
+    let _ = recovery::mark_running(&ctx)?; // 制造残留
+    let combined = recovery::check_recovery(&ctx)?;
+    assert!(
+        combined.abnormal_exit,
+        "check_recovery 应汇入 marker 检测结果"
+    );
+    assert!(combined.last_session.is_some());
     Ok(())
 }
 

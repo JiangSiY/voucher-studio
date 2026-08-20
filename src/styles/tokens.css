@@ -43,6 +43,8 @@ html[data-theme="light"] {
   /* Acrylic */
   --acrylic-bg: rgba(252, 252, 252, 0.85);
   --acrylic-blur: saturate(180%) blur(30px);
+  /* 窗口级 Mica 上叠加的侧栏着色（兼顾无效果系统下的可读性兜底） */
+  --mica-tint: rgba(243, 243, 243, 0.5);
 
   /* Depth */
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
@@ -109,6 +111,7 @@ html[data-theme="dark"] {
   --info-soft: rgba(76, 194, 255, 0.12);
 
   --acrylic-bg: rgba(32, 32, 32, 0.85);
+  --mica-tint: rgba(32, 32, 32, 0.55);
 
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
   --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);

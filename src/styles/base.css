@@ -17,7 +17,8 @@ body {
 
 body {
   font-family: var(--font);
-  background: var(--bg);
+  /* 透明以透出窗口级 Mica/Acrylic 效果；可读性由 .main-area 的不透明背景保证 */
+  background: transparent;
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
@@ -41,8 +42,9 @@ body {
   width: var(--sidebar-w);
   flex-shrink: 0;
   height: 100vh;
-  background: var(--acrylic-bg);
-  backdrop-filter: var(--acrylic-blur);
+  /* 窗口级 Mica/Acrylic 已提供模糊质感，这里仅叠半透明着色；
+     保留底色亦是无效果系统下的可读性兜底 */
+  background: var(--mica-tint);
   border-right: 1px solid var(--stroke);
   display: flex;
   flex-direction: column;
@@ -146,6 +148,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* 内容区不透明：Mica 只在侧栏透出，保证正文可读性 */
+  background: var(--bg);
 }
 
 .main-scroll {

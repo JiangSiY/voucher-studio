@@ -102,6 +102,17 @@ export interface MonthlySummary {
   archived: number;
 }
 
+export interface RecoveryReport {
+  abnormalExit: boolean;
+  lastSession: { startedAt: string; pid: number } | null;
+  dbOk: boolean;
+  integrityErrors: string[];
+  attachmentTotal: number;
+  attachmentMissingCount: number;
+  attachmentMissing: string[];
+  lastBackup: BackupInfo | null;
+}
+
 export interface SearchHit {
   voucher: Voucher;
   matchedIn: string[];
@@ -241,6 +252,8 @@ export const api = {
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
+
+  getRecoveryReport: () => invoke<RecoveryReport>("get_recovery_report"),
 
   searchVouchers: (keyword: string, limit?: number) => invoke<SearchHit[]>("search_vouchers", { keyword, limit }),
 

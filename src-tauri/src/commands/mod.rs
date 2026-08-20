@@ -57,7 +57,9 @@ pub fn open_path(app: AppHandle, path: String) -> std::result::Result<(), String
 }
 
 #[tauri::command]
-pub fn restart_app(app: AppHandle) {
+pub fn restart_app(app: AppHandle, ctx: Ctx) {
+    // 计划内重启（恢复备份生效流程）：先清会话 marker，避免下次启动误报「异常退出」
+    let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
     app.restart();
 }
 
@@ -202,6 +204,16 @@ pub fn monthly_summary(
 ) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
     let n = months.unwrap_or(6).clamp(1, 24);
     err_string(voucher_core::services::reports::monthly_summary(&ctx, n))
+}
+
+// ---------- 崩溃恢复 ----------
+
+/// 读取启动时的恢复检查报告（marker 检测与健康检查在 main.rs setup 中完成并缓存于此）
+#[tauri::command]
+pub fn get_recovery_report(
+    state: tauri::State<'_, voucher_core::services::recovery::RecoveryReport>,
+) -> voucher_core::services::recovery::RecoveryReport {
+    state.inner().clone()
 }
 
 // ---------- 搜索 ----------

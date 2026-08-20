@@ -66,13 +66,45 @@ fn main() {
 
             // 4. 微信监听 + 定时备份调度（配置启用时生效；监听支持保存配置后热重载）
             platform::sync_wechat_watch(app.handle().clone(), &ctx);
-            platform::spawn_backup_scheduler(app.handle().clone(), ctx);
+            platform::spawn_backup_scheduler(app.handle().clone(), ctx.clone());
+
+            // 5. 崩溃恢复：标记会话运行中 + 健康检查（只读），报告缓存供前端读取
+            let report = voucher_core::services::recovery::check_recovery(&ctx)?;
+            if report.abnormal_exit {
+                if let Some(last) = &report.last_session {
+                    log::warn!(
+                        "检测到上次会话异常退出（开始于 {}，PID {}），已执行数据健康检查",
+                        last.started_at,
+                        last.pid
+                    );
+                }
+                if !report.db_ok {
+                    log::error!("数据库完整性检查未通过：{:?}", report.integrity_errors);
+                }
+                if report.attachment_missing_count > 0 {
+                    log::error!(
+                        "{} 张附件物理文件缺失（样本：{:?}）",
+                        report.attachment_missing_count,
+                        report.attachment_missing
+                    );
+                }
+            }
+            app.manage(report);
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 正常关闭窗口 → 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                if let Some(ctx) = window.try_state::<Arc<CoreContext>>() {
+                    let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::open_path,
+            commands::get_recovery_report,
             commands::restart_app,
             commands::get_config,
             commands::save_config,
