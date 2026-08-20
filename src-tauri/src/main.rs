@@ -90,6 +90,7 @@ fn main() {
             commands::delete_vouchers,
             commands::set_voucher_status,
             commands::voucher_stats,
+            commands::monthly_summary,
             commands::search_vouchers,
             commands::import_images,
             commands::delete_attachment,

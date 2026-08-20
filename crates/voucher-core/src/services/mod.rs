@@ -9,6 +9,7 @@ pub mod naming;
 pub mod ocr;
 pub mod ocr_local;
 pub mod pdf;
+pub mod reports;
 pub mod scheduler;
 pub mod search;
 pub mod voucher_mgr;

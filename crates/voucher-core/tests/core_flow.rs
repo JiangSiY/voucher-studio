@@ -3,9 +3,10 @@
 use std::io::Read;
 use std::path::PathBuf;
 
+use chrono::Datelike;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
 use voucher_core::models::{NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
-use voucher_core::services::{backup, export, ingestion, ocr, search, voucher_mgr};
+use voucher_core::services::{backup, export, ingestion, ocr, reports, search, voucher_mgr};
 use voucher_core::{CoreContext, CoreError, Result};
 
 fn test_ctx() -> (tempfile::TempDir, CoreContext) {
@@ -652,6 +653,164 @@ fn local_ocr_end_to_end() -> Result<()> {
             "OCR 结果缺少「{expect}」，实际识别: {compact}"
         );
     }
+    Ok(())
+}
+
+/// G2 标准②直接证据：图片导入 → 本地 OCR 真实识别 → 全文搜索 → PDF 导出 全链路闭环。
+/// 与分段测试的区别：OCR 文本由本地引擎识别落库（非手工写 DB），导出走真实 PDF 生成。
+#[test]
+fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
+    // 前置素材缺失时跳过（模型/样张不随 git 走的环境，如精简 CI）
+    let models = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
+    if !voucher_core::LocalOcr::is_installed(&models) {
+        eprintln!("跳过：本地 OCR 模型不存在（{}）", models.display());
+        return Ok(());
+    }
+    let sample =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/ocr_sample.png");
+    if !sample.is_file() {
+        eprintln!("跳过：测试图不存在");
+        return Ok(());
+    }
+    if voucher_core::services::pdf::find_cjk_font().is_none() {
+        eprintln!("跳过：系统无中文字体（PDF 导出不可用）");
+        return Ok(());
+    }
+
+    let (dir, ctx) = test_ctx();
+
+    // 1. 模型装入临时库 models 目录（全新库 → 真实走 ensure_installed 复制路径）
+    assert!(
+        voucher_core::LocalOcr::ensure_installed(&models, &ctx.paths.models)?,
+        "全新临时库应触发模型复制"
+    );
+    assert!(ctx.local_ocr_ready());
+
+    // 2. 导入样张并触发 OCR（默认配置 engine=local / enabled=true，走本地引擎）
+    let img = dir.path().join("ocr_sample.png");
+    std::fs::copy(&sample, &img)?;
+    let summary = ingestion::import_images(&ctx, &[img], None, true)?;
+    assert_eq!(summary.imported.len(), 1);
+
+    // 3. OCR 文本经引擎识别落库
+    let detail = voucher_mgr::get_detail(&ctx, summary.voucher_id)?;
+    assert_eq!(detail.attachments.len(), 1);
+    let att = &detail.attachments[0];
+    assert_eq!(att.ocr_status, OcrStatus::Done, "OCR 状态应为 Done");
+    let text = att.ocr_text.as_deref().unwrap_or_default();
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    for expect in ["报销凭证", "金额：1234.56元"] {
+        assert!(
+            compact.contains(expect),
+            "本地引擎识别结果缺少「{expect}」，实际: {compact}"
+        );
+    }
+    // 识别走的是本地引擎且已落缓存（区别于旧测试手工写入 DB 的路径）
+    let cached_engine: String = ctx.db.with_conn(|conn| {
+        conn.query_row("SELECT engine FROM ocr_cache LIMIT 1", [], |r| r.get(0))
+            .map_err(CoreError::from)
+    })?;
+    assert_eq!(cached_engine, "local");
+
+    // 4. OCR 文本进入全文搜索
+    let hits = search::search_vouchers(&ctx, "报销", 10)?;
+    assert_eq!(hits.len(), 1, "OCR 文本应可被全文搜索命中");
+    assert!(hits[0].matched_in.iter().any(|m| m == "OCR"));
+
+    // 5. 导出 PDF（打印默认配置）
+    let batch = export::export_with_defaults(&ctx, &[summary.voucher_id])?;
+    assert_eq!(batch.voucher_count, 1);
+    assert!(PathBuf::from(&batch.pdf_path).exists(), "PDF 应落盘");
+    assert!(std::fs::metadata(&batch.pdf_path)?.len() > 1000);
+
+    // 6. 批次记录 + 凭证状态流转「已导出」
+    let batches = export::list_batches(&ctx, 10)?;
+    assert_eq!(batches.len(), 1);
+    let detail = voucher_mgr::get_detail(&ctx, summary.voucher_id)?;
+    assert_eq!(detail.voucher.status, VoucherStatus::Exported);
+    Ok(())
+}
+
+#[test]
+fn monthly_summary_pivots_and_zero_fills() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let today = chrono::Local::now().date_naive();
+    let this_month = today.format("%Y-%m").to_string();
+    // 上月同位日期：先回到本月 1 日再取前一天，任何「今天」都成立
+    let prev_day = today
+        .with_day(1)
+        .and_then(|d| d.pred_opt())
+        .expect("上月日期");
+    let prev_month = prev_day.format("%Y-%m").to_string();
+    let this_day = today.format("%Y-%m-%d").to_string();
+    let prev_date = prev_day.format("%Y-%m-%d").to_string();
+
+    // 本月 3 张（2 草稿含金额 + 1 已导出空金额），上月 1 张已复核
+    voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: this_day.clone(),
+            amount_cents: Some(1000),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: this_day.clone(),
+            amount_cents: Some(2500),
+            ..Default::default()
+        },
+    )?;
+    let v3 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: this_day,
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::set_status(&ctx, v3.id, VoucherStatus::Exported)?;
+    let v4 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: prev_date,
+            amount_cents: Some(999),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::set_status(&ctx, v4.id, VoucherStatus::Reviewed)?;
+
+    // 近 6 月：长度固定、升序、空月补零
+    let s6 = reports::monthly_summary(&ctx, 6)?;
+    assert_eq!(s6.len(), 6, "空月也应出现（补零）");
+    assert_eq!(s6[5].month, this_month, "末位应为当月");
+    assert_eq!(s6[4].month, prev_month, "倒数第二位应为上月");
+    assert!(
+        s6.iter()
+            .all(|m| { m.count == m.draft + m.reviewed + m.exported + m.archived }),
+        "状态分布之和应等于张数"
+    );
+
+    // 当月透视与金额（空金额不计入合计）
+    let cur = &s6[5];
+    assert_eq!(cur.count, 3);
+    assert_eq!(cur.amount_cents, 3500);
+    assert_eq!(cur.draft, 2);
+    assert_eq!(cur.exported, 1);
+    assert_eq!(cur.reviewed, 0);
+
+    // 上月
+    let prev = &s6[4];
+    assert_eq!(prev.count, 1);
+    assert_eq!(prev.amount_cents, 999);
+    assert_eq!(prev.reviewed, 1);
+
+    // 窗口收缩到 1 → 只剩当月（窗口外的上月数据不可见）；0 → 空
+    let s1 = reports::monthly_summary(&ctx, 1)?;
+    assert_eq!(s1.len(), 1);
+    assert_eq!(s1[0].month, this_month);
+    assert_eq!(s1[0].count, 3);
+    assert!(reports::monthly_summary(&ctx, 0)?.is_empty());
     Ok(())
 }
 

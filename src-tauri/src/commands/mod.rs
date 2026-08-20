@@ -192,6 +192,18 @@ pub fn voucher_stats(
     err_string(voucher_mgr::stats(&ctx))
 }
 
+// ---------- 报表 ----------
+
+/// 近 N 月逐月汇总（默认 6，范围 1–24）
+#[tauri::command]
+pub fn monthly_summary(
+    ctx: Ctx,
+    months: Option<u32>,
+) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
+    let n = months.unwrap_or(6).clamp(1, 24);
+    err_string(voucher_core::services::reports::monthly_summary(&ctx, n))
+}
+
 // ---------- 搜索 ----------
 
 #[tauri::command]

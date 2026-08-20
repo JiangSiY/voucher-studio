@@ -20,16 +20,19 @@ impl FileLockGuard {
     /// 尝试获取锁；被其他实例持有时返回 [`CoreError::LockHeld`]
     pub fn try_acquire(path: &Path) -> Result<Self> {
         if path.exists() {
-            // 独占探测：能打开说明只是陈锁（无进程持有句柄），删除后重建
+            // 独占探测：能打开说明只是陈锁（无进程持有句柄）。
+            // 直接接管该句柄为锁，不做「删除后重建」——remove 可能被杀毒/索引
+            // 等瞬时占用打断，导致 create_new 撞上残留文件而误报 LockHeld。
             #[cfg(windows)]
             {
                 use std::os::windows::fs::OpenOptionsExt;
-                match OpenOptions::new().write(true).share_mode(0).open(path) {
-                    Ok(_) => {
-                        let _ = std::fs::remove_file(path);
-                    }
-                    Err(_) => return Err(CoreError::LockHeld),
-                }
+                return match OpenOptions::new().write(true).share_mode(0).open(path) {
+                    Ok(file) => Ok(Self {
+                        file: Some(file),
+                        path: path.to_path_buf(),
+                    }),
+                    Err(_) => Err(CoreError::LockHeld),
+                };
             }
             #[cfg(not(windows))]
             {
@@ -81,5 +84,17 @@ mod tests {
         drop(guard);
         // 释放后可重新获取
         assert!(FileLockGuard::try_acquire(&lock_path).is_ok());
+    }
+
+    /// 崩溃残留的陈锁（无进程持有句柄的普通文件）应能被直接接管，而非误报 LockHeld
+    #[test]
+    fn stale_lock_file_is_taken_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join(".lock");
+        std::fs::write(&lock_path, "34468").unwrap(); // 模拟强杀进程后的残留
+
+        let guard = FileLockGuard::try_acquire(&lock_path).expect("陈锁应被接管而非报 LockHeld");
+        drop(guard);
+        assert!(!lock_path.exists(), "接管释放后锁文件应被清理");
     }
 }

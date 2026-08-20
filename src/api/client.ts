@@ -92,6 +92,16 @@ export interface VoucherStats {
   thisMonth: number;
 }
 
+export interface MonthlySummary {
+  month: string;
+  count: number;
+  amountCents: number;
+  draft: number;
+  reviewed: number;
+  exported: number;
+  archived: number;
+}
+
 export interface SearchHit {
   voucher: Voucher;
   matchedIn: string[];
@@ -229,6 +239,8 @@ export const api = {
   deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),
   setVoucherStatus: (id: number, status: VoucherStatus) => invoke<void>("set_voucher_status", { id, status }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
+
+  monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
 
   searchVouchers: (keyword: string, limit?: number) => invoke<SearchHit[]>("search_vouchers", { keyword, limit }),
 
