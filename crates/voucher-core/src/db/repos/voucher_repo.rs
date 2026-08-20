@@ -125,12 +125,16 @@ pub fn update(conn: &Connection, id: i64, u: &VoucherUpdate) -> Result<bool> {
         None => return Ok(false),
     };
     let old_no = current.voucher_no.clone();
-    let voucher_no = u.voucher_no.clone().unwrap_or_else(|| old_no.clone());
-    if let Some(no) = &u.voucher_no {
-        if no != &old_no && get_by_no(conn, no)?.is_some() {
-            return Err(CoreError::Invalid(format!("凭证编号 {no} 已存在")));
+    // 空编号视为「不修改」（防御：空串会破坏 NOT NULL UNIQUE 语义）
+    let voucher_no = match u.voucher_no.as_deref().map(str::trim) {
+        Some(no) if !no.is_empty() => {
+            if no != old_no && get_by_no(conn, no)?.is_some() {
+                return Err(CoreError::Invalid(format!("凭证编号 {no} 已存在")));
+            }
+            no.to_string()
         }
-    }
+        _ => old_no.clone(),
+    };
     let amount_cents = if u.clear_amount {
         None
     } else {
@@ -230,7 +234,8 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
     Ok((items, total))
 }
 
-fn escape_like(s: &str) -> String {
+/// LIKE 通配符转义（配合 `ESCAPE '\'` 使用）
+pub fn escape_like(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
@@ -266,13 +271,7 @@ pub fn search(conn: &Connection, keyword: &str, limit: u32) -> Result<Vec<Vouche
 
 /// 前缀计数：命名服务用它算当日序号
 pub fn count_with_prefix(conn: &Connection, prefix: &str) -> Result<i64> {
-    let like = format!(
-        "{}%",
-        prefix
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-    );
+    let like = format!("{}%", escape_like(prefix));
     Ok(conn.query_row(
         "SELECT COUNT(*) FROM vouchers WHERE voucher_no LIKE ?1 ESCAPE '\\'",
         params![like],

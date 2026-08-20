@@ -69,14 +69,26 @@ pub fn get_config(ctx: Ctx) -> AppConfig {
 }
 
 #[tauri::command]
-pub fn save_config(ctx: Ctx, config: AppConfig) -> std::result::Result<AppConfig, String> {
+pub fn save_config(
+    ctx: Ctx,
+    app: AppHandle,
+    config: AppConfig,
+) -> std::result::Result<AppConfig, String> {
     // 命名模板先校验再落盘
     let validated =
         naming::NamingEngine::validate(&config.naming.template).map_err(|e| e.to_string())?;
     let mut config = config;
     config.naming.template = validated;
     err_string(ctx.set_config(config))?;
+    // 微信监听随配置热重载（无需重启应用）
+    crate::platform::sync_wechat_watch(app, ctx.inner());
     Ok(ctx.config())
+}
+
+/// 微信监听运行状态（设置页徽标 + 排障）
+#[tauri::command]
+pub fn get_wechat_status(ctx: Ctx) -> crate::platform::WechatStatus {
+    crate::platform::wechat_status(ctx.inner())
 }
 
 #[tauri::command]
@@ -159,6 +171,12 @@ pub fn update_voucher(
 #[tauri::command]
 pub fn delete_voucher(ctx: Ctx, id: i64) -> std::result::Result<(), String> {
     err_string(voucher_mgr::delete_voucher(&ctx, id))
+}
+
+/// 批量删除（单事务 + 附件文件清理），返回实际删除数
+#[tauri::command]
+pub fn delete_vouchers(ctx: Ctx, ids: Vec<i64>) -> std::result::Result<u64, String> {
+    err_string(voucher_mgr::delete_vouchers(&ctx, &ids))
 }
 
 #[tauri::command]
@@ -347,4 +365,29 @@ pub fn restore_backup(
 ) -> std::result::Result<backup::RestoreSummary, String> {
     // 恢复走「待恢复文件 + 重启生效」流程，避免在运行中替换数据库
     crate::platform::stage_restore(&ctx, Path::new(&path))
+}
+
+/// 恢复演练：完整校验 + 解包到临时目录 + 数据库可用性验证，不触碰真实数据
+#[tauri::command]
+pub async fn drill_backup(
+    ctx: Ctx<'_>,
+    path: Option<String>,
+) -> std::result::Result<backup::DrillReport, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(backup::drill_backup(&core, path.as_deref().map(Path::new)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 手动上传指定备份到 WebDAV（补传旧备份；新备份随 run_backup 自动上传）
+#[tauri::command]
+pub async fn upload_backup(ctx: Ctx<'_>, path: String) -> std::result::Result<(), String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(backup::upload_backup_to_webdav(&core, Path::new(&path)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

@@ -128,8 +128,17 @@ export interface AppConfig {
   backup: {
     autoEnabled: boolean;
     intervalHours: number;
-    retention: number;
-    webdav: { enabled: boolean; url: string; username: string; passwordSet: boolean };
+    keepDaily: number;
+    keepWeekly: number;
+    keepMonthly: number;
+    secondaryDir: string;
+    webdav: {
+      enabled: boolean;
+      url: string;
+      username: string;
+      passwordSet: boolean;
+      remoteRetention: number;
+    };
   };
   wechat: { enabled: boolean; watchDir: string; mode: string };
   print: { title: string; cardStyle: string; columns: number; includeImages: boolean };
@@ -151,17 +160,39 @@ export interface SecretStatus {
   exists: boolean;
 }
 
+/** 微信监听运行状态 */
+export interface WechatStatus {
+  enabled: boolean;
+  running: boolean;
+  watchDir: string;
+  error: string | null;
+}
+
 export interface BackupInfo {
   fileName: string;
   path: string;
   size: number;
   createdAt: string;
+  attachmentCount: number;
+  /** 非阻断性告警（异盘/WebDAV 副本失败，本地主备份不受影响） */
+  warnings: string[];
 }
 
 export interface RestoreSummary {
   batch: string;
   createdAt: string;
   restoredFiles: string[];
+  attachmentCount: number;
+  checksumsVerified: boolean;
+}
+
+export interface DrillReport {
+  batch: string;
+  createdAt: string;
+  dbOk: boolean;
+  filesChecked: number;
+  attachmentCount: number;
+  checksumsVerified: boolean;
 }
 
 export interface LocalOcrStatus {
@@ -185,6 +216,8 @@ export const api = {
 
   listSecrets: () => invoke<SecretStatus[]>("list_secrets"),
   setSecret: (alias: string, value: string) => invoke<void>("set_secret", { alias, value }),
+  /** 微信监听运行状态（保存配置后热重载，无需重启） */
+  getWechatStatus: () => invoke<WechatStatus>("get_wechat_status"),
   deleteSecret: (alias: string) => invoke<boolean>("delete_secret", { alias }),
 
   listVouchers: (query: VoucherQuery) => invoke<VoucherListResult>("list_vouchers", { query }),
@@ -192,6 +225,8 @@ export const api = {
   createVoucher: (newVoucher: NewVoucher) => invoke<Voucher>("create_voucher", { newVoucher }),
   updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
   deleteVoucher: (id: number) => invoke<void>("delete_voucher", { id }),
+  /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
+  deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),
   setVoucherStatus: (id: number, status: VoucherStatus) => invoke<void>("set_voucher_status", { id, status }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
@@ -213,4 +248,7 @@ export const api = {
   listBackups: () => invoke<BackupInfo[]>("list_backups"),
   inspectBackup: (path: string) => invoke<RestoreSummary>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<RestoreSummary>("restore_backup", { path }),
+  drillBackup: (path?: string) =>
+    invoke<DrillReport>("drill_backup", { path: path ?? null }),
+  uploadBackup: (path: string) => invoke<void>("upload_backup", { path }),
 };

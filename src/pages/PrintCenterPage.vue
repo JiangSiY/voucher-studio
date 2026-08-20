@@ -8,7 +8,10 @@ import { computed, onMounted, ref } from "vue";
 import { api, type ExportBatch, type Voucher } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import VoucherCard from "../components/VoucherCard.vue";
+import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
+
+const configStore = useConfigStore();
 
 const vouchers = ref<Voucher[]>([]);
 const selected = ref<Set<number>>(new Set());
@@ -23,8 +26,29 @@ const lastBatch = ref<ExportBatch | null>(null);
 
 async function load() {
   try {
-    const result = await api.listVouchers({ page: 1, pageSize: 100 });
-    vouchers.value = result.items;
+    // 分页拉全：只取首页会漏掉第 100 张以后的凭证，导致无法勾选打印
+    const all: Voucher[] = [];
+    let page = 1;
+    for (;;) {
+      const result = await api.listVouchers({ page, pageSize: 200 });
+      all.push(...result.items);
+      if (all.length >= result.total || result.items.length === 0) break;
+      page++;
+    }
+    vouchers.value = all;
+
+    // 打印选项默认值来自设置（config.print），而非硬编码
+    const p = configStore.config?.print;
+    if (p) {
+      title.value = p.title || "凭证整理单";
+      if (p.cardStyle === "clean" || p.cardStyle === "ledger") {
+        cardStyle.value = p.cardStyle;
+      } else {
+        cardStyle.value = "standard";
+      }
+      columns.value = (p.columns === 1 || p.columns === 2 ? p.columns : 3) as 1 | 2 | 3;
+      includeImages.value = p.includeImages;
+    }
   } catch (e) {
     toastError(e);
   }

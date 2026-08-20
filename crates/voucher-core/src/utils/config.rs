@@ -83,8 +83,14 @@ pub struct BackupConfig {
     pub auto_enabled: bool,
     /// 自动备份间隔（小时）
     pub interval_hours: u64,
-    /// 本地保留份数
-    pub retention: u32,
+    /// GFS 分层保留：近 N 天每日备份全保留
+    pub keep_daily: u32,
+    /// GFS 分层保留：再保留 N 周的每周最新一份
+    pub keep_weekly: u32,
+    /// GFS 分层保留：再保留 N 月的每月最新一份
+    pub keep_monthly: u32,
+    /// 备用份目录（异盘双写；空 = 不启用；须指向另一物理盘/移动硬盘才有意义）
+    pub secondary_dir: String,
     pub webdav: WebdavConfig,
 }
 
@@ -93,7 +99,10 @@ impl Default for BackupConfig {
         Self {
             auto_enabled: true,
             interval_hours: 24,
-            retention: 30,
+            keep_daily: 7,
+            keep_weekly: 4,
+            keep_monthly: 6,
+            secondary_dir: String::new(),
             webdav: WebdavConfig::default(),
         }
     }
@@ -101,7 +110,6 @@ impl Default for BackupConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-#[derive(Default)]
 pub struct WebdavConfig {
     pub enabled: bool,
     /// WebDAV 服务器地址，如 https://dav.example.com/voucher/
@@ -109,6 +117,20 @@ pub struct WebdavConfig {
     pub username: String,
     /// 密码存 keyring（SECRET_WEBDAV_PASSWORD），配置里只存是否已设置
     pub password_set: bool,
+    /// 远端保留份数（超出删最旧；0 = 不清理）
+    pub remote_retention: u32,
+}
+
+impl Default for WebdavConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: String::new(),
+            username: String::new(),
+            password_set: false,
+            remote_retention: 10,
+        }
+    }
 }
 
 /// 微信收件夹监听：新图片自动入库

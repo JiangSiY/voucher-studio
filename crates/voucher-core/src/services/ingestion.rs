@@ -72,6 +72,8 @@ pub fn import_images(
 
     // 逐文件：去重 + 复制 + 建行
     let mut rows: Vec<NewAttachment> = Vec::new();
+    // 批内已见内容哈希：DB 查重发生在批量入库之前，同批相同内容互不可见，需内存去重
+    let mut seen_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
     for path in paths {
         let file_name = path
             .file_name()
@@ -105,13 +107,16 @@ pub fn import_images(
             }
         };
 
-        let dup = ctx
-            .db
-            .with_conn(|conn| dedup::find_duplicate(conn, &hash))?;
-        if dup.is_some() {
+        let dup = seen_hashes.contains(&hash)
+            || ctx
+                .db
+                .with_conn(|conn| dedup::find_duplicate(conn, &hash))?
+                .is_some();
+        if dup {
             summary.skipped_duplicates.push(file_name);
             continue;
         }
+        seen_hashes.insert(hash.clone());
 
         let ext = imaging::ext_of(path);
         let rel = ctx.paths.attachment_rel_path(&hash, &ext, &year_month);

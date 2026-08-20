@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::repos::{attachment_repo, export_repo, voucher_repo};
+use crate::db::repos::{attachment_repo, export_repo, snapshot_repo, voucher_repo};
 use crate::models::{ExportBatch, VoucherStatus};
 use crate::services::pdf::{self, PdfCard, PdfImage, PdfInput, PdfOptions};
 use crate::{CoreContext, CoreError, Result};
@@ -126,8 +126,16 @@ pub fn export_vouchers_pdf(
         )?;
         for (i, (v, _)) in items.iter().enumerate() {
             export_repo::insert_item(tx, batch.id, v.id, i as i64)?;
-            // 已归档的保持归档态，其余标记为已导出
+            // 已归档的保持归档态，其余标记为已导出（先落快照，与其他写操作口径一致）
             if v.status != VoucherStatus::Archived {
+                snapshot_repo::insert(
+                    tx,
+                    &crate::models::snapshot::NewSnapshot {
+                        voucher_id: v.id,
+                        payload: serde_json::to_value(v)?,
+                        reason: "export".into(),
+                    },
+                )?;
                 voucher_repo::set_status(tx, v.id, VoucherStatus::Exported)?;
             }
         }

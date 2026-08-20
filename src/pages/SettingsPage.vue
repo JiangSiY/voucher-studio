@@ -4,7 +4,7 @@
  * 通用 / 凭证参数 / OCR / 密钥管理 / 备份与同步 / 微信监听
  */
 import { computed, onMounted, reactive, ref } from "vue";
-import { api, type AppConfig, type LocalOcrStatus, type SecretStatus } from "../api/client";
+import { api, type AppConfig, type LocalOcrStatus, type SecretStatus, type WechatStatus } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 
@@ -32,8 +32,11 @@ function defaultConfig(): AppConfig {
     backup: {
       autoEnabled: true,
       intervalHours: 24,
-      retention: 30,
-      webdav: { enabled: false, url: "", username: "", passwordSet: false },
+      keepDaily: 7,
+      keepWeekly: 4,
+      keepMonthly: 6,
+      secondaryDir: "",
+      webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10 },
     },
     wechat: { enabled: false, watchDir: "", mode: "events" },
     print: { title: "凭证整理单", cardStyle: "standard", columns: 3, includeImages: true },
@@ -42,6 +45,7 @@ function defaultConfig(): AppConfig {
 
 const secrets = ref<SecretStatus[]>([]);
 const localOcr = ref<LocalOcrStatus | null>(null);
+const wechatStatus = ref<WechatStatus | null>(null);
 const saving = ref(false);
 const templatePreview = ref("");
 const templateError = ref("");
@@ -52,6 +56,7 @@ async function load() {
     Object.assign(cfg, c);
     secrets.value = await api.listSecrets();
     localOcr.value = await api.getLocalOcrStatus();
+    wechatStatus.value = await api.getWechatStatus();
     validateTemplate();
   } catch (e) {
     toastError(e);
@@ -73,7 +78,13 @@ async function save() {
   try {
     await configStore.save(JSON.parse(JSON.stringify(cfg)));
     secrets.value = await api.listSecrets();
+    wechatStatus.value = await api.getWechatStatus();
     toast.success("设置已保存");
+    // 微信监听保存后即时生效；失败在此明确提示
+    const ws = wechatStatus.value;
+    if (ws?.enabled && !ws.running) {
+      toast.warning(`微信监听未能启动：${ws.error ?? "未知原因"}`);
+    }
   } catch (e) {
     toastError(e);
   } finally {
@@ -83,6 +94,14 @@ async function save() {
 
 // 密钥管理
 const secretDrafts = reactive<Record<string, string>>({});
+
+async function pickSecondaryDir() {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const dir = await open({ directory: true });
+  if (typeof dir === "string") {
+    cfg.backup.secondaryDir = dir;
+  }
+}
 
 async function saveSecret(alias: string) {
   const value = secretDrafts[alias]?.trim();
@@ -266,7 +285,7 @@ onMounted(load);
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
           <div style="font-size: 13px; font-weight: 600">自动备份</div>
-          <div style="font-size: 12px; color: var(--text-3)">应用运行期间按间隔自动打包数据库与配置</div>
+          <div style="font-size: 12px; color: var(--text-3)">应用运行期间按间隔自动打包数据库、配置与全部附件原图</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="cfg.backup.autoEnabled" />
@@ -277,11 +296,28 @@ onMounted(load);
         <div class="field">
           <label>备份间隔（小时）</label>
           <input v-model.number="cfg.backup.intervalHours" type="number" min="1" class="input" />
+          <div class="desc">每份备份含 sha256 完整性清单，恢复前自动校验。</div>
         </div>
         <div class="field">
-          <label>本地保留份数</label>
-          <input v-model.number="cfg.backup.retention" type="number" min="1" class="input" />
+          <label>备用份目录（异盘双写）</label>
+          <div style="display: flex; gap: 8px">
+            <input v-model="cfg.backup.secondaryDir" class="input mono" placeholder="如 D:\VoucherBackups（留空不启用）" />
+            <button class="btn" @click="pickSecondaryDir">选择…</button>
+          </div>
+          <div class="desc">建议指向另一块物理盘或移动硬盘：本盘故障时备份仍在。该目录同样应用下方保留策略。</div>
         </div>
+      </div>
+      <div class="field">
+        <label>分层保留（日 / 周 / 月）</label>
+        <div style="display: flex; gap: 8px">
+          <input v-model.number="cfg.backup.keepDaily" type="number" min="0" class="input" style="max-width: 110px" />
+          <span style="align-self: center; color: var(--text-3)">天每日备</span>
+          <input v-model.number="cfg.backup.keepWeekly" type="number" min="0" class="input" style="max-width: 110px" />
+          <span style="align-self: center; color: var(--text-3)">周每周备</span>
+          <input v-model.number="cfg.backup.keepMonthly" type="number" min="0" class="input" style="max-width: 110px" />
+          <span style="align-self: center; color: var(--text-3)">月每月备</span>
+        </div>
+        <div class="desc">祖父-父-子（GFS）策略：近 {{ cfg.backup.keepDaily }} 天全保留，再留 {{ cfg.backup.keepWeekly }} 周的每周最新一份、{{ cfg.backup.keepMonthly }} 月的每月最新一份。</div>
       </div>
 
       <div style="border-top: 1px solid var(--stroke); margin: 8px 0 16px"></div>
@@ -289,7 +325,7 @@ onMounted(load);
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
           <div style="font-size: 13px; font-weight: 600">WebDAV 云备份</div>
-          <div style="font-size: 12px; color: var(--text-3)">备份完成后自动上传到你的 WebDAV 网盘</div>
+          <div style="font-size: 12px; color: var(--text-3)">每次备份（含手动）自动上传，失败自动重试</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="cfg.backup.webdav.enabled" />
@@ -306,14 +342,22 @@ onMounted(load);
           <input v-model="cfg.backup.webdav.username" class="input" autocomplete="off" />
         </div>
       </div>
-      <div class="field">
-        <label>密码</label>
-        <div style="display: flex; gap: 8px">
-          <input :value="cfg.backup.webdav.passwordSet ? '••••••••（已保存在系统凭据库）' : ''" class="input" disabled
-            style="flex: 1" />
-          <button class="btn" @click="saveWebdavPassword">{{ cfg.backup.webdav.passwordSet ? "修改" : "设置" }}密码</button>
+      <div class="form-grid">
+        <div class="field">
+          <label>密码</label>
+          <div style="display: flex; gap: 8px">
+            <input :value="cfg.backup.webdav.passwordSet ? '••••••••（已保存在系统凭据库）' : ''" class="input" disabled
+              style="flex: 1" />
+            <button class="btn" @click="saveWebdavPassword">{{ cfg.backup.webdav.passwordSet ? "修改" : "设置" }}密码</button>
+          </div>
+          <div class="desc">密码只存系统凭据库，请在弹出输入后点「密钥管理」确认状态。</div>
         </div>
-        <div class="desc">密码只存系统凭据库，请在弹出输入后点「密钥管理」确认状态。</div>
+        <div class="field">
+          <label>远端保留份数</label>
+          <input v-model.number="cfg.backup.webdav.remoteRetention" type="number" min="0" class="input"
+            style="max-width: 110px" />
+          <div class="desc">超出删远端最旧（0 = 不清理）。备份文件名含时间戳，按名排序即按时间。</div>
+        </div>
       </div>
     </div>
   </div>
@@ -324,12 +368,25 @@ onMounted(load);
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
           <div style="font-size: 13px; font-weight: 600">监听微信收件文件夹</div>
-          <div style="font-size: 12px; color: var(--text-3)">文件夹里出现新图片时自动导入建卡（保存并重启应用后生效）</div>
+          <div style="font-size: 12px; color: var(--text-3)">文件夹里出现新图片时自动导入建卡（保存后立即生效，含子目录）</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="cfg.wechat.enabled" />
           <span class="slider"></span>
         </label>
+      </div>
+      <div v-if="wechatStatus" class="field">
+        <div v-if="wechatStatus.enabled && wechatStatus.running" class="callout success" style="margin: 0">
+          <span class="ci">●</span>
+          <div class="ct">监听运行中：{{ wechatStatus.watchDir || "（未设置目录）" }}</div>
+        </div>
+        <div v-else-if="wechatStatus.enabled && !wechatStatus.running" class="callout danger" style="margin: 0">
+          <span class="ci">●</span>
+          <div class="ct">
+            监听未运行{{ wechatStatus.error ? `：${wechatStatus.error}` : "（保存设置后自动启动）" }}
+          </div>
+        </div>
+        <div v-else class="desc" style="margin: 0">监听未启用</div>
       </div>
       <div class="field">
         <label>监听目录</label>
@@ -338,7 +395,7 @@ onMounted(load);
             style="flex: 1" />
           <button class="btn" @click="pickWatchDir">选择文件夹</button>
         </div>
-        <div class="desc">建议指向微信「文件存储 → 图片」目录；同一张图片重复出现会自动去重。</div>
+        <div class="desc">建议指向微信「文件存储 → 图片」目录（递归监听子目录）；同一张图片重复出现会自动去重。</div>
       </div>
     </div>
   </div>

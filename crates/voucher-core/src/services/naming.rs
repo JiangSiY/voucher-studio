@@ -57,15 +57,22 @@ impl NamingEngine {
         }
     }
 
-    /// 生成下一个凭证编号（同前缀计数 + 1）
+    /// 生成下一个凭证编号（同前缀计数 + 1；若编号已被占用则继续递增，防删除空洞碰撞）
     pub fn next_no(&self, conn: &Connection, date: &str) -> Result<String> {
         let compact = date.replace(['-', '/'], "");
         let prefix = self
             .template
             .replace("{date}", &compact)
             .replace("{seq}", "");
-        let seq = voucher_repo::count_with_prefix(conn, &prefix)? + 1;
-        Ok(self.render(&compact, seq))
+        let mut seq = voucher_repo::count_with_prefix(conn, &prefix)? + 1;
+        loop {
+            let candidate = self.render(&compact, seq);
+            // 中途删除会产生编号空洞：count+1 可能撞上已存在编号，递增直到可用
+            if voucher_repo::get_by_no(conn, &candidate)?.is_none() {
+                return Ok(candidate);
+            }
+            seq += 1;
+        }
     }
 
     /// 渲染预览（表单里实时展示给用户）

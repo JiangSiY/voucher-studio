@@ -1,7 +1,7 @@
 <script setup lang="ts">
-/** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 恢复（重启生效） / WebDAV 上传 */
+/** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传 */
 import { onMounted, ref } from "vue";
-import { api, type BackupInfo, type RestoreSummary } from "../api/client";
+import { api, type BackupInfo, type DrillReport, type RestoreSummary } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { fmtDate, fmtSize } from "../composables/format";
@@ -9,6 +9,8 @@ import { toast, toastError } from "../stores/toast";
 
 const backups = ref<BackupInfo[]>([]);
 const busy = ref(false);
+const drilling = ref(false);
+const drill = ref<DrillReport | null>(null);
 
 const confirmVisible = ref(false);
 let pendingRestore: BackupInfo | null = null;
@@ -26,7 +28,11 @@ async function backupNow() {
   busy.value = true;
   try {
     const info = await api.runBackup();
-    toast.success(`备份完成：${info.fileName}`);
+    if (info.warnings?.length) {
+      toast.warning(`备份完成（本地），但副本存在问题：${info.warnings.join("；")}`);
+    } else {
+      toast.success(`备份完成：${info.fileName}（含 ${info.attachmentCount} 个附件）`);
+    }
     await load();
   } catch (e) {
     toastError(e);
@@ -68,9 +74,25 @@ async function restart() {
   await api.restartApp();
 }
 
-async function uploadWebdav(_b: BackupInfo) {
-  // WebDAV 上传随自动备份进行（设置 → 备份与同步开启后，每次 run_backup 自动上传）
-  toast.info("WebDAV 上传随「自动备份」进行：在设置 → 备份与同步中开启后，每次备份自动上传");
+async function runDrill() {
+  drilling.value = true;
+  try {
+    drill.value = await api.drillBackup();
+    toast.success("演练通过：备份可完整恢复");
+  } catch (e) {
+    toastError(e);
+  } finally {
+    drilling.value = false;
+  }
+}
+
+async function uploadWebdav(b: BackupInfo) {
+  try {
+    await api.uploadBackup(b.path);
+    toast.success(`已上传：${b.fileName}`);
+  } catch (e) {
+    toastError(e);
+  }
 }
 
 onMounted(load);
@@ -80,7 +102,7 @@ onMounted(load);
   <div class="callout warning">
     <span class="ci">⚠</span>
     <div class="ct">
-      <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库与配置，流程为「就绪 → 重启应用 → 生效」。
+      <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库、配置与附件，流程为「就绪 → 重启应用 → 生效」。
       恢复前建议先做一次当前数据的备份。
     </div>
   </div>
@@ -88,10 +110,22 @@ onMounted(load);
   <div v-if="staged" class="callout info">
     <span class="ci">✅</span>
     <div class="ct">
-      <strong>备份已就绪：</strong>{{ staged.batch }}（创建于 {{ staged.createdAt }}）。
+      <strong>备份已就绪：</strong>{{ staged.batch }}（创建于 {{ staged.createdAt }}，含
+      {{ staged.attachmentCount }} 个附件{{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
       <button class="btn btn-sm btn-primary" style="margin-left: 8px" @click="restart">立即重启应用</button>
       <span style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
-        重启后自动替换数据库；如需取消，重启前删除数据目录下 voucher.db.pending 文件即可。
+        重启后自动替换数据库与附件目录；如需取消，重启前删除数据目录下 voucher.db.pending / attachments.pending 即可。
+      </span>
+    </div>
+  </div>
+
+  <div v-if="drill" class="callout success">
+    <span class="ci">✓</span>
+    <div class="ct">
+      <strong>演练通过：</strong>{{ drill.batch }}（{{ fmtDate(drill.createdAt) || drill.createdAt }}）
+      校验 {{ drill.filesChecked }} 个文件、{{ drill.attachmentCount }} 个附件，数据库可正常打开。
+      <span style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
+        {{ drill.checksumsVerified ? "sha256 完整性校验全部通过" : "v1 备份：无校验和清单，未做完整性校验" }}
       </span>
     </div>
   </div>
@@ -101,6 +135,9 @@ onMounted(load);
       <h3>本地备份（{{ backups.length }}）</h3>
       <div style="display: flex; gap: 8px">
         <button class="btn btn-sm" @click="pickAndBackup">🔎 校验外部备份</button>
+        <button class="btn btn-sm" :disabled="drilling || !backups.length" @click="runDrill">
+          {{ drilling ? "演练中…" : "🧪 演练恢复" }}
+        </button>
         <button class="btn btn-sm btn-primary" :disabled="busy" @click="backupNow">
           {{ busy ? "备份中…" : "💾 立即备份" }}
         </button>
@@ -114,6 +151,7 @@ onMounted(load);
               <th>备份文件</th>
               <th>创建时间</th>
               <th>大小</th>
+              <th>附件</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -122,6 +160,7 @@ onMounted(load);
               <td><span class="mono" style="color: var(--text-2)">{{ b.fileName }}</span></td>
               <td>{{ fmtDate(b.createdAt) || "—" }}</td>
               <td>{{ fmtSize(b.size) }}</td>
+              <td>{{ b.attachmentCount || "—" }}</td>
               <td>
                 <div class="action-row">
                   <button class="icon-btn" title="恢复此备份" @click="askRestore(b)">⏪</button>
@@ -139,6 +178,6 @@ onMounted(load);
   </div>
 
   <ConfirmDialog :visible="confirmVisible" title="恢复备份"
-    :body="`将用选中的备份覆盖当前数据库与配置，恢复后当前数据将被替换。确定继续吗？`"
+    :body="`将用选中的备份覆盖当前数据库、配置与附件目录，恢复后当前数据将被替换。确定继续吗？`"
     confirm-text="就绪并重启" @confirm="doRestore" @cancel="confirmVisible = false" />
 </template>

@@ -21,7 +21,25 @@ pub fn search_vouchers(ctx: &CoreContext, keyword: &str, limit: u32) -> Result<V
 fn run(ctx: &CoreContext, keyword: &str, limit: u32) -> Result<Vec<SearchHit>> {
     ctx.db.with_conn(|conn| {
         let vouchers = voucher_repo::search(conn, keyword, limit)?;
+        if vouchers.is_empty() {
+            return Ok(Vec::new());
+        }
         let kw = keyword.trim().to_lowercase();
+
+        // OCR 命中的凭证 id 集合：单次查询（避免逐凭证 N+1），LIKE 转义防通配符误匹配
+        let like = format!("%{}%", voucher_repo::escape_like(keyword.trim()));
+        let ocr_ids: std::collections::HashSet<i64> = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT voucher_id FROM attachments WHERE ocr_text LIKE ?1 ESCAPE '\\'",
+            )?;
+            let mut rows = stmt.query(rusqlite::params![like])?;
+            let mut set = std::collections::HashSet::new();
+            while let Some(r) = rows.next()? {
+                set.insert(r.get::<_, i64>(0)?);
+            }
+            set
+        };
+
         Ok(vouchers
             .into_iter()
             .map(|v| {
@@ -38,22 +56,16 @@ fn run(ctx: &CoreContext, keyword: &str, limit: u32) -> Result<Vec<SearchHit>> {
                 if v.tags.iter().any(|t| t.to_lowercase().contains(&kw)) {
                     matched_in.push("标签".into());
                 }
-                // OCR 命中：凭证没在自身字段命中时也要查
-                let ocr_hit: bool = conn
-                    .query_row(
-                        "SELECT COUNT(*) FROM attachments WHERE voucher_id = ?1 AND ocr_text LIKE ?2",
-                        rusqlite::params![v.id, format!("%{kw}%")],
-                        |r| r.get::<_, i64>(0),
-                    )
-                    .map(|n| n > 0)
-                    .unwrap_or(false);
-                if ocr_hit {
+                if ocr_ids.contains(&v.id) {
                     matched_in.push("OCR".into());
                 }
                 if matched_in.is_empty() {
                     matched_in.push("全文".into());
                 }
-                SearchHit { voucher: v, matched_in }
+                SearchHit {
+                    voucher: v,
+                    matched_in,
+                }
             })
             .collect())
     })

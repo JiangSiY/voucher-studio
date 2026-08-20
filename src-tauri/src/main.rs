@@ -64,8 +64,8 @@ fn main() {
                 }
             }
 
-            // 4. 微信监听 + 定时备份调度（配置启用时生效）
-            platform::spawn_wechat_if_enabled(app.handle().clone(), &ctx);
+            // 4. 微信监听 + 定时备份调度（配置启用时生效；监听支持保存配置后热重载）
+            platform::sync_wechat_watch(app.handle().clone(), &ctx);
             platform::spawn_backup_scheduler(app.handle().clone(), ctx);
 
             Ok(())
@@ -76,6 +76,7 @@ fn main() {
             commands::restart_app,
             commands::get_config,
             commands::save_config,
+            commands::get_wechat_status,
             commands::validate_naming_template,
             commands::preview_voucher_no,
             commands::list_secrets,
@@ -86,6 +87,7 @@ fn main() {
             commands::create_voucher,
             commands::update_voucher,
             commands::delete_voucher,
+            commands::delete_vouchers,
             commands::set_voucher_status,
             commands::voucher_stats,
             commands::search_vouchers,
@@ -101,6 +103,8 @@ fn main() {
             commands::list_backups,
             commands::inspect_backup,
             commands::restore_backup,
+            commands::drill_backup,
+            commands::upload_backup,
         ])
         .run(tauri::generate_context!())
         .expect("Voucher Studio 启动失败");

@@ -73,20 +73,65 @@ pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Resu
 }
 
 pub fn delete_voucher(ctx: &CoreContext, id: i64) -> Result<()> {
-    ctx.db.with_tx(|tx| {
-        let current = voucher_repo::get(tx, id)?
-            .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
-        snapshot_repo::insert(
-            tx,
-            &crate::models::snapshot::NewSnapshot {
-                voucher_id: id,
-                payload: serde_json::to_value(&current)?,
-                reason: "delete".into(),
-            },
-        )?;
-        voucher_repo::delete(tx, id)?;
-        Ok(())
-    })
+    delete_vouchers(ctx, &[id]).map(|_| ())
+}
+
+/// 批量删除凭证（单事务）：附件行随外键级联删除，事务提交后清理磁盘附件文件。
+/// 注意：快照表同样级联——历史快照随凭证一并移除，删除不可恢复。
+/// 返回实际删除的凭证数（不存在的 id 跳过）。
+pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    // 事务内：逐个删除凭证（附件行由 ON DELETE CASCADE 移除），先收集附件相对路径
+    let (deleted, attachment_rels) = ctx.db.with_tx(|tx| {
+        let mut deleted = 0u64;
+        let mut rels: Vec<String> = Vec::new();
+        for id in ids {
+            if voucher_repo::get(tx, *id)?.is_none() {
+                continue; // 不存在的 id 跳过（幂等）
+            }
+            for a in attachment_repo::list_by_voucher(tx, *id)? {
+                rels.push(a.file_path);
+            }
+            voucher_repo::delete(tx, *id)?;
+            deleted += 1;
+        }
+        Ok((deleted, rels))
+    })?;
+
+    // 事务外：清理物理文件（尽力而为；失败仅告警，不影响数据一致性）
+    for rel in &attachment_rels {
+        let abs = ctx.paths.attachment_abs(rel);
+        if ctx.paths.is_inside_attachments(&abs) {
+            if let Err(e) = std::fs::remove_file(&abs) {
+                log::warn!("删除附件文件失败 {}: {e}", abs.display());
+            }
+        }
+    }
+    // 清理可能空掉的月份目录
+    let mut parents: Vec<std::path::PathBuf> = attachment_rels
+        .iter()
+        .filter_map(|rel| {
+            ctx.paths
+                .attachment_abs(rel)
+                .parent()
+                .map(|p| p.to_path_buf())
+        })
+        .collect();
+    parents.sort();
+    parents.dedup();
+    for dir in parents {
+        if dir.starts_with(&ctx.paths.attachments)
+            && dir
+                .read_dir()
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(false)
+        {
+            let _ = std::fs::remove_dir(&dir);
+        }
+    }
+    Ok(deleted)
 }
 
 pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
@@ -111,12 +156,20 @@ pub fn stats(ctx: &CoreContext) -> Result<VoucherStats> {
     ctx.db.with_conn(voucher_repo::stats)
 }
 
+/// 变更状态（事务 + 变更前快照，与其他写操作口径一致）
 pub fn set_status(ctx: &CoreContext, id: i64, status: VoucherStatus) -> Result<()> {
-    ctx.db.with_conn(|conn| {
-        if voucher_repo::get(conn, id)?.is_none() {
-            return Err(CoreError::NotFound(format!("凭证 {id} 不存在")));
-        }
-        voucher_repo::set_status(conn, id, status)
+    ctx.db.with_tx(|tx| {
+        let current = voucher_repo::get(tx, id)?
+            .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+        snapshot_repo::insert(
+            tx,
+            &crate::models::snapshot::NewSnapshot {
+                voucher_id: id,
+                payload: serde_json::to_value(&current)?,
+                reason: "status".into(),
+            },
+        )?;
+        voucher_repo::set_status(tx, id, status)
     })
 }
 

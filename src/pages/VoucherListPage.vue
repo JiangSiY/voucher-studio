@@ -43,8 +43,22 @@ async function load() {
       status: filter.value === "all" ? null : filter.value,
       keyword: keyword.value || null,
     });
-    items.value = result.items;
-    total.value = result.total;
+    // 越界回弹：删除末页数据后页码可能超出总页数，回到最后一页重取
+    const pages = Math.max(1, Math.ceil(result.total / pageSize));
+    if (page.value > pages) {
+      page.value = pages;
+      const retry = await api.listVouchers({
+        page: page.value,
+        pageSize,
+        status: filter.value === "all" ? null : filter.value,
+        keyword: keyword.value || null,
+      });
+      items.value = retry.items;
+      total.value = retry.total;
+    } else {
+      items.value = result.items;
+      total.value = result.total;
+    }
     selected.value.clear();
   } catch (e) {
     toastError(e);
@@ -111,18 +125,23 @@ async function exportSelected() {
 
 function askDelete(ids: number[]) {
   pendingDelete = ids;
+  const suffix = "删除后凭证、附件图片及历史快照将被永久移除，不可恢复。";
   confirmText.value =
     ids.length === 1
-      ? "删除后可在快照中查看修改前内容，但凭证及其附件将被永久移除。确定删除这 1 张凭证吗？"
-      : `确定删除选中的 ${ids.length} 张凭证及其附件吗？`;
+      ? `确定删除这 1 张凭证吗？${suffix}`
+      : `确定删除选中的 ${ids.length} 张凭证吗？${suffix}`;
   confirmVisible.value = true;
 }
 
 async function doDelete() {
   confirmVisible.value = false;
   try {
-    for (const id of pendingDelete) await api.deleteVoucher(id);
-    toast.success(`已删除 ${pendingDelete.length} 张凭证`);
+    const n = await api.deleteVouchers(pendingDelete);
+    if (n < pendingDelete.length) {
+      toast.warning(`已删除 ${n} 张（${pendingDelete.length - n} 张不存在或已删除）`);
+    } else {
+      toast.success(`已删除 ${n} 张凭证`);
+    }
     load();
   } catch (e) {
     toastError(e);

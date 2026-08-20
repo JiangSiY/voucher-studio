@@ -99,10 +99,15 @@ const { dragging, bind } = useDropImport(() => loadDetail(), editId.value);
 async function save() {
   saving.value = true;
   try {
-    const cents = amountYuan.value.trim() === "" ? null : Math.round(parseFloat(amountYuan.value) * 100);
-    if (cents != null && Number.isNaN(cents)) {
-      toast.warning("金额格式不正确");
-      return;
+    // 金额严格校验：可选负号、最多两位小数（"12.34.56"/"1e3" 之类的宽松解析一律拒绝）
+    const amt = amountYuan.value.trim();
+    let cents: number | null = null;
+    if (amt !== "") {
+      if (!/^-?\d+(\.\d{1,2})?$/.test(amt)) {
+        toast.warning("金额格式不正确：应为数字，最多两位小数（如 123.45）");
+        return;
+      }
+      cents = Math.round(parseFloat(amt) * 100);
     }
     const tags = tagsInput.value.split(/[,，、]/).map((t) => t.trim()).filter(Boolean);
 
@@ -232,7 +237,7 @@ onMounted(() => {
         <div class="fluent-panel-body">
           <div v-for="s in snapshots" :key="s.id" class="snapshot-item">
             <div class="sn-meta">
-              <span>{{ s.reason === "update" ? "修改前快照" : s.reason === "delete" ? "删除前快照" : s.reason }}</span>
+              <span>{{ s.reason === "update" ? "修改前快照" : s.reason === "status" ? "状态变更前快照" : s.reason === "export" ? "导出前快照" : s.reason === "delete" ? "删除前快照" : s.reason }}</span>
               <span>{{ fmtDate(s.createdAt) }}</span>
             </div>
             <div style="color: var(--text-2)">
