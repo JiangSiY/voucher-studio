@@ -68,15 +68,15 @@ fn voucher_crud_roundtrip() -> Result<()> {
         },
     )?;
     assert!(
-        v.voucher_no.ends_with("-001"),
+        v.voucher_no.ends_with("-01"),
         "编号自动生成: {}",
         v.voucher_no
     );
     assert_eq!(v.status, VoucherStatus::Draft);
 
-    // 同一天第二张 → 002
+    // 同一天第二张 → 02
     let v2 = voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
-    assert!(v2.voucher_no.ends_with("-002"));
+    assert!(v2.voucher_no.ends_with("-02"));
 
     // 更新（金额清空）
     let updated = voucher_mgr::update_voucher(
@@ -530,7 +530,7 @@ fn search_escapes_like_wildcards() -> Result<()> {
 #[test]
 fn naming_seq_skips_holes_after_deletion() -> Result<()> {
     let (_dir, ctx) = test_ctx();
-    // 同日建三张：001 / 002 / 003
+    // 同日建三张：01 / 02 / 03
     let d = "2026-08-20";
     let v1 = voucher_mgr::create_voucher(
         &ctx,
@@ -553,11 +553,11 @@ fn naming_seq_skips_holes_after_deletion() -> Result<()> {
             ..Default::default()
         },
     )?;
-    assert!(v1.voucher_no.ends_with("001"));
-    assert!(v2.voucher_no.ends_with("002"));
-    assert!(v3.voucher_no.ends_with("003"));
+    assert!(v1.voucher_no.ends_with("01"));
+    assert!(v2.voucher_no.ends_with("02"));
+    assert!(v3.voucher_no.ends_with("03"));
 
-    // 删中间的 002 → count=2 → 朴素 count+1 会算出 003 撞 UNIQUE
+    // 删中间的 02 → count=2 → 朴素 count+1 会算出 03 撞 UNIQUE
     voucher_mgr::delete_voucher(&ctx, v2.id)?;
     let v4 = voucher_mgr::create_voucher(
         &ctx,
@@ -567,10 +567,70 @@ fn naming_seq_skips_holes_after_deletion() -> Result<()> {
         },
     )?;
     assert!(
-        v4.voucher_no.ends_with("004"),
-        "应跳过空洞递增到 004，实际 {}",
+        v4.voucher_no.ends_with("04"),
+        "应跳过空洞递增到 04，实际 {}",
         v4.voucher_no
     );
+    Ok(())
+}
+
+#[test]
+fn voucher_no_renumbers_on_date_change() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+
+    // 2026-08-20 已有一张 → -01
+    let existing = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-20".into(),
+            ..Default::default()
+        },
+    )?;
+    assert!(existing.voucher_no.ends_with("2026-08-20-01"));
+
+    // 2026-08-21 一张（-01），改日期到 08-20 → 重排为 -02（档号日期以凭证日期为准）
+    let v = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-21".into(),
+            ..Default::default()
+        },
+    )?;
+    let moved = voucher_mgr::update_voucher(
+        &ctx,
+        v.id,
+        VoucherUpdate {
+            voucher_date: Some("2026-08-20".into()),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(moved.voucher_no, "2026-08-20-02");
+
+    // 重排落了 renumber 快照
+    let detail = voucher_mgr::get_detail(&ctx, v.id)?;
+    assert!(
+        detail.snapshots.iter().any(|s| s.reason == "renumber"),
+        "重排应落快照，实际 reasons: {:?}",
+        detail
+            .snapshots
+            .iter()
+            .map(|s| s.reason.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    // 已导出的凭证改日期 → 编号锁定不重排
+    let locked = voucher_mgr::update_voucher(
+        &ctx,
+        v.id,
+        VoucherUpdate {
+            voucher_date: Some("2026-08-22".into()),
+            status: Some(VoucherStatus::Exported),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(locked.voucher_date, "2026-08-22");
+    assert_eq!(locked.voucher_no, "2026-08-20-02", "已导出编号应锁定");
+
     Ok(())
 }
 

@@ -255,11 +255,14 @@ export const api = {
 
   searchVouchers: (keyword: string, limit?: number) => invoke<SearchHit[]>("search_vouchers", { keyword, limit }),
 
-  importImages: (paths: string[], voucherId: number | null, runOcr: boolean) =>
-    invoke<ImportSummary>("import_images", { paths, voucherId, runOcr }),
-  /** 更换凭证图片（一图一凭证：换图不换卡），返回更新后的凭证详情 */
-  replaceImage: (voucherId: number, path: string) =>
-    invoke<VoucherDetail>("replace_image", { voucherId, path }),
+  /** Rust 侧对话框选图并直接导入（绕开 JS 对话框桥的竞态）。null = 用户取消 */
+  pickAndImport: (runOcr: boolean) =>
+    invoke<ImportSummary | null>("pick_and_import", { runOcr }),
+  /** Rust 侧对话框选图更换凭证图片（换图不换卡）。null = 用户取消 */
+  pickAndReplaceImage: (voucherId: number) =>
+    invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId }),
+  /** Rust 侧对话框选目录。null = 用户取消 */
+  pickDirectory: () => invoke<string | null>("pick_directory"),
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),

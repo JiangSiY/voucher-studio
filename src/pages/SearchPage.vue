@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** 全文搜索：编号/摘要/备注/标签/附件 OCR 文本 */
-import { ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type SearchHit } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
@@ -26,6 +27,24 @@ async function search() {
     busy.value = false;
   }
 }
+
+// 已出结果后发生拖放/微信入库，自动重跑当前关键词，避免结果陈旧
+let unlistenImportDone: UnlistenFn | null = null;
+let unlistenWxImported: UnlistenFn | null = null;
+
+onMounted(async () => {
+  unlistenImportDone = await listen("import:done", () => {
+    if (searched.value && keyword.value.trim()) search();
+  });
+  unlistenWxImported = await listen("wechat:imported", () => {
+    if (searched.value && keyword.value.trim()) search();
+  });
+});
+
+onUnmounted(() => {
+  unlistenImportDone?.();
+  unlistenWxImported?.();
+});
 </script>
 
 <template>

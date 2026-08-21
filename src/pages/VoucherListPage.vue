@@ -1,12 +1,12 @@
 <script setup lang="ts">
-/** 凭证列表（核心页）：筛选/搜索/分页/批量操作/拖放导入/行内操作 */
-import { onMounted, ref } from "vue";
+/** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
+import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type Voucher, type VoucherStatus } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
-import { pickImages, useDropImport } from "../composables/useDropImport";
 import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
@@ -90,12 +90,15 @@ function toggleAll() {
   else items.value.forEach((v) => selected.value.add(v.id));
 }
 
+const importing = ref(false);
+
 async function importPicked() {
-  const files = await pickImages();
-  if (!files?.length) return;
+  if (importing.value) return;
+  importing.value = true;
   try {
-    // 一图一凭证：每张图片各建一张草稿凭证（导入后到详情页手动/重新 OCR）
-    const summary = await api.importImages(files, null, false);
+    // Rust 侧对话框 + 导入一步完成（一图一凭证，每张图片各建一张凭证）
+    const summary = await api.pickAndImport(false);
+    if (!summary) return; // 用户取消
     const parts: string[] = [];
     if (summary.vouchers.length) parts.push(`已导入 ${summary.vouchers.length} 张图片，各建一张凭证`);
     if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
@@ -104,6 +107,8 @@ async function importPicked() {
     load();
   } catch (e) {
     toastError(e);
+  } finally {
+    importing.value = false;
   }
 }
 
@@ -153,10 +158,20 @@ async function doDelete() {
   }
 }
 
-const { dragging, bind } = useDropImport(load);
-onMounted(() => {
-  bind();
+// 拖放导入由 Rust 侧处理（App.vue 全局反馈），此处监听入库事件刷新列表
+let unlistenImportDone: UnlistenFn | null = null;
+let unlistenWxImported: UnlistenFn | null = null;
+
+onMounted(async () => {
   load();
+  unlistenImportDone = await listen("import:done", () => load());
+  // 微信监听为后台入库，用户停留本页时列表同样需要刷新
+  unlistenWxImported = await listen("wechat:imported", () => load());
+});
+
+onUnmounted(() => {
+  unlistenImportDone?.();
+  unlistenWxImported?.();
 });
 </script>
 
@@ -165,7 +180,9 @@ onMounted(() => {
     <div class="fluent-panel-header">
       <h3>凭证</h3>
       <div style="display: flex; gap: 8px">
-        <button class="btn btn-sm" @click="importPicked">🖼 导入图片</button>
+        <button class="btn btn-sm" :disabled="importing" @click="importPicked">
+          {{ importing ? "导入中…" : "🖼 导入图片" }}
+        </button>
         <button class="btn btn-sm btn-primary" @click="router.push('/vouchers/new')">＋ 新建凭证</button>
       </div>
     </div>
@@ -246,8 +263,6 @@ onMounted(() => {
       </div>
     </div>
   </div>
-
-  <div v-if="dragging" class="drop-overlay">松手导入图片 → 自动创建凭证</div>
 
   <ConfirmDialog :visible="confirmVisible" title="删除凭证" :body="confirmText" confirm-text="删除"
     @confirm="doDelete" @cancel="confirmVisible = false" />

@@ -16,6 +16,14 @@ let unlistenDone: UnlistenFn | null = null;
 let unlistenFailed: UnlistenFn | null = null;
 let unlistenWxImported: UnlistenFn | null = null;
 let unlistenWxError: UnlistenFn | null = null;
+// 拖放导入（Rust 侧处理）：遮罩与结果反馈
+let unlistenDragEnter: UnlistenFn | null = null;
+let unlistenDragLeave: UnlistenFn | null = null;
+let unlistenImportStarted: UnlistenFn | null = null;
+let unlistenImportDone: UnlistenFn | null = null;
+let unlistenImportError: UnlistenFn | null = null;
+const draggingOver = ref(false);
+const importing = ref(false);
 
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
@@ -55,6 +63,32 @@ onMounted(async () => {
   unlistenWxError = await listen<string>("wechat:error", (e) => {
     toast.danger(`微信监听异常：${e.payload}`);
   });
+
+  // 拖放导入（Rust 侧处理）：进入/离开遮罩 → 开始提示 → 结果反馈
+  unlistenDragEnter = await listen("import:drag-enter", () => {
+    draggingOver.value = true;
+  });
+  unlistenDragLeave = await listen("import:drag-leave", () => {
+    draggingOver.value = false;
+  });
+  unlistenImportStarted = await listen<number>("import:started", (e) => {
+    importing.value = true;
+    draggingOver.value = false;
+    toast.info?.(`正在导入 ${e.payload} 张图片…`);
+  });
+  unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
+    importing.value = false;
+    const s = e.payload;
+    const parts: string[] = [];
+    if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张图片，各建一张凭证`);
+    if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
+    if (s.failed.length) parts.push(`失败 ${s.failed.length} 张`);
+    if (parts.length) toast.success(parts.join(" · "));
+  });
+  unlistenImportError = await listen<string>("import:error", (e) => {
+    importing.value = false;
+    toast.danger(`导入失败：${e.payload}`);
+  });
 });
 
 function dismissRecovery() {
@@ -71,11 +105,21 @@ onUnmounted(() => {
   unlistenFailed?.();
   unlistenWxImported?.();
   unlistenWxError?.();
+  unlistenDragEnter?.();
+  unlistenDragLeave?.();
+  unlistenImportStarted?.();
+  unlistenImportDone?.();
+  unlistenImportError?.();
 });
 </script>
 
 <template>
   <router-view />
+
+  <!-- 拖放导入遮罩（Rust 侧 drag-enter/leave 事件驱动） -->
+  <div v-if="draggingOver" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>
+  <div v-else-if="importing" class="drop-overlay" style="pointer-events: none">正在导入图片，请稍候…</div>
+
   <ToastHost />
 
   <!-- 崩溃恢复对话框（recovery_window）：上次异常退出时展示数据健康报告 -->

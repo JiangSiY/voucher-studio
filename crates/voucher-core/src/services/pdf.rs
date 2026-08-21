@@ -203,20 +203,22 @@ const TCOL_NO: f32 = 45.0;
 const TCOL_DESC: f32 = 70.0;
 const TCOL_PARTY: f32 = 50.0;
 
-/// 生成「按天日报」PDF：当日汇总表（自动分页 + 合计行）+ 当日图片页（2×2/页）
+/// 生成「按天日报」PDF（档案装订形态，参照原始凭证版式）：
+/// P1 封面（装订线 + 档号范围/张数/金额合计）→ P2+ 汇总表（自动分页 + 合计行）→ 图片页（2×2/页）
 pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Result<()> {
     if day.cards.is_empty() {
         return Err(CoreError::Invalid("当天没有可导出的凭证".into()));
     }
     let base_title = if opts.title.trim().is_empty() {
-        "凭证日报".to_string()
+        "原始凭证".to_string()
     } else {
         opts.title.trim().to_string()
     };
-    let full_title = format!("{base_title} · {}", day.date);
+    let cover_title = format!("{base_title}封面");
+    let sum_title = format!("凭证汇总表 · {}", day.date);
 
     let (doc, first_page, first_layer) =
-        PdfDocument::new(&full_title, Mm(PAGE_W), Mm(PAGE_H), "Summary");
+        PdfDocument::new(&cover_title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
     let font = load_cjk_font(&doc)?;
 
     let usable_w = PAGE_W - MARGIN * 2.0;
@@ -231,24 +233,26 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
     };
     let img_pages = img_count.div_ceil(IMG_COLS * IMG_ROWS);
     let table_pages = count.div_ceil(TROWS_PER_PAGE);
-    let total_pages = table_pages + img_pages;
+    let total_pages = 1 + table_pages + img_pages;
 
-    // ===== 汇总表页 =====
+    // ===== P1 封面 =====
+    {
+        let layer = doc.get_page(first_page).get_layer(first_layer);
+        draw_cover_page(&layer, &font, day, &base_title);
+    }
+
+    // ===== P2+ 汇总表页 =====
     for t in 0..table_pages {
-        let layer = if t == 0 {
-            doc.get_page(first_page).get_layer(first_layer)
-        } else {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
-            doc.get_page(p).get_layer(l)
-        };
-        draw_header(&layer, &font, &full_title);
+        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
+        let layer = doc.get_page(p).get_layer(l);
+        draw_header(&layer, &font, &sum_title);
 
         // 首页摘要行：当日共 N 张 · 合计 ¥X（仅统计已填金额的凭证）
         if t == 0 {
             layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
             layer.use_text(
                 format!(
-                    "当日共 {count} 张凭证 · 合计 ¥{}",
+                    "当日共 {count} 张凭证 · 合计 ￥{}（按识别金额统计）",
                     crate::models::voucher::format_money(total_cents)
                 ),
                 9.5,
@@ -291,7 +295,7 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
                 y(top + 4.8),
                 &font,
             );
-            let amt_label = format!("¥{}", crate::models::voucher::format_money(total_cents));
+            let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
             layer.use_text(
                 &amt_label,
                 9.0,
@@ -301,14 +305,14 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
             );
         }
 
-        draw_footer(&layer, &font, t + 1, total_pages);
+        draw_footer(&layer, &font, t + 2, total_pages);
     }
 
-    // ===== 图片页（2×2/页，与合并版一致） =====
+    // ===== 图片页（2×2/页，caption 对齐参照：附件N：摘要_对方_金额元（档号）） =====
     for page_idx in 0..img_pages {
         let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
         let layer = doc.get_page(p).get_layer(l);
-        draw_header(&layer, &font, &format!("{full_title} · 附件"));
+        draw_header(&layer, &font, &format!("附件 · {}", day.date));
 
         let per_img_page = IMG_COLS * IMG_ROWS;
         let cell_w = (usable_w - GAP) / IMG_COLS as f32;
@@ -326,19 +330,116 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
             let img_area_h = cell_h - caption_h - 1.0;
             place_image(&layer, &day.images[idx], x, top, cell_w, img_area_h);
             layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-            layer.use_text(
+            let caption = truncate_chars(
                 &day.images[idx].caption,
-                7.0,
-                Mm(x + 1.0),
-                y(top + cell_h - 0.5),
-                &font,
+                chars_for_width(&day.images[idx].caption, 7.0, cell_w - 2.0),
             );
+            layer.use_text(caption, 7.0, Mm(x + 1.0), y(top + cell_h - 0.5), &font);
         }
-        draw_footer(&layer, &font, table_pages + page_idx + 1, total_pages);
+        draw_footer(&layer, &font, 1 + table_pages + page_idx + 1, total_pages);
     }
 
     doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
     Ok(())
+}
+
+/// 封面页（档案装订形态，坐标对齐参照 PDF《原始凭证_2026-07-26》）：
+/// 左侧装订线（竖排「装订线」三字 + 细线）+ 居中大标题 + 5 行信息表
+/// （凭证日期 / 档号范围 / 附件张数 / 金额合计 / 生成时间）。
+fn draw_cover_page(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    day: &DailyInput,
+    title: &str,
+) {
+    // 装订线三字（竖排）
+    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+    for (i, ch) in ["装", "订", "线"].iter().enumerate() {
+        layer.use_text(*ch, 10.5, Mm(18.0), y(86.0 + i as f32 * 13.0), font);
+    }
+    // 装订线
+    layer.set_outline_thickness(0.3);
+    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
+    layer.add_line(Line {
+        points: vec![
+            (Point::new(Mm(24.7), y(21.2)), false),
+            (Point::new(Mm(24.7), y(275.9)), false),
+        ],
+        is_closed: false,
+    });
+
+    // 居中标题
+    let cover_title = format!("{title}封面");
+    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+    let tw = text_width_mm(&cover_title, 18.0);
+    layer.use_text(&cover_title, 18.0, Mm((PAGE_W - tw) / 2.0), y(88.0), font);
+
+    // 信息表 5 行
+    let count = day.cards.len();
+    let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
+    let unrecognized = day
+        .cards
+        .iter()
+        .filter(|c| c.amount_cents.is_none())
+        .count();
+    let first_no = day
+        .cards
+        .first()
+        .map(|c| c.voucher_no.as_str())
+        .unwrap_or_default();
+    let last_no = day
+        .cards
+        .last()
+        .map(|c| c.voucher_no.as_str())
+        .unwrap_or_default();
+    let range = if first_no == last_no {
+        first_no.to_string()
+    } else {
+        format!("{first_no} ～ {last_no}")
+    };
+    let unrecognized_note = if unrecognized > 0 {
+        format!("，{unrecognized} 张未识别金额")
+    } else {
+        String::new()
+    };
+    let amount = format!(
+        "￥{}（按识别金额统计{unrecognized_note}）",
+        crate::models::voucher::format_money(total_cents)
+    );
+    let generated = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let rows: [(String, String); 5] = [
+        ("凭证日期".into(), day.date.clone()),
+        ("档号范围".into(), range),
+        ("附件张数".into(), format!("{count} 张")),
+        ("金额合计".into(), amount),
+        ("生成时间".into(), generated),
+    ];
+
+    let table_left = 42.3;
+    let table_right = 178.0;
+    let label_x = table_left + 2.0;
+    let value_x = 77.6;
+    let row_h = 18.4;
+    let table_top = 82.5;
+    for (i, (label, value)) in rows.iter().enumerate() {
+        let top = table_top + i as f32 * row_h;
+        // 行底线
+        layer.set_outline_thickness(0.4);
+        layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
+        layer.add_line(Line {
+            points: vec![
+                (Point::new(Mm(table_left), y(top + row_h)), false),
+                (Point::new(Mm(table_right), y(top + row_h)), false),
+            ],
+            is_closed: false,
+        });
+        // 标签（灰）
+        layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+        layer.use_text(label, 10.5, Mm(label_x), y(top + 12.0), font);
+        // 值（深色）
+        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+        layer.use_text(value, 10.5, Mm(value_x), y(top + 12.0), font);
+    }
 }
 
 fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {

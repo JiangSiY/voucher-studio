@@ -4,7 +4,8 @@
  * 左侧选凭证 + 打印选项，右侧实时预览，生成 PDF（Rust 后端 printpdf，A4、中文、省墨）。
  * 一图一凭证的默认导出形态：「按天分组」——每天一份凭证日报（汇总表 + 图片附录）。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type ExportBatch, type Voucher } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import VoucherCard from "../components/VoucherCard.vue";
@@ -26,7 +27,8 @@ const groupByDay = ref(true);
 const busy = ref(false);
 const lastBatches = ref<ExportBatch[]>([]);
 
-async function load() {
+/** 只刷新可选凭证列表（不动用户已调整的打印选项） */
+async function loadVouchers() {
   try {
     // 分页拉全：只取首页会漏掉第 100 张以后的凭证，导致无法勾选打印
     const all: Voucher[] = [];
@@ -38,22 +40,26 @@ async function load() {
       page++;
     }
     vouchers.value = all;
-
-    // 打印选项默认值来自设置（config.print），而非硬编码
-    const p = configStore.config?.print;
-    if (p) {
-      title.value = p.title || "凭证整理单";
-      if (p.cardStyle === "clean" || p.cardStyle === "ledger") {
-        cardStyle.value = p.cardStyle;
-      } else {
-        cardStyle.value = "standard";
-      }
-      columns.value = (p.columns === 1 || p.columns === 2 ? p.columns : 3) as 1 | 2 | 3;
-      includeImages.value = p.includeImages;
-      groupByDay.value = p.groupByDay !== false;
-    }
   } catch (e) {
     toastError(e);
+  }
+}
+
+async function load() {
+  await loadVouchers();
+
+  // 打印选项默认值来自设置（config.print），而非硬编码
+  const p = configStore.config?.print;
+  if (p) {
+    title.value = p.title || "凭证整理单";
+    if (p.cardStyle === "clean" || p.cardStyle === "ledger") {
+      cardStyle.value = p.cardStyle;
+    } else {
+      cardStyle.value = "standard";
+    }
+    columns.value = (p.columns === 1 || p.columns === 2 ? p.columns : 3) as 1 | 2 | 3;
+    includeImages.value = p.includeImages;
+    groupByDay.value = p.groupByDay !== false;
   }
 }
 
@@ -118,7 +124,20 @@ async function openLastPdf() {
   }
 }
 
-onMounted(load);
+// 停留本页期间拖放/微信入库的新凭证，需出现在左侧可选列表（不重置打印选项）
+let unlistenImportDone: UnlistenFn | null = null;
+let unlistenWxImported: UnlistenFn | null = null;
+
+onMounted(async () => {
+  load();
+  unlistenImportDone = await listen("import:done", () => loadVouchers());
+  unlistenWxImported = await listen("wechat:imported", () => loadVouchers());
+});
+
+onUnmounted(() => {
+  unlistenImportDone?.();
+  unlistenWxImported?.();
+});
 </script>
 
 <template>

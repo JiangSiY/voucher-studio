@@ -1053,6 +1053,7 @@ select.input {
   justify-content: center;
   background: var(--surface-3);
   overflow: hidden;
+  cursor: zoom-in;
 }
 
 .att-card img {

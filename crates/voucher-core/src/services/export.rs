@@ -109,7 +109,7 @@ pub fn export_vouchers_daily(
         let input = DailyInput {
             date: date.clone(),
             cards: day_items.iter().map(|(v, _)| card_of(v)).collect(),
-            images: images_of(ctx, &day_items),
+            images: daily_images_of(ctx, &day_items),
         };
 
         let compact_date = date.replace(['-', '/'], "");
@@ -174,6 +174,36 @@ fn images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> Vec<Pdf
             atts.iter().filter(|a| a.is_image()).map(move |a| PdfImage {
                 path: ctx.paths.attachment_abs(&a.file_path),
                 caption: format!("{} {}", v.voucher_no, a.file_name),
+            })
+        })
+        .collect()
+}
+
+/// 按天日报的图片条目：caption 对齐参照档案版式「附件N：摘要_对方_金额元（档号）」，
+/// N 为当日序号（1 起）。空字段段跳过。
+fn daily_images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> Vec<PdfImage> {
+    items
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, (v, atts))| {
+            atts.iter().filter(move |a| a.is_image()).map(move |a| {
+                let mut label = format!("附件{}：{}", idx + 1, v.description);
+                if !v.counterparty.is_empty() {
+                    label.push('_');
+                    label.push_str(&v.counterparty);
+                }
+                if let Some(cents) = v.amount_cents {
+                    label.push('_');
+                    label.push_str(&format!(
+                        "{}元",
+                        crate::models::voucher::format_money(cents)
+                    ));
+                }
+                label.push_str(&format!("（{}）", v.voucher_no));
+                PdfImage {
+                    path: ctx.paths.attachment_abs(&a.file_path),
+                    caption: label,
+                }
             })
         })
         .collect()

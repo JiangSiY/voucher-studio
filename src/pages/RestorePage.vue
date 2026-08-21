@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传 */
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type BackupInfo, type DrillReport, type RestoreSummary } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -95,7 +96,15 @@ async function uploadWebdav(b: BackupInfo) {
   }
 }
 
-onMounted(load);
+// 自动备份后台完成时，新备份应出现在可恢复列表
+let unlistenBackupDone: UnlistenFn | null = null;
+
+onMounted(async () => {
+  load();
+  unlistenBackupDone = await listen("backup:done", () => load());
+});
+
+onUnmounted(() => unlistenBackupDone?.());
 </script>
 
 <template>

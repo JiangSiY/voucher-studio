@@ -50,6 +50,9 @@ pub fn create_voucher(ctx: &CoreContext, new: NewVoucher) -> Result<Voucher> {
 }
 
 pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Result<Voucher> {
+    let cfg = ctx.config();
+    let engine = NamingEngine::new(&cfg.naming.template);
+
     ctx.db.with_tx(|tx| {
         let current = voucher_repo::get(tx, id)?
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
@@ -68,8 +71,65 @@ pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Resu
         if !voucher_repo::update(tx, id, &update)? {
             return Err(CoreError::NotFound(format!("凭证 {id} 不存在")));
         }
+        // 档号日期以凭证日期为准：日期变更时按新日期重排编号。
+        // 用户显式指定编号则尊重之；已导出/已归档编号锁定（已印在 PDF 中不能变）。
+        let new_date = update
+            .voucher_date
+            .clone()
+            .unwrap_or_else(|| current.voucher_date.clone());
+        if update.voucher_no.is_none() && new_date != current.voucher_date {
+            renumber_for_date(tx, &engine, id, &new_date)?;
+        }
         voucher_repo::get(tx, id)?.ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))
     })
+}
+
+/// 日期变更后的档号重排：按新日期取下一个编号，落 renumber 快照后更新。
+/// 仅草稿/已复核状态重排；已导出/已归档返回 None（编号锁定）。
+/// 需在事务内调用（修改前状态应由调用方先落快照；本函数再落一份重排前快照）。
+pub fn renumber_for_date(
+    tx: &Connection,
+    engine: &NamingEngine,
+    id: i64,
+    new_date: &str,
+) -> Result<Option<String>> {
+    let current = voucher_repo::get(tx, id)?
+        .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+    if matches!(
+        current.status,
+        VoucherStatus::Exported | VoucherStatus::Archived
+    ) {
+        log::info!(
+            "凭证 {id}（{}）已导出/归档，日期改为 {new_date} 时编号保持锁定",
+            current.voucher_no
+        );
+        return Ok(None);
+    }
+    let new_no = engine.next_no(tx, new_date)?;
+    if new_no == current.voucher_no {
+        return Ok(None); // 同日重排无需变更
+    }
+    snapshot_repo::insert(
+        tx,
+        &crate::models::snapshot::NewSnapshot {
+            voucher_id: id,
+            payload: serde_json::to_value(&current)?,
+            reason: "renumber".into(),
+        },
+    )?;
+    voucher_repo::update(
+        tx,
+        id,
+        &VoucherUpdate {
+            voucher_no: Some(new_no.clone()),
+            ..Default::default()
+        },
+    )?;
+    log::info!(
+        "档号重排：凭证 {id} {} → {new_no}（日期 {new_date}）",
+        current.voucher_no
+    );
+    Ok(Some(new_no))
 }
 
 pub fn delete_voucher(ctx: &CoreContext, id: i64) -> Result<()> {

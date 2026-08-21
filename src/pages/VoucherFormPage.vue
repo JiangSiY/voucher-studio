@@ -3,13 +3,15 @@
  * 凭证编辑页。
  * 一图一凭证：新建 = 先选一张图片（导入即建卡 + OCR 自动填单），编辑 = 单图 + 更换图片（换图不换卡）。
  * 表单字段：编号/日期/摘要/对方账户/金额/状态/标签/备注 + 快照历史。
+ * 拖放导入在 Rust 侧全局处理（App.vue 反馈）；本页新建模式监听完成事件跳转到新凭证。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type Attachment, type VoucherSnapshot } from "../api/client";
+import { api, type Attachment, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
+import ImageViewerDialog from "../components/ImageViewerDialog.vue";
 import { OCR_META, fmtDate } from "../composables/format";
-import { pickImages, useDropImport } from "../composables/useDropImport";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
 
@@ -55,9 +57,8 @@ async function refreshNoPreview() {
   }
 }
 
-/** 把凭证详情套用到表单（编辑加载 / OCR 自动填单后共用） */
-function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
-  const v = detail.voucher;
+/** 把凭证字段套用到表单 */
+function applyForm(v: Voucher) {
   voucherNo.value = v.voucherNo;
   voucherDate.value = v.voucherDate;
   description.value = v.description;
@@ -66,6 +67,11 @@ function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
   status.value = v.status;
   tagsInput.value = v.tags.join(", ");
   note.value = v.note;
+}
+
+/** 把凭证详情套用到表单（编辑加载 / OCR 自动填单后共用） */
+function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
+  applyForm(detail.voucher);
   attachments.value = detail.attachments;
   snapshots.value = detail.snapshots;
 }
@@ -83,46 +89,45 @@ async function loadDetail() {
   }
 }
 
-// ---------- 新建：选图即建卡（一图一凭证） ----------
+// ---------- 新建：选图即建卡（一图一凭证，Rust 侧对话框） ----------
+
+const creating = ref(false);
 
 async function createByImage() {
-  const files = await pickImages();
-  if (!files?.length) return;
-  await importAndGo(files);
-}
-
-async function importAndGo(files: string[]) {
+  if (creating.value) return;
+  creating.value = true;
   try {
-    const summary = await api.importImages(files, null, true);
-    const parts: string[] = [];
-    if (summary.vouchers.length) parts.push(`已创建 ${summary.vouchers.length} 张凭证（一图一凭证）`);
-    if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
-    if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
-    if (parts.length) toast.success(parts.join(" · "));
+    const summary = await api.pickAndImport(true);
+    if (!summary) return; // 用户取消
+    reportImport(summary);
     if (summary.vouchers.length) {
       // 多张时进入第一张；其余已在列表中
       router.replace(`/vouchers/${summary.vouchers[0].voucherId}`);
     }
   } catch (e) {
     toastError(e);
+  } finally {
+    creating.value = false;
   }
 }
 
-/** 拖放：新建模式建卡后进入第一张；编辑模式附加/更换交给提示（一图上限由后端把关） */
-function onDropped() {
-  if (!editId.value) return; // 新建模式的跳转在 importAndGo 之外无法拿到 summary，统一走 createByImage 之外的兜底刷新
-  loadDetail();
+function reportImport(summary: ImportSummary) {
+  const parts: string[] = [];
+  if (summary.vouchers.length) parts.push(`已创建 ${summary.vouchers.length} 张凭证（一图一凭证）`);
+  if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
+  if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
+  if (parts.length) toast.success(parts.join(" · "));
 }
 
-// ---------- 编辑：更换图片（换图不换卡） ----------
+// ---------- 编辑：更换图片（换图不换卡，Rust 侧对话框） ----------
 
 async function replaceImage() {
   if (!editId.value || replacing.value) return;
-  const files = await pickImages();
-  if (!files?.length) return;
   replacing.value = true;
   try {
-    applyDetail(await api.replaceImage(editId.value, files[0]));
+    const detail = await api.pickAndReplaceImage(editId.value);
+    if (!detail) return; // 用户取消
+    applyDetail(detail);
     toast.success("图片已更换（凭证不变）");
   } catch (e) {
     toastError(e);
@@ -149,8 +154,8 @@ async function save() {
     }
     const tags = tagsInput.value.split(/[,，、]/).map((t) => t.trim()).filter(Boolean);
 
-    await api.updateVoucher(editId.value, {
-      voucherNo: voucherNo.value.trim() || undefined,
+    const oldNo = voucherNo.value;
+    const saved = await api.updateVoucher(editId.value, {
       voucherDate: voucherDate.value,
       description: description.value,
       counterparty: counterparty.value,
@@ -160,7 +165,14 @@ async function save() {
       tags,
       note: note.value,
     });
-    toast.success("凭证已保存");
+    applyForm(saved);
+    if (saved.voucherNo !== oldNo) {
+      toast.success(`凭证已保存，档号按新日期重排：${oldNo} → ${saved.voucherNo}`);
+    } else if (saved.voucherDate !== "" && oldNo.split("-").slice(0, 3).join("-") !== saved.voucherDate) {
+      toast.success("凭证已保存（已导出/归档凭证编号锁定，档号未随日期变更）");
+    } else {
+      toast.success("凭证已保存");
+    }
     loadDetail();
   } catch (e) {
     toastError(e);
@@ -183,8 +195,6 @@ async function runOcr(a: Attachment) {
   }
 }
 
-const { dragging, bind } = useDropImport(onDropped, editId.value);
-
 const SNAPSHOT_LABELS: Record<string, string> = {
   update: "修改前快照",
   status: "状态变更前快照",
@@ -192,12 +202,36 @@ const SNAPSHOT_LABELS: Record<string, string> = {
   delete: "删除前快照",
   ocr_fill: "OCR 填单前快照",
   replace_image: "换图前快照",
+  renumber: "档号重排前快照",
 };
 
-onMounted(() => {
-  bind();
+// 拖放导入（Rust 侧全局处理）：新建模式下完成后跳到第一张新凭证
+let unlistenImportDone: UnlistenFn | null = null;
+
+onMounted(async () => {
   loadDetail();
+  unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
+    if (!editId.value && e.payload.vouchers.length) {
+      router.replace(`/vouchers/${e.payload.vouchers[0].voucherId}`);
+    }
+  });
 });
+
+onUnmounted(() => unlistenImportDone?.());
+
+// ---------- 图片查看器（缩放/平移/旋转，核对 OCR 回填时看细节） ----------
+
+const viewerVisible = ref(false);
+const viewerSrc = ref("");
+const viewerName = ref("");
+const viewerAttachmentId = ref<number | null>(null);
+
+function openViewer(a: Attachment) {
+  viewerSrc.value = attSrc(a);
+  viewerName.value = a.fileName;
+  viewerAttachmentId.value = a.id;
+  viewerVisible.value = true;
+}
 </script>
 
 <template>
@@ -322,7 +356,7 @@ onMounted(() => {
         <div class="fluent-panel-body">
           <div v-if="attachments.length" class="att-grid">
             <div v-for="a in attachments" :key="a.id" class="att-card">
-              <div class="att-img">
+              <div class="att-img" title="点击查看大图（滚轮缩放 / 拖动平移）" @click="openViewer(a)">
                 <img :src="attSrc(a)" :alt="a.fileName" loading="lazy" />
               </div>
               <div class="att-meta">
@@ -350,5 +384,6 @@ onMounted(() => {
     </div>
   </div>
 
-  <div v-if="dragging" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>
+  <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
+    :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
 </template>

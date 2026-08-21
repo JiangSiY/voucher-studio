@@ -6,7 +6,7 @@ mod platform;
 
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use voucher_core::utils::file_lock::FileLockGuard;
 use voucher_core::utils::paths::AppPaths;
 use voucher_core::CoreContext;
@@ -94,11 +94,60 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 正常关闭窗口 → 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                if let Some(ctx) = window.try_state::<Arc<CoreContext>>() {
-                    let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+            match event {
+                // 正常关闭窗口 → 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    if let Some(ctx) = window.try_state::<Arc<CoreContext>>() {
+                        let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+                    }
                 }
+                // 拖放导入（Rust 侧直接处理，绕开 WebView JS 事件桥在透明窗口下不稳定的已知问题）。
+                // 语义：任何页面拖入图片 = 新建凭证导入（一图一凭证）。
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { .. }) => {
+                    let _ = window.app_handle().emit("import:drag-enter", ());
+                }
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Leave) => {
+                    let _ = window.app_handle().emit("import:drag-leave", ());
+                }
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
+                    let images: Vec<std::path::PathBuf> = paths
+                        .iter()
+                        .filter(|p| voucher_core::services::imaging::is_supported(p))
+                        .cloned()
+                        .collect();
+                    if images.is_empty() {
+                        return;
+                    }
+                    let Some(ctx) = window.try_state::<Arc<CoreContext>>() else {
+                        return;
+                    };
+                    let ctx: Arc<CoreContext> = ctx.inner().clone();
+                    let app = window.app_handle().clone();
+                    log::info!("拖放导入：{} 张图片", images.len());
+                    let _ = app.emit("import:started", images.len());
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let started = std::time::Instant::now();
+                        match voucher_core::services::ingestion::import_images(
+                            &ctx, &images, None, true,
+                        ) {
+                            Ok(summary) => {
+                                log::info!(
+                                    "拖放导入完成：新建 {} 张，跳过重复 {}，失败 {}，耗时 {:?}",
+                                    summary.vouchers.len(),
+                                    summary.skipped_duplicates.len(),
+                                    summary.failed.len(),
+                                    started.elapsed()
+                                );
+                                let _ = app.emit("import:done", &summary);
+                            }
+                            Err(e) => {
+                                log::error!("拖放导入失败：{e}");
+                                let _ = app.emit("import:error", e.to_string());
+                            }
+                        }
+                    });
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -123,8 +172,9 @@ fn main() {
             commands::voucher_stats,
             commands::monthly_summary,
             commands::search_vouchers,
-            commands::import_images,
-            commands::replace_image,
+            commands::pick_and_import,
+            commands::pick_and_replace_image,
+            commands::pick_directory,
             commands::attachment_abs_path,
             commands::run_ocr,
             commands::run_ocr_pending,

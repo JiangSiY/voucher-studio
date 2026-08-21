@@ -3,7 +3,8 @@
  * 设置（Tab 分区，对齐 UI 方案的配置页模式）：
  * 通用 / 凭证参数 / OCR / 密钥管理 / 备份与同步 / 微信监听
  */
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type AppConfig, type LocalOcrStatus, type SecretStatus, type WechatStatus } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
@@ -136,9 +137,37 @@ async function saveWebdavPassword() {
 }
 
 async function pickWatchDir() {
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  const dir = await open({ directory: true });
-  if (typeof dir === "string") cfg.wechat.watchDir = dir;
+  const dir = await api.pickDirectory();
+  if (dir) cfg.wechat.watchDir = dir;
+}
+
+// 批量识别待处理附件（列表页导入未跑 OCR 的、历史失败件等），成功后自动填单（只填空字段）
+const ocrPendingBusy = ref(false);
+const ocrProgress = ref<{ done: number; total: number } | null>(null);
+
+const ocrProgressPct = computed(() => {
+  const p = ocrProgress.value;
+  if (!p || p.total === 0) return 0;
+  return Math.round((p.done / p.total) * 100);
+});
+
+async function runOcrPending() {
+  if (ocrPendingBusy.value) return;
+  ocrPendingBusy.value = true;
+  ocrProgress.value = null;
+  try {
+    const n = await api.runOcrPending(500);
+    if (n > 0) {
+      toast.success(`批量识别完成：${n} 张附件已识别并自动填单`);
+    } else {
+      toast.info?.("没有待识别的附件");
+    }
+  } catch (e) {
+    toastError(e);
+  } finally {
+    ocrPendingBusy.value = false;
+    ocrProgress.value = null;
+  }
 }
 
 const dataDir = computed(() => configStore.appInfo?.dataDir ?? "");
@@ -151,7 +180,17 @@ async function openDataDir() {
   }
 }
 
-onMounted(load);
+// 批量识别进度（后端逐张推送 ocr:progress 事件）
+let unlistenOcrProgress: UnlistenFn | null = null;
+
+onMounted(async () => {
+  load();
+  unlistenOcrProgress = await listen<{ done: number; total: number }>("ocr:progress", (e) => {
+    if (ocrPendingBusy.value) ocrProgress.value = e.payload;
+  });
+});
+
+onUnmounted(() => unlistenOcrProgress?.());
 </script>
 
 <template>
@@ -252,6 +291,25 @@ onMounted(load);
           <input v-model="cfg.ocr.model" class="input" placeholder="如：voucher-ocr-v1" />
         </div>
       </template>
+      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+        <label>批量识别</label>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <button class="btn" :disabled="ocrPendingBusy" @click="runOcrPending">
+            {{ ocrPendingBusy ? "识别中…" : "识别全部待处理" }}
+          </button>
+          <span style="font-size: 12px; color: var(--text-3)">
+            处理所有待识别附件（列表页导入、识别失败件），识别后自动填单（只填空字段）
+          </span>
+        </div>
+        <div v-if="ocrProgress" class="ocr-progress">
+          <div class="ocr-progress-track">
+            <div class="ocr-progress-fill" :style="{ width: `${ocrProgressPct}%` }"></div>
+          </div>
+          <span class="ocr-progress-text">
+            {{ ocrProgress.done }} / {{ ocrProgress.total }}（{{ ocrProgressPct }}%）
+          </span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -404,3 +462,35 @@ onMounted(load);
     <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? "保存中…" : "保存设置" }}</button>
   </div>
 </template>
+
+<style scoped>
+/* 批量识别进度条（Fluent 细条样式） */
+.ocr-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocr-progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--stroke);
+  overflow: hidden;
+}
+
+.ocr-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.ocr-progress-text {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+</style>

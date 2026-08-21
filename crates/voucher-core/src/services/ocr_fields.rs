@@ -9,6 +9,7 @@ use rusqlite::params;
 
 use crate::db::repos::{attachment_repo, snapshot_repo, voucher_repo};
 use crate::models::{Attachment, VoucherUpdate};
+use crate::services::{naming, voucher_mgr};
 use crate::{CoreContext, Result};
 
 /// 填单模式
@@ -148,23 +149,8 @@ fn moneys_in(line: &str) -> Vec<i64> {
             i += 1;
             continue;
         }
-        // 整数部分（含千分位逗号）
-        let mut int_digits = String::new();
-        let mut j = i;
-        while j < chars.len() {
-            let c = chars[j];
-            if c.is_ascii_digit() {
-                int_digits.push(c);
-                j += 1;
-            } else if c == ','
-                && !int_digits.is_empty()
-                && chars.get(j + 1).is_some_and(|n| n.is_ascii_digit())
-            {
-                j += 1;
-            } else {
-                break;
-            }
-        }
+        // 整数部分（含千分位分隔：半角/全角逗号、逗号+空格、空格）
+        let (int_digits, j) = scan_digits(&chars, i);
         // 小数部分（最多两位才像金额）
         let mut frac_digits = String::new();
         let mut k = j;
@@ -192,6 +178,50 @@ fn moneys_in(line: &str) -> Vec<i64> {
         }
     }
     out
+}
+
+/// 扫描 pos 起的整数串，识别千分位分隔：半角逗号、全角逗号、逗号+空格、单空格。
+/// 仅当模式为「首段 1-3 位 + 分隔符 + 恰好 3 位」的重复时合并（标准千分位分组），
+/// 防止把无关的相邻数字误并成一个数。返回 (纯数字串, 结束位置)。
+fn scan_digits(chars: &[char], pos: usize) -> (String, usize) {
+    let mut i = pos;
+    let mut first = String::new();
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        first.push(chars[i]);
+        i += 1;
+    }
+    // 千分位仅当首段 1-3 位才可能成立
+    if !(1..=3).contains(&first.len()) {
+        return (first, i);
+    }
+    let mut digits = first;
+    loop {
+        let sep_len = match chars.get(i) {
+            Some(',') | Some('，') => {
+                if chars.get(i + 1) == Some(&' ') {
+                    2
+                } else {
+                    1
+                }
+            }
+            Some(' ') => 1,
+            _ => break,
+        };
+        // 分隔符后必须恰好 3 位数字
+        let mut j = i + sep_len;
+        let mut group = String::new();
+        while j < chars.len() && chars[j].is_ascii_digit() && group.len() < 3 {
+            group.push(chars[j]);
+            j += 1;
+        }
+        if group.len() == 3 {
+            digits.push_str(&group);
+            i = j;
+        } else {
+            break;
+        }
+    }
+    (digits, i)
 }
 
 /// 整数位 + 小数位 → 分；小数超过两位（不像金额）返回 None
@@ -264,24 +294,30 @@ pub fn apply_for_attachment(
     Ok(())
 }
 
-/// 把抽到的字段回填凭证（事务 + 快照，与其他写操作口径一致）
+/// 把抽到的字段回填凭证（事务 + 快照，与其他写操作口径一致）。
+/// Import 模式日期回填后按新日期重排档号（档号日期以凭证日期为准）。
 fn apply_fields(
     ctx: &CoreContext,
     voucher_id: i64,
     fields: &ExtractedFields,
     mode: FillMode,
 ) -> Result<()> {
+    let cfg = ctx.config();
+    let engine = naming::NamingEngine::new(&cfg.naming.template);
+
     ctx.db.with_tx(|tx| {
         let current = voucher_repo::get(tx, voucher_id)?
             .ok_or_else(|| crate::CoreError::NotFound(format!("凭证 {voucher_id} 不存在")))?;
 
         let mut update = VoucherUpdate::default();
+        let mut date_refilled = false;
         match mode {
             FillMode::Import => {
                 // 新导入：OCR 先于用户编辑，抽到的直接填
                 if let Some(d) = &fields.date {
                     if *d != current.voucher_date {
                         update.voucher_date = Some(d.clone());
+                        date_refilled = true;
                     }
                 }
                 if fields.amount_cents.is_some() {
@@ -324,11 +360,21 @@ fn apply_fields(
             },
         )?;
         voucher_repo::update(tx, voucher_id, &update)?;
+
+        // 日期被回填 → 档号重排到新日期（已导出/归档的锁定由内部判断；失败则事务回滚）
+        if date_refilled {
+            let new_date = fields.date.as_deref().unwrap_or_default();
+            if let Some(new_no) = voucher_mgr::renumber_for_date(tx, &engine, voucher_id, new_date)?
+            {
+                log::info!("OCR 回填日期触发档号重排：凭证 {voucher_id} → {new_no}");
+            }
+        }
         Ok(())
     })
 }
 
-/// 附件语义化重命名：{日期}-{摘要}-{对方}-{金额}-{hash8}.{ext}
+/// 附件语义化重命名：{摘要}-{对方}-{金额元}-{hash8}.{ext}
+/// （日期已在档号中，文件名不重复；hash8 保留用于唯一性）
 /// 物理文件在附件目录内改名（不跨目录移动），DB 路径同事务更新；失败仅告警。
 fn semantic_rename(ctx: &CoreContext, voucher_id: i64, attachment: &Attachment) -> Result<()> {
     let voucher = ctx.db.with_conn(|conn| {
@@ -345,11 +391,10 @@ fn semantic_rename(ctx: &CoreContext, voucher_id: i64, attachment: &Attachment) 
     let hash8: String = attachment.file_hash.chars().take(8).collect();
 
     let mut segments: Vec<String> = Vec::new();
-    segments.push(voucher.voucher_date.replace(['-', '/'], ""));
     segments.push(voucher.description.clone());
     segments.push(voucher.counterparty.clone());
     if let Some(cents) = voucher.amount_cents {
-        segments.push(crate::models::voucher::format_money(cents));
+        segments.push(format!("{}元", crate::models::voucher::format_money(cents)));
     }
     segments.push(hash8);
 
@@ -463,6 +508,26 @@ mod tests {
     }
 
     #[test]
+    fn thousands_separator_variants() {
+        // OCR 常见千分位变体：此前除半角逗号紧贴外全部被截断（1,234.56 → 234.56）
+        assert_eq!(extract("合计：¥1,234.56").amount_cents, Some(123456)); // 半角逗号
+        assert_eq!(extract("合计：¥1，234.56").amount_cents, Some(123456)); // 全角逗号
+        assert_eq!(extract("合计：¥1, 234.56").amount_cents, Some(123456)); // 逗号+空格
+        assert_eq!(extract("合计：¥1 234.56").amount_cents, Some(123456)); // 空格千分位
+                                                                           // 多段千分位
+        assert_eq!(
+            extract("总计：12,345,678.90元").amount_cents,
+            Some(1234567890)
+        );
+    }
+
+    #[test]
+    fn non_standard_grouping_not_merged() {
+        // 首段 4 位以上 + 分隔符：不是标准千分位，不合并（宁可不识别也不错并）
+        assert_eq!(extract("编号 1234,567 未识别金额").amount_cents, None);
+    }
+
+    #[test]
     fn extracts_unlabeled_single_amount() {
         assert_eq!(extract("出租车票 45.00元").amount_cents, Some(4500));
     }
@@ -495,22 +560,21 @@ mod tests {
     fn file_name_building() {
         let name = build_file_name(
             &[
-                "20260820".into(),
                 "午餐报销".into(),
                 "美团:平台".into(),
-                "35.00".into(),
+                "35.00元".into(),
                 "a1b2c3d4".into(),
             ],
             "jpg",
         );
-        assert_eq!(name, "20260820-午餐报销-美团平台-35.00-a1b2c3d4.jpg");
+        assert_eq!(name, "午餐报销-美团平台-35.00元-a1b2c3d4.jpg");
 
         // 空段跳过
         let name2 = build_file_name(
-            &["20260820".into(), "".into(), "".into(), "a1b2c3d4".into()],
+            &["午餐报销".into(), "".into(), "".into(), "a1b2c3d4".into()],
             "png",
         );
-        assert_eq!(name2, "20260820-a1b2c3d4.png");
+        assert_eq!(name2, "午餐报销-a1b2c3d4.png");
     }
 
     #[test]

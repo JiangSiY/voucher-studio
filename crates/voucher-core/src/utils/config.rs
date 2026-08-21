@@ -38,7 +38,7 @@ impl Default for AppearanceConfig {
     }
 }
 
-/// 凭证编号命名规则：模板支持 {date}（YYYYMMDD）与 {seq}（三位序号）
+/// 凭证编号命名规则：模板令牌 {date}/{date-}（YYYYMMDD/连字符日期）与 {seq}/{n}（三位/两位序号）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NamingConfig {
@@ -48,7 +48,7 @@ pub struct NamingConfig {
 impl Default for NamingConfig {
     fn default() -> Self {
         Self {
-            template: "{date}-{seq}".into(),
+            template: "{date-}-{n}".into(),
         }
     }
 }
@@ -172,7 +172,7 @@ pub struct PrintConfig {
 impl Default for PrintConfig {
     fn default() -> Self {
         Self {
-            title: "凭证日报".into(),
+            title: "原始凭证".into(),
             card_style: "standard".into(),
             columns: 3,
             include_images: true,

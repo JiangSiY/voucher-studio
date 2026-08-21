@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use voucher_core::services::pdf::{self, PdfCard, PdfImage, PdfInput, PdfOptions};
+use voucher_core::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfInput, PdfOptions};
 
 /// A4 纵向的 PDF 点值（printpdf 的 Mm(210)/Mm(297) 换算结果）
 const A4_W_PT: &str = "595.27563";
@@ -172,6 +172,65 @@ fn card_pages_contain_no_raster_content() {
         pdf_text(&with_imgs).matches("/Subtype/Image").count() >= 2,
         "图片附录页应含位图 XObject（检测有效性对照）"
     );
+}
+
+/// v0.5 按天日报（档案装订形态）：P1 封面 + P2 汇总表 + P3+ 图片页；
+/// 封面/汇总表为纯矢量文本，位图只出现在图片附录页。样张留档人工复核。
+#[test]
+fn daily_report_cover_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let img_dir = dir.path().join("imgs");
+    std::fs::create_dir_all(&img_dir).unwrap();
+    let mut imgs = Vec::new();
+    for i in 0..4 {
+        let p = img_dir.join(format!("att-{i}.png"));
+        make_png(&p);
+        imgs.push(PdfImage {
+            path: p,
+            caption: format!(
+                "附件{}：八月办公用品_文一办公用品店_108.07元（2026-08-20-0{i}）",
+                i + 1
+            ),
+        });
+    }
+    let out = dir.path().join("daily.pdf");
+    pdf::generate_daily(
+        &out,
+        &DailyInput {
+            date: "2026-08-20".into(),
+            cards: (1..=5).map(card).collect(),
+            images: imgs,
+        },
+        &PdfOptions {
+            title: "原始凭证".into(),
+            card_style: "standard".into(),
+            columns: 3,
+            include_images: true,
+        },
+    )
+    .expect("generate daily pdf");
+
+    let text = pdf_text(&out);
+    // 5 卡片 → 封面 1 + 汇总表 1 + 图片页 ceil(4/4)=1 → 共 3 页
+    assert_eq!(
+        page_count(&text),
+        3,
+        "5 卡片+4 图片 = 封面+汇总表+图片页 3 页"
+    );
+    // 位图只出现在图片附录页（封面/汇总表纯矢量）→ 恰好 4 个 Image XObject
+    assert_eq!(
+        text.matches("/Subtype/Image").count(),
+        4,
+        "位图应只出现在图片附录页"
+    );
+
+    // 样张留档人工复核
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let poc_dir = repo_root.join("spikes").join("print-poc");
+    std::fs::create_dir_all(&poc_dir).unwrap();
+    let _ = std::fs::copy(&out, poc_dir.join("sample-daily-report.pdf"));
 }
 
 /// 生成人工复核样张 + 报告（判定①的最终确认：打开 PDF 肉眼检查中文渲染）

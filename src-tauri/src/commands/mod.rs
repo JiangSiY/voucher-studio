@@ -219,47 +219,107 @@ pub fn search_vouchers(
     err_string(search::search_vouchers(&ctx, &keyword, limit.unwrap_or(50)))
 }
 
-// ---------- 导入 / 附件 / OCR ----------
+// ---------- 导入 / 附件 / OCR（文件选择在 Rust 侧完成，绕开 WebView JS 事件桥的已知竞态） ----------
 
+const IMAGE_FILTER: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp"];
+
+/// 系统对话框选图并直接导入（一图一凭证）。返回 None = 用户取消选择。
 #[tauri::command]
-pub async fn import_images(
+pub async fn pick_and_import(
+    app: AppHandle,
     ctx: Ctx<'_>,
-    paths: Vec<String>,
-    voucher_id: Option<i64>,
     run_ocr: Option<bool>,
-) -> std::result::Result<ingestion::ImportSummary, String> {
-    let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+) -> std::result::Result<Option<ingestion::ImportSummary>, String> {
+    // 模态对话框必须 blocking 打开，放进专用线程以免挂起 async runtime
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("图片", IMAGE_FILTER)
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let files: Vec<PathBuf> = picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .collect();
+    if files.is_empty() {
+        log::info!("导入对话框：用户取消或未选出图片");
+        return Ok(None);
+    }
+    log::info!("点击导入：选择了 {} 张图片", files.len());
     let core = ctx.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let started = std::time::Instant::now();
+    let summary = tauri::async_runtime::spawn_blocking(move || {
         err_string(ingestion::import_images(
             &core,
             &files,
-            voucher_id,
+            None,
             run_ocr.unwrap_or(true),
         ))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    log::info!(
+        "点击导入完成：新建 {} 张，跳过重复 {}，失败 {}，耗时 {:?}",
+        summary.vouchers.len(),
+        summary.skipped_duplicates.len(),
+        summary.failed.len(),
+        started.elapsed()
+    );
+    Ok(Some(summary))
 }
 
-/// 更换凭证图片（一图一凭证：换图不换卡），返回更新后的凭证详情
+/// 系统对话框选一张图片更换凭证图片（换图不换卡）。返回 None = 用户取消选择。
 #[tauri::command]
-pub async fn replace_image(
+pub async fn pick_and_replace_image(
+    app: AppHandle,
     ctx: Ctx<'_>,
     voucher_id: i64,
-    path: String,
-) -> std::result::Result<voucher_mgr::VoucherDetail, String> {
+) -> std::result::Result<Option<voucher_mgr::VoucherDetail>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("图片", IMAGE_FILTER)
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let path = match picked.and_then(|f| f.into_path().ok()) {
+        Some(p) => p,
+        None => {
+            log::info!("换图对话框：用户取消");
+            return Ok(None);
+        }
+    };
+    log::info!("更换图片：凭证 {voucher_id} ← {}", path.display());
     let core = ctx.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        err_string(ingestion::replace_attachment(
-            &core,
-            voucher_id,
-            &PathBuf::from(path),
-        ))?;
+    let detail = tauri::async_runtime::spawn_blocking(move || {
+        err_string(ingestion::replace_attachment(&core, voucher_id, &path))?;
         err_string(voucher_mgr::get_detail(&core, voucher_id))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    Ok(Some(detail))
+}
+
+/// 系统对话框选目录（设置页备用份目录 / 微信监听目录）。返回 None = 用户取消。
+#[tauri::command]
+pub async fn pick_directory(app: AppHandle) -> std::result::Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog().file().blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(picked
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -303,11 +363,23 @@ pub async fn run_ocr(
 #[tauri::command]
 pub async fn run_ocr_pending(
     ctx: Ctx<'_>,
+    app: AppHandle,
     limit: Option<u32>,
 ) -> std::result::Result<usize, String> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        err_string(ocr::run_pending(&core, limit.unwrap_or(50)))
+        // 逐张推送进度事件（ocr:progress {done, total}），积压量大时前端显示进度条
+        err_string(ocr::run_pending(
+            &core,
+            limit.unwrap_or(50),
+            &|done, total| {
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "ocr:progress",
+                    serde_json::json!({ "done": done, "total": total }),
+                );
+            },
+        ))
     })
     .await
     .map_err(|e| e.to_string())?

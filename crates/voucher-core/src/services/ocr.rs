@@ -47,12 +47,18 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
 
 /// 批量识别待处理附件，返回成功数（失败的逐个记为 failed，不中断批次）。
 /// 识别成功后自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
-pub fn run_pending(ctx: &CoreContext, limit: u32) -> Result<usize> {
+/// `on_progress` 每处理完一张回调 (已完成数, 总数)，供上层做进度反馈（传 `&|_, _| {}` 忽略）。
+pub fn run_pending(
+    ctx: &CoreContext,
+    limit: u32,
+    on_progress: &dyn Fn(usize, usize),
+) -> Result<usize> {
     let pending = ctx
         .db
         .with_conn(|conn| attachment_repo::list_pending_ocr(conn, limit))?;
+    let total = pending.len();
     let mut ok = 0;
-    for a in pending {
+    for (i, a) in pending.into_iter().enumerate() {
         match run_for_attachment(ctx, a.id) {
             Ok(att) => {
                 if let Err(e) = crate::services::ocr_fields::apply_for_attachment(
@@ -72,6 +78,7 @@ pub fn run_pending(ctx: &CoreContext, limit: u32) -> Result<usize> {
                 });
             }
         }
+        on_progress(i + 1, total);
     }
     Ok(ok)
 }
