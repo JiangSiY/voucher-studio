@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use tauri::State;
 
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
-use voucher_core::models::{VoucherStatus, VoucherUpdate};
+use voucher_core::models::VoucherUpdate;
 use voucher_core::services::export::ExportOptions;
 use voucher_core::services::search::SearchHit;
 use voucher_core::services::{backup, export, ingestion, naming, ocr, search, voucher_mgr};
@@ -162,21 +162,10 @@ pub fn update_voucher(
     err_string(voucher_mgr::update_voucher(&ctx, id, update))
 }
 
-#[tauri::command]
-pub fn delete_voucher(ctx: Ctx, id: i64) -> std::result::Result<(), String> {
-    err_string(voucher_mgr::delete_voucher(&ctx, id))
-}
-
 /// 批量删除（单事务 + 附件文件清理），返回实际删除数
 #[tauri::command]
 pub fn delete_vouchers(ctx: Ctx, ids: Vec<i64>) -> std::result::Result<u64, String> {
     err_string(voucher_mgr::delete_vouchers(&ctx, &ids))
-}
-
-#[tauri::command]
-pub fn set_voucher_status(ctx: Ctx, id: i64, status: String) -> std::result::Result<(), String> {
-    let s = VoucherStatus::parse(&status).ok_or_else(|| format!("未知状态: {status}"))?;
-    err_string(voucher_mgr::set_status(&ctx, id, s))
 }
 
 #[tauri::command]

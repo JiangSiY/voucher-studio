@@ -762,12 +762,6 @@ fn url_escape(s: &str) -> String {
     out
 }
 
-/// 兼容旧入口：仅当 WebDAV 已启用时报错提示走 run_backup（手动备份已自动上传）
-#[allow(dead_code)]
-pub fn upload_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
-    upload_backup_to_webdav(ctx, zip_path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

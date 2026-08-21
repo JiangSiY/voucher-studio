@@ -243,10 +243,8 @@ export const api = {
   listVouchers: (query: VoucherQuery) => invoke<VoucherListResult>("list_vouchers", { query }),
   getVoucher: (id: number) => invoke<VoucherDetail>("get_voucher", { id }),
   updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
-  deleteVoucher: (id: number) => invoke<void>("delete_voucher", { id }),
   /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
   deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),
-  setVoucherStatus: (id: number, status: VoucherStatus) => invoke<void>("set_voucher_status", { id, status }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
