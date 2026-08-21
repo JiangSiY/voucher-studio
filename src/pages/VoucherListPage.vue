@@ -94,8 +94,13 @@ async function importPicked() {
   const files = await pickImages();
   if (!files?.length) return;
   try {
+    // 一图一凭证：每张图片各建一张草稿凭证（导入后到详情页手动/重新 OCR）
     const summary = await api.importImages(files, null, false);
-    toast.success(`已导入 ${summary.imported.length} 张到新凭证 ${summary.voucherNo}`);
+    const parts: string[] = [];
+    if (summary.vouchers.length) parts.push(`已导入 ${summary.vouchers.length} 张图片，各建一张凭证`);
+    if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
+    if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
+    if (parts.length) toast.success(parts.join(" · "));
     load();
   } catch (e) {
     toastError(e);
@@ -208,6 +213,7 @@ onMounted(() => {
               <td><span class="mono">{{ v.voucherNo }}</span></td>
               <td>{{ v.voucherDate }}</td>
               <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.description">{{ v.description || "—" }}</td>
+              <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.counterparty">{{ v.counterparty || "—" }}</td>
               <td class="num">{{ fmtAmount(v.amountCents) }}</td>
               <td>
                 <span v-for="t in v.tags.slice(0, 2)" :key="t" class="tag tag-muted" style="margin-right: 4px">{{ t }}</span>

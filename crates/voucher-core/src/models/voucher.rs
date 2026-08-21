@@ -15,6 +15,8 @@ pub struct Voucher {
     pub voucher_date: String,
     /// 摘要/描述
     pub description: String,
+    /// 对方账户（收款方/商户，OCR 可自动抽取）
+    pub counterparty: String,
     /// 金额（分；None = 未填写）
     pub amount_cents: Option<i64>,
     pub status: VoucherStatus,
@@ -35,6 +37,8 @@ pub struct NewVoucher {
     /// 留空则取今天
     pub voucher_date: String,
     pub description: String,
+    #[serde(default)]
+    pub counterparty: String,
     pub amount_cents: Option<i64>,
     pub status: Option<VoucherStatus>,
     pub tags: Vec<String>,
@@ -42,12 +46,13 @@ pub struct NewVoucher {
 }
 
 /// 更新凭证入参（None = 不修改该字段）
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct VoucherUpdate {
     pub voucher_no: Option<String>,
     pub voucher_date: Option<String>,
     pub description: Option<String>,
+    pub counterparty: Option<String>,
     pub amount_cents: Option<i64>,
     /// 显式置空金额的开关（serde 默认 false）
     pub clear_amount: bool,

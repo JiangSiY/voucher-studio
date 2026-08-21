@@ -165,15 +165,18 @@ pub struct PrintConfig {
     pub columns: u8,
     /// 凭证卡片页是否附带附件图片页
     pub include_images: bool,
+    /// 按天分组导出（每天一份「凭证日报」PDF）；false = 合并单份
+    pub group_by_day: bool,
 }
 
 impl Default for PrintConfig {
     fn default() -> Self {
         Self {
-            title: "凭证整理单".into(),
+            title: "凭证日报".into(),
             card_style: "standard".into(),
             columns: 3,
             include_images: true,
+            group_by_day: true,
         }
     }
 }

@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use tauri::State;
 
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
-use voucher_core::models::{NewVoucher, VoucherStatus, VoucherUpdate};
+use voucher_core::models::{VoucherStatus, VoucherUpdate};
 use voucher_core::services::export::ExportOptions;
 use voucher_core::services::search::SearchHit;
 use voucher_core::services::{backup, export, ingestion, naming, ocr, search, voucher_mgr};
@@ -154,14 +154,6 @@ pub fn get_voucher(ctx: Ctx, id: i64) -> std::result::Result<voucher_mgr::Vouche
 }
 
 #[tauri::command]
-pub fn create_voucher(
-    ctx: Ctx,
-    new_voucher: NewVoucher,
-) -> std::result::Result<voucher_core::models::Voucher, String> {
-    err_string(voucher_mgr::create_voucher(&ctx, new_voucher))
-}
-
-#[tauri::command]
 pub fn update_voucher(
     ctx: Ctx,
     id: i64,
@@ -243,16 +235,31 @@ pub async fn import_images(
             &core,
             &files,
             voucher_id,
-            run_ocr.unwrap_or(false),
+            run_ocr.unwrap_or(true),
         ))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// 更换凭证图片（一图一凭证：换图不换卡），返回更新后的凭证详情
 #[tauri::command]
-pub fn delete_attachment(ctx: Ctx, id: i64) -> std::result::Result<(), String> {
-    err_string(ingestion::delete_attachment(&ctx, id))
+pub async fn replace_image(
+    ctx: Ctx<'_>,
+    voucher_id: i64,
+    path: String,
+) -> std::result::Result<voucher_mgr::VoucherDetail, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(ingestion::replace_attachment(
+            &core,
+            voucher_id,
+            &PathBuf::from(path),
+        ))?;
+        err_string(voucher_mgr::get_detail(&core, voucher_id))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -271,14 +278,23 @@ pub fn attachment_abs_path(ctx: Ctx, id: i64) -> std::result::Result<String, Str
     }
 }
 
+/// 识别附件并自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
+/// 附件可能被语义化重命名，故返回整份凭证详情供前端刷新。
 #[tauri::command]
 pub async fn run_ocr(
     ctx: Ctx<'_>,
     attachment_id: i64,
-) -> std::result::Result<voucher_core::models::Attachment, String> {
+) -> std::result::Result<voucher_mgr::VoucherDetail, String> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        err_string(ocr::run_for_attachment(&core, attachment_id))
+        let att = err_string(ocr::run_for_attachment(&core, attachment_id))?;
+        err_string(voucher_core::services::ocr_fields::apply_for_attachment(
+            &core,
+            att.voucher_id,
+            att.id,
+            voucher_core::services::ocr_fields::FillMode::Manual,
+        ))?;
+        err_string(voucher_mgr::get_detail(&core, att.voucher_id))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -349,6 +365,22 @@ pub async fn export_pdf(
     tauri::async_runtime::spawn_blocking(move || match options {
         Some(o) => err_string(export::export_vouchers_pdf(&core, &voucher_ids, &o)),
         None => err_string(export::export_with_defaults(&core, &voucher_ids)),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态）
+#[tauri::command]
+pub async fn export_pdf_daily(
+    ctx: Ctx<'_>,
+    voucher_ids: Vec<i64>,
+    options: Option<ExportOptions>,
+) -> std::result::Result<Vec<voucher_core::models::ExportBatch>, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || match options {
+        Some(o) => err_string(export::export_vouchers_daily(&core, &voucher_ids, &o)),
+        None => err_string(export::export_daily_with_defaults(&core, &voucher_ids)),
     })
     .await
     .map_err(|e| e.to_string())?

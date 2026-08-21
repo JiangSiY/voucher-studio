@@ -10,6 +10,8 @@ export interface Voucher {
   voucherNo: string;
   voucherDate: string;
   description: string;
+  /** 对方账户（收款方/商户，OCR 可自动抽取） */
+  counterparty: string;
   amountCents: number | null;
   status: VoucherStatus;
   tags: string[];
@@ -20,20 +22,11 @@ export interface Voucher {
 
 export type VoucherStatus = "draft" | "reviewed" | "exported" | "archived";
 
-export interface NewVoucher {
-  voucherNo: string;
-  voucherDate: string;
-  description: string;
-  amountCents: number | null;
-  status: VoucherStatus | null;
-  tags: string[];
-  note: string;
-}
-
 export interface VoucherUpdate {
   voucherNo?: string;
   voucherDate?: string;
   description?: string;
+  counterparty?: string;
   amountCents?: number | null;
   clearAmount?: boolean;
   status?: VoucherStatus;
@@ -118,10 +111,16 @@ export interface SearchHit {
   matchedIn: string[];
 }
 
-export interface ImportSummary {
+/** 一次导入产生的一张凭证（一图一凭证：每张图片一张凭证） */
+export interface ImportedVoucher {
   voucherId: number;
   voucherNo: string;
-  imported: Attachment[];
+  attachment: Attachment;
+}
+
+export interface ImportSummary {
+  /** 本次导入创建的凭证（每张图片一张） */
+  vouchers: ImportedVoucher[];
   skippedDuplicates: string[];
   failed: { fileName: string; reason: string }[];
 }
@@ -162,7 +161,7 @@ export interface AppConfig {
     };
   };
   wechat: { enabled: boolean; watchDir: string; mode: string };
-  print: { title: string; cardStyle: string; columns: number; includeImages: boolean };
+  print: { title: string; cardStyle: string; columns: number; includeImages: boolean; groupByDay: boolean };
 }
 
 export interface AppInfo {
@@ -243,7 +242,6 @@ export const api = {
 
   listVouchers: (query: VoucherQuery) => invoke<VoucherListResult>("list_vouchers", { query }),
   getVoucher: (id: number) => invoke<VoucherDetail>("get_voucher", { id }),
-  createVoucher: (newVoucher: NewVoucher) => invoke<Voucher>("create_voucher", { newVoucher }),
   updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
   deleteVoucher: (id: number) => invoke<void>("delete_voucher", { id }),
   /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
@@ -259,14 +257,20 @@ export const api = {
 
   importImages: (paths: string[], voucherId: number | null, runOcr: boolean) =>
     invoke<ImportSummary>("import_images", { paths, voucherId, runOcr }),
-  deleteAttachment: (id: number) => invoke<void>("delete_attachment", { id }),
+  /** 更换凭证图片（一图一凭证：换图不换卡），返回更新后的凭证详情 */
+  replaceImage: (voucherId: number, path: string) =>
+    invoke<VoucherDetail>("replace_image", { voucherId, path }),
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
-  runOcr: (attachmentId: number) => invoke<Attachment>("run_ocr", { attachmentId }),
+  /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
+  runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   runOcrPending: (limit?: number) => invoke<number>("run_ocr_pending", { limit }),
   getLocalOcrStatus: () => invoke<LocalOcrStatus>("local_ocr_status"),
 
   exportPdf: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch>("export_pdf", { voucherIds, options }),
+  /** 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态） */
+  exportPdfDaily: (voucherIds: number[], options?: ExportOptions) =>
+    invoke<ExportBatch[]>("export_pdf_daily", { voucherIds, options }),
   listExportBatches: (limit?: number) => invoke<ExportBatch[]>("list_export_batches", { limit }),
 
   runBackup: () => invoke<BackupInfo>("run_backup"),

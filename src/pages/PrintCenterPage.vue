@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * 打印中心（对应 UI 方案页面二 + 页面三）：
- * 左侧选凭证 + 打印选项，右侧实时预览（三种卡片风格 / 1-2-3 列布局），
- * 生成 PDF（Rust 后端 printpdf，A4、中文、省墨）
+ * 左侧选凭证 + 打印选项，右侧实时预览，生成 PDF（Rust 后端 printpdf，A4、中文、省墨）。
+ * 一图一凭证的默认导出形态：「按天分组」——每天一份凭证日报（汇总表 + 图片附录）。
  */
 import { computed, onMounted, ref } from "vue";
 import { api, type ExportBatch, type Voucher } from "../api/client";
@@ -20,9 +20,11 @@ const title = ref("凭证整理单");
 const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
 const columns = ref<1 | 2 | 3>(3);
 const includeImages = ref(true);
+/** 按天分组导出（每天一份日报 PDF）；false = 全部合并为一份整理单 */
+const groupByDay = ref(true);
 
 const busy = ref(false);
-const lastBatch = ref<ExportBatch | null>(null);
+const lastBatches = ref<ExportBatch[]>([]);
 
 async function load() {
   try {
@@ -48,6 +50,7 @@ async function load() {
       }
       columns.value = (p.columns === 1 || p.columns === 2 ? p.columns : 3) as 1 | 2 | 3;
       includeImages.value = p.includeImages;
+      groupByDay.value = p.groupByDay !== false;
     }
   } catch (e) {
     toastError(e);
@@ -63,6 +66,17 @@ const previewVouchers = computed(() => vouchers.value.filter((v) => selected.val
 
 const cardsPerPage = computed(() => columns.value * 7);
 
+/** 预览按天分组：Map 按插入序（日期升序，列表已按日期排序） */
+const previewByDay = computed(() => {
+  const map = new Map<string, Voucher[]>();
+  for (const v of previewVouchers.value) {
+    const list = map.get(v.voucherDate);
+    if (list) list.push(v);
+    else map.set(v.voucherDate, [v]);
+  }
+  return map;
+});
+
 async function generate() {
   if (!selected.value.size) {
     toast.warning("请先勾选要打印的凭证");
@@ -70,13 +84,25 @@ async function generate() {
   }
   busy.value = true;
   try {
-    lastBatch.value = await api.exportPdf([...selected.value], {
+    const options = {
       title: title.value,
       cardStyle: cardStyle.value,
       columns: columns.value,
       includeImages: includeImages.value,
-    });
-    toast.success(`PDF 已生成：${lastBatch.value.batchNo}（${lastBatch.value.voucherCount} 张凭证）`);
+    };
+    if (groupByDay.value) {
+      const batches = await api.exportPdfDaily([...selected.value], options);
+      lastBatches.value = batches;
+      toast.success(
+        batches.length === 1
+          ? `凭证日报已生成：${batches[0].batchNo}（${batches[0].voucherCount} 张凭证）`
+          : `已按 ${batches.length} 天生成 ${batches.length} 份凭证日报（合计 ${batches.reduce((n, b) => n + b.voucherCount, 0)} 张凭证）`,
+      );
+    } else {
+      const batch = await api.exportPdf([...selected.value], options);
+      lastBatches.value = [batch];
+      toast.success(`PDF 已生成：${batch.batchNo}（${batch.voucherCount} 张凭证）`);
+    }
   } catch (e) {
     toastError(e);
   } finally {
@@ -85,9 +111,8 @@ async function generate() {
 }
 
 async function openLastPdf() {
-  if (!lastBatch.value) return;
   try {
-    await api.openPath(lastBatch.value.pdfPath);
+    await Promise.all(lastBatches.value.map((b) => api.openPath(b.pdfPath)));
   } catch (e) {
     toastError(e);
   }
@@ -132,31 +157,44 @@ onMounted(load);
       <div class="fluent-panel">
         <div class="fluent-panel-header"><h3>打印选项</h3></div>
         <div class="fluent-panel-body">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 12px">
+            <div>
+              <div style="font-size: 13px; font-weight: 600">按天分组导出</div>
+              <div style="font-size: 12px; color: var(--text-3)">每个日期一份「凭证日报」PDF（汇总表 + 图片附录），便于按日归档</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="groupByDay" />
+              <span class="slider"></span>
+            </label>
+          </div>
           <div class="field">
-            <label>整理单标题</label>
+            <label>{{ groupByDay ? "日报标题" : "整理单标题" }}</label>
             <input v-model="title" class="input" />
           </div>
-          <div class="field">
-            <label>卡片风格</label>
-            <div class="filter-chips">
-              <button class="fchip" :class="{ active: cardStyle === 'standard' }" @click="cardStyle = 'standard'">标准式</button>
-              <button class="fchip" :class="{ active: cardStyle === 'clean' }" @click="cardStyle = 'clean'">简洁式</button>
-              <button class="fchip" :class="{ active: cardStyle === 'ledger' }" @click="cardStyle = 'ledger'">账簿式</button>
+          <!-- 卡片风格/列数仅用于合并单份；日报模板固定为「当日汇总表 + 图片页」 -->
+          <template v-if="!groupByDay">
+            <div class="field">
+              <label>卡片风格</label>
+              <div class="filter-chips">
+                <button class="fchip" :class="{ active: cardStyle === 'standard' }" @click="cardStyle = 'standard'">标准式</button>
+                <button class="fchip" :class="{ active: cardStyle === 'clean' }" @click="cardStyle = 'clean'">简洁式</button>
+                <button class="fchip" :class="{ active: cardStyle === 'ledger' }" @click="cardStyle = 'ledger'">账簿式</button>
+              </div>
+              <div class="desc">以凭证编号为核心、文字为主、省墨设计，无二维码</div>
             </div>
-            <div class="desc">以凭证编号为核心、文字为主、省墨设计，无二维码</div>
-          </div>
-          <div class="field">
-            <label>每行列数</label>
-            <div class="filter-chips">
-              <button class="fchip" :class="{ active: columns === 3 }" @click="columns = 3">3 列 · 21 张/页</button>
-              <button class="fchip" :class="{ active: columns === 2 }" @click="columns = 2">2 列 · 14 张/页</button>
-              <button class="fchip" :class="{ active: columns === 1 }" @click="columns = 1">1 列 · 7 张/页</button>
+            <div class="field">
+              <label>每行列数</label>
+              <div class="filter-chips">
+                <button class="fchip" :class="{ active: columns === 3 }" @click="columns = 3">3 列 · 21 张/页</button>
+                <button class="fchip" :class="{ active: columns === 2 }" @click="columns = 2">2 列 · 14 张/页</button>
+                <button class="fchip" :class="{ active: columns === 1 }" @click="columns = 1">1 列 · 7 张/页</button>
+              </div>
             </div>
-          </div>
+          </template>
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
             <div>
               <div style="font-size: 13px; font-weight: 600">附带附件图片页</div>
-              <div style="font-size: 12px; color: var(--text-3)">在凭证卡片后追加图片附录（每页 2×2）</div>
+              <div style="font-size: 12px; color: var(--text-3)">{{ groupByDay ? "在日报汇总表后追加当日图片附录（每页 2×2）" : "在凭证卡片后追加图片附录（每页 2×2）" }}</div>
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="includeImages" />
@@ -165,11 +203,11 @@ onMounted(load);
           </div>
           <button class="btn btn-primary" style="width: 100%; justify-content: center; padding: 8px" :disabled="busy"
             @click="generate">
-            {{ busy ? "生成中…" : "🖨 生成 PDF" }}
+            {{ busy ? "生成中…" : groupByDay ? "🖨 生成凭证日报" : "🖨 生成 PDF" }}
           </button>
-          <button v-if="lastBatch" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
+          <button v-if="lastBatches.length" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
             @click="openLastPdf">
-            打开上一次生成的 PDF（{{ lastBatch.batchNo }}）
+            打开上一次生成的 PDF（{{ lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报` }}）
           </button>
         </div>
       </div>
@@ -179,18 +217,38 @@ onMounted(load);
     <div>
       <div class="print-area">
         <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 8px">{{ title }}</div>
-        <div v-if="previewVouchers.length" class="print-grid" :class="`cols-${columns}`">
+
+        <!-- 按天分组预览：每天一个小节（日期 + 当日卡片） -->
+        <template v-if="groupByDay && previewVouchers.length">
+          <div v-for="[date, dayVouchers] in previewByDay" :key="date" style="margin-bottom: 12px">
+            <div
+              style="display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid #d8d8d8; padding-bottom: 4px; margin-bottom: 8px">
+              <span style="font-weight: 700; font-size: 13px">{{ date }}</span>
+              <span style="font-size: 11px; color: #8e8e8e">{{ dayVouchers.length }} 张凭证 · 日报含汇总表与合计行</span>
+            </div>
+            <div class="print-grid cols-2">
+              <VoucherCard v-for="v in dayVouchers.slice(0, 4)" :key="v.id" :voucher="v" :style="'clean'" :title="title" />
+            </div>
+            <div v-if="dayVouchers.length > 4" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+              当日其余 {{ dayVouchers.length - 4 }} 张在 PDF 汇总表中完整输出
+            </div>
+          </div>
+        </template>
+
+        <!-- 合并单份预览：卡片网格 -->
+        <div v-else-if="previewVouchers.length" class="print-grid" :class="`cols-${columns}`">
           <VoucherCard v-for="v in previewVouchers.slice(0, cardsPerPage)" :key="v.id" :voucher="v"
             :style="cardStyle" :title="title" />
         </div>
+
         <div v-else style="text-align: center; color: #8e8e8e; padding: 48px 0; font-size: 13px">
           勾选左侧凭证后在此预览打印效果
         </div>
-        <div v-if="previewVouchers.length > cardsPerPage" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 8px">
+        <div v-if="!groupByDay && previewVouchers.length > cardsPerPage" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 8px">
           仅预览第 1 页（共 {{ Math.ceil(previewVouchers.length / cardsPerPage) }} 页），PDF 中完整输出
         </div>
         <div v-if="includeImages && previewVouchers.length" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
-          PDF 将在卡片后附带附件图片附录页
+          {{ groupByDay ? "每份日报将在汇总表后附带当日图片附录页" : "PDF 将在卡片后附带附件图片附录页" }}
         </div>
       </div>
       <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">

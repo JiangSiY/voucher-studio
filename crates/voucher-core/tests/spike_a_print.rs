@@ -25,10 +25,20 @@ fn card(n: usize) -> PdfCard {
         voucher_no: format!("20260820-{n:03}"),
         voucher_date: "2026-08-20".into(),
         description: format!("八月办公用品采购第{n}批，含打印纸、墨盒与装订夹"),
+        counterparty: if n.is_multiple_of(2) {
+            "文一办公用品店".into()
+        } else {
+            String::new()
+        },
         amount_label: if n.is_multiple_of(3) {
             String::new() // 留金额为空的卡片分支
         } else {
             format!("{}.{}", 100 + n, (n * 7) % 100)
+        },
+        amount_cents: if n.is_multiple_of(3) {
+            None
+        } else {
+            Some((100 + n as i64) * 100 + (n as i64 * 7) % 100)
         },
         tags_line: if n.is_multiple_of(2) {
             "办公 · 报销".into()

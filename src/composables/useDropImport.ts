@@ -9,7 +9,11 @@ import { toast, toastError } from "../stores/toast";
 
 const IMAGE_FILTER = /\.(jpe?g|png|bmp|webp)$/i;
 
-export function useDropImport(onImported: () => void, voucherId: number | null = null) {
+/**
+ * 全局拖放导入。一图一凭证：每张图片各建一张凭证（voucherId 附加模式除外）。
+ * @param runOcr 导入后是否立即 OCR 并自动填单（失败不影响入库）
+ */
+export function useDropImport(onImported: () => void, voucherId: number | null = null, runOcr = true) {
   const dragging = ref(false);
   let unlisten: (() => void) | null = null;
 
@@ -25,13 +29,19 @@ export function useDropImport(onImported: () => void, voucherId: number | null =
         const images = payload.paths.filter((p) => IMAGE_FILTER.test(p));
         if (images.length === 0) return;
         api
-          .importImages(images, voucherId, false)
+          .importImages(images, voucherId, runOcr)
           .then((summary) => {
-            const parts = [`新凭证 ${summary.voucherNo}`];
-            if (summary.imported.length) parts.push(`导入 ${summary.imported.length} 张`);
+            const parts: string[] = [];
+            if (summary.vouchers.length) {
+              parts.push(
+                voucherId == null
+                  ? `新建 ${summary.vouchers.length} 张凭证（一图一凭证）`
+                  : `已附加图片到凭证 ${summary.vouchers[0].voucherNo}`,
+              );
+            }
             if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
             if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
-            toast.success(parts.join(" · "));
+            if (parts.length) toast.success(parts.join(" · "));
             onImported();
           })
           .catch(toastError);

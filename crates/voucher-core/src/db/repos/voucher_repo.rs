@@ -53,22 +53,23 @@ pub struct VoucherStats {
 }
 
 const COLS: &str =
-    "id, voucher_no, voucher_date, description, amount_cents, status, tags, note, created_at, updated_at";
+    "id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at";
 
 fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
-    let tags_json: String = row.get(6)?;
-    let status: String = row.get(5)?;
+    let tags_json: String = row.get(7)?;
+    let status: String = row.get(6)?;
     Ok(Voucher {
         id: row.get(0)?,
         voucher_no: row.get(1)?,
         voucher_date: row.get(2)?,
         description: row.get(3)?,
-        amount_cents: row.get(4)?,
+        counterparty: row.get(4)?,
+        amount_cents: row.get(5)?,
         status: VoucherStatus::parse(&status).unwrap_or(VoucherStatus::Draft),
         tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-        note: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        note: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -81,12 +82,13 @@ pub fn insert(conn: &Connection, v: &NewVoucher) -> Result<Voucher> {
     };
     let status = v.status.unwrap_or(VoucherStatus::Draft);
     conn.execute(
-        "INSERT INTO vouchers (voucher_no, voucher_date, description, amount_cents, status, tags, note, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        "INSERT INTO vouchers (voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
         params![
             v.voucher_no,
             date,
             v.description,
+            v.counterparty,
             v.amount_cents,
             status.as_str(),
             serde_json::to_string(&v.tags)?,
@@ -146,12 +148,13 @@ pub fn update(conn: &Connection, id: i64, u: &VoucherUpdate) -> Result<bool> {
         None => serde_json::to_string(&current.tags)?,
     };
     let n = conn.execute(
-        "UPDATE vouchers SET voucher_no=?1, voucher_date=?2, description=?3, amount_cents=?4,
-         status=?5, tags=?6, note=?7, updated_at=?8 WHERE id=?9",
+        "UPDATE vouchers SET voucher_no=?1, voucher_date=?2, description=?3, counterparty=?4, amount_cents=?5,
+         status=?6, tags=?7, note=?8, updated_at=?9 WHERE id=?10",
         params![
             voucher_no,
             u.voucher_date.clone().unwrap_or(current.voucher_date),
             u.description.clone().unwrap_or(current.description),
+            u.counterparty.clone().unwrap_or(current.counterparty),
             amount_cents,
             status,
             tags,
@@ -194,7 +197,7 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
         let kw = format!("%{}%", escape_like(k));
         let i = bind.len() + 1;
         where_clauses.push(format!(
-            "(voucher_no LIKE ?{i} ESCAPE '\\' OR description LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\' OR tags LIKE ?{i} ESCAPE '\\')"
+            "(voucher_no LIKE ?{i} ESCAPE '\\' OR description LIKE ?{i} ESCAPE '\\' OR counterparty LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\' OR tags LIKE ?{i} ESCAPE '\\')"
         ));
         bind.push(kw);
     }
@@ -249,11 +252,12 @@ pub fn search(conn: &Connection, keyword: &str, limit: u32) -> Result<Vec<Vouche
     }
     let like = format!("%{}%", escape_like(kw));
     let sql = format!(
-        "SELECT DISTINCT v.id, v.voucher_no, v.voucher_date, v.description, v.amount_cents, v.status, v.tags, v.note, v.created_at, v.updated_at
+        "SELECT DISTINCT v.id, v.voucher_no, v.voucher_date, v.description, v.counterparty, v.amount_cents, v.status, v.tags, v.note, v.created_at, v.updated_at
          FROM vouchers v
          LEFT JOIN attachments a ON a.voucher_id = v.id
          WHERE v.voucher_no LIKE ?1 ESCAPE '\\'
             OR v.description LIKE ?1 ESCAPE '\\'
+            OR v.counterparty LIKE ?1 ESCAPE '\\'
             OR v.note LIKE ?1 ESCAPE '\\'
             OR v.tags LIKE ?1 ESCAPE '\\'
             OR a.ocr_text LIKE ?1 ESCAPE '\\'

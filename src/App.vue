@@ -46,8 +46,10 @@ onMounted(async () => {
   // 微信监听：导入结果与错误实时提示（事件内容哈希去重，重复图片静默跳过）
   unlistenWxImported = await listen<ImportSummary>("wechat:imported", (e) => {
     const s = e.payload;
-    if (s.imported.length) {
-      toast.success(`微信图片已入库：${s.voucherNo}（${s.imported.length} 张）`);
+    if (s.vouchers.length) {
+      const parts = [`微信图片已入库：${s.vouchers.length} 张图片 → ${s.vouchers.length} 张凭证`];
+      if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
+      toast.success(parts.join(" · "));
     }
   });
   unlistenWxError = await listen<string>("wechat:error", (e) => {

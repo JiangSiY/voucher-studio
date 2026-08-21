@@ -45,7 +45,8 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
     })
 }
 
-/// 批量识别待处理附件，返回成功数（失败的逐个记为 failed，不中断批次）
+/// 批量识别待处理附件，返回成功数（失败的逐个记为 failed，不中断批次）。
+/// 识别成功后自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 pub fn run_pending(ctx: &CoreContext, limit: u32) -> Result<usize> {
     let pending = ctx
         .db
@@ -53,7 +54,17 @@ pub fn run_pending(ctx: &CoreContext, limit: u32) -> Result<usize> {
     let mut ok = 0;
     for a in pending {
         match run_for_attachment(ctx, a.id) {
-            Ok(_) => ok += 1,
+            Ok(att) => {
+                if let Err(e) = crate::services::ocr_fields::apply_for_attachment(
+                    ctx,
+                    att.voucher_id,
+                    att.id,
+                    crate::services::ocr_fields::FillMode::Manual,
+                ) {
+                    log::warn!("OCR 自动填单失败（凭证 {}）: {e}", att.voucher_id);
+                }
+                ok += 1;
+            }
             Err(e) => {
                 log::warn!("OCR 失败（附件 {}）: {e}", a.id);
                 let _ = ctx.db.with_conn(|conn| {

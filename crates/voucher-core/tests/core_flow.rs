@@ -48,7 +48,7 @@ fn schema_creates_seven_tables() -> Result<()> {
             assert!(tables.iter().any(|x| x == t), "缺表 {t}");
         }
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
         Ok(())
     })
 }
@@ -176,14 +176,14 @@ fn import_images_dedups_and_ocr_text_searchable() -> Result<()> {
     let img = dir.path().join("receipt.png");
     make_png(&img);
 
-    // 第一次导入：自动建草稿凭证
+    // 第一次导入：自动建草稿凭证（一图一凭证）
     let s1 = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
-    assert_eq!(s1.imported.len(), 1);
+    assert_eq!(s1.vouchers.len(), 1);
     assert_eq!(s1.skipped_duplicates.len(), 0);
 
     // 同一文件再导入：内容重复 → 跳过
     let s2 = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
-    assert_eq!(s2.imported.len(), 0);
+    assert_eq!(s2.vouchers.len(), 0);
     assert_eq!(s2.skipped_duplicates.len(), 1);
 
     // 不支持的类型
@@ -196,7 +196,7 @@ fn import_images_dedups_and_ocr_text_searchable() -> Result<()> {
     ctx.db.with_conn(|conn| {
         voucher_core::db::repos::attachment_repo::set_ocr(
             conn,
-            s1.imported[0].id,
+            s1.vouchers[0].attachment.id,
             OcrStatus::Done,
             Some("出租车票 45.00 元"),
         )
@@ -415,15 +415,16 @@ fn delete_vouchers_cleans_attachment_files() -> Result<()> {
     let img = dir.path().join("receipt.png");
     make_png(&img);
     let summary = ingestion::import_images(&ctx, &[img], None, false)?;
-    assert_eq!(summary.imported.len(), 1);
+    assert_eq!(summary.vouchers.len(), 1);
 
     // 附件物理文件存在
-    let rel = summary.imported[0].file_path.clone();
+    let rel = summary.vouchers[0].attachment.file_path.clone();
     let abs = ctx.paths.attachment_abs(&rel);
     assert!(abs.is_file(), "附件文件应已落盘: {}", abs.display());
 
     // 批量删除（含一个不存在的 id，验证幂等跳过）
-    let n = voucher_mgr::delete_vouchers(&ctx, &[summary.voucher_id, 99999])?;
+    let vid = summary.vouchers[0].voucher_id;
+    let n = voucher_mgr::delete_vouchers(&ctx, &[vid, 99999])?;
     assert_eq!(n, 1, "只应删除实际存在的 1 张");
     assert!(!abs.exists(), "附件物理文件应随凭证删除被清理");
     let att_count: i64 = ctx.db.with_conn(|conn| {
@@ -433,7 +434,7 @@ fn delete_vouchers_cleans_attachment_files() -> Result<()> {
     assert_eq!(att_count, 0, "附件行应随外键级联清空");
 
     // 幂等：再删同一 id 返回 0
-    let again = voucher_mgr::delete_vouchers(&ctx, &[summary.voucher_id])?;
+    let again = voucher_mgr::delete_vouchers(&ctx, &[vid])?;
     assert_eq!(again, 0);
     Ok(())
 }
@@ -448,7 +449,7 @@ fn import_batch_dedups_same_content() -> Result<()> {
     std::fs::copy(&img1, &img2)?;
 
     let summary = ingestion::import_images(&ctx, &[img1, img2], None, false)?;
-    assert_eq!(summary.imported.len(), 1, "同批同内容只入库一次");
+    assert_eq!(summary.vouchers.len(), 1, "同批同内容只入库一次");
     assert_eq!(summary.skipped_duplicates.len(), 1);
     Ok(())
 }
@@ -692,10 +693,10 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     let img = dir.path().join("ocr_sample.png");
     std::fs::copy(&sample, &img)?;
     let summary = ingestion::import_images(&ctx, &[img], None, true)?;
-    assert_eq!(summary.imported.len(), 1);
+    assert_eq!(summary.vouchers.len(), 1);
 
     // 3. OCR 文本经引擎识别落库
-    let detail = voucher_mgr::get_detail(&ctx, summary.voucher_id)?;
+    let detail = voucher_mgr::get_detail(&ctx, summary.vouchers[0].voucher_id)?;
     assert_eq!(detail.attachments.len(), 1);
     let att = &detail.attachments[0];
     assert_eq!(att.ocr_status, OcrStatus::Done, "OCR 状态应为 Done");
@@ -720,7 +721,7 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     assert!(hits[0].matched_in.iter().any(|m| m == "OCR"));
 
     // 5. 导出 PDF（打印默认配置）
-    let batch = export::export_with_defaults(&ctx, &[summary.voucher_id])?;
+    let batch = export::export_with_defaults(&ctx, &[summary.vouchers[0].voucher_id])?;
     assert_eq!(batch.voucher_count, 1);
     assert!(PathBuf::from(&batch.pdf_path).exists(), "PDF 应落盘");
     assert!(std::fs::metadata(&batch.pdf_path)?.len() > 1000);
@@ -728,7 +729,7 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     // 6. 批次记录 + 凭证状态流转「已导出」
     let batches = export::list_batches(&ctx, 10)?;
     assert_eq!(batches.len(), 1);
-    let detail = voucher_mgr::get_detail(&ctx, summary.voucher_id)?;
+    let detail = voucher_mgr::get_detail(&ctx, summary.vouchers[0].voucher_id)?;
     assert_eq!(detail.voucher.status, VoucherStatus::Exported);
     Ok(())
 }
@@ -857,12 +858,15 @@ fn recovery_marker_and_health_check() -> Result<()> {
     assert!(report2.last_backup.is_some(), "已有备份应出现在报告中");
 
     // 附件缺失场景：删掉物理文件 → 报告缺失
-    let rel = s.imported[0].file_path.clone();
+    let rel = s.vouchers[0].attachment.file_path.clone();
     std::fs::remove_file(ctx.paths.attachment_abs(&rel))?;
     let report3 = recovery::check_health(&ctx)?;
     assert_eq!(report3.attachment_missing_count, 1);
     assert_eq!(report3.attachment_missing.len(), 1);
-    assert_eq!(report3.attachment_missing[0], s.imported[0].file_name);
+    assert_eq!(
+        report3.attachment_missing[0],
+        s.vouchers[0].attachment.file_name
+    );
 
     // 组合入口：异常退出状态正确汇入报告
     let _ = recovery::mark_clean_exit(&ctx);
@@ -896,4 +900,272 @@ fn file_lock_prevents_second_instance() -> Result<()> {
     assert!(voucher_core::utils::file_lock::FileLockGuard::try_acquire(&lock_path).is_err());
     drop(lock);
     Ok(())
+}
+
+// ---------- 一图一凭证（v2 schema）----------
+
+/// 不同内容的图片生成器（同批每张内容必须不同，否则会被 MD5 去重）
+fn make_png_variant(path: &std::path::Path, shade: u8) {
+    let img =
+        image::RgbImage::from_pixel(64, 48, image::Rgb([shade, 60, 180u8.saturating_sub(shade)]));
+    img.save(path).expect("save png");
+}
+
+fn voucher_count(ctx: &CoreContext) -> Result<i64> {
+    ctx.db.with_conn(|conn| {
+        conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))
+            .map_err(CoreError::from)
+    })
+}
+
+#[test]
+fn one_image_creates_one_voucher_each() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let imgs: Vec<PathBuf> = (0..3)
+        .map(|i| {
+            let p = dir.path().join(format!("receipt-{i}.png"));
+            make_png_variant(&p, 40 + i as u8 * 30);
+            p
+        })
+        .collect();
+
+    let summary = ingestion::import_images(&ctx, &imgs, None, false)?;
+    assert_eq!(summary.vouchers.len(), 3, "3 张图各建一张凭证");
+    assert_eq!(voucher_count(&ctx)?, 3);
+
+    // 每张凭证恰有 1 个附件（DB 唯一索引的语义层面验证）
+    for v in &summary.vouchers {
+        let detail = voucher_mgr::get_detail(&ctx, v.voucher_id)?;
+        assert_eq!(detail.attachments.len(), 1);
+        assert_eq!(detail.voucher.status, VoucherStatus::Draft);
+    }
+
+    // 凭证两两不同
+    let ids: std::collections::HashSet<i64> =
+        summary.vouchers.iter().map(|v| v.voucher_id).collect();
+    assert_eq!(ids.len(), 3);
+    Ok(())
+}
+
+/// G3-3 回归：同内容文件二次导入不产生空凭证（空卡缺陷的根治验证）
+#[test]
+fn g3_3_duplicate_reimport_creates_no_empty_voucher() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("dup.png");
+    make_png(&img);
+
+    let s1 = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    assert_eq!(s1.vouchers.len(), 1);
+    let count_after_first = voucher_count(&ctx)?;
+
+    // 同内容文件换名再导入 → 跳过，凭证数不变，无空卡
+    let renamed = dir.path().join("dup-copy.png");
+    std::fs::copy(&img, &renamed)?;
+    let s2 = ingestion::import_images(&ctx, &[renamed], None, false)?;
+    assert_eq!(s2.vouchers.len(), 0);
+    assert_eq!(s2.skipped_duplicates.len(), 1);
+    assert_eq!(
+        voucher_count(&ctx)?,
+        count_after_first,
+        "重复导入不得新增凭证"
+    );
+
+    // 全库无「零附件凭证」（空卡）
+    let empty: i64 = ctx.db.with_conn(|conn| {
+        conn.query_row(
+            "SELECT COUNT(*) FROM vouchers v WHERE NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(CoreError::from)
+    })?;
+    assert_eq!(empty, 0, "G3-3：库中不应存在无附件的空凭证");
+    Ok(())
+}
+
+/// 附加模式一图上限：已有图片的凭证拒绝再挂图
+#[test]
+fn attach_mode_rejects_second_image() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img1 = dir.path().join("a.png");
+    let img2 = dir.path().join("b.png");
+    make_png_variant(&img1, 50);
+    make_png_variant(&img2, 120);
+
+    let s = ingestion::import_images(&ctx, &[img1], None, false)?;
+    let vid = s.vouchers[0].voucher_id;
+
+    // 附加模式：目标已有图 → 拒绝
+    let img2b = dir.path().join("b2.png");
+    std::fs::copy(&img2, &img2b)?;
+    let err = ingestion::import_images(&ctx, &[img2b], Some(vid), false);
+    assert!(err.is_err(), "一图一凭证：已有图的凭证不能再挂图");
+
+    // 批量附加模式：首图成功，其余失败（不转新建）
+    let img3 = dir.path().join("c.png");
+    make_png_variant(&img3, 200);
+    let v2 = voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
+    let s2 = ingestion::import_images(&ctx, &[img2, img3], Some(v2.id), false)?;
+    assert_eq!(s2.vouchers.len(), 1, "附加模式仅第一张入库");
+    assert_eq!(s2.failed.len(), 1, "第二张应报失败而非新建凭证");
+    let detail = voucher_mgr::get_detail(&ctx, v2.id)?;
+    assert_eq!(detail.attachments.len(), 1);
+    Ok(())
+}
+
+/// 更换图片：换图不换卡（旧图清理、新哈希落库、快照可追溯）
+#[test]
+fn replace_attachment_swaps_image() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img1 = dir.path().join("old.png");
+    let img2 = dir.path().join("new.png");
+    make_png_variant(&img1, 50);
+    make_png_variant(&img2, 140);
+
+    let s = ingestion::import_images(&ctx, std::slice::from_ref(&img1), None, false)?;
+    let vid = s.vouchers[0].voucher_id;
+    let old_att = s.vouchers[0].attachment.clone();
+    let old_abs = ctx.paths.attachment_abs(&old_att.file_path);
+    assert!(old_abs.is_file());
+
+    // 同内容换图 → 幂等成功（不换）
+    let same = ingestion::replace_attachment(&ctx, vid, &img1)?;
+    assert_eq!(same.file_hash, old_att.file_hash);
+
+    // 换新图：凭证不换（仍 1 张卡），附件行替换，旧物理文件清理
+    let new_att = ingestion::replace_attachment(&ctx, vid, &img2)?;
+    assert_ne!(new_att.file_hash, old_att.file_hash);
+    assert!(!old_abs.exists(), "旧物理文件应被清理");
+    let detail = voucher_mgr::get_detail(&ctx, vid)?;
+    assert_eq!(detail.attachments.len(), 1, "换图不换卡，附件仍 1 张");
+    assert_eq!(detail.attachments[0].file_hash, new_att.file_hash);
+
+    // 快照留痕
+    assert!(
+        detail.snapshots.iter().any(|s| s.reason == "replace_image"),
+        "换图应落快照，实际: {:?}",
+        detail
+            .snapshots
+            .iter()
+            .map(|s| s.reason.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    // 新图已存在于其他凭证 → 拒绝（内容唯一性）
+    let v3 = voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
+    let img3 = dir.path().join("third.png");
+    make_png_variant(&img3, 220);
+    let _ = ingestion::import_images(&ctx, &[img3], Some(v3.id), false)?;
+    let img2c = dir.path().join("new-copy.png");
+    std::fs::copy(&img2, &img2c)?;
+    let err = ingestion::replace_attachment(&ctx, v3.id, &img2c);
+    assert!(err.is_err(), "新图已存在于其他凭证时应拒绝");
+    Ok(())
+}
+
+/// 按天分组导出：不同日期的凭证各生成一份日报 PDF + 各自批次记录
+#[test]
+fn export_daily_groups_by_date() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    if voucher_core::services::pdf::find_cjk_font().is_none() {
+        eprintln!("跳过：系统无中文字体");
+        return Ok(());
+    }
+
+    let d1 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-01".into(),
+            description: "日报A1".into(),
+            counterparty: "文一商店".into(),
+            amount_cents: Some(1000),
+            ..Default::default()
+        },
+    )?;
+    let d1b = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-01".into(),
+            description: "日报A2".into(),
+            amount_cents: Some(2500),
+            ..Default::default()
+        },
+    )?;
+    let d2 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-02".into(),
+            description: "日报B1".into(),
+            amount_cents: Some(500),
+            ..Default::default()
+        },
+    )?;
+
+    let batches = export::export_vouchers_daily(
+        &ctx,
+        &[d2.id, d1.id, d1b.id], // 乱序传入，验证按日期升序输出
+        &export::ExportOptions {
+            title: "凭证日报".into(),
+            card_style: "standard".into(),
+            columns: 3,
+            include_images: false,
+        },
+    )?;
+    assert_eq!(batches.len(), 2, "两个日期应各出一份日报");
+    // BTreeMap 升序：旧日期在前
+    assert!(
+        batches[0].batch_no.contains("EXP-D20260801"),
+        "批次号带日期段: {}",
+        batches[0].batch_no
+    );
+    assert!(batches[1].batch_no.contains("EXP-D20260802"));
+    assert_eq!(batches[0].voucher_count, 2);
+    assert_eq!(batches[1].voucher_count, 1);
+    for b in &batches {
+        assert!(PathBuf::from(&b.pdf_path).exists(), "日报 PDF 应落盘");
+        assert!(std::fs::metadata(&b.pdf_path)?.len() > 1000);
+    }
+
+    // 批次记录与状态流转
+    let all = export::list_batches(&ctx, 10)?;
+    assert_eq!(all.len(), 2);
+    for id in [d1.id, d1b.id, d2.id] {
+        let detail = voucher_mgr::get_detail(&ctx, id)?;
+        assert_eq!(detail.voucher.status, VoucherStatus::Exported);
+    }
+    Ok(())
+}
+
+/// OCR 字段抽取：保守策略（日期/金额/对方账户；歧义金额放弃）
+#[test]
+fn ocr_fields_extract_conservative() {
+    use voucher_core::services::ocr_fields;
+
+    // 典型报销凭证文本
+    let text = "报销凭证\n凭证编号：20260819-001\n日期：2026年8月20日\n收款方：美团平台\n合计：1234.56元\n经办人：张三";
+    let f = ocr_fields::extract(text);
+    assert_eq!(f.date.as_deref(), Some("2026-08-20"));
+    assert_eq!(f.amount_cents, Some(123456));
+    assert_eq!(f.counterparty.as_deref(), Some("美团平台"));
+
+    // 分隔符变体 + 无标签唯一金额
+    let text2 = "2026/8/2 消费\n支出 88.5";
+    let f2 = ocr_fields::extract(text2);
+    assert_eq!(f2.date.as_deref(), Some("2026-08-02"));
+    assert_eq!(f2.amount_cents, Some(8850));
+
+    // 多个无标签金额 → 放弃（宁可空着不猜）
+    let text3 = "买东西 12.00 和 34.00";
+    let f3 = ocr_fields::extract(text3);
+    assert_eq!(f3.amount_cents, None);
+
+    // 标签优先级：合计优先于金额
+    let text4 = "金额：10.00\n合计：99.99";
+    let f4 = ocr_fields::extract(text4);
+    assert_eq!(f4.amount_cents, Some(9999));
+
+    // 非法日期（2月30日）不采纳
+    let text5 = "日期 2026年2月30日";
+    let f5 = ocr_fields::extract(text5);
+    assert_eq!(f5.date, None);
 }

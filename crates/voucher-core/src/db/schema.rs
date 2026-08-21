@@ -2,21 +2,25 @@
 //!
 //! 版本管理用 `PRAGMA user_version`。旧数据不保留：不存在任何迁移逻辑，
 //! 版本号只服务于新版自身的未来升级。
+//!
+//! v2 变化（一图一凭证）：
+//! - vouchers 新增 counterparty（对方账户）
+//! - attachments 对 voucher_id 建唯一索引：一张凭证最多一张图片（DB 层强约束）
 
 use rusqlite::Connection;
 
 use crate::Result;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
-/// v1：七张表
-/// vouchers / attachments / export_batches / export_items / snapshots / ocr_cache / config
-pub const SCHEMA_V1: &str = r#"
+/// v2：七张表（vouchers 含 counterparty + 附件唯一索引）
+pub const SCHEMA_V2: &str = r#"
 CREATE TABLE IF NOT EXISTS vouchers (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     voucher_no    TEXT    NOT NULL UNIQUE,
     voucher_date  TEXT    NOT NULL,
     description   TEXT    NOT NULL DEFAULT '',
+    counterparty  TEXT    NOT NULL DEFAULT '',
     amount_cents  INTEGER,
     status        TEXT    NOT NULL DEFAULT 'draft'
                   CHECK (status IN ('draft','reviewed','exported','archived')),
@@ -41,8 +45,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     ocr_text    TEXT,
     created_at  TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_attachments_voucher ON attachments(voucher_id);
-CREATE INDEX IF NOT EXISTS idx_attachments_hash    ON attachments(file_hash);
+CREATE INDEX IF NOT EXISTS idx_attachments_hash ON attachments(file_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_voucher ON attachments(voucher_id);
 
 CREATE TABLE IF NOT EXISTS export_batches (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,12 +89,30 @@ CREATE TABLE IF NOT EXISTS config (
 );
 "#;
 
-/// 初始化/升级 schema（幂等）
+/// v1 库的所有表（升级到 v2 时先整体清除；决策：旧数据不保留，清库重来）
+const DROP_ALL_V1: &str = r#"
+DROP TABLE IF EXISTS export_items;
+DROP TABLE IF EXISTS export_batches;
+DROP TABLE IF EXISTS snapshots;
+DROP TABLE IF EXISTS attachments;
+DROP TABLE IF EXISTS ocr_cache;
+DROP TABLE IF EXISTS config;
+DROP TABLE IF EXISTS vouchers;
+"#;
+
+/// 初始化/升级 schema。
+///
+/// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
+/// （唯一索引无法在多图存量上建立；清库重来为既定决策）。
 pub fn init(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version < 1 {
-        conn.execute_batch(SCHEMA_V1)?;
-        conn.pragma_update(None, "user_version", 1)?;
+    if version < SCHEMA_VERSION {
+        if version >= 1 {
+            log::info!("检测到 v{version} 旧库，按「清库重来」策略重建为 v{SCHEMA_VERSION}");
+        }
+        conn.execute_batch(DROP_ALL_V1)?;
+        conn.execute_batch(SCHEMA_V2)?;
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
 }

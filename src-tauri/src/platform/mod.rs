@@ -100,9 +100,10 @@ pub fn sync_wechat_watch(app: AppHandle, ctx: &Arc<CoreContext>) {
                 match voucher_core::services::ingestion::import_images(&ctx, &[path], None, true) {
                     Ok(summary) => {
                         log::info!(
-                            "微信图片入库: {} → {}",
-                            summary.voucher_no,
-                            summary.imported.len()
+                            "微信图片入库: 新建 {} 张凭证，跳过重复 {}，失败 {}",
+                            summary.vouchers.len(),
+                            summary.skipped_duplicates.len(),
+                            summary.failed.len()
                         );
                         let _ = app.emit("wechat:imported", &summary);
                     }

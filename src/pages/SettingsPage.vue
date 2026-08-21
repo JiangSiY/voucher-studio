@@ -39,7 +39,7 @@ function defaultConfig(): AppConfig {
       webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10 },
     },
     wechat: { enabled: false, watchDir: "", mode: "events" },
-    print: { title: "凭证整理单", cardStyle: "standard", columns: 3, includeImages: true },
+    print: { title: "凭证日报", cardStyle: "standard", columns: 3, includeImages: true, groupByDay: true },
   };
 }
 

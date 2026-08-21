@@ -1,9 +1,9 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
 members = ["crates/voucher-core", "src-tauri", "spikes/ocr-poc"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Voucher Studio"]
 license = "MIT"
