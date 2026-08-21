@@ -2856,16 +2856,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ocr-poc"
-version = "0.4.0"
-dependencies = [
- "image",
- "serde",
- "serde_json",
- "voucher-core",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/voucher-core", "src-tauri", "spikes/ocr-poc"]
+# spikes/* 为一次性验证程序（G1 Spike B 已完成并固化为 voucher-core::services::ocr），不参与日常构建
+members = ["crates/voucher-core", "src-tauri"]
 
 [workspace.package]
 version = "0.4.0"
