@@ -5,3 +5,9 @@ src-tauri/gen/schemas/
 src-tauri/target/
 *.log
 .DS_Store
+
+# 根目录残留图标源（v0.6 起未引用，保留在 git 历史中）
+/app-icon.png
+
+# 打印 spike 测试产物（每次 cargo test 都会重新生成，无需入库）
+/spikes/print-poc/sample-*.pdf

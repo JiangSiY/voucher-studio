@@ -1,0 +1,2 @@
+ed91e0107ce86339f6fac746ec2e27f1e2402975bbc2567764cc69a7666abd5d  Voucher Studio_0.4.0_x64-setup.exe
+3fb2b9598c428554ee74bc68fcd3abc8ae3637379123d6d2c3cceace09fd8971  Voucher Studio_0.4.0_x64_en-US.msi
