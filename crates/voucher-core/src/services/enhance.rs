@@ -80,8 +80,11 @@ pub fn run_pipeline_with(src_path: &Path, opts: &PipelineOptions) -> Result<Pipe
         )));
     }
 
-    let src = imread(src_path.to_string_lossy().as_ref(), ImreadModes::IMREAD_COLOR as i32)
-        .map_err(|e| CoreError::Invalid(format!("enhance: 读图失败: {e}")))?;
+    let src = imread(
+        src_path.to_string_lossy().as_ref(),
+        ImreadModes::IMREAD_COLOR as i32,
+    )
+    .map_err(|e| CoreError::Invalid(format!("enhance: 读图失败: {e}")))?;
     if src.empty() {
         return Err(CoreError::Invalid("enhance: 读图结果为空".into()));
     }
@@ -160,10 +163,7 @@ where
 /// 把彩色 Mat 编码为 JPEG 字节流（用于存储/传输）。
 pub fn encode_color_jpeg(mat: &Mat, quality: i32) -> Result<Vec<u8>> {
     let mut buf = Vector::<u8>::new();
-    let params = Vector::<i32>::from_iter(vec![
-        opencv::imgcodecs::IMWRITE_JPEG_QUALITY,
-        quality,
-    ]);
+    let params = Vector::<i32>::from_iter(vec![opencv::imgcodecs::IMWRITE_JPEG_QUALITY, quality]);
     imencode(".jpg", mat, &mut buf, &params)
         .map_err(|e| CoreError::Invalid(format!("imencode jpeg 失败: {e}")))?;
     Ok(buf.to_vec())
@@ -231,11 +231,7 @@ impl SourceKind {
 ///
 /// 任何失败（读图失败、流水线异常、编码失败、写盘失败）一律不抛错给调用方——
 /// 返回 `None`，由 ingestion 继续走原图入库（决策 ④ 失败兜底）。
-pub fn write_enhanced(
-    src_abs: &Path,
-    rel_base: &str,
-    opts: &PipelineOptions,
-) -> Option<String> {
+pub fn write_enhanced(src_abs: &Path, rel_base: &str, opts: &PipelineOptions) -> Option<String> {
     // 1. 跑流水线（任一步失败内部已 skip，不抛错）
     let out = match run_pipeline_with(src_abs, opts) {
         Ok(o) => o,
@@ -311,7 +307,7 @@ mod tests {
     fn pipeline_runs_synthetic_document() {
         use opencv::{
             core::{Mat, Scalar, Size},
-            imgproc::{put_text, rectangle, line, FONT_HERSHEY_SIMPLEX, LineTypes},
+            imgproc::{line, put_text, rectangle, LineTypes, FONT_HERSHEY_SIMPLEX},
         };
         use tempfile::tempdir;
 
@@ -319,9 +315,8 @@ mod tests {
         let img_path = dir.path().join("synth_doc.png");
 
         // 构造 800x600 BGR 合成图：白底 + 黑色矩形框 + 文字 + 若干水平线
-        let mut src = unsafe {
-            Mat::new_size(Size::new(800, 600), opencv::core::CV_8UC3)
-        }.expect("new_size");
+        let mut src =
+            unsafe { Mat::new_size(Size::new(800, 600), opencv::core::CV_8UC3) }.expect("new_size");
         // 全白填充
         src.set_to_def(&Scalar::new(255.0, 255.0, 255.0, 0.0))
             .expect("set_to");
@@ -382,7 +377,12 @@ mod tests {
         assert_eq!(out.mat_ocr.channels(), 1, "mat_ocr 应为单通道二值图");
 
         // 断言：trace 恰好 7 条（全开：ok 或 skip，不缺步）
-        assert_eq!(out.trace.len(), 7, "trace 应 7 条，实际 {} 条", out.trace.len());
+        assert_eq!(
+            out.trace.len(),
+            7,
+            "trace 应 7 条，实际 {} 条",
+            out.trace.len()
+        );
         eprintln!("7 步流水线 trace = {:?}", out.trace);
     }
 
@@ -395,8 +395,8 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let img_path = dir.path().join("toggle_doc.png");
 
-        let mut src = unsafe { Mat::new_size(Size::new(400, 300), opencv::core::CV_8UC3) }
-            .expect("new_size");
+        let mut src =
+            unsafe { Mat::new_size(Size::new(400, 300), opencv::core::CV_8UC3) }.expect("new_size");
         src.set_to_def(&Scalar::new(255.0, 255.0, 255.0, 0.0))
             .expect("set_to");
         let mut buf = opencv::core::Vector::<u8>::new();

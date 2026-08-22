@@ -165,10 +165,7 @@ fn enhance_disabled_skips_pipeline() {
 
     let summary = ingestion::import_images(&ctx, &[src], None, false).expect("import ok");
     let att = &summary.vouchers[0].attachment;
-    assert!(
-        att.enhanced_path.is_none(),
-        "总开关关闭 → 不生成增强版"
-    );
+    assert!(att.enhanced_path.is_none(), "总开关关闭 → 不生成增强版");
     // 来源分类仍写入（用于 UI 提示）
     assert_eq!(att.enhanced_source, EnhanceSource::Scan);
 }
@@ -262,15 +259,16 @@ fn ocr_target_uses_enhanced_when_present() {
     // OCR 服务选择的输入（来自 attachment.enhanced_path，存在时优先）
     let ocr_target = if let Some(ep) = &att.enhanced_path {
         let p = ctx.paths.attachment_abs(ep);
-        if p.exists() { p } else { ctx.paths.attachment_abs(&att.file_path) }
+        if p.exists() {
+            p
+        } else {
+            ctx.paths.attachment_abs(&att.file_path)
+        }
     } else {
         ctx.paths.attachment_abs(&att.file_path)
     };
 
-    assert_eq!(
-        ocr_target, enhanced_abs,
-        "OCR 应优先用增强版路径"
-    );
+    assert_eq!(ocr_target, enhanced_abs, "OCR 应优先用增强版路径");
     assert_ne!(ocr_target, original_abs, "OCR 不应回退到原图");
 }
 
@@ -282,13 +280,13 @@ fn duplicate_image_does_not_create_second_enhanced() {
     let src = make_doc_in_tmpdir(&dir, "scan.jpg", "jpg");
 
     // 第一次：建卡 + 增强
-    let s1 = ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false)
-        .expect("import 1");
+    let s1 =
+        ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false).expect("import 1");
     assert_eq!(s1.vouchers.len(), 1);
 
     // 第二次：内容去重 → 跳过建卡 → 增强版也只有一份
-    let s2 = ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false)
-        .expect("import 2");
+    let s2 =
+        ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false).expect("import 2");
     assert!(s2.vouchers.is_empty(), "第二次应被去重跳过");
     assert_eq!(s2.skipped_duplicates.len(), 1);
 
@@ -356,8 +354,8 @@ fn first_thumb_for_vouchers_handles_empty_input() {
 fn first_thumb_for_vouchers_omits_voucher_without_attachment() {
     // 直接建一张凭证（无附件） → IN 查询不应包含它
     let (_dir, ctx) = test_ctx();
-    use voucher_core::models::{NewVoucher, VoucherStatus};
     use voucher_core::db::repos::voucher_repo;
+    use voucher_core::models::{NewVoucher, VoucherStatus};
     let v = ctx
         .db
         .with_conn(|c| {
@@ -413,13 +411,14 @@ fn d2_enhance_hits_record_and_count() {
     assert_eq!(total, 0);
 
     // 写 3 次命中：ids[0] 两次 OCR，ids[1] 一次 export
-    ctx.db.with_conn(|c| {
-        enhance_hit_repo::record(c, ids[0], enhance_hit_repo::HitSource::Ocr).unwrap();
-        enhance_hit_repo::record(c, ids[0], enhance_hit_repo::HitSource::Ocr).unwrap();
-        enhance_hit_repo::record(c, ids[1], enhance_hit_repo::HitSource::Export).unwrap();
-        Ok(())
-    })
-    .unwrap();
+    ctx.db
+        .with_conn(|c| {
+            enhance_hit_repo::record(c, ids[0], enhance_hit_repo::HitSource::Ocr).unwrap();
+            enhance_hit_repo::record(c, ids[0], enhance_hit_repo::HitSource::Ocr).unwrap();
+            enhance_hit_repo::record(c, ids[1], enhance_hit_repo::HitSource::Export).unwrap();
+            Ok(())
+        })
+        .unwrap();
     let total = ctx.db.with_conn(enhance_hit_repo::count_total).unwrap();
     assert_eq!(total, 3);
     let grouped = ctx
@@ -454,20 +453,17 @@ fn d2_clear_v2_all_strategy() {
     let jpg2 = make_doc_with_seed_in_tmpdir(&dir, "b.jpg", "jpg", 2);
     ingestion::import_images(&ctx, &[jpg1, jpg2], None, false).expect("import");
 
-    let before = ctx
-        .db
-        .with_conn(attachment_repo::list_enhanced)
-        .unwrap();
-    assert!(before.iter().all(|a| a.enhanced_path.is_some()), "导入后应有 enhanced_path");
+    let before = ctx.db.with_conn(attachment_repo::list_enhanced).unwrap();
+    assert!(
+        before.iter().all(|a| a.enhanced_path.is_some()),
+        "导入后应有 enhanced_path"
+    );
 
     let summary = enhance_cache::clear_v2(&ctx, ClearStrategy::All, 0).expect("clear all");
     assert_eq!(summary.candidate_count, before.len() as u32);
     assert!(summary.deleted_files > 0);
 
-    let after = ctx
-        .db
-        .with_conn(attachment_repo::list_enhanced)
-        .unwrap();
+    let after = ctx.db.with_conn(attachment_repo::list_enhanced).unwrap();
     for a in &after {
         assert!(a.enhanced_path.is_none(), "释放后 enhanced_path 应清空");
     }
@@ -483,12 +479,14 @@ fn d2_clear_v2_larger_than_mb_respects_threshold() {
     ingestion::import_images(&ctx, &[jpg1, jpg2], None, false).expect("import");
 
     // 设一个超大阈值（100 MB），应该 0 个候选
-    let summary = enhance_cache::clear_v2(&ctx, ClearStrategy::LargerThanMb, 100).expect("clear huge");
+    let summary =
+        enhance_cache::clear_v2(&ctx, ClearStrategy::LargerThanMb, 100).expect("clear huge");
     assert_eq!(summary.candidate_count, 0, "100 MB 阈值下没有候选");
     assert_eq!(summary.deleted_files, 0);
 
     // 设 0 MB = 任何增强版都 ≥ 0 → 全清
-    let summary0 = enhance_cache::clear_v2(&ctx, ClearStrategy::LargerThanMb, 0).expect("clear 0MB");
+    let summary0 =
+        enhance_cache::clear_v2(&ctx, ClearStrategy::LargerThanMb, 0).expect("clear 0MB");
     assert!(summary0.candidate_count > 0, "0 MB 阈值应有候选");
     assert!(summary0.deleted_files > 0);
 }
@@ -517,14 +515,17 @@ fn d2_delete_one_clears_enhanced_and_cascades_hits_on_attachment_delete() {
         .unwrap();
     let target = ids[0];
     // 写 2 次命中
-    ctx.db.with_conn(|c| {
-        enhance_hit_repo::record(c, target, enhance_hit_repo::HitSource::Ocr).unwrap();
-        enhance_hit_repo::record(c, target, enhance_hit_repo::HitSource::Viewer).unwrap();
-        Ok(())
-    })
-    .unwrap();
+    ctx.db
+        .with_conn(|c| {
+            enhance_hit_repo::record(c, target, enhance_hit_repo::HitSource::Ocr).unwrap();
+            enhance_hit_repo::record(c, target, enhance_hit_repo::HitSource::Viewer).unwrap();
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(
-        ctx.db.with_conn(|c| enhance_hit_repo::count_by_attachment(c, target)).unwrap(),
+        ctx.db
+            .with_conn(|c| enhance_hit_repo::count_by_attachment(c, target))
+            .unwrap(),
         2
     );
 
@@ -539,7 +540,9 @@ fn d2_delete_one_clears_enhanced_and_cascades_hits_on_attachment_delete() {
         .expect("attachment 仍存在");
     assert!(a.enhanced_path.is_none(), "释放后 enhanced_path 应清空");
     assert_eq!(
-        ctx.db.with_conn(|c| enhance_hit_repo::count_by_attachment(c, target)).unwrap(),
+        ctx.db
+            .with_conn(|c| enhance_hit_repo::count_by_attachment(c, target))
+            .unwrap(),
         2,
         "释放只清 enhanced_path，hits 保留到 attachment 真被删"
     );
@@ -547,12 +550,17 @@ fn d2_delete_one_clears_enhanced_and_cascades_hits_on_attachment_delete() {
     // 模拟「附件被删」：直接 SQL DELETE 触发 FK CASCADE
     ctx.db
         .with_conn(|c| {
-            c.execute("DELETE FROM attachments WHERE id = ?", rusqlite::params![target])?;
+            c.execute(
+                "DELETE FROM attachments WHERE id = ?",
+                rusqlite::params![target],
+            )?;
             Ok(())
         })
         .unwrap();
     assert_eq!(
-        ctx.db.with_conn(|c| enhance_hit_repo::count_by_attachment(c, target)).unwrap(),
+        ctx.db
+            .with_conn(|c| enhance_hit_repo::count_by_attachment(c, target))
+            .unwrap(),
         0,
         "FK ON DELETE CASCADE 应把 hits 也删掉"
     );
@@ -592,8 +600,14 @@ fn d2_recent_enhanced_returns_with_hits() {
         rows.iter().map(|r| (r.attachment_id, r)).collect();
     assert_eq!(by_id.get(&ids[1]).unwrap().hit_count, 5);
     assert_eq!(by_id.get(&ids[0]).unwrap().hit_count, 0);
-    assert!(by_id.values().all(|r| r.enhanced_size > 0), "增强版大小应已读到");
-    assert!(by_id.values().all(|r| !r.voucher_no.is_empty()), "voucher_no 应已 JOIN 到");
+    assert!(
+        by_id.values().all(|r| r.enhanced_size > 0),
+        "增强版大小应已读到"
+    );
+    assert!(
+        by_id.values().all(|r| !r.voucher_no.is_empty()),
+        "voucher_no 应已 JOIN 到"
+    );
 }
 
 // ============================================================================
@@ -655,8 +669,8 @@ fn d5_export_records_enhance_hit_per_enhanced_attachment() {
 
     // 调 export_vouchers_pdf（合并单份模式）
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
-    let _batch = export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default())
-        .expect("export pdf");
+    let _batch =
+        export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default()).expect("export pdf");
 
     // 导出后：2 条 export 命中（每张附件 1 条）
     let export_hits_after = ctx
@@ -692,19 +706,13 @@ fn d5_export_daily_records_enhance_hit_per_enhanced_attachment() {
     let jpg = make_doc_with_seed_in_tmpdir(&dir, "d5daily.jpg", "jpg", 21);
     let summary = ingestion::import_images(&ctx, &[jpg], None, false).expect("import");
 
-    let before = ctx
-        .db
-        .with_conn(enhance_hit_repo::count_total)
-        .unwrap();
+    let before = ctx.db.with_conn(enhance_hit_repo::count_total).unwrap();
 
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
     let _batches = export::export_vouchers_daily(&ctx, &voucher_ids, &Default::default())
         .expect("export daily");
 
-    let after = ctx
-        .db
-        .with_conn(enhance_hit_repo::count_total)
-        .unwrap();
+    let after = ctx.db.with_conn(enhance_hit_repo::count_total).unwrap();
     // 仅一张附件 + 有 enhanced_path → +1
     assert!(
         after > before,
@@ -748,7 +756,9 @@ fn d6_pdf_image_abs_scan_prefers_enhanced_screenshot_uses_original() {
     );
 
     // 扫描件：PDF 取增强版 + 算命中
-    let enhanced_abs = ctx.paths.attachment_abs(scan.enhanced_path.as_ref().unwrap());
+    let enhanced_abs = ctx
+        .paths
+        .attachment_abs(scan.enhanced_path.as_ref().unwrap());
     assert_eq!(export::pdf_image_abs(&ctx, scan), enhanced_abs);
     assert!(export::uses_enhanced_in_pdf(&ctx, scan));
 
@@ -795,10 +805,7 @@ fn d6_export_screenshot_writes_no_export_hit() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(
-        export_hits, 0,
-        "截图增强版未进 PDF，不应写 Export 命中"
-    );
+    assert_eq!(export_hits, 0, "截图增强版未进 PDF，不应写 Export 命中");
 }
 
 // ============================================================================
@@ -861,10 +868,7 @@ fn d8_status_v2_hit_counts_by_source() {
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
     export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default()).expect("export");
 
-    let counts = ctx
-        .db
-        .with_conn(enhance_hit_repo::count_by_source)
-        .unwrap();
+    let counts = ctx.db.with_conn(enhance_hit_repo::count_by_source).unwrap();
     assert_eq!(counts.ocr, 2);
     assert_eq!(counts.export, 1);
     assert_eq!(counts.viewer, 1);
@@ -907,7 +911,10 @@ fn d10_hit_trend_fills_zero_days_and_buckets_by_source() {
     assert_eq!(trend.points.len(), 7, "缺日应补零至 7 个点");
 
     // 最后一个点是今天（本地日期）
-    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let today = chrono::Local::now()
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
     assert_eq!(trend.points[6].day, today, "趋势应以今天结尾");
 
     // 区间合计按来源分桶正确
@@ -937,7 +944,10 @@ fn d11_backdate(ctx: &CoreContext, att: &voucher_core::models::Attachment, days:
     let rel = att.enhanced_path.as_ref().expect("enhanced_path");
     let abs = ctx.paths.attachment_abs(rel);
     let t = std::time::SystemTime::now() - std::time::Duration::from_secs(days as u64 * 86_400);
-    let f = std::fs::File::options().write(true).open(&abs).expect("open enhanced");
+    let f = std::fs::File::options()
+        .write(true)
+        .open(&abs)
+        .expect("open enhanced");
     f.set_modified(t).expect("backdate mtime");
 }
 
@@ -955,10 +965,7 @@ fn d11_smart_clears_zero_hit_old_only() {
     let summary = ingestion::import_images(&ctx, &[a, b, c], None, false).expect("import");
     assert_eq!(summary.vouchers.len(), 3);
 
-    let atts = ctx
-        .db
-        .with_conn(attachment_repo::list_enhanced)
-        .unwrap();
+    let atts = ctx.db.with_conn(attachment_repo::list_enhanced).unwrap();
     let find = |name: &str| atts.iter().find(|x| x.file_name == name).unwrap().clone();
     let att_a = find("a.jpg");
     let att_b = find("b.jpg");
@@ -966,7 +973,9 @@ fn d11_smart_clears_zero_hit_old_only() {
 
     // B 写一次命中（证明有收益，永不清理）
     ctx.db
-        .with_conn(|conn| enhance_hit_repo::record(conn, att_b.id, enhance_hit_repo::HitSource::Ocr))
+        .with_conn(|conn| {
+            enhance_hit_repo::record(conn, att_b.id, enhance_hit_repo::HitSource::Ocr)
+        })
         .unwrap();
 
     // A、B 增强版回拨 40 天（> 宽限 30 天）；C 保持新鲜
@@ -985,8 +994,14 @@ fn d11_smart_clears_zero_hit_old_only() {
             .unwrap()
     };
     assert!(after(att_a.id).enhanced_path.is_none(), "A 应被释放");
-    assert!(after(att_b.id).enhanced_path.is_some(), "B 有命中，永不清理");
-    assert!(after(att_c.id).enhanced_path.is_some(), "C 未超宽限期，保留");
+    assert!(
+        after(att_b.id).enhanced_path.is_some(),
+        "B 有命中，永不清理"
+    );
+    assert!(
+        after(att_c.id).enhanced_path.is_some(),
+        "C 未超宽限期，保留"
+    );
 }
 
 /// D-11-2：Smart 在全零命中但全部「新鲜」时不清理（宽限期保护）
@@ -999,6 +1014,9 @@ fn d11_smart_keeps_fresh_zero_hit() {
     ingestion::import_images(&ctx, &[jpg], None, false).expect("import");
 
     let s = enhance_cache::clear_v2(&ctx, ClearStrategy::Smart, 30).expect("smart");
-    assert_eq!(s.candidate_count, 0, "刚生成的零命中增强版在宽限期内，不应清理");
+    assert_eq!(
+        s.candidate_count, 0,
+        "刚生成的零命中增强版在宽限期内，不应清理"
+    );
     assert_eq!(s.deleted_files, 0);
 }

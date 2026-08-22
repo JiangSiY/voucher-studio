@@ -238,11 +238,7 @@ pub fn set_status(ctx: &CoreContext, id: i64, status: VoucherStatus) -> Result<(
 
 /// 批量变更状态（单事务逐张快照；不存在的跳过不计入）。
 /// 整批一个事务：要么全部生效要么全部回滚，与单张口径一致。
-pub fn batch_set_status(
-    ctx: &CoreContext,
-    ids: &[i64],
-    status: VoucherStatus,
-) -> Result<usize> {
+pub fn batch_set_status(ctx: &CoreContext, ids: &[i64], status: VoucherStatus) -> Result<usize> {
     if ids.is_empty() {
         return Ok(0);
     }

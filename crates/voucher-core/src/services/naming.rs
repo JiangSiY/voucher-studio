@@ -47,9 +47,11 @@ impl NamingEngine {
             match token {
                 "date" | "date-" => {}
                 "seq" | "n" => has_seq = true,
-                other => return Err(CoreError::Invalid(format!(
+                other => {
+                    return Err(CoreError::Invalid(format!(
                     "命名模板不支持令牌 {{{other}}}（可用：{{date}}、{{date-}}、{{seq}}、{{n}}）"
-                ))),
+                )))
+                }
             }
             rest = &rest[end + 1..];
         }

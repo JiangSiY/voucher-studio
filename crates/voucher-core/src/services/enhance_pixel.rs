@@ -5,7 +5,10 @@
 
 use opencv::{
     core::Mat,
-    imgproc::{adaptive_threshold, cvt_color, gaussian_blur, median_blur, ColorConversionCodes, AdaptiveThresholdTypes, ThresholdTypes},
+    imgproc::{
+        adaptive_threshold, cvt_color, gaussian_blur, median_blur, AdaptiveThresholdTypes,
+        ColorConversionCodes, ThresholdTypes,
+    },
     prelude::*,
 };
 
@@ -21,10 +24,17 @@ pub fn to_grayscale(src: &Mat) -> Result<Mat> {
     let mut gray = Mat::default();
     if src.channels() == 1 {
         // 已是灰度图，克隆返回
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
-    cvt_color(src, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0)
-        .map_err(|e| CoreError::Invalid(format!("grayscale: cvt_color 失败: {e}")))?;
+    cvt_color(
+        src,
+        &mut gray,
+        ColorConversionCodes::COLOR_BGR2GRAY as i32,
+        0,
+    )
+    .map_err(|e| CoreError::Invalid(format!("grayscale: cvt_color 失败: {e}")))?;
     Ok(gray)
 }
 
@@ -41,7 +51,8 @@ pub fn binarize_sauvola(src: &Mat) -> Result<Mat> {
     }
     // 若输入是彩色图，先灰度化
     let gray = if src.channels() == 1 {
-        src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()))?
+        src.try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()))?
     } else {
         to_grayscale(src)?
     };

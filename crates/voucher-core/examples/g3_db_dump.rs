@@ -9,7 +9,11 @@ use rusqlite::OpenFlags;
 
 fn main() {
     let data_dir = std::env::var("APPDATA")
-        .map(|p| std::path::PathBuf::from(p).join("VoucherStudio").join("data"))
+        .map(|p| {
+            std::path::PathBuf::from(p)
+                .join("VoucherStudio")
+                .join("data")
+        })
         .expect("APPDATA");
     let db_path = data_dir.join("voucher.db");
     println!("DB: {}", db_path.display());

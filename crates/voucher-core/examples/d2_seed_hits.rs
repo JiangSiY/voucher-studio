@@ -33,9 +33,9 @@ fn main() {
 
     let plan: Vec<(usize, &[&str])> = vec![
         (0, &["ocr", "ocr", "ocr", "ocr", "ocr", "viewer"]), // id 1: 6
-        (1, &["ocr", "ocr", "ocr", "ocr", "ocr"]),          // id 2: 5
-        (2, &["ocr", "ocr", "ocr", "ocr", "ocr"]),          // id 3: 5
-        (3, &["ocr", "ocr", "ocr", "ocr", "ocr"]),          // id 4: 5
+        (1, &["ocr", "ocr", "ocr", "ocr", "ocr"]),           // id 2: 5
+        (2, &["ocr", "ocr", "ocr", "ocr", "ocr"]),           // id 3: 5
+        (3, &["ocr", "ocr", "ocr", "ocr", "ocr"]),           // id 4: 5
         (4, &["ocr"]),                                       // id 5: 1
         (5, &["ocr"]),                                       // id 6: 1
     ];

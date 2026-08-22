@@ -53,9 +53,15 @@ fn main() {
     for (id, rel) in todo {
         let abs = attachments_root.join(rel.replace('/', "\\"));
         println!("  - id={}  src={}", id, abs.display());
-        match enhance::write_enhanced(&abs, &rel.replace('\\', "/"), &enhance::PipelineOptions::default()) {
+        match enhance::write_enhanced(
+            &abs,
+            &rel.replace('\\', "/"),
+            &enhance::PipelineOptions::default(),
+        ) {
             Some(new_rel) => {
-                let res = ctx.db.with_conn(|conn| attachment_repo::set_enhanced(conn, id, &new_rel));
+                let res = ctx
+                    .db
+                    .with_conn(|conn| attachment_repo::set_enhanced(conn, id, &new_rel));
                 match res {
                     Ok(_) => {
                         println!("    ✓ 增强成功: {}", new_rel);

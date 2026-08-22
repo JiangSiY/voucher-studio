@@ -84,10 +84,7 @@ fn main() {
     for v in &summary.vouchers {
         println!(
             "  - voucher_id={}  no={}  enhanced={:?}  source={:?}",
-            v.voucher_id,
-            v.voucher_no,
-            v.attachment.enhanced_path,
-            v.attachment.enhanced_source
+            v.voucher_id, v.voucher_no, v.attachment.enhanced_path, v.attachment.enhanced_source
         );
     }
 

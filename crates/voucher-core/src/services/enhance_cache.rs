@@ -185,11 +185,13 @@ pub fn hit_trend(ctx: &CoreContext, days: u32) -> Result<HitTrend> {
         .and_then(|t| chrono::Local.from_local_datetime(&t).single())
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(chrono::Utc::now);
-    let since_iso = start_local_midnight.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let since_iso = start_local_midnight
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
 
-    let raw = ctx.db.with_conn(|conn| {
-        enhance_hit_repo::daily_counts(conn, &since_iso)
-    })?;
+    let raw = ctx
+        .db
+        .with_conn(|conn| enhance_hit_repo::daily_counts(conn, &since_iso))?;
     let by_day: std::collections::HashMap<String, enhance_hit_repo::DailyHitCount> =
         raw.into_iter().map(|d| (d.day.clone(), d)).collect();
 
@@ -234,9 +236,7 @@ pub fn record_hit(
         let a = attachment_repo::get(conn, attachment_id)?
             .ok_or_else(|| CoreError::NotFound(format!("附件 {attachment_id} 不存在")))?;
         if a.enhanced_path.is_none() {
-            return Err(CoreError::Invalid(
-                "该附件无增强版，不计命中".into(),
-            ));
+            return Err(CoreError::Invalid("该附件无增强版，不计命中".into()));
         }
         enhance_hit_repo::record(conn, attachment_id, source)
     })
@@ -290,9 +290,7 @@ pub fn clear_v2(
         ClearStrategy::OlderThanDays => {
             // 「早于 N 天」用文件 mtime 判定（写盘时间比 created_at 准）
             let since_ts = days_ago_ts(threshold);
-            list_enhanced_filtered(conn, |a| {
-                ctx_for_mtime_filter(a, ctx, since_ts)
-            })
+            list_enhanced_filtered(conn, |a| ctx_for_mtime_filter(a, ctx, since_ts))
         }
         ClearStrategy::LargerThanMb => {
             let min_bytes = (threshold as u64) * 1024 * 1024;

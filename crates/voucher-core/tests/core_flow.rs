@@ -40,7 +40,7 @@ fn schema_creates_eight_tables() -> Result<()> {
         for t in [
             "vouchers",
             "attachments",
-            "enhance_hits",     // v4：D-2 增强版命中埋点
+            "enhance_hits", // v4：D-2 增强版命中埋点
             "export_batches",
             "export_items",
             "snapshots",
@@ -60,8 +60,14 @@ fn schema_creates_eight_tables() -> Result<()> {
             }
             v
         };
-        assert!(cols.iter().any(|c| c == "enhanced_path"), "缺列 enhanced_path");
-        assert!(cols.iter().any(|c| c == "enhanced_source"), "缺列 enhanced_source");
+        assert!(
+            cols.iter().any(|c| c == "enhanced_path"),
+            "缺列 enhanced_path"
+        );
+        assert!(
+            cols.iter().any(|c| c == "enhanced_source"),
+            "缺列 enhanced_source"
+        );
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         assert_eq!(v, 4, "user_version 应为 4（v0.6.5 D-2 增强缓存管理）");
         Ok(())
@@ -443,7 +449,8 @@ fn delete_vouchers_cleans_attachment_files() -> Result<()> {
     let enh_rel = format!("{stem}.enhanced.jpg");
     let enh_abs = ctx.paths.attachment_abs(&enh_rel);
     std::fs::copy(&abs, &enh_abs)?;
-    ctx.db.with_conn(|conn| attachment_repo::set_enhanced(conn, att_id, &enh_rel))?;
+    ctx.db
+        .with_conn(|conn| attachment_repo::set_enhanced(conn, att_id, &enh_rel))?;
 
     // 批量删除（含一个不存在的 id，验证幂等跳过）
     let vid = summary.vouchers[0].voucher_id;
@@ -524,11 +531,7 @@ fn batch_set_status_snapshots_and_skips() -> Result<()> {
     voucher_mgr::set_status(&ctx, v2.id, VoucherStatus::Reviewed)?;
 
     // 批量复核：v1 生效、v2 幂等跳过、99999 不存在跳过
-    let n = voucher_mgr::batch_set_status(
-        &ctx,
-        &[v1.id, v2.id, 99999],
-        VoucherStatus::Reviewed,
-    )?;
+    let n = voucher_mgr::batch_set_status(&ctx, &[v1.id, v2.id, 99999], VoucherStatus::Reviewed)?;
     assert_eq!(n, 1, "只有 v1 实际变更");
 
     let d1 = voucher_mgr::get_detail(&ctx, v1.id)?;
@@ -540,7 +543,10 @@ fn batch_set_status_snapshots_and_skips() -> Result<()> {
     assert_eq!(d2.snapshots.len(), 1, "v2 不应因幂等跳过产生新快照");
 
     // 空列表 → 0
-    assert_eq!(voucher_mgr::batch_set_status(&ctx, &[], VoucherStatus::Archived)?, 0);
+    assert_eq!(
+        voucher_mgr::batch_set_status(&ctx, &[], VoucherStatus::Archived)?,
+        0
+    );
     Ok(())
 }
 
@@ -577,11 +583,18 @@ fn batch_edit_notes_tags_and_skips() -> Result<()> {
 
     let d1 = voucher_mgr::get_detail(&ctx, v1.id)?;
     assert_eq!(d1.voucher.note, "统一备注");
-    assert_eq!(d1.voucher.tags, vec!["差旅".to_string(), "报销".to_string()]);
+    assert_eq!(
+        d1.voucher.tags,
+        vec!["差旅".to_string(), "报销".to_string()]
+    );
     assert_eq!(d1.snapshots.len(), 1, "v1 一条 batch_edit 快照");
     assert_eq!(d1.snapshots[0].reason, "batch_edit");
     let d2 = voucher_mgr::get_detail(&ctx, v2.id)?;
-    assert_eq!(d2.voucher.tags, vec!["差旅".to_string(), "报销".to_string()], "标签整体替换而非追加");
+    assert_eq!(
+        d2.voucher.tags,
+        vec!["差旅".to_string(), "报销".to_string()],
+        "标签整体替换而非追加"
+    );
 
     // 幂等：同补丁再来一遍 → 0 变更、无新快照
     let n2 = voucher_mgr::batch_edit(
@@ -661,7 +674,10 @@ fn batch_edit_date_renumbers() -> Result<()> {
         ),
         Err(CoreError::Invalid(_))
     ));
-    assert_eq!(voucher_mgr::get_detail(&ctx, v.id)?.voucher.voucher_date, "2026-01-15");
+    assert_eq!(
+        voucher_mgr::get_detail(&ctx, v.id)?.voucher.voucher_date,
+        "2026-01-15"
+    );
     Ok(())
 }
 
@@ -1220,6 +1236,8 @@ fn recovery_marker_and_health_check() -> Result<()> {
     Ok(())
 }
 
+// Linux CI 无 secret service 守护进程，keyring 运行时往返仅在桌面平台验证
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn keyring_secret_roundtrip() -> Result<()> {
     let store = voucher_core::SecretStore::new("VoucherStudioTest");

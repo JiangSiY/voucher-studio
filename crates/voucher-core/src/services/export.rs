@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::repos::{attachment_repo, enhance_hit_repo, export_repo, snapshot_repo, voucher_repo};
+use crate::db::repos::{
+    attachment_repo, enhance_hit_repo, export_repo, snapshot_repo, voucher_repo,
+};
 use crate::models::{Attachment, EnhanceSource, ExportBatch, Voucher, VoucherStatus};
 use crate::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfInput, PdfOptions};
 use crate::{CoreContext, CoreError, Result};
@@ -35,8 +37,7 @@ pub fn pdf_image_abs(ctx: &CoreContext, a: &Attachment) -> std::path::PathBuf {
 /// D-6：该附件的增强版是否实际进了 PDF（与 pdf_image_abs 同口径）
 pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
     a.enhanced_source == EnhanceSource::Scan
-        && a
-            .enhanced_path
+        && a.enhanced_path
             .as_ref()
             .map(|ep| ctx.paths.attachment_abs(ep).exists())
             .unwrap_or(false)
@@ -307,7 +308,10 @@ fn record_batch(
     // （扫描件 + enhanced_path 存在 + 文件在盘）才算一次 Export 命中，
     // 与 pdf_image_abs 的取图规则完全一致，避免命中率虚高。
     for (_v, atts) in items {
-        for a in atts.iter().filter(|a| a.is_image() && uses_enhanced_in_pdf(ctx, a)) {
+        for a in atts
+            .iter()
+            .filter(|a| a.is_image() && uses_enhanced_in_pdf(ctx, a))
+        {
             if let Err(e) = ctx.db.with_conn(|conn| {
                 enhance_hit_repo::record(conn, a.id, enhance_hit_repo::HitSource::Export)
             }) {

@@ -162,7 +162,11 @@ pub fn list_vouchers(
             })
             .collect()
     };
-    Ok(VoucherListResult { items, total, thumbs })
+    Ok(VoucherListResult {
+        items,
+        total,
+        thumbs,
+    })
 }
 
 /// D-1 列表缩略图信息：相对附件根目录的路径，前端用 convertFileSrc 转换
@@ -710,7 +714,10 @@ pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, String> {
                 }
             }
         }
-        err_string(ctx.db.with_conn(|conn| attachment_repo::clear_enhanced(conn, a.id)))?;
+        err_string(
+            ctx.db
+                .with_conn(|conn| attachment_repo::clear_enhanced(conn, a.id)),
+        )?;
     }
     Ok(deleted)
 }
@@ -736,15 +743,14 @@ pub fn clear_enhance_cache_v2(
 ) -> std::result::Result<voucher_core::services::enhance_cache::ClearSummary, String> {
     let s = voucher_core::services::enhance_cache::ClearStrategy::parse(&strategy)
         .ok_or_else(|| format!("未知释放策略: {strategy}"))?;
-    err_string(voucher_core::services::enhance_cache::clear_v2(&ctx, s, threshold))
+    err_string(voucher_core::services::enhance_cache::clear_v2(
+        &ctx, s, threshold,
+    ))
 }
 
 /// 单条释放某张附件的增强版
 #[tauri::command]
-pub fn delete_enhanced_one(
-    ctx: Ctx,
-    attachment_id: i64,
-) -> std::result::Result<u32, String> {
+pub fn delete_enhanced_one(ctx: Ctx, attachment_id: i64) -> std::result::Result<u32, String> {
     err_string(voucher_core::services::enhance_cache::delete_one(
         &ctx,
         attachment_id,

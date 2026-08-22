@@ -320,7 +320,9 @@ fn extract_merchant(text: &str) -> Option<String> {
     for line in text.lines() {
         let t = line.trim();
         if t.chars().count() >= 4
-            && t.chars().next().is_some_and(|c| c.is_alphabetic() && !c.is_ascii())
+            && t.chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() && !c.is_ascii())
             && !t.contains('：')
             && !t.contains(':')
         {

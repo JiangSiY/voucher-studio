@@ -7,8 +7,8 @@ use opencv::{
     core::{Mat, Point, Point2f, Scalar, Size, Vector},
     imgproc::{
         adaptive_threshold, approx_poly_dp, bounding_rect, cvt_color, find_contours,
-        get_perspective_transform, get_rotation_matrix_2d, hough_lines, warp_affine, warp_perspective,
-        AdaptiveThresholdTypes, ColorConversionCodes, ContourApproximationModes,
+        get_perspective_transform, get_rotation_matrix_2d, hough_lines, warp_affine,
+        warp_perspective, AdaptiveThresholdTypes, ColorConversionCodes, ContourApproximationModes,
         InterpolationFlags, RetrievalModes, ThresholdTypes,
     },
     prelude::*,
@@ -30,8 +30,13 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
 
     let mut gray = Mat::default();
     if src.channels() == 3 || src.channels() == 4 {
-        cvt_color(src, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0)
-            .map_err(|e| CoreError::Invalid(format!("deskew: 灰度化失败: {e}")))?;
+        cvt_color(
+            src,
+            &mut gray,
+            ColorConversionCodes::COLOR_BGR2GRAY as i32,
+            0,
+        )
+        .map_err(|e| CoreError::Invalid(format!("deskew: 灰度化失败: {e}")))?;
     } else {
         gray = src.clone();
     }
@@ -55,7 +60,9 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
     .map_err(|e| CoreError::Invalid(format!("deskew: Hough 失败: {e}")))?;
 
     if lines.is_empty() {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
 
     // Vec2f[1] = theta，0.100 是 f32，统一转 f64
@@ -71,13 +78,17 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
         angles.push(angle);
     }
     if angles.is_empty() {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
     angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median_angle = angles[angles.len() / 2].to_degrees();
 
     if median_angle.abs() < 0.5 {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
 
     let (w, h) = (src.cols(), src.rows());
@@ -106,8 +117,13 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
 
     let mut gray = Mat::default();
     if src.channels() == 3 || src.channels() == 4 {
-        cvt_color(src, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0)
-            .map_err(|e| CoreError::Invalid(format!("dewarp: 灰度化失败: {e}")))?;
+        cvt_color(
+            src,
+            &mut gray,
+            ColorConversionCodes::COLOR_BGR2GRAY as i32,
+            0,
+        )
+        .map_err(|e| CoreError::Invalid(format!("dewarp: 灰度化失败: {e}")))?;
     } else {
         gray = src.clone();
     }
@@ -135,7 +151,9 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
     .map_err(|e| CoreError::Invalid(format!("dewarp: find_contours 失败: {e}")))?;
 
     if contours.is_empty() {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
 
     let mut best_quad: Option<[Point; 4]> = None;
@@ -163,11 +181,19 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
 
     let quad = match best_quad {
         Some(q) => q,
-        None => return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string())),
+        None => {
+            return src
+                .try_clone()
+                .map_err(|e| CoreError::Invalid(e.to_string()))
+        }
     };
 
     let mut pts = quad.to_vec();
-    pts.sort_by(|a, b| (a.y, a.x).partial_cmp(&(b.y, b.x)).unwrap_or(std::cmp::Ordering::Equal));
+    pts.sort_by(|a, b| {
+        (a.y, a.x)
+            .partial_cmp(&(b.y, b.x))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let (tl, br) = (pts[0], pts[3]);
     let (mut tr, mut bl) = (pts[1], pts[2]);
     if tr.x < bl.x {
@@ -179,8 +205,14 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         Point2f::new(br.x as f32, br.y as f32),
         Point2f::new(bl.x as f32, bl.y as f32),
     ]);
-    let max_w = ((br.x - tl.x) as f32).abs().max((tr.x - bl.x) as f32).max(1.0) as i32;
-    let max_h = ((br.y - tl.y) as f32).abs().max((tr.y - bl.y) as f32).max(1.0) as i32;
+    let max_w = ((br.x - tl.x) as f32)
+        .abs()
+        .max((tr.x - bl.x) as f32)
+        .max(1.0) as i32;
+    let max_h = ((br.y - tl.y) as f32)
+        .abs()
+        .max((tr.y - bl.y) as f32)
+        .max(1.0) as i32;
     let dst_pts: Vector<Point2f> = Vector::from_iter(vec![
         Point2f::new(0.0, 0.0),
         Point2f::new((max_w - 1) as f32, 0.0),
@@ -212,8 +244,13 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
 
     let mut gray = Mat::default();
     if src.channels() == 3 || src.channels() == 4 {
-        cvt_color(src, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0)
-            .map_err(|e| CoreError::Invalid(format!("autocrop: 灰度化失败: {e}")))?;
+        cvt_color(
+            src,
+            &mut gray,
+            ColorConversionCodes::COLOR_BGR2GRAY as i32,
+            0,
+        )
+        .map_err(|e| CoreError::Invalid(format!("autocrop: 灰度化失败: {e}")))?;
     } else {
         gray = src.clone();
     }
@@ -239,7 +276,9 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
     .map_err(|e| CoreError::Invalid(format!("autocrop: find_contours 失败: {e}")))?;
 
     if contours.is_empty() {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
 
     let mut min_x = i32::MAX;
@@ -247,14 +286,17 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
     let mut max_x = i32::MIN;
     let mut max_y = i32::MIN;
     for c in contours.iter() {
-        let r = bounding_rect(&c).map_err(|e| CoreError::Invalid(format!("autocrop: bbox 失败: {e}")))?;
+        let r = bounding_rect(&c)
+            .map_err(|e| CoreError::Invalid(format!("autocrop: bbox 失败: {e}")))?;
         min_x = min_x.min(r.x);
         min_y = min_y.min(r.y);
         max_x = max_x.max(r.x + r.width);
         max_y = max_y.max(r.y + r.height);
     }
     if min_x >= max_x || min_y >= max_y {
-        return src.try_clone().map_err(|e| CoreError::Invalid(e.to_string()));
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
     }
     let pad_x = ((max_x - min_x) as f32 * 0.05) as i32;
     let pad_y = ((max_y - min_y) as f32 * 0.05) as i32;
@@ -263,10 +305,12 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
     let w = (max_x - min_x - 2 * pad_x).max(1);
     let h = (max_y - min_y - 2 * pad_y).max(1);
     let roi = opencv::core::Rect::new(x, y, w, h);
-    let cropped = Mat::roi(src, roi)
-        .map_err(|e| CoreError::Invalid(format!("autocrop: roi 失败: {e}")))?;
+    let cropped =
+        Mat::roi(src, roi).map_err(|e| CoreError::Invalid(format!("autocrop: roi 失败: {e}")))?;
     let mut dst = Mat::default();
-    cropped.copy_to(&mut dst).map_err(|e| CoreError::Invalid(e.to_string()))?;
+    cropped
+        .copy_to(&mut dst)
+        .map_err(|e| CoreError::Invalid(e.to_string()))?;
     Ok(dst)
 }
 

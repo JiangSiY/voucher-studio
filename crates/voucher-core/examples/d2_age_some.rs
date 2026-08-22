@@ -39,7 +39,9 @@ fn main() {
         if i >= 2 {
             break; // 只改前 2 张
         }
-        let Some(rel) = &a.enhanced_path else { continue };
+        let Some(rel) = &a.enhanced_path else {
+            continue;
+        };
         let abs = ctx.paths.attachment_abs(rel);
         if !abs.exists() {
             println!("  - id={} 文件不存在，跳过", a.id);
@@ -53,7 +55,9 @@ fn main() {
                 } else {
                     println!(
                         "  - id={} voucher_id={} mtime 改为 60 天前 ({})",
-                        a.id, a.voucher_id, abs.display()
+                        a.id,
+                        a.voucher_id,
+                        abs.display()
                     );
                 }
             }

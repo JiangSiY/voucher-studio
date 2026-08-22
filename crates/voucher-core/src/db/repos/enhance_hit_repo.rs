@@ -73,9 +73,8 @@ pub fn count_by_attachment(conn: &Connection, attachment_id: i64) -> Result<u32>
 
 /// 批量：按 attachment_id 聚合命中次数（最近列表用）
 pub fn count_grouped_by_attachment(conn: &Connection) -> Result<Vec<(i64, u32)>> {
-    let mut stmt = conn.prepare(
-        "SELECT attachment_id, COUNT(*) FROM enhance_hits GROUP BY attachment_id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT attachment_id, COUNT(*) FROM enhance_hits GROUP BY attachment_id")?;
     let rows = stmt.query_map([], |r| {
         Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as u32))
     })?;
