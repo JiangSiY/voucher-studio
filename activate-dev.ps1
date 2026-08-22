@@ -1,5 +1,5 @@
 ﻿# Voucher Studio 开发环境激活脚本
-# 用法：pwsh -File activate-dev.ps1
+# 用法：.\activate-dev.ps1 （必须在当前会话直接运行；pwsh -File 会开子进程，环境变量不会保留）
 # 作用：把 cargo / cmake / opencv / llvm 加到 PATH，并设置 OpenCV 4.10 链接变量
 
 $env:PATH = @(
