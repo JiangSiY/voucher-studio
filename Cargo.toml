@@ -1,10 +1,10 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
 # spikes/* 为一次性验证程序（G1 Spike B 已完成并固化为 voucher-core::services::ocr），不参与日常构建
 members = ["crates/voucher-core", "src-tauri"]
 
 [workspace.package]
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 authors = ["Voucher Studio"]
 license = "MIT"
