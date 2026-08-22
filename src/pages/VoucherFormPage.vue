@@ -114,15 +114,20 @@ function applyExtractedField(field: "date" | "amount" | "counterparty" | "mercha
   }
 }
 
-/** 全部填入：四个字段一次性套用到表单 */
+/** 全部填入：四个字段一次性套用到表单。
+ * 置信度策略：仅「标签命中（可信）」的金额自动填入；
+ * 「全文唯一兜底（低置信）」的金额不自动填——用户可在卡片上单字段点填，避免静默填错。 */
 function applyAllExtracted() {
   const f = extracted.value;
   if (!f) return;
   if (f.date) voucherDate.value = f.date;
-  if (f.amountCents != null) amountYuan.value = (f.amountCents / 100).toFixed(2);
+  const amountTrusted = f.amountCents != null && f.amountSource === "labeled";
+  if (amountTrusted) amountYuan.value = (f.amountCents! / 100).toFixed(2);
   if (f.counterparty) counterparty.value = f.counterparty;
   if (f.merchant) description.value = f.merchant;
-  toast.info("已填入表单，核对后点「保存」生效");
+  const skipped =
+    f.amountCents != null && !amountTrusted ? "（低置信金额未自动填，可单独点「填」）" : "";
+  toast.info(`已填入表单，核对后点「保存」生效${skipped}`);
 }
 
 async function loadDetail() {

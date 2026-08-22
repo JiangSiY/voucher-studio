@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type BackupInfo, type CounterpartyRow, type MonthlySummary, type Voucher, type VoucherStats } from "../api/client";
+import { api, type BackupInfo, type CounterpartyRow, type MonthlySummary, type TagRow, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
@@ -33,6 +33,24 @@ function cpBarWidth(c: CounterpartyRow): string {
   return `${Math.max(2, (c.amountCents / cpMaxAmount.value) * 100)}%`;
 }
 
+// ---------- 功能深化 3：标签分类统计（按金额降序，全部历史） ----------
+
+const TAG_TOP = 10;
+const tagRows = ref<TagRow[]>([]);
+
+const tagMaxAmount = computed(() =>
+  Math.max(1, ...tagRows.value.map((t) => t.amountCents)),
+);
+
+function tagBarWidth(t: TagRow): string {
+  return `${Math.max(2, (t.amountCents / tagMaxAmount.value) * 100)}%`;
+}
+
+/** 标签显示名：空串 = 未分类 */
+function tagLabel(t: TagRow): string {
+  return t.tag || "未分类";
+}
+
 async function load() {
   try {
     stats.value = await api.voucherStats();
@@ -41,6 +59,7 @@ async function load() {
     backups.value = await api.listBackups();
     monthly.value = await api.monthlySummary(REPORT_MONTHS);
     counterparties.value = await api.topCounterparties(0, CP_TOP);
+    tagRows.value = await api.tagStats(0, TAG_TOP);
   } catch (e) {
     toastError(e);
   }
@@ -63,7 +82,7 @@ function statusOf(v: Voucher) {
   return STATUS_META[v.status];
 }
 
-// ---------- 月度趋势柱状图（手写 SVG，无第三方图表库） ----------
+// ---------- 月度趋势柱状图（手写 SVG，无第三方图表库；功能深化 3：张数/金额双指标） ----------
 
 const CHART_W = 560;
 const CHART_H = 190;
@@ -72,8 +91,15 @@ const PAD_T = 22;
 const PAD_B = 26;
 const PLOT_H = CHART_H - PAD_T - PAD_B;
 
-const maxCount = computed(() =>
-  Math.max(1, ...monthly.value.map((m) => m.count)),
+type TrendMetric = "count" | "amount";
+const trendMetric = ref<TrendMetric>("count");
+
+function metricValue(m: MonthlySummary): number {
+  return trendMetric.value === "count" ? m.count : m.amountCents;
+}
+
+const maxMetric = computed(() =>
+  Math.max(1, ...monthly.value.map(metricValue)),
 );
 
 const slot = (CHART_W - PAD_L) / Math.max(1, monthly.value.length || REPORT_MONTHS);
@@ -84,7 +110,8 @@ function barX(i: number) {
 }
 
 function barH(m: MonthlySummary) {
-  return m.count === 0 ? 3 : Math.max(4, (m.count / maxCount.value) * PLOT_H);
+  const v = metricValue(m);
+  return v === 0 ? 3 : Math.max(4, (v / maxMetric.value) * PLOT_H);
 }
 
 function barY(m: MonthlySummary) {
@@ -97,6 +124,12 @@ function barMid(i: number) {
 
 function monthLabel(m: string) {
   return `${parseInt(m.slice(5), 10)}月`;
+}
+
+/** 柱顶数值标签：张数为整数，金额为 ¥ 元（紧凑显示） */
+function barValLabel(m: MonthlySummary) {
+  if (trendMetric.value === "count") return String(m.count);
+  return `¥${fmtAmount(m.amountCents)}`;
 }
 
 function barTitle(m: MonthlySummary) {
@@ -178,20 +211,33 @@ onUnmounted(() => {
     <div class="fluent-panel">
       <div class="fluent-panel-header">
         <h3>月度趋势（近 {{ REPORT_MONTHS }} 月）</h3>
+        <!-- 功能深化 3：张数/金额双指标切换 -->
+        <div class="metric-toggle" role="tablist" aria-label="趋势指标切换">
+          <button
+            role="tab"
+            :class="{ active: trendMetric === 'count' }"
+            @click="trendMetric = 'count'"
+          >张数</button>
+          <button
+            role="tab"
+            :class="{ active: trendMetric === 'amount' }"
+            @click="trendMetric = 'amount'"
+          >金额</button>
+        </div>
       </div>
       <div class="fluent-panel-body">
         <svg
           class="trend-svg"
           :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
           role="img"
-          aria-label="月度凭证张数趋势"
+          :aria-label="trendMetric === 'count' ? '月度凭证张数趋势' : '月度凭证金额趋势'"
           preserveAspectRatio="xMidYMid meet"
         >
           <line class="axis" :x1="PAD_L" :y1="PAD_T + PLOT_H" :x2="CHART_W" :y2="PAD_T + PLOT_H" />
           <g v-for="(m, i) in monthly" :key="m.month">
             <rect
               class="bar"
-              :class="{ zero: m.count === 0 }"
+              :class="{ zero: metricValue(m) === 0 }"
               :x="barX(i)"
               :y="barY(m)"
               :width="barW"
@@ -200,8 +246,8 @@ onUnmounted(() => {
             >
               <title>{{ barTitle(m) }}</title>
             </rect>
-            <text v-if="m.count > 0" class="bar-val" :x="barMid(i)" :y="barY(m) - 5">
-              {{ m.count }}
+            <text v-if="metricValue(m) > 0" class="bar-val" :x="barMid(i)" :y="barY(m) - 5">
+              {{ barValLabel(m) }}
             </text>
             <text class="bar-label" :x="barMid(i)" :y="CHART_H - 8">
               {{ monthLabel(m.month) }}
@@ -247,22 +293,46 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- v0.7 R-1：Top 对方账户排行（按金额降序，全部历史） -->
-  <div class="fluent-panel" v-if="counterparties.length">
-    <div class="fluent-panel-header">
-      <h3>Top 对方账户（按金额 · 全部历史）</h3>
-      <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
-    </div>
-    <div class="fluent-panel-body">
-      <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row">
-        <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 }">{{ i + 1 }}</span>
-        <span class="cp-name" :title="c.name">{{ c.name }}</span>
-        <div class="cp-bar-wrap">
-          <div class="cp-bar" :style="{ width: cpBarWidth(c) }"
-            :title="`${c.name} · ¥${fmtAmount(c.amountCents)} · ${c.count} 张`" />
+  <!-- v0.7 R-1 + 功能深化 3：对方账户排行 / 标签分类统计（双栏，按金额降序，全部历史） -->
+  <div class="report-grid" v-if="counterparties.length || tagRows.length">
+    <div class="fluent-panel" v-if="counterparties.length">
+      <div class="fluent-panel-header">
+        <h3>Top 对方账户（按金额 · 全部历史）</h3>
+        <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
+      </div>
+      <div class="fluent-panel-body">
+        <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row">
+          <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 }">{{ i + 1 }}</span>
+          <span class="cp-name" :title="c.name">{{ c.name }}</span>
+          <div class="cp-bar-wrap">
+            <div class="cp-bar" :style="{ width: cpBarWidth(c) }"
+              :title="`${c.name} · ¥${fmtAmount(c.amountCents)} · ${c.count} 张`" />
+          </div>
+          <span class="cp-amount num" :title="`¥${fmtAmount(c.amountCents)}`">¥{{ fmtAmount(c.amountCents) }}</span>
+          <span class="cp-count">{{ c.count }} 张</span>
         </div>
-        <span class="cp-amount num" :title="`¥${fmtAmount(c.amountCents)}`">¥{{ fmtAmount(c.amountCents) }}</span>
-        <span class="cp-count">{{ c.count }} 张</span>
+      </div>
+    </div>
+
+    <!-- 功能深化 3：标签分类统计（未分类固定末尾；一张多标签在每个标签下各计一次） -->
+    <div class="fluent-panel" v-if="tagRows.length">
+      <div class="fluent-panel-header">
+        <h3>标签分类（按金额 · 全部历史）</h3>
+        <span class="dist-sum">共 {{ tagRows.length }} 类 · 含未分类</span>
+      </div>
+      <div class="fluent-panel-body">
+        <div v-for="(t, i) in tagRows" :key="t.tag || '__untagged__'" class="cp-row">
+          <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 && t.tag }">{{ t.tag ? i + 1 : "—" }}</span>
+          <span class="cp-name" :class="{ 'cp-name-muted': !t.tag }" :title="t.tag ? t.tag : '没有任何标签的凭证'">
+            {{ t.tag ? `# ${tagLabel(t)}` : tagLabel(t) }}
+          </span>
+          <div class="cp-bar-wrap">
+            <div class="cp-bar" :class="{ 'cp-bar-muted': !t.tag }" :style="{ width: tagBarWidth(t) }"
+              :title="`${tagLabel(t)} · ¥${fmtAmount(t.amountCents)} · ${t.count} 张`" />
+          </div>
+          <span class="cp-amount num" :title="`¥${fmtAmount(t.amountCents)}`">¥{{ fmtAmount(t.amountCents) }}</span>
+          <span class="cp-count">{{ t.count }} 张</span>
+        </div>
       </div>
     </div>
   </div>
@@ -374,6 +444,44 @@ onUnmounted(() => {
 .dist-sum {
   font-size: 12px;
   color: var(--text-disabled);
+}
+
+/* 功能深化 3：趋势指标切换（张数/金额） */
+.metric-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.metric-toggle button {
+  padding: 3px 12px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.metric-toggle button + button {
+  border-left: 1px solid var(--stroke);
+}
+
+.metric-toggle button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 功能深化 3：标签面板中「未分类」行的弱化样式 */
+.cp-name-muted {
+  color: var(--text-3);
+}
+
+.cp-bar-muted {
+  background: var(--text-disabled);
 }
 
 .dist-bar {

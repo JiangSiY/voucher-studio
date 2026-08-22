@@ -287,6 +287,27 @@ async function saveWebdavPassword() {
   cfg.backup.webdav.passwordSet = true;
 }
 
+// WebDAV 连接测试：先保存当前配置（后端读已落盘配置），再 PROPFIND 远端
+const webdavTesting = ref(false);
+const webdavTestResult = ref<{ ok: boolean; text: string } | null>(null);
+
+async function testWebdavConnection() {
+  if (webdavTesting.value) return;
+  webdavTesting.value = true;
+  webdavTestResult.value = null;
+  try {
+    await configStore.save(JSON.parse(JSON.stringify(cfg)));
+    const count = await api.testWebdav();
+    webdavTestResult.value = { ok: true, text: `连接成功，远端已有 ${count} 份备份` };
+    toast.success(`WebDAV 连接成功，远端已有 ${count} 份备份`);
+  } catch (e) {
+    webdavTestResult.value = { ok: false, text: String(e) };
+    toastError(e);
+  } finally {
+    webdavTesting.value = false;
+  }
+}
+
 async function pickWatchDir() {
   const dir = await api.pickDirectory();
   if (dir) cfg.wechat.watchDir = dir;
@@ -839,6 +860,16 @@ onUnmounted(() => unlistenOcrProgress?.());
           <input v-model.number="cfg.backup.webdav.remoteRetention" type="number" min="0" class="input"
             style="max-width: 110px" />
           <div class="desc">超出删远端最旧（0 = 不清理）。备份文件名含时间戳，按名排序即按时间。</div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px">
+        <button class="btn" :disabled="webdavTesting" @click="testWebdavConnection">
+          {{ webdavTesting ? "测试中…" : "测试连接" }}
+        </button>
+        <div v-if="webdavTestResult" class="callout"
+          :class="webdavTestResult.ok ? 'success' : 'danger'" style="margin: 0; flex: 1">
+          <span class="ci">{{ webdavTestResult.ok ? "●" : "!" }}</span>
+          <div class="ct">{{ webdavTestResult.text }}</div>
         </div>
       </div>
     </div>

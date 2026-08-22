@@ -214,6 +214,16 @@ pub fn batch_update_status(
     err_string(voucher_mgr::batch_set_status(&ctx, &ids, status))
 }
 
+/// 批量编辑（单事务逐张快照，reason=batch_edit）：日期/备注/标签，返回实际变更数
+#[tauri::command]
+pub fn batch_edit(
+    ctx: Ctx,
+    ids: Vec<i64>,
+    patch: voucher_mgr::BatchEditPatch,
+) -> std::result::Result<usize, String> {
+    err_string(voucher_mgr::batch_edit(&ctx, &ids, &patch))
+}
+
 #[tauri::command]
 pub fn voucher_stats(
     ctx: Ctx,
@@ -241,6 +251,21 @@ pub fn top_counterparties(
     limit: Option<u32>,
 ) -> std::result::Result<Vec<voucher_core::services::reports::CounterpartyRow>, String> {
     err_string(voucher_core::services::reports::top_counterparties(
+        &ctx,
+        months.unwrap_or(0),
+        limit.unwrap_or(10),
+    ))
+}
+
+/// 标签分类统计（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50；
+/// 「未分类」行 tag 为空串、固定排末尾且不占 limit 名额）
+#[tauri::command]
+pub fn tag_stats(
+    ctx: Ctx,
+    months: Option<u32>,
+    limit: Option<u32>,
+) -> std::result::Result<Vec<voucher_core::services::reports::TagRow>, String> {
+    err_string(voucher_core::services::reports::tag_stats(
         &ctx,
         months.unwrap_or(0),
         limit.unwrap_or(10),
@@ -585,6 +610,40 @@ pub async fn upload_backup(ctx: Ctx<'_>, path: String) -> std::result::Result<()
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         err_string(backup::upload_backup_to_webdav(&core, Path::new(&path)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// WebDAV 连接测试：返回远端已有备份数（配置错误/网络问题会报错）
+#[tauri::command]
+pub async fn test_webdav(ctx: Ctx<'_>) -> std::result::Result<u32, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || err_string(backup::test_webdav(&core)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 列出 WebDAV 远端备份（新 → 旧）
+#[tauri::command]
+pub async fn list_webdav_backups(
+    ctx: Ctx<'_>,
+) -> std::result::Result<Vec<backup::WebdavBackupRow>, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || err_string(backup::list_webdav_backups(&core)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 下载 WebDAV 远端备份到本地 backups/ 目录（幂等：已存在直接返回路径）
+#[tauri::command]
+pub async fn download_webdav_backup(
+    ctx: Ctx<'_>,
+    file_name: String,
+) -> std::result::Result<String, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(backup::download_webdav_backup(&core, &file_name))
     })
     .await
     .map_err(|e| e.to_string())?

@@ -51,6 +51,13 @@ export interface Attachment {
   createdAt: string;
 }
 
+/** 功能深化 2：批量编辑补丁（undefined = 不修改该字段；标签整体替换） */
+export interface BatchEditPatch {
+  voucherDate?: string;
+  note?: string;
+  tags?: string[];
+}
+
 export interface VoucherSnapshot {
   id: number;
   voucherId: number;
@@ -111,6 +118,13 @@ export interface MonthlySummary {
 /** v0.7 R-1：Top 对方账户行（按金额降序） */
 export interface CounterpartyRow {
   name: string;
+  count: number;
+  amountCents: number;
+}
+
+/** 功能深化 3：标签分类统计行（tag 为空串 = 未分类，固定排末尾） */
+export interface TagRow {
+  tag: string;
   count: number;
   amountCents: number;
 }
@@ -331,6 +345,11 @@ export interface DrillReport {
   checksumsVerified: boolean;
 }
 
+/** WebDAV 远端备份行（PROPFIND 解析结果） */
+export interface WebdavBackupRow {
+  fileName: string;
+}
+
 export interface LocalOcrStatus {
   installed: boolean;
   modelsDir: string;
@@ -364,6 +383,8 @@ export const api = {
   /** v0.7 B-1：批量状态流转（单事务逐张快照），返回实际变更数 */
   batchUpdateStatus: (ids: number[], status: VoucherStatus) =>
     invoke<number>("batch_update_status", { ids, status }),
+  batchEdit: (ids: number[], patch: BatchEditPatch) =>
+    invoke<number>("batch_edit", { ids, patch }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
@@ -371,6 +392,8 @@ export const api = {
   /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10） */
   topCounterparties: (months?: number, limit?: number) =>
     invoke<CounterpartyRow[]>("top_counterparties", { months, limit }),
+  tagStats: (months?: number, limit?: number) =>
+    invoke<TagRow[]>("tag_stats", { months, limit }),
 
   getRecoveryReport: () => invoke<RecoveryReport>("get_recovery_report"),
 
@@ -407,6 +430,10 @@ export const api = {
   drillBackup: (path?: string) =>
     invoke<DrillReport>("drill_backup", { path: path ?? null }),
   uploadBackup: (path: string) => invoke<void>("upload_backup", { path }),
+  testWebdav: () => invoke<number>("test_webdav"),
+  listWebdavBackups: () => invoke<WebdavBackupRow[]>("list_webdav_backups"),
+  downloadWebdavBackup: (fileName: string) =>
+    invoke<string>("download_webdav_backup", { fileName }),
 
   // v0.6 文档扫描矫正
   enhanceStatus: () => invoke<EnhanceStatus>("enhance_status"),

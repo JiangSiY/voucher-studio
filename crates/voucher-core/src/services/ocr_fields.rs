@@ -54,11 +54,14 @@ const MERCHANT_LABELS: [&str; 4] = ["销售方", "开票方", "销售单位", "�
 /// 从识别文本抽取字段（保守策略）
 pub fn extract(text: &str) -> ExtractedFields {
     let (amount_cents, amount_source) = extract_amount(text);
+    let merchant = extract_merchant(text);
     ExtractedFields {
         date: extract_date(text),
         amount_cents,
-        counterparty: extract_counterparty(text),
-        merchant: extract_merchant(text),
+        // 对方账户回退：收款场景标签（收款方/商户…）缺失时，商家即实际收款对象——
+        // 发票「销售方」与小票顶部店名都满足此语义（购买方是记账人自己，不算对方）
+        counterparty: extract_counterparty(text).or(merchant.clone()),
+        merchant,
         amount_source,
     }
 }
@@ -321,7 +324,16 @@ fn extract_merchant(text: &str) -> Option<String> {
             && !t.contains('：')
             && !t.contains(':')
         {
-            return Some(t.chars().take(30).collect());
+            // 去掉金额尾巴（「出租车票 45.00元」→「出租车票」）——
+            // 商家会回退为对方账户，带金额会污染凭证字段
+            let name: String = t
+                .chars()
+                .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
+                .collect();
+            let name = name.trim();
+            if name.chars().count() >= 2 {
+                return Some(name.chars().take(30).collect());
+            }
         }
     }
     None
@@ -655,6 +667,39 @@ mod tests {
         assert_eq!(unique.amount_source, Some(AmountSource::UniqueOnly));
         let none = extract("无金额文本");
         assert_eq!(none.amount_source, None);
+    }
+
+    #[test]
+    fn counterparty_falls_back_to_invoice_seller() {
+        // 发票场景：只有「销售方」标签（购买方是记账人自己，不算对方）——
+        // 收款场景标签缺失时，销售方即实际收款对象
+        let f = extract("购买方：某某科技有限公司\n销售方：顺丰速运有限公司\n价税合计：113.00元");
+        assert_eq!(f.counterparty, Some("顺丰速运有限公司".into()));
+        assert_eq!(f.merchant, Some("顺丰速运有限公司".into()));
+    }
+
+    #[test]
+    fn counterparty_falls_back_to_receipt_merchant() {
+        // 无标签小票：顶部店名兜底为商家，进而回退为对方账户
+        let f = extract("老娘舅餐饮管理\n门店号 021\n实付 32.50 元");
+        assert_eq!(f.counterparty, Some("老娘舅餐饮管理".into()));
+        assert_eq!(f.merchant, Some("老娘舅餐饮管理".into()));
+    }
+
+    #[test]
+    fn counterparty_label_beats_merchant_fallback() {
+        // 收款场景标签存在时直接命中，不触发商家回退（两者语义重合也以标签为准）
+        let f = extract("收款方：美团平台\n销售方：肯德基有限公司\n合计：45.00元");
+        assert_eq!(f.counterparty, Some("美团平台".into()));
+        assert_eq!(f.merchant, Some("肯德基有限公司".into()));
+    }
+
+    #[test]
+    fn counterparty_empty_when_no_merchant_either() {
+        // 既无收款标签也无可用商家 → 对方账户留空（保守原则）
+        let f = extract("2026-08-20 转账 100.00元");
+        assert_eq!(f.counterparty, None);
+        assert_eq!(f.merchant, None);
     }
 
     #[test]

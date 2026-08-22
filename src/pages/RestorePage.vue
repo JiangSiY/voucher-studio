@@ -1,8 +1,8 @@
 <script setup lang="ts">
-/** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传 */
+/** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传与下载 */
 import { onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type BackupInfo, type DrillReport, type RestoreSummary } from "../api/client";
+import { api, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { fmtDate, fmtSize } from "../composables/format";
@@ -99,8 +99,49 @@ async function uploadWebdav(b: BackupInfo) {
   try {
     await api.uploadBackup(b.path);
     toast.success(`已上传：${b.fileName}`);
+    await loadRemote();
   } catch (e) {
     toastError(e);
+  }
+}
+
+// ---------- WebDAV 远端备份：列表 / 下载（下载后进入本地列表即可校验/恢复） ----------
+
+const remoteBackups = ref<WebdavBackupRow[]>([]);
+const remoteLoading = ref(false);
+const remoteError = ref("");
+const downloading = ref("");
+
+async function loadRemote() {
+  remoteLoading.value = true;
+  remoteError.value = "";
+  try {
+    remoteBackups.value = await api.listWebdavBackups();
+  } catch (e) {
+    // 未启用/未配置是正常态：内联提示而不是弹错误
+    remoteError.value = e instanceof Error ? e.message : String(e);
+    remoteBackups.value = [];
+  } finally {
+    remoteLoading.value = false;
+  }
+}
+
+/** 远端文件名是否已存在于本地列表（同名即同一份，幂等跳过下载） */
+function isLocal(fileName: string) {
+  return backups.value.some((b) => b.fileName === fileName);
+}
+
+async function downloadRemote(fileName: string) {
+  if (downloading.value) return;
+  downloading.value = fileName;
+  try {
+    await api.downloadWebdavBackup(fileName);
+    toast.success(`已下载到本地备份目录：${fileName}，可在上方列表校验或恢复`);
+    await load();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    downloading.value = "";
   }
 }
 
@@ -109,6 +150,7 @@ let unlistenBackupDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
+  loadRemote();
   unlistenBackupDone = await listen("backup:done", () => load());
 });
 
@@ -191,6 +233,57 @@ onUnmounted(() => unlistenBackupDone?.());
       <EmptyState v-else icon="💾" title="还没有备份" desc="点击右上角「立即备份」创建第一份备份">
         <button class="btn btn-primary" :disabled="busy" @click="backupNow">💾 立即备份</button>
       </EmptyState>
+    </div>
+  </div>
+
+  <!-- WebDAV 云端备份：异地副本，下载后进入本地列表即可校验/恢复 -->
+  <div class="fluent-panel">
+    <div class="fluent-panel-header">
+      <h3>WebDAV 云端备份（{{ remoteBackups.length }}）</h3>
+      <div style="display: flex; gap: 8px">
+        <button class="btn btn-sm" :disabled="remoteLoading" @click="loadRemote">
+          {{ remoteLoading ? "加载中…" : "↻ 刷新远端" }}
+        </button>
+      </div>
+    </div>
+    <div class="fluent-panel-body" style="padding: 0">
+      <div v-if="remoteError" class="callout warning" style="margin: 12px">
+        <span class="ci">⚠</span>
+        <div class="ct">
+          无法读取云端列表：{{ remoteError }}。
+          请在「设置 → 备份与同步」检查 WebDAV 配置并点「测试连接」。
+        </div>
+      </div>
+      <div class="dtable-wrap" v-else-if="remoteBackups.length">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>远端备份文件</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in remoteBackups" :key="r.fileName">
+              <td><span class="mono" style="color: var(--text-2)">{{ r.fileName }}</span></td>
+              <td>
+                <span v-if="isLocal(r.fileName)" style="color: var(--success)">已在本地</span>
+                <span v-else style="color: var(--text-3)">仅云端</span>
+              </td>
+              <td>
+                <div class="action-row">
+                  <button class="icon-btn" title="下载到本地备份目录"
+                    :disabled="downloading !== '' || isLocal(r.fileName)" @click="downloadRemote(r.fileName)">
+                    {{ downloading === r.fileName ? "…" : "⬇" }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <EmptyState v-else-if="!remoteLoading" icon="☁" title="云端还没有备份"
+        desc="在「设置 → 备份与同步」启用 WebDAV 后，每次备份会自动上传云端；也可在上方列表手动补传" />
     </div>
   </div>
 

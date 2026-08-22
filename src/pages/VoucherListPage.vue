@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useConfigStore } from "../stores/config";
-import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult } from "../api/client";
+import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult, type BatchEditPatch } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
@@ -252,6 +252,60 @@ async function applyBatchStatus() {
   }
 }
 
+// ---------- 功能深化 2：批量编辑（日期/备注/标签，单事务逐张快照） ----------
+
+const batchEditVisible = ref(false);
+const batchEditBusy = ref(false);
+const editDate = ref("");
+const editNote = ref("");
+const editTags = ref("");
+
+/** 打开面板时回显当前选中集的公共值：全选中唯一值才预填（混合值留空，避免误导） */
+function openBatchEdit() {
+  const sel = items.value.filter((v) => selected.value.has(v.id));
+  const dates = new Set(sel.map((v) => v.voucherDate));
+  if (dates.size === 1) editDate.value = sel[0].voucherDate;
+  else editDate.value = "";
+  const notes = new Set(sel.map((v) => v.note));
+  editNote.value = notes.size === 1 ? sel[0].note : "";
+  const tagSets = new Set(sel.map((v) => v.tags.join(",")));
+  editTags.value = tagSets.size === 1 ? sel[0].tags.join(", ") : "";
+  batchEditVisible.value = true;
+}
+
+async function applyBatchEdit() {
+  const ids = [...selected.value];
+  if (!ids.length || batchEditBusy.value) return;
+  const patch: BatchEditPatch = {};
+  if (editDate.value.trim()) patch.voucherDate = editDate.value.trim();
+  if (editNote.value.trim()) patch.note = editNote.value.trim();
+  const tags = editTags.value
+    .split(/[,，、]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tags.length) patch.tags = tags;
+  if (!Object.keys(patch).length) {
+    toast.warning("至少填写一项要修改的内容");
+    return;
+  }
+  batchEditBusy.value = true;
+  try {
+    const n = await api.batchEdit(ids, patch);
+    if (n < ids.length) {
+      toast.warning(`已修改 ${n} 张（${ids.length - n} 张已是目标值或不存在）`);
+    } else {
+      toast.success(`已修改 ${n} 张凭证`);
+    }
+    batchEditVisible.value = false;
+    clearPrefetched();
+    load();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    batchEditBusy.value = false;
+  }
+}
+
 function askDelete(ids: number[]) {
   pendingDelete = ids;
   const suffix = "删除后凭证、附件图片及历史快照将被永久移除，不可恢复。";
@@ -348,8 +402,24 @@ onUnmounted(() => {
           <button class="btn btn-sm" :disabled="batchStatusBusy" @click="applyBatchStatus">
             {{ batchStatusBusy ? "变更中…" : "✓ 批量改状态" }}
           </button>
+          <button class="btn btn-sm" @click="openBatchEdit">✎ 批量编辑</button>
           <button class="btn btn-sm" @click="exportSelected">📤 批量导出 PDF</button>
           <button class="btn btn-sm btn-danger" @click="askDelete([...selected])">🗑 删除选中</button>
+        </div>
+      </div>
+      <!-- 功能深化 2：批量编辑面板（日期/备注/标签；改日期会按新日期重排档号） -->
+      <div v-if="batchEditVisible" class="batch-edit-panel">
+        <div class="batch-edit-row">
+          <label>日期<input v-model="editDate" type="date" class="input" title="留空 = 不修改；变更后档号按新日期重排" /></label>
+          <label>备注<input v-model="editNote" type="text" class="input" placeholder="留空 = 不修改" /></label>
+          <label>标签<input v-model="editTags" type="text" class="input" placeholder="逗号分隔，如：差旅, 报销（整体替换）" /></label>
+        </div>
+        <div class="batch-edit-row" style="justify-content: flex-end">
+          <span class="batch-edit-hint">留空的项不修改 · 已选中 {{ selected.size }} 张</span>
+          <button class="btn btn-sm" @click="batchEditVisible = false">取消</button>
+          <button class="btn btn-sm btn-primary" :disabled="batchEditBusy" @click="applyBatchEdit">
+            {{ batchEditBusy ? "应用中…" : "应用到选中" }}
+          </button>
         </div>
       </div>
     </div>
@@ -430,5 +500,39 @@ onUnmounted(() => {
   width: auto;
   padding: 4px 8px;
   font-size: 13px;
+}
+
+/* 功能深化 2：批量编辑面板 */
+.batch-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-2, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+}
+.batch-edit-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.batch-edit-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.batch-edit-row .input {
+  width: 200px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.batch-edit-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-right: auto;
 }
 </style>

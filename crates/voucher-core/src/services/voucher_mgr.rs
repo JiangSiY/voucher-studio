@@ -279,6 +279,83 @@ fn validate_date(d: &str) -> Result<String> {
     }
 }
 
+/// 批量编辑补丁：None = 不修改该字段（仅开放批量安全的字段；金额/对方账户等强业务字段不开放）
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BatchEditPatch {
+    /// 统一日期（变更后按新日期重排档号；已导出/归档的编号锁定）
+    pub voucher_date: Option<String>,
+    /// 备注（整体替换）
+    pub note: Option<String>,
+    /// 标签（整体替换）
+    pub tags: Option<Vec<String>>,
+}
+
+/// 批量编辑（单事务逐张快照，reason=batch_edit）：日期 / 备注 / 标签。
+/// 幂等跳过：凭证当前值已与补丁一致（或凭证不存在）时不产生快照、不计入变更数。
+/// 返回实际变更数。空补丁报错（避免误触产生一串无意义快照）。
+pub fn batch_edit(ctx: &CoreContext, ids: &[i64], patch: &BatchEditPatch) -> Result<usize> {
+    if patch == &BatchEditPatch::default() {
+        return Err(CoreError::Invalid("批量编辑内容为空：至少填写一项".into()));
+    }
+    if let Some(d) = &patch.voucher_date {
+        validate_date(d)?;
+    }
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let cfg = ctx.config();
+    let engine = NamingEngine::new(&cfg.naming.template);
+
+    ctx.db.with_tx(|tx| {
+        let mut changed = 0usize;
+        for id in ids {
+            let Some(current) = voucher_repo::get(tx, *id)? else {
+                continue; // 不存在/已删：跳过
+            };
+            let mut update = VoucherUpdate::default();
+            let mut date_changed = false;
+            if let Some(d) = &patch.voucher_date {
+                if *d != current.voucher_date {
+                    update.voucher_date = Some(d.clone());
+                    date_changed = true;
+                }
+            }
+            if let Some(n) = &patch.note {
+                if *n != current.note {
+                    update.note = Some(n.clone());
+                }
+            }
+            if let Some(t) = &patch.tags {
+                if *t != current.tags {
+                    update.tags = Some(t.clone());
+                }
+            }
+            if update == VoucherUpdate::default() {
+                continue; // 全部字段已是目标值：幂等跳过，不产生快照
+            }
+            snapshot_repo::insert(
+                tx,
+                &crate::models::snapshot::NewSnapshot {
+                    voucher_id: *id,
+                    payload: serde_json::to_value(&current)?,
+                    reason: "batch_edit".into(),
+                },
+            )?;
+            voucher_repo::update(tx, *id, &update)?;
+            // 日期变更 → 档号重排（规则同 update_voucher：导出/归档锁定）
+            if date_changed {
+                let new_date = patch.voucher_date.as_deref().unwrap_or_default();
+                if let Some(new_no) = renumber_for_date(tx, &engine, *id, new_date)? {
+                    log::info!("批量改日期触发档号重排：凭证 {id} → {new_no}");
+                }
+            }
+            changed += 1;
+        }
+        Ok(changed)
+    })
+}
+
 /// 给命令行/测试用：空连接上生成下一个编号
 pub fn next_voucher_no(ctx: &CoreContext, date: &str) -> Result<String> {
     let cfg = ctx.config();

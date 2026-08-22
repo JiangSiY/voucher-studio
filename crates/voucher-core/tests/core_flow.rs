@@ -544,6 +544,127 @@ fn batch_set_status_snapshots_and_skips() -> Result<()> {
     Ok(())
 }
 
+/// 功能深化 2：批量编辑——备注/标签替换、幂等跳过、空补丁报错
+#[test]
+fn batch_edit_notes_tags_and_skips() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let v1 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "批1".into(),
+            ..Default::default()
+        },
+    )?;
+    let v2 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "批2".into(),
+            tags: vec!["已有标签".into()],
+            ..Default::default()
+        },
+    )?;
+
+    let n = voucher_mgr::batch_edit(
+        &ctx,
+        &[v1.id, v2.id, 99999],
+        &voucher_mgr::BatchEditPatch {
+            note: Some("统一备注".into()),
+            tags: Some(vec!["差旅".into(), "报销".into()]),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(n, 2, "v1/v2 变更，不存在的 99999 跳过");
+
+    let d1 = voucher_mgr::get_detail(&ctx, v1.id)?;
+    assert_eq!(d1.voucher.note, "统一备注");
+    assert_eq!(d1.voucher.tags, vec!["差旅".to_string(), "报销".to_string()]);
+    assert_eq!(d1.snapshots.len(), 1, "v1 一条 batch_edit 快照");
+    assert_eq!(d1.snapshots[0].reason, "batch_edit");
+    let d2 = voucher_mgr::get_detail(&ctx, v2.id)?;
+    assert_eq!(d2.voucher.tags, vec!["差旅".to_string(), "报销".to_string()], "标签整体替换而非追加");
+
+    // 幂等：同补丁再来一遍 → 0 变更、无新快照
+    let n2 = voucher_mgr::batch_edit(
+        &ctx,
+        &[v1.id, v2.id],
+        &voucher_mgr::BatchEditPatch {
+            note: Some("统一备注".into()),
+            tags: Some(vec!["差旅".into(), "报销".into()]),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(n2, 0);
+    assert_eq!(voucher_mgr::get_detail(&ctx, v1.id)?.snapshots.len(), 1);
+
+    // 空补丁 → 报错（防误触）
+    assert!(matches!(
+        voucher_mgr::batch_edit(&ctx, &[v1.id], &voucher_mgr::BatchEditPatch::default()),
+        Err(CoreError::Invalid(_))
+    ));
+    // 空列表 → 0
+    assert_eq!(
+        voucher_mgr::batch_edit(
+            &ctx,
+            &[],
+            &voucher_mgr::BatchEditPatch {
+                note: Some("x".into()),
+                ..Default::default()
+            }
+        )?,
+        0
+    );
+    Ok(())
+}
+
+/// 功能深化 2：批量改日期——档号按新日期重排、非法日期拒绝
+#[test]
+fn batch_edit_date_renumbers() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let v = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "改日期".into(),
+            ..Default::default()
+        },
+    )?;
+    let orig_no = v.voucher_no.clone();
+
+    let n = voucher_mgr::batch_edit(
+        &ctx,
+        &[v.id],
+        &voucher_mgr::BatchEditPatch {
+            voucher_date: Some("2026-01-15".into()),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(n, 1);
+    let d = voucher_mgr::get_detail(&ctx, v.id)?;
+    assert_eq!(d.voucher.voucher_date, "2026-01-15");
+    assert_ne!(d.voucher.voucher_no, orig_no, "档号应随日期重排");
+    assert!(
+        d.voucher.voucher_no.contains("2026-01-15") || d.voucher.voucher_no.contains("20260115"),
+        "新档号应基于新日期：{}",
+        d.voucher.voucher_no
+    );
+    // 两条快照：batch_edit + renumber
+    assert!(d.snapshots.iter().any(|s| s.reason == "renumber"));
+
+    // 非法日期 → 整个事务拒绝（凭证未被改动）
+    assert!(matches!(
+        voucher_mgr::batch_edit(
+            &ctx,
+            &[v.id],
+            &voucher_mgr::BatchEditPatch {
+                voucher_date: Some("2026-02-30".into()),
+                ..Default::default()
+            }
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    assert_eq!(voucher_mgr::get_detail(&ctx, v.id)?.voucher.voucher_date, "2026-01-15");
+    Ok(())
+}
+
 /// v0.7 R-1：Top 对方账户——按金额降序、空名排除、limit 生效
 #[test]
 fn top_counterparties_orders_by_amount() -> Result<()> {
@@ -579,6 +700,56 @@ fn top_counterparties_orders_by_amount() -> Result<()> {
     let top1 = voucher_core::services::reports::top_counterparties(&ctx, 0, 1)?;
     assert_eq!(top1.len(), 1);
     assert_eq!(top1[0].name, "京东");
+    Ok(())
+}
+
+/// 功能深化 3：标签分类统计——按金额降序、多标签各计一次、未分类末尾不占名额、limit 生效
+#[test]
+fn tag_stats_orders_by_amount() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let mk = |desc: &str, tags: Vec<&str>, cents: i64| {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                description: desc.into(),
+                tags: tags.into_iter().map(String::from).collect(),
+                amount_cents: Some(cents),
+                ..Default::default()
+            },
+        )
+    };
+    mk("a", vec!["差旅", "报销"], 10000)?; // 双标签：两个分类各计 1 次
+    mk("b", vec!["差旅"], 5000)?;
+    mk("c", vec![], 3000)?; // 无标签 → 未分类
+
+    let rows = voucher_core::services::reports::tag_stats(&ctx, 0, 10)?;
+    assert_eq!(rows.len(), 3, "差旅/报销/未分类");
+    assert_eq!(rows[0].tag, "差旅");
+    assert_eq!(rows[0].count, 2, "双标签凭证在差旅下计 2 张");
+    assert_eq!(rows[0].amount_cents, 15000);
+    assert_eq!(rows[1].tag, "报销");
+    assert_eq!(rows[1].count, 1);
+    assert_eq!(rows[1].amount_cents, 10000);
+    assert_eq!(rows[2].tag, "", "未分类固定末尾");
+    assert_eq!(rows[2].count, 1);
+    assert_eq!(rows[2].amount_cents, 3000);
+
+    // limit 截断：只留差旅；未分类不占名额仍返回
+    let top1 = voucher_core::services::reports::tag_stats(&ctx, 0, 1)?;
+    assert_eq!(top1.len(), 2, "limit=1 → 差旅 + 未分类（不占名额）");
+    assert_eq!(top1[0].tag, "差旅");
+    assert_eq!(top1[1].tag, "");
+
+    // 近 1 月窗口（凭证默认今天）结果一致；空白标签不入榜、计入未分类
+    mk("d", vec!["  "], 7000)?; // 空白标签：不单独入榜，凭证算「无有效标签」
+    let m1 = voucher_core::services::reports::tag_stats(&ctx, 1, 10)?;
+    let tagged_names: Vec<&str> = m1
+        .iter()
+        .filter(|r| !r.tag.is_empty())
+        .map(|r| r.tag.as_str())
+        .collect();
+    assert_eq!(tagged_names, vec!["差旅", "报销"], "空白标签不单独成行");
+    assert_eq!(m1.last().unwrap().count, 2, "c 与 d 均无有效标签");
     Ok(())
 }
 

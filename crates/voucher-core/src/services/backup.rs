@@ -684,6 +684,27 @@ fn cleanup_webdav(
         .send()?
         .error_for_status()?;
     let body = resp.text()?;
+    let mut names = parse_backup_hrefs(&body);
+    names.sort();
+    names.dedup();
+    let excess = names.len().saturating_sub(keep as usize);
+    for name in &names[..excess] {
+        let del_url = format!("{base}/{}", url_escape(name));
+        let status = client
+            .delete(&del_url)
+            .basic_auth(user, Some(password))
+            .send()?
+            .status();
+        if !status.is_success() {
+            log::warn!("WebDAV 删除远端备份 {name} 返回 {status}");
+        }
+    }
+    Ok(())
+}
+
+/// 从 PROPFIND 响应体解析备份文件名：提取所有 href，过滤 voucher-backup-*.zip
+/// （排除目录自身），URL 解码后去重返回（不排序，由调用方决定序）。
+fn parse_backup_hrefs(body: &str) -> Vec<String> {
     let lower = body.to_lowercase();
     let mut names: Vec<String> = Vec::new();
     let mut pos = 0;
@@ -703,7 +724,7 @@ fn cleanup_webdav(
         let href = &body[content_start..content_end];
         // 只关心本程序的备份 zip，排除目录自身（href 以 / 结尾）
         if let Some(name) = href.rsplit('/').next() {
-            if name.starts_with("voucher-backup-") && name.ends_with(".zip") {
+            if is_valid_remote_name(name) {
                 // URL 解码 %XX（Nextcloud 常见）
                 let decoded = percent_decode(name);
                 names.push(decoded);
@@ -711,21 +732,128 @@ fn cleanup_webdav(
         }
         pos = content_end;
     }
+    names
+}
+
+/// 远端备份文件名白名单：voucher-backup-*.zip 且不含路径分隔符/..
+/// （下载入参校验用，防路径穿越；备份名含时间戳，天然可排序）
+fn is_valid_remote_name(name: &str) -> bool {
+    name.starts_with("voucher-backup-")
+        && name.ends_with(".zip")
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+}
+
+// ---------- WebDAV 云备份闭环：连接测试 / 远端列表 / 下载 ----------
+
+/// 远端备份行（PROPFIND 解析结果）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebdavBackupRow {
+    pub file_name: String,
+}
+
+/// WebDAV 连接参数聚合（启用 + url + 凭据齐备才可用）
+struct WebdavTarget {
+    client: reqwest::blocking::Client,
+    base: String,
+    username: String,
+    password: String,
+}
+
+/// 校验配置并构造带认证的客户端；未启用/缺配置时返回 Invalid
+fn webdav_target(ctx: &CoreContext) -> Result<WebdavTarget> {
+    let cfg = ctx.config();
+    let webdav = &cfg.backup.webdav;
+    if !webdav.enabled || webdav.url.trim().is_empty() {
+        return Err(CoreError::Invalid(
+            "WebDAV 未启用或地址为空（设置 → 备份与同步）".into(),
+        ));
+    }
+    let password = ctx
+        .secrets
+        .get(SECRET_WEBDAV_PASSWORD)?
+        .ok_or_else(|| CoreError::Invalid("WebDAV 密码未设置（密钥管理）".into()))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    Ok(WebdavTarget {
+        client,
+        base: webdav.url.trim().trim_end_matches('/').to_string(),
+        username: webdav.username.clone(),
+        password,
+    })
+}
+
+/// 连接测试：PROPFIND 根目录，返回远端已有备份数（配置错误/凭据错误/网络不通都会报错）
+pub fn test_webdav(ctx: &CoreContext) -> Result<u32> {
+    let t = webdav_target(ctx)?;
+    let resp = t
+        .client
+        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &t.base)
+        .basic_auth(&t.username, Some(&t.password))
+        .header("Depth", "1")
+        .send()?
+        .error_for_status()?;
+    let body = resp.text()?;
+    Ok(parse_backup_hrefs(&body).len() as u32)
+}
+
+/// 远端备份列表（新 → 旧：文件名含时间戳，倒序即最新在前）
+pub fn list_webdav_backups(ctx: &CoreContext) -> Result<Vec<WebdavBackupRow>> {
+    let t = webdav_target(ctx)?;
+    let resp = t
+        .client
+        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &t.base)
+        .basic_auth(&t.username, Some(&t.password))
+        .header("Depth", "1")
+        .send()?
+        .error_for_status()?;
+    let body = resp.text()?;
+    let mut names = parse_backup_hrefs(&body);
     names.sort();
     names.dedup();
-    let excess = names.len().saturating_sub(keep as usize);
-    for name in &names[..excess] {
-        let del_url = format!("{base}/{}", url_escape(name));
-        let status = client
-            .delete(&del_url)
-            .basic_auth(user, Some(password))
-            .send()?
-            .status();
-        if !status.is_success() {
-            log::warn!("WebDAV 删除远端备份 {name} 返回 {status}");
-        }
+    names.reverse(); // 新 → 旧
+    Ok(names
+        .into_iter()
+        .map(|file_name| WebdavBackupRow { file_name })
+        .collect())
+}
+
+/// 下载远端备份到本地 backups/ 目录（换机恢复链路：云端列表 → 下载 → 本地恢复）。
+/// 返回落地的本地路径。同名本地备份直接跳过下载（幂等）。
+pub fn download_webdav_backup(ctx: &CoreContext, file_name: &str) -> Result<String> {
+    if !is_valid_remote_name(file_name) {
+        return Err(CoreError::Invalid(format!("非法的远端备份名：{file_name}")));
     }
-    Ok(())
+    let t = webdav_target(ctx)?;
+    let url = format!("{}/{}", t.base, url_escape(file_name));
+    let dest = ctx.paths.backups.join(file_name);
+    if dest.exists() {
+        return Ok(dest.to_string_lossy().into_owned()); // 已下载过：幂等返回
+    }
+
+    let resp = t
+        .client
+        .get(&url)
+        .basic_auth(&t.username, Some(&t.password))
+        .send()?
+        .error_for_status()?;
+    let bytes = resp.bytes()?;
+    if bytes.is_empty() {
+        return Err(CoreError::Invalid("远端返回空文件（备份可能损坏）".into()));
+    }
+
+    // 先写临时文件再改名：下载中断不产生半截备份污染本地列表
+    let tmp = ctx.paths.temp.join(format!("webdav-dl-{file_name}"));
+    std::fs::write(&tmp, &bytes)?;
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::rename(&tmp, &dest)?;
+    log::info!("WebDAV 下载完成：{file_name} → {}", dest.display());
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 /// 简易 %XX 解码
@@ -824,5 +952,58 @@ mod tests {
             Some(d("2026-08-18"))
         );
         assert_eq!(date_of_file_name("random.zip"), None);
+    }
+
+    // ---------- WebDAV 云备份闭环 ----------
+
+    #[test]
+    fn parse_backup_hrefs_filters_dirs_and_foreign_files() {
+        // Nextcloud 风格 PROPFIND：目录自身（尾 /）+ 两个备份 + 混入文件
+        let body = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/remote.php/dav/files/user/voucher/</d:href></d:response>
+  <d:response><d:href>/remote.php/dav/files/user/voucher/voucher-backup-20260818-093000.zip</d:href></d:response>
+  <d:response><d:href>/remote.php/dav/files/user/voucher/voucher-backup-20260817-120000.zip</d:href></d:response>
+  <d:response><d:href>/remote.php/dav/files/user/voucher/readme.txt</d:href></d:response>
+</d:multistatus>"#;
+        let mut names = parse_backup_hrefs(body);
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "voucher-backup-20260817-120000.zip".to_string(),
+                "voucher-backup-20260818-093000.zip".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_backup_hrefs_decodes_percent_names() {
+        // 坚果云/Alist 常见 %XX 编码文件名：解码后再返回
+        let body = "<d:href>/dav/voucher-backup-2026%2E08%2E18.zip</d:href>";
+        let names = parse_backup_hrefs(body);
+        assert_eq!(names, vec!["voucher-backup-2026.08.18.zip".to_string()]);
+    }
+
+    #[test]
+    fn remote_name_whitelist_blocks_traversal() {
+        assert!(is_valid_remote_name("voucher-backup-20260818-093000.zip"));
+        assert!(!is_valid_remote_name("../voucher-backup-x.zip")); // 路径穿越
+        assert!(!is_valid_remote_name("sub/dir/voucher-backup-x.zip"));
+        assert!(!is_valid_remote_name("voucher-backup-x.exe")); // 非备份扩展名
+        assert!(!is_valid_remote_name("notes.txt"));
+        assert!(!is_valid_remote_name(""));
+    }
+
+    #[test]
+    fn url_escape_and_percent_decode_roundtrip() {
+        assert_eq!(
+            url_escape("voucher-backup-2026.zip"),
+            "voucher-backup-2026.zip"
+        );
+        assert_eq!(url_escape("a b&c"), "a%20b%26c");
+        assert_eq!(percent_decode("2026%2E08%2E18"), "2026.08.18");
+        // 尾部不完整 %XX：原样保留
+        assert_eq!(percent_decode("100%"), "100%");
     }
 }

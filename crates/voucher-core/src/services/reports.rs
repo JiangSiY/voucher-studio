@@ -173,3 +173,103 @@ pub fn top_counterparties(
         }
     })
 }
+
+// ---------- 功能深化 3：标签分类统计（按金额降序） ----------
+
+/// 单个标签的聚合行（tag 为空串表示「未分类」：没有任何标签的凭证）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagRow {
+    /// 标签名（空串 = 未分类）
+    pub tag: String,
+    /// 凭证张数（一张多标签的凭证在每个标签下各计 1 次）
+    pub count: i64,
+    /// 金额合计（分；空金额不计入）
+    pub amount_cents: i64,
+}
+
+/// 标签分类统计：按金额合计降序（同金额按张数降序），取前 `limit` 名。
+/// 统计范围近 `months` 个月（含当月；0 = 全部历史）。
+/// 「未分类」（无标签凭证）固定排在末尾（不占 limit 名额，便于核对总数）。
+pub fn tag_stats(ctx: &CoreContext, months: u32, limit: u32) -> Result<Vec<TagRow>> {
+    let limit = limit.clamp(1, 50);
+    // 月份窗口起点（months=0 表示全部历史，不加日期过滤）
+    let prefix_from = if months == 0 {
+        None
+    } else {
+        let first = chrono::Local::now()
+            .date_naive()
+            .with_day(1)
+            .and_then(|d| d.checked_sub_months(chrono::Months::new(months.saturating_sub(1))))
+            .ok_or_else(|| CoreError::Invalid("月份窗口计算失败".into()))?;
+        Some(first.format("%Y-%m").to_string())
+    };
+
+    ctx.db.with_conn(|conn| {
+        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<TagRow> {
+            Ok(TagRow {
+                tag: r.get(0)?,
+                count: r.get(1)?,
+                amount_cents: r.get(2)?,
+            })
+        };
+        // json_each 展开标签数组（json_valid 兜底防脏数据；TRIM 排空标签）
+        let mut tagged_stmt = conn.prepare(&format!(
+            "SELECT je.value AS tag,
+                    COUNT(*) AS cnt,
+                    COALESCE(SUM(v.amount_cents), 0) AS amt
+             FROM vouchers v, json_each(CASE WHEN json_valid(v.tags) THEN v.tags ELSE '[]' END) je
+             WHERE TRIM(je.value) <> ''
+               {date_filter}
+             GROUP BY je.value
+             ORDER BY amt DESC, cnt DESC
+             LIMIT ?",
+            date_filter = if prefix_from.is_some() {
+                "AND substr(v.voucher_date, 1, 7) >= ?"
+            } else {
+                ""
+            }
+        ))?;
+        let tagged: Vec<TagRow> = if let Some(from) = &prefix_from {
+            tagged_stmt
+                .query_map(rusqlite::params![from, limit as i64], map_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
+            tagged_stmt
+                .query_map(rusqlite::params![limit as i64], map_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        drop(tagged_stmt);
+
+        // 未分类：没有任何有效（非空白）标签的凭证（不占 limit 名额）
+        let mut untagged_stmt = conn.prepare(&format!(
+            "SELECT COUNT(*), COALESCE(SUM(amount_cents), 0)
+             FROM vouchers
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM json_each(CASE WHEN json_valid(tags) THEN tags ELSE '[]' END) je
+                 WHERE TRIM(je.value) <> ''
+             )
+               {date_filter}",
+            date_filter = if prefix_from.is_some() {
+                "AND substr(voucher_date, 1, 7) >= ?"
+            } else {
+                ""
+            }
+        ))?;
+        let (u_cnt, u_amt): (i64, i64) = if let Some(from) = &prefix_from {
+            untagged_stmt.query_row(rusqlite::params![from], |r| Ok((r.get(0)?, r.get(1)?)))?
+        } else {
+            untagged_stmt.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        };
+
+        let mut rows = tagged;
+        if u_cnt > 0 {
+            rows.push(TagRow {
+                tag: String::new(),
+                count: u_cnt,
+                amount_cents: u_amt,
+            });
+        }
+        Ok(rows)
+    })
+}
