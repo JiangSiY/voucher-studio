@@ -145,10 +145,17 @@ pub fn import_images(
         let source = enhance::classify_source(path);
         let only_scans = enhance_cfg.only_scans;
         let enhanced_rel = if enhance_cfg.enabled && !(only_scans && source == enhance::SourceKind::Screenshot) {
-            // 关闭某步 → 用原图作为输入（流水线下一步可继续处理）
-            // 注：v0.6 仍跑全 5 步，开关的"单步跳过"在 v0.6.1 实现。
-            // 这里先按总开关 + 来源过滤决策
-            enhance::write_enhanced(&dest, &rel)
+            // v0.6.1：逐项步骤开关映射进流水线（关闭的步骤记 off 并透传）
+            let opts = enhance::PipelineOptions {
+                deskew: enhance_cfg.step_deskew,
+                dewarp: enhance_cfg.step_dewarp,
+                autocrop: enhance_cfg.step_autocrop,
+                denoise: enhance_cfg.step_denoise,
+                sharpen: enhance_cfg.step_sharpen,
+                grayscale: enhance_cfg.step_grayscale,
+                binarize: enhance_cfg.step_binarize,
+            };
+            enhance::write_enhanced(&dest, &rel, &opts)
         } else {
             None
         };
@@ -172,7 +179,7 @@ pub fn import_images(
                 // v0.6 C 步：写入增强版路径 + 来源分类（事务外；失败仅告警）
                 if enhanced_rel.is_some() {
                     if let Err(e) = ctx.db.with_conn(|conn| {
-                        attachment_repo::set_enhanced(conn, attachment.id, &enhanced_rel.as_ref().unwrap())
+                        attachment_repo::set_enhanced(conn, attachment.id, enhanced_rel.as_ref().unwrap())
                     }) {
                         log::warn!("写入增强版路径失败（附件 {}）: {e}", attachment.id);
                     }

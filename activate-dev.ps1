@@ -1,4 +1,4 @@
-# Voucher Studio 开发环境激活脚本
+﻿# Voucher Studio 开发环境激活脚本
 # 用法：pwsh -File activate-dev.ps1
 # 作用：把 cargo / cmake / opencv / llvm 加到 PATH，并设置 OpenCV 4.10 链接变量
 

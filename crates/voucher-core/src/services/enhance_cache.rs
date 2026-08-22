@@ -1,8 +1,9 @@
-//! 增强缓存管理服务（v0.6.5 / D-2）
+//! 增强缓存管理服务（v0.6.5 / D-2 · v0.6.6 / D-10 D-11）
 //!
 //! 包含：
 //! - 摘要统计：总数 / 总大小 / 截图 / 扫描件 + 总命中 / 30 天命中
-//! - 释放策略：all / older_than_days / larger_than_mb
+//! - 命中趋势（D-10）：按日聚合近 N 天 ocr/export/viewer 命中，缺日补零
+//! - 释放策略：all / older_than_days / larger_than_mb / smart（D-11：零命中 + 宽限期）
 //! - 单条释放
 //! - 最近增强列表（JOIN 命中次数）
 
@@ -46,6 +47,8 @@ pub enum ClearStrategy {
     All,
     OlderThanDays,
     LargerThanMb,
+    /// D-11 智能：零命中且超过宽限期（LRU——最旧优先），命中过的永不清理
+    Smart,
 }
 
 impl ClearStrategy {
@@ -54,6 +57,7 @@ impl ClearStrategy {
             "all" => Some(Self::All),
             "older_than_days" => Some(Self::OlderThanDays),
             "larger_than_mb" => Some(Self::LargerThanMb),
+            "smart" => Some(Self::Smart),
             _ => None,
         }
     }
@@ -62,6 +66,7 @@ impl ClearStrategy {
             Self::All => "all",
             Self::OlderThanDays => "older_than_days",
             Self::LargerThanMb => "larger_than_mb",
+            Self::Smart => "smart",
         }
     }
 }
@@ -94,7 +99,7 @@ pub struct RecentEnhancedRow {
 
 /// 取完整状态（设置页首屏）
 pub fn status_v2(ctx: &CoreContext) -> Result<EnhanceStatusV2> {
-    let atts = ctx.db.with_conn(|conn| attachment_repo::list_enhanced(conn))?;
+    let atts = ctx.db.with_conn(attachment_repo::list_enhanced)?;
     let mut total_size: u64 = 0;
     let mut screenshot_count: u32 = 0;
     let mut scan_count: u32 = 0;
@@ -125,8 +130,8 @@ pub fn status_v2(ctx: &CoreContext) -> Result<EnhanceStatusV2> {
             .flatten();
         // 取文件修改时间：写增强版的 mtime 不可靠（拷贝时可能变），用 attachment created_at 不准，
         // 简单做法：直接用文件 mtime
-        let oldest_at = atts.iter().filter_map(|a| enhanced_mtime_iso(&ctx, a)).min();
-        let newest_at = atts.iter().filter_map(|a| enhanced_mtime_iso(&ctx, a)).max();
+        let oldest_at = atts.iter().filter_map(|a| enhanced_mtime_iso(ctx, a)).min();
+        let newest_at = atts.iter().filter_map(|a| enhanced_mtime_iso(ctx, a)).max();
         let _ = oldest;
         Ok((total, r30, by_source, oldest_at, newest_at))
     })?;
@@ -143,6 +148,77 @@ pub fn status_v2(ctx: &CoreContext) -> Result<EnhanceStatusV2> {
         hit_count_viewer: by_source.viewer,
         oldest_enhanced_at: oldest,
         newest_enhanced_at: newest,
+    })
+}
+
+/// D-10：趋势看板单日点（ocr / export / viewer 三类命中 + 合计）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitTrendPoint {
+    /// 本地日期 YYYY-MM-DD
+    pub day: String,
+    pub ocr: u64,
+    pub export: u64,
+    pub viewer: u64,
+    pub total: u64,
+}
+
+/// D-10：命中趋势（近 N 天，缺日补零，含峰值供前端定标柱高）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitTrend {
+    pub days: u32,
+    pub points: Vec<HitTrendPoint>,
+    /// 区间内单日合计峰值（前端画柱用；全零时为 0）
+    pub max_total: u64,
+}
+
+/// D-10：近 N 天命中趋势（按本地日期补零对齐）
+pub fn hit_trend(ctx: &CoreContext, days: u32) -> Result<HitTrend> {
+    use chrono::TimeZone;
+    let days = days.clamp(1, 90);
+    let today = chrono::Local::now().date_naive();
+    let start = today - chrono::Duration::days((days - 1) as i64);
+    // since 取「本地 0 点」对应的 UTC 瞬间（hit_at 存 UTC；直接拼 00:00Z 会漏掉东八区 0-8 点的命中）
+    let start_local_midnight = start
+        .and_hms_opt(0, 0, 0)
+        .and_then(|t| chrono::Local.from_local_datetime(&t).single())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or_else(chrono::Utc::now);
+    let since_iso = start_local_midnight.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+    let raw = ctx.db.with_conn(|conn| {
+        enhance_hit_repo::daily_counts(conn, &since_iso)
+    })?;
+    let by_day: std::collections::HashMap<String, enhance_hit_repo::DailyHitCount> =
+        raw.into_iter().map(|d| (d.day.clone(), d)).collect();
+
+    let mut points = Vec::with_capacity(days as usize);
+    let mut max_total: u64 = 0;
+    for i in 0..days {
+        let day = (start + chrono::Duration::days(i as i64))
+            .format("%Y-%m-%d")
+            .to_string();
+        let e = by_day.get(&day);
+        let (ocr, export, viewer) = match e {
+            Some(d) => (d.ocr, d.export, d.viewer),
+            None => (0, 0, 0),
+        };
+        let total = ocr + export + viewer;
+        max_total = max_total.max(total);
+        points.push(HitTrendPoint {
+            day,
+            ocr,
+            export,
+            viewer,
+            total,
+        });
+    }
+
+    Ok(HitTrend {
+        days,
+        points,
+        max_total,
     })
 }
 
@@ -193,12 +269,22 @@ pub fn delete_one(ctx: &CoreContext, attachment_id: i64) -> Result<u32> {
 }
 
 /// 释放：按策略
-/// threshold 含义：all 忽略 / older_than_days 阈值天数 / larger_than_mb 阈值 MB
+/// threshold 含义：all 忽略 / older_than_days 阈值天数 / larger_than_mb 阈值 MB /
+/// smart 宽限期天数（零命中且早于该天数才清）
 pub fn clear_v2(
     ctx: &CoreContext,
     strategy: ClearStrategy,
     threshold: u32,
 ) -> Result<ClearSummary> {
+    // D-11：Smart 需要命中集合——单连接互斥锁不可重入，必须在外层 with_conn 之前取
+    let hit_ids: Option<std::collections::HashSet<i64>> = (strategy == ClearStrategy::Smart)
+        .then(|| {
+            ctx.db
+                .with_conn(enhance_hit_repo::count_grouped_by_attachment)
+                .map(|rows| rows.into_iter().map(|(id, _n)| id).collect())
+        })
+        .transpose()?;
+
     let candidates = ctx.db.with_conn(|conn| match strategy {
         ClearStrategy::All => attachment_repo::list_enhanced(conn),
         ClearStrategy::OlderThanDays => {
@@ -212,11 +298,33 @@ pub fn clear_v2(
             let min_bytes = (threshold as u64) * 1024 * 1024;
             list_enhanced_filtered(conn, |a| enhanced_size_bytes(a, ctx) >= min_bytes)
         }
+        ClearStrategy::Smart => {
+            // D-11：零命中且超过宽限期（threshold 天）→ 淘汰；
+            // 命中过的（hit_count > 0）证明有真实收益，永不进入候选。
+            let since_ts = days_ago_ts(threshold.max(1));
+            let hits = hit_ids.unwrap_or_default();
+            list_enhanced_filtered(conn, |a| {
+                !hits.contains(&a.id) && ctx_for_mtime_filter(a, ctx, since_ts)
+            })
+        }
     })?;
 
     let candidate_count = candidates.len() as u32;
     let mut deleted_files: u32 = 0;
     let mut freed_bytes: u64 = 0;
+    // Smart 按 mtime 最旧优先（LRU：最久没被生成/使用的先走）
+    let mut candidates = candidates;
+    if strategy == ClearStrategy::Smart {
+        candidates.sort_by_key(|a| {
+            a.enhanced_path
+                .as_ref()
+                .and_then(|rel| std::fs::metadata(ctx.paths.attachment_abs(rel)).ok())
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        });
+    }
     for a in &candidates {
         if let Some(rel) = &a.enhanced_path {
             let abs = ctx.paths.attachment_abs(rel);
@@ -247,10 +355,10 @@ pub fn clear_v2(
 
 /// 最近增强列表（按文件 mtime DESC）
 pub fn recent_enhanced(ctx: &CoreContext, limit: u32) -> Result<Vec<RecentEnhancedRow>> {
-    let atts = ctx.db.with_conn(|conn| attachment_repo::list_enhanced(conn))?;
+    let atts = ctx.db.with_conn(attachment_repo::list_enhanced)?;
     let grouped: std::collections::HashMap<i64, u32> = ctx
         .db
-        .with_conn(|conn| enhance_hit_repo::count_grouped_by_attachment(conn))?
+        .with_conn(enhance_hit_repo::count_grouped_by_attachment)?
         .into_iter()
         .collect();
 

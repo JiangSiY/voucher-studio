@@ -5,7 +5,7 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus, type WechatStatus } from "../api/client";
+import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus, type WechatStatus } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 
@@ -68,10 +68,14 @@ const saving = ref(false);
 const templatePreview = ref("");
 const templateError = ref("");
 
+// D-10：命中趋势（近 N 天堆叠柱状图）
+const hitTrend = ref<HitTrend | null>(null);
+const trendDays = ref<7 | 14 | 30>(14);
+
 // D-2 释放策略状态
 type ClearStrategyOpt = ClearStrategy;
 const clearStrategy = ref<ClearStrategyOpt>("all");
-const clearThreshold = ref<number>(30); // older_than_days=30 天 / larger_than_mb=10 MB
+const clearThreshold = ref<number>(30); // older_than_days / smart=30 天 · larger_than_mb=10 MB
 const pendingDeleteOne = ref<number | null>(null); // 单条释放：行 id（null = 不可见）
 
 async function load() {
@@ -97,14 +101,38 @@ async function refreshEnhanceStatus() {
   }
 }
 
-/** D-2 刷新：v2 状态 + 最近列表 */
+/** D-2 刷新：v2 状态 + 最近列表 + D-10 趋势 */
 async function refreshEnhancePanel() {
   try {
     enhanceStatV2.value = await api.enhanceStatusV2();
     recentEnhanced.value = await api.recentEnhanced(20);
+    hitTrend.value = await api.enhanceHitTrend(trendDays.value);
   } catch (e) {
     toastError(e);
   }
+}
+
+/** D-10 切换趋势区间（7 / 14 / 30 天） */
+async function changeTrendDays(d: 7 | 14 | 30) {
+  if (trendDays.value === d) return;
+  trendDays.value = d;
+  try {
+    hitTrend.value = await api.enhanceHitTrend(d);
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+/** D-10 柱段高度百分比（相对区间峰值；全零区间返回 0） */
+function barPct(n: number): number {
+  const max = hitTrend.value?.maxTotal ?? 0;
+  if (max === 0) return 0;
+  return (n / max) * 100;
+}
+
+/** D-10 日标签只显示月-日 */
+function shortDay(day: string): string {
+  return day.slice(5);
 }
 
 /** D-2 释放（按策略） */
@@ -117,7 +145,9 @@ async function clearEnhanceV2() {
       ? "确定要清除全部增强版缓存？下次导入会重新生成（首次识别变慢）。"
       : s === "older_than_days"
         ? `确定要清除「${t} 天前」的增强版缓存？其它不受影响。`
-        : `确定要清除「大于 ${t} MB」的增强版缓存？其它不受影响。`;
+        : s === "smart"
+          ? `智能清理：释放「零命中且超过 ${t} 天」的增强版（被用过的永不清理）。`
+          : `确定要清除「大于 ${t} MB」的增强版缓存？其它不受影响。`;
   if (!confirm(confirmMsg)) return;
   clearingCache.value = true;
   try {
@@ -163,19 +193,15 @@ async function clearEnhance() {
   await clearEnhanceV2();
 }
 
-// 5 步流水线（v0.6 真生效）
+// 7 步流水线（v0.6.1 起去噪/锐化实装，全部可逐项开关）
 const enhanceActiveSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
   { key: "stepDeskew",    label: "1. 倾斜矫正",      desc: "Hough 直线 → 取最强水平线倾角 → 旋转校正" },
   { key: "stepDewarp",    label: "2. 透视矫正",      desc: "检测最大四边形 → 透视变换" },
   { key: "stepAutocrop",  label: "3. 自动裁边",      desc: "去白边，按轮廓裁剪 + 5% 边距" },
-  { key: "stepGrayscale", label: "4. 灰度化",        desc: "BGR → GRAY，给 OCR 用" },
-  { key: "stepBinarize",  label: "5. 自适应二值化",  desc: "高斯加权 → 31 窗口 / C=10" },
-];
-
-// 2 个占位（v0.6.1 评估，UI 先行）
-const enhancePlaceholderSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
-  { key: "stepSharpen", label: "锐化", desc: "v0.6.1 评估：拉普拉斯 / Unsharp Mask" },
-  { key: "stepDenoise", label: "去噪", desc: "v0.6.1 评估：中值 / 高斯 / 双边" },
+  { key: "stepDenoise",   label: "4. 中值去噪",      desc: "3×3 中值滤波，保边去噪点（默认关，建议搭配锐化开）" },
+  { key: "stepSharpen",   label: "5. Unsharp 锐化",  desc: "高斯差分锐化文字边缘（默认关，过度锐化会放大噪声）" },
+  { key: "stepGrayscale", label: "6. 灰度化",        desc: "BGR → GRAY，给 OCR 用" },
+  { key: "stepBinarize",  label: "7. 自适应二值化",  desc: "高斯加权 → 31 窗口 / C=10" },
 ];
 
 async function validateTemplate() {
@@ -486,14 +512,15 @@ onUnmounted(() => unlistenOcrProgress?.());
     </div>
   </div>
 
-  <!-- 扫描矫正（v0.6：5 步算法 + 2 占位） -->
+  <!-- 扫描矫正（v0.6.1：7 步算法全实装） -->
   <div v-else-if="tab === 'enhance'" class="fluent-panel">
     <div class="fluent-panel-body">
       <div class="callout info" style="margin: 0 0 16px">
         <span class="ci">✨</span>
         <div class="ct">
-          <strong>文档扫描矫正</strong>：对导入的图片自动跑 5 步算法（Hough 倾斜矫正 → 透视矫正 → 自动裁边 → 灰度化 → 自适应二值化），
+          <strong>文档扫描矫正</strong>：对导入的图片自动跑 7 步算法（Hough 倾斜矫正 → 透视矫正 → 自动裁边 → 中值去噪 → Unsharp 锐化 → 灰度化 → 自适应二值化），
           矫正后的增强版用于 OCR（更准）和查看器（更易读）；任一步失败自动跳过、回退到上一步输出。
+          去噪 / 锐化为 v0.6.1 新增步骤，默认关闭——可导入票据后开启对比效果。
         </div>
       </div>
 
@@ -520,7 +547,7 @@ onUnmounted(() => unlistenOcrProgress?.());
       </div>
 
       <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
-        <label>5 步流水线（按顺序执行，单步失败跳过）</label>
+        <label>7 步流水线（按顺序执行，单步失败跳过）</label>
         <div class="step-list">
           <div v-for="s in enhanceActiveSteps" :key="s.key" class="step-row" :class="{ disabled: !cfg.enhance.enabled }">
             <label class="toggle">
@@ -528,23 +555,10 @@ onUnmounted(() => unlistenOcrProgress?.());
               <span class="slider"></span>
             </label>
             <div class="step-info">
-              <div class="step-label">{{ s.label }}</div>
-              <div class="step-desc">{{ s.desc }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
-        <label>v0.6.1 评估（占位 · v0.6 不生效）</label>
-        <div class="step-list">
-          <div v-for="s in enhancePlaceholderSteps" :key="s.key" class="step-row disabled" title="v0.6.1 评估，v0.6 不生效">
-            <label class="toggle">
-              <input type="checkbox" v-model="cfg.enhance[s.key]" disabled />
-              <span class="slider"></span>
-            </label>
-            <div class="step-info">
-              <div class="step-label">{{ s.label }} <span class="tag tag-muted">占位</span></div>
+              <div class="step-label">
+                {{ s.label }}
+                <span v-if="s.key === 'stepDenoise' || s.key === 'stepSharpen'" class="tag tag-muted">v0.6.1</span>
+              </div>
               <div class="step-desc">{{ s.desc }}</div>
             </div>
           </div>
@@ -604,13 +618,47 @@ onUnmounted(() => unlistenOcrProgress?.());
           </span>
         </div>
 
+        <!-- D-10 命中趋势：近 N 天堆叠柱状图（手写，无第三方图表库） -->
+        <div v-if="hitTrend" class="hit-trend">
+          <div class="ht-head">
+            <span class="ht-title">命中趋势</span>
+            <div class="ht-days">
+              <button v-for="d in [7, 14, 30] as const" :key="d" class="ht-day"
+                :class="{ on: trendDays === d }" @click="changeTrendDays(d)">
+                {{ d }}天
+              </button>
+            </div>
+          </div>
+          <div class="ht-chart">
+            <div v-for="p in hitTrend.points" :key="p.day" class="ht-col"
+              :title="`${p.day}：OCR ${p.ocr} / 导出 ${p.export} / 查看 ${p.viewer}（合计 ${p.total}）`">
+              <div class="ht-bar">
+                <div class="ht-seg seg-ocr" :style="{ height: barPct(p.ocr) + '%' }"></div>
+                <div class="ht-seg seg-export" :style="{ height: barPct(p.export) + '%' }"></div>
+                <div class="ht-seg seg-viewer" :style="{ height: barPct(p.viewer) + '%' }"></div>
+              </div>
+              <div class="ht-day-label">{{ shortDay(p.day) }}</div>
+            </div>
+          </div>
+          <div class="ht-legend">
+            <span><i class="ht-dot seg-ocr"></i>OCR</span>
+            <span><i class="ht-dot seg-export"></i>导出</span>
+            <span><i class="ht-dot seg-viewer"></i>查看</span>
+            <span v-if="hitTrend.maxTotal === 0" class="ht-empty">区间内暂无命中</span>
+          </div>
+        </div>
+
         <!-- 释放策略 -->
         <div class="clear-strategy">
           <div class="cs-title">释放策略</div>
           <div class="cs-row">
-            <label class="cs-opt">
-              <input type="radio" v-model="clearStrategy" value="all" />
-              <span>全部</span>
+            <label class="cs-opt" title="智能清理：只释放「零命中且超过宽限期」的增强版，被用过的永不清理">
+              <input type="radio" v-model="clearStrategy" value="smart" />
+              <span>智能·零命中超</span>
+              <input v-if="clearStrategy === 'smart'" type="number" min="1" max="365"
+                v-model.number="clearThreshold" class="cs-num" />
+              <span v-else>30</span>
+              <span>天</span>
             </label>
             <label class="cs-opt">
               <input type="radio" v-model="clearStrategy" value="older_than_days" />
@@ -628,12 +676,16 @@ onUnmounted(() => unlistenOcrProgress?.());
               <span v-else>10</span>
               <span>MB</span>
             </label>
+            <label class="cs-opt">
+              <input type="radio" v-model="clearStrategy" value="all" />
+              <span>全部</span>
+            </label>
             <button class="btn btn-danger" :disabled="clearingCache || !enhanceStatV2?.total" @click="clearEnhanceV2">
               {{ clearingCache ? "释放中…" : "释放空间" }}
             </button>
           </div>
           <div class="cs-hint">
-            仅清缓存，不删原图；下次导入同 hash 图会重新生成
+            仅清缓存，不删原图；下次导入同 hash 图会重新生成。智能 = 零命中且超过宽限期的先淘汰（推荐）
           </div>
         </div>
 
@@ -963,6 +1015,107 @@ onUnmounted(() => unlistenOcrProgress?.());
   gap: 8px;
   margin: -8px 0 16px;
   padding: 0 2px;
+}
+
+/* D-10：命中趋势堆叠柱状图 */
+.hit-trend {
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--surface-1);
+}
+.ht-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.ht-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.ht-days {
+  display: flex;
+  gap: 4px;
+}
+.ht-day {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.ht-day:hover {
+  color: var(--text-1);
+  border-color: var(--accent);
+}
+.ht-day.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.ht-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 84px;
+}
+.ht-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.ht-bar {
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 1px;
+}
+.ht-seg {
+  width: 100%;
+  border-radius: 1px;
+  min-height: 0;
+  transition: height 0.25s ease;
+}
+.ht-seg.seg-ocr    { background: #6366f1; }
+.ht-seg.seg-export { background: #0ea5e9; }
+.ht-seg.seg-viewer { background: #94a3b8; }
+.ht-day-label {
+  font-size: 9px;
+  color: var(--text-3);
+  text-align: center;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ht-legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.ht-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.ht-empty {
+  margin-left: auto;
+  color: var(--text-3);
 }
 
 .clear-strategy {

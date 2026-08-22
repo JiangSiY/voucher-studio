@@ -74,7 +74,7 @@ fn make_doc_with_seed(path: &std::path::Path, ext: &str, seed: u8) {
     let off = (seed as i32 * 17) % 200;
     for y in 100..140 {
         for x in (120 + off)..(260 + off) {
-            if x >= 0 && x < 800 {
+            if (0..800).contains(&x) {
                 img.put_pixel(x as u32, y, Rgb([r, g, b]));
             }
         }
@@ -409,7 +409,7 @@ fn d2_enhance_hits_record_and_count() {
         .unwrap();
 
     // 空表：0
-    let total = ctx.db.with_conn(|c| enhance_hit_repo::count_total(c)).unwrap();
+    let total = ctx.db.with_conn(enhance_hit_repo::count_total).unwrap();
     assert_eq!(total, 0);
 
     // 写 3 次命中：ids[0] 两次 OCR，ids[1] 一次 export
@@ -420,11 +420,11 @@ fn d2_enhance_hits_record_and_count() {
         Ok(())
     })
     .unwrap();
-    let total = ctx.db.with_conn(|c| enhance_hit_repo::count_total(c)).unwrap();
+    let total = ctx.db.with_conn(enhance_hit_repo::count_total).unwrap();
     assert_eq!(total, 3);
     let grouped = ctx
         .db
-        .with_conn(|c| enhance_hit_repo::count_grouped_by_attachment(c))
+        .with_conn(enhance_hit_repo::count_grouped_by_attachment)
         .unwrap();
     let m: std::collections::HashMap<i64, u32> = grouped.into_iter().collect();
     assert_eq!(m.get(&ids[0]).copied(), Some(2));
@@ -456,7 +456,7 @@ fn d2_clear_v2_all_strategy() {
 
     let before = ctx
         .db
-        .with_conn(|c| attachment_repo::list_enhanced(c))
+        .with_conn(attachment_repo::list_enhanced)
         .unwrap();
     assert!(before.iter().all(|a| a.enhanced_path.is_some()), "导入后应有 enhanced_path");
 
@@ -466,7 +466,7 @@ fn d2_clear_v2_all_strategy() {
 
     let after = ctx
         .db
-        .with_conn(|c| attachment_repo::list_enhanced(c))
+        .with_conn(attachment_repo::list_enhanced)
         .unwrap();
     for a in &after {
         assert!(a.enhanced_path.is_none(), "释放后 enhanced_path 应清空");
@@ -707,7 +707,7 @@ fn d5_export_daily_records_enhance_hit_per_enhanced_attachment() {
         .unwrap();
     // 仅一张附件 + 有 enhanced_path → +1
     assert!(
-        after >= before + 1,
+        after > before,
         "日报导出应至少 +1 条 export 命中（before={before} after={after}）"
     );
 }
@@ -875,4 +875,130 @@ fn d8_status_v2_hit_counts_by_source() {
     assert_eq!(status.hit_count_export, 1);
     assert_eq!(status.hit_count_viewer, 1);
     assert_eq!(status.hit_count, 4, "hit_count 应为三来源之和");
+}
+
+// ============================================================================
+// D-10 命中趋势看板：hit_trend 按日聚合 + 缺日补零
+// ============================================================================
+
+/// D-10-1：近 7 天趋势——点数补齐 7 个、以今天结尾、命中按来源正确分桶
+#[test]
+fn d10_hit_trend_fills_zero_days_and_buckets_by_source() {
+    use voucher_core::db::repos::enhance_hit_repo;
+    use voucher_core::services::enhance_cache;
+
+    let (dir, ctx) = test_ctx();
+    let jpg = make_doc_with_seed_in_tmpdir(&dir, "trend.jpg", "jpg", 51);
+    let summary = ingestion::import_images(&ctx, &[jpg], None, false).expect("import");
+    let att = &summary.vouchers[0].attachment;
+
+    // 写 ocr ×2 + viewer ×1（record 用当前时刻 → 全落在同一天）
+    ctx.db
+        .with_conn(|c| {
+            enhance_hit_repo::record(c, att.id, enhance_hit_repo::HitSource::Ocr)?;
+            enhance_hit_repo::record(c, att.id, enhance_hit_repo::HitSource::Ocr)?;
+            enhance_hit_repo::record(c, att.id, enhance_hit_repo::HitSource::Viewer)?;
+            Ok(())
+        })
+        .unwrap();
+
+    let trend = enhance_cache::hit_trend(&ctx, 7).expect("trend");
+    assert_eq!(trend.days, 7);
+    assert_eq!(trend.points.len(), 7, "缺日应补零至 7 个点");
+
+    // 最后一个点是今天（本地日期）
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    assert_eq!(trend.points[6].day, today, "趋势应以今天结尾");
+
+    // 区间合计按来源分桶正确
+    let ocr: u64 = trend.points.iter().map(|p| p.ocr).sum();
+    let viewer: u64 = trend.points.iter().map(|p| p.viewer).sum();
+    let export: u64 = trend.points.iter().map(|p| p.export).sum();
+    assert_eq!(ocr, 2);
+    assert_eq!(viewer, 1);
+    assert_eq!(export, 0);
+    // 三次命中同一天 → 峰值 3
+    assert_eq!(trend.max_total, 3);
+
+    // 空库不炸：days=1 也返回 1 个零点
+    let (_dir2, ctx2) = test_ctx();
+    let empty = enhance_cache::hit_trend(&ctx2, 1).expect("empty trend");
+    assert_eq!(empty.points.len(), 1);
+    assert_eq!(empty.points[0].total, 0);
+    assert_eq!(empty.max_total, 0);
+}
+
+// ============================================================================
+// D-11 智能清理：零命中 + 宽限期 → 淘汰；有命中 / 新增强版 → 保留
+// ============================================================================
+
+/// 把附件增强版文件的 mtime 回拨 N 天（模拟「老增强版」）
+fn d11_backdate(ctx: &CoreContext, att: &voucher_core::models::Attachment, days: i64) {
+    let rel = att.enhanced_path.as_ref().expect("enhanced_path");
+    let abs = ctx.paths.attachment_abs(rel);
+    let t = std::time::SystemTime::now() - std::time::Duration::from_secs(days as u64 * 86_400);
+    let f = std::fs::File::options().write(true).open(&abs).expect("open enhanced");
+    f.set_modified(t).expect("backdate mtime");
+}
+
+/// D-11-1：Smart 策略只清「零命中且超宽限期」的增强版
+#[test]
+fn d11_smart_clears_zero_hit_old_only() {
+    use voucher_core::db::repos::enhance_hit_repo;
+    use voucher_core::services::enhance_cache::{self, ClearStrategy};
+
+    let (dir, ctx) = test_ctx();
+    // A=零命中+旧、B=有命中+旧、C=零命中+新
+    let a = make_doc_with_seed_in_tmpdir(&dir, "a.jpg", "jpg", 61);
+    let b = make_doc_with_seed_in_tmpdir(&dir, "b.jpg", "jpg", 62);
+    let c = make_doc_with_seed_in_tmpdir(&dir, "c.jpg", "jpg", 63);
+    let summary = ingestion::import_images(&ctx, &[a, b, c], None, false).expect("import");
+    assert_eq!(summary.vouchers.len(), 3);
+
+    let atts = ctx
+        .db
+        .with_conn(attachment_repo::list_enhanced)
+        .unwrap();
+    let find = |name: &str| atts.iter().find(|x| x.file_name == name).unwrap().clone();
+    let att_a = find("a.jpg");
+    let att_b = find("b.jpg");
+    let att_c = find("c.jpg");
+
+    // B 写一次命中（证明有收益，永不清理）
+    ctx.db
+        .with_conn(|conn| enhance_hit_repo::record(conn, att_b.id, enhance_hit_repo::HitSource::Ocr))
+        .unwrap();
+
+    // A、B 增强版回拨 40 天（> 宽限 30 天）；C 保持新鲜
+    d11_backdate(&ctx, &att_a, 40);
+    d11_backdate(&ctx, &att_b, 40);
+
+    let s = enhance_cache::clear_v2(&ctx, ClearStrategy::Smart, 30).expect("smart clear");
+    assert_eq!(s.candidate_count, 1, "只有 A（零命中+超宽限）是候选");
+    assert_eq!(s.deleted_files, 1);
+    assert!(s.freed_bytes > 0);
+
+    let after = |id: i64| {
+        ctx.db
+            .with_conn(|c| attachment_repo::get(c, id))
+            .unwrap()
+            .unwrap()
+    };
+    assert!(after(att_a.id).enhanced_path.is_none(), "A 应被释放");
+    assert!(after(att_b.id).enhanced_path.is_some(), "B 有命中，永不清理");
+    assert!(after(att_c.id).enhanced_path.is_some(), "C 未超宽限期，保留");
+}
+
+/// D-11-2：Smart 在全零命中但全部「新鲜」时不清理（宽限期保护）
+#[test]
+fn d11_smart_keeps_fresh_zero_hit() {
+    use voucher_core::services::enhance_cache::{self, ClearStrategy};
+
+    let (dir, ctx) = test_ctx();
+    let jpg = make_doc_with_seed_in_tmpdir(&dir, "fresh.jpg", "jpg", 64);
+    ingestion::import_images(&ctx, &[jpg], None, false).expect("import");
+
+    let s = enhance_cache::clear_v2(&ctx, ClearStrategy::Smart, 30).expect("smart");
+    assert_eq!(s.candidate_count, 0, "刚生成的零命中增强版在宽限期内，不应清理");
+    assert_eq!(s.deleted_files, 0);
 }

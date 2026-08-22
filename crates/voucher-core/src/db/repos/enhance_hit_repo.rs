@@ -6,6 +6,7 @@
 //! - `viewer`  —— 编辑页大图查看器打开 enhanced_path（D-7 经 record_viewer_hit 接通）
 
 use rusqlite::{params, Connection};
+use serde::Serialize;
 
 use crate::utils::paths::now_iso;
 use crate::Result;
@@ -118,6 +119,44 @@ pub fn count_since(conn: &Connection, since_iso: &str) -> Result<u64> {
         |r| r.get(0),
     )?;
     Ok(n as u64)
+}
+
+/// D-10：按日聚合的命中数（趋势看板用）
+///
+/// `day` 为 `hit_at` 前 10 字符（本地日期 YYYY-MM-DD；now_iso 与本地时区一致）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DailyHitCount {
+    pub day: String,
+    pub ocr: u64,
+    pub export: u64,
+    pub viewer: u64,
+}
+
+/// D-10：取 since_iso（含）之后每个自然日的三类命中数（无命中的日期不返回，由服务层补零）
+///
+/// hit_at 存 UTC（now_iso），这里用 SQLite `localtime` 折算本地日期再聚合，
+/// 与用户在 UI 看到的「今天」对齐。
+pub fn daily_counts(conn: &Connection, since_iso: &str) -> Result<Vec<DailyHitCount>> {
+    let mut stmt = conn.prepare(
+        "SELECT substr(datetime(hit_at, 'localtime'), 1, 10) AS day, \
+                COALESCE(SUM(source = 'ocr'), 0), \
+                COALESCE(SUM(source = 'export'), 0), \
+                COALESCE(SUM(source = 'viewer'), 0) \
+         FROM enhance_hits WHERE hit_at >= ? GROUP BY day ORDER BY day",
+    )?;
+    let rows = stmt.query_map(params![since_iso], |r| {
+        Ok(DailyHitCount {
+            day: r.get(0)?,
+            ocr: r.get::<_, i64>(1)? as u64,
+            export: r.get::<_, i64>(2)? as u64,
+            viewer: r.get::<_, i64>(3)? as u64,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 /// 释放某条附件时级联（ON DELETE CASCADE 已保证，但显式调用便于单测）

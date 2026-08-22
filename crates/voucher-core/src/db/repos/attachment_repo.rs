@@ -137,6 +137,9 @@ pub fn list_enhanced(conn: &Connection) -> Result<Vec<Attachment>> {
     Ok(out)
 }
 
+/// D-1 列表缩略图行：(voucher_id, file_path, enhanced_path, enhanced_source)
+pub type VoucherThumbRow = (i64, String, Option<String>, String);
+
 /// D-1 列表缩略图：每张凭证只取第一张附件的 file_path / enhanced_path / enhanced_source
 ///
 /// 一次性 IN-query 拿到当前页所有凭证的首附件，避免 N+1。
@@ -144,7 +147,7 @@ pub fn list_enhanced(conn: &Connection) -> Result<Vec<Attachment>> {
 pub fn first_thumb_for_vouchers(
     conn: &Connection,
     voucher_ids: &[i64],
-) -> Result<Vec<(i64, String, Option<String>, String)>> {
+) -> Result<Vec<VoucherThumbRow>> {
     if voucher_ids.is_empty() {
         return Ok(Vec::new());
     }

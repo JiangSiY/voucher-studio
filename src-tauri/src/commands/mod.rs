@@ -561,7 +561,7 @@ pub fn enhance_status(ctx: Ctx) -> EnhanceStatus {
     use voucher_core::db::repos::attachment_repo;
     let atts = ctx
         .db
-        .with_conn(|conn| attachment_repo::list_enhanced(conn))
+        .with_conn(attachment_repo::list_enhanced)
         .unwrap_or_default();
     let mut total_size: u64 = 0;
     let mut screenshot_count: u32 = 0;
@@ -591,7 +591,7 @@ pub fn enhance_status(ctx: Ctx) -> EnhanceStatus {
 #[tauri::command]
 pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, String> {
     use voucher_core::db::repos::attachment_repo;
-    let atts = err_string(ctx.db.with_conn(|conn| attachment_repo::list_enhanced(conn)))?;
+    let atts = err_string(ctx.db.with_conn(attachment_repo::list_enhanced))?;
     let mut deleted = 0u32;
     for a in &atts {
         if let Some(rel) = &a.enhanced_path {
@@ -621,8 +621,8 @@ pub fn enhance_status_v2(
 }
 
 /// 按策略释放增强缓存
-/// strategy: "all" | "older_than_days" | "larger_than_mb"
-/// threshold: 阈值（天数 / MB；all 忽略）
+/// strategy: "all" | "older_than_days" | "larger_than_mb" | "smart"
+/// threshold: 阈值（天数 / MB；all 忽略；smart = 宽限期天数，默认 30）
 #[tauri::command]
 pub fn clear_enhance_cache_v2(
     ctx: Ctx,
@@ -666,4 +666,13 @@ pub fn record_viewer_hit(ctx: Ctx, attachment_id: i64) -> std::result::Result<()
         attachment_id,
         voucher_core::db::repos::enhance_hit_repo::HitSource::Viewer,
     ))
+}
+
+/// D-10：命中趋势（近 N 天按日聚合，ocr / export / viewer 分列，缺日补零）
+#[tauri::command]
+pub fn enhance_hit_trend(
+    ctx: Ctx,
+    days: u32,
+) -> std::result::Result<voucher_core::services::enhance_cache::HitTrend, String> {
+    err_string(voucher_core::services::enhance_cache::hit_trend(&ctx, days))
 }

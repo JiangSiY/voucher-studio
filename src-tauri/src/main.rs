@@ -193,6 +193,7 @@ fn main() {
             commands::delete_enhanced_one,
             commands::recent_enhanced,
             commands::record_viewer_hit,
+            commands::enhance_hit_trend,
         ])
         .run(tauri::generate_context!())
         .expect("Voucher Studio 启动失败");

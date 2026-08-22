@@ -183,16 +183,17 @@ impl Default for PrintConfig {
     }
 }
 
-/// v0.6：文档扫描矫正（5 步算法 + 2 占位）
+/// v0.6.1：文档扫描矫正（7 步算法，逐项可关）
 ///
-/// 5 个真实可调开关对应 5 步算法；2 个占位（锐化、去噪）UI 显示但 v0.6 不生效，
-/// 留作 v0.6.1 评估（决策：UI 先行，避免后续反复改页）。
+/// 7 个开关一一对应流水线步骤（v0.6.1 起锐化 / 去噪已实装）：
+///   deskew → dewarp → autocrop → denoise → sharpen → grayscale → binarize
+/// 去噪 / 锐化默认关（需真机票据评估收益后再开）。
 ///
-/// 单步失败跳过由编排器天然兜底，关闭后该步不执行；建议默认全开。
+/// 单步失败跳过由编排器天然兜底，关闭后该步记 off 不执行。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EnhanceConfig {
-    /// 总开关；关闭后导入图片不再跑 5 步流水线
+    /// 总开关；关闭后导入图片不再跑 7 步流水线
     pub enabled: bool,
     /// 步骤 1：倾斜矫正（Hough 直线）
     pub step_deskew: bool,
@@ -204,9 +205,9 @@ pub struct EnhanceConfig {
     pub step_grayscale: bool,
     /// 步骤 5：自适应二值化
     pub step_binarize: bool,
-    /// v0.6.1 评估：锐化（占位，v0.6 UI 显示但代码不执行）
+    /// 步骤 6：锐化（Unsharp Mask，v0.6.1 实装，默认关）
     pub step_sharpen: bool,
-    /// v0.6.1 评估：去噪（占位，v0.6 UI 显示但代码不执行）
+    /// 步骤 7：去噪（中值 3×3，v0.6.1 实装，默认关）
     pub step_denoise: bool,
     /// 仅在导入「扫描件」（非截图）时走流水线；截图已接近二值图无收益
     /// 默认 false：全量走；true = 仅对扫描件走

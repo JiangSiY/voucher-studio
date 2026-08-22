@@ -222,8 +222,8 @@ export interface EnhanceStatusV2 {
   newestEnhancedAt: string | null;
 }
 
-/** D-2 释放策略 */
-export type ClearStrategy = "all" | "older_than_days" | "larger_than_mb";
+/** D-2 释放策略（D-11 新增 smart：零命中 + 宽限期） */
+export type ClearStrategy = "all" | "older_than_days" | "larger_than_mb" | "smart";
 
 /** D-2 释放结果 */
 export interface ClearSummary {
@@ -245,6 +245,22 @@ export interface RecentEnhancedRow {
   enhancedSource: "screenshot" | "scan" | "unknown";
   enhancedAt: string;
   hitCount: number;
+}
+
+/** D-10 命中趋势单日点（ocr / export / viewer 分列） */
+export interface HitTrendPoint {
+  day: string;
+  ocr: number;
+  export: number;
+  viewer: number;
+  total: number;
+}
+
+/** D-10 命中趋势（近 N 天，缺日补零，maxTotal 供柱状图定标） */
+export interface HitTrend {
+  days: number;
+  points: HitTrendPoint[];
+  maxTotal: number;
 }
 
 export interface AppInfo {
@@ -377,6 +393,9 @@ export const api = {
     invoke<number>("delete_enhanced_one", { attachmentId }),
   recentEnhanced: (limit: number) =>
     invoke<RecentEnhancedRow[]>("recent_enhanced", { limit }),
+  /** D-10：命中趋势（近 N 天按日聚合） */
+  enhanceHitTrend: (days: number) =>
+    invoke<HitTrend>("enhance_hit_trend", { days }),
 
   // v0.6.5 D-7 查看器命中埋点（静默调用，失败不打扰用户）
   recordViewerHit: (attachmentId: number) =>

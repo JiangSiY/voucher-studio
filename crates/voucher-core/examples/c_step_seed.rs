@@ -33,7 +33,7 @@ fn make_doc(path: &std::path::Path, ext: &str, seed: u8) {
     let off = (seed as i32 * 17) % 200;
     for y in 100..140 {
         for x in (120 + off)..(260 + off) {
-            if x >= 0 && x < 800 {
+            if (0..800).contains(&x) {
                 img.put_pixel(x as u32, y, Rgb([r, g, b]));
             }
         }

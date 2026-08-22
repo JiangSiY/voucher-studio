@@ -1,4 +1,4 @@
-//! D-1 验收辅助：对主库内所有 `enhanced_path IS NULL` 的附件跑一次 5 步增强，
+//! D-1 验收辅助：对主库内所有 `enhanced_path IS NULL` 的附件跑一次 7 步增强，
 //! 写回 attachments.enhanced_path，使列表缩略图能渲染增强版。
 //!
 //! 用法：cargo run -p voucher-core --example d1_reenhance
@@ -53,7 +53,7 @@ fn main() {
     for (id, rel) in todo {
         let abs = attachments_root.join(rel.replace('/', "\\"));
         println!("  - id={}  src={}", id, abs.display());
-        match enhance::write_enhanced(&abs, &rel.replace('\\', "/")) {
+        match enhance::write_enhanced(&abs, &rel.replace('\\', "/"), &enhance::PipelineOptions::default()) {
             Some(new_rel) => {
                 let res = ctx.db.with_conn(|conn| attachment_repo::set_enhanced(conn, id, &new_rel));
                 match res {

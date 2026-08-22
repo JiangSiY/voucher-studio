@@ -1,16 +1,18 @@
 //! 文档扫描矫正与增强：流水线编排（5.5 方案）
 //!
-//! B 步实装：5 步串行 + 单步失败跳过 + 最终回退原图。
+//! v0.6 实装 5 步；v0.6.1 插入去噪 + 锐化，成 7 步串行 + 单步失败跳过 + 最终回退原图。
 //!
 //! 处理流程（决策 ④：单步失败跳过，不抛错到调用方）：
 //!   1. 倾斜矫正（enhance_geom::deskew）
 //!   2. 透视矫正（enhance_geom::dewarp）
 //!   3. 自动裁边（enhance_geom::autocrop）
-//!   4. 灰度化（enhance_pixel::to_grayscale）
-//!   5. 自适应二值化（enhance_pixel::binarize_sauvola）
+//!   4. 中值去噪（enhance_pixel::denoise_median）      ← v0.6.1
+//!   5. Unsharp 锐化（enhance_pixel::unsharp_mask）     ← v0.6.1
+//!   6. 灰度化（enhance_pixel::to_grayscale）
+//!   7. 自适应二值化（enhance_pixel::binarize_sauvola）
 //!
-//! 步骤 1-3 维持彩色图 → mat_color（PDF 导出/查看器用）
-//! 步骤 4-5 走灰度/二值化 → mat_ocr（OCR 用）
+//! 步骤 1-5 维持彩色图 → mat_color（PDF 导出/查看器用）
+//! 步骤 6-7 走灰度/二值化 → mat_ocr（OCR 用）
 
 use std::path::Path;
 
@@ -26,18 +28,51 @@ use super::{enhance_geom, enhance_pixel};
 /// 流水线输出。
 #[derive(Debug, Clone)]
 pub struct PipelineOutput {
-    /// 第 1-3 步后的彩色图：用于查看器、PDF 导出。
+    /// 第 1-5 步后的彩色图：用于查看器、PDF 导出。
     pub mat_color: Mat,
-    /// 第 1-5 步后的二值图：用于 OCR（更易识别）。
+    /// 第 1-7 步后的二值图：用于 OCR（更易识别）。
     pub mat_ocr: Mat,
     /// 实际走过的步骤描述（调试/日志用）。
     pub trace: Vec<String>,
 }
 
-/// 流水线入口：读图 → 走 5 步 → 返回双输出。
+/// 流水线步骤开关（来自 `EnhanceConfig`，UI 可逐项关闭）。
+///
+/// 全 `true` = 7 步全跑（默认）；关闭的步骤在 trace 记 `name:off` 后直接透传。
+#[derive(Debug, Clone, Copy)]
+pub struct PipelineOptions {
+    pub deskew: bool,
+    pub dewarp: bool,
+    pub autocrop: bool,
+    pub denoise: bool,
+    pub sharpen: bool,
+    pub grayscale: bool,
+    pub binarize: bool,
+}
+
+impl Default for PipelineOptions {
+    fn default() -> Self {
+        Self {
+            deskew: true,
+            dewarp: true,
+            autocrop: true,
+            denoise: true,
+            sharpen: true,
+            grayscale: true,
+            binarize: true,
+        }
+    }
+}
+
+/// 流水线入口：读图 → 走 7 步 → 返回双输出。
 ///
 /// 单步失败绝不抛错（决策 ④），而是用上一可用步的输出作为该步的输入继续。
 pub fn run_pipeline(src_path: &Path) -> Result<PipelineOutput> {
+    run_pipeline_with(src_path, &PipelineOptions::default())
+}
+
+/// 带步骤开关的流水线入口（导入时由 `EnhanceConfig` 映射而来）。
+pub fn run_pipeline_with(src_path: &Path, opts: &PipelineOptions) -> Result<PipelineOutput> {
     if !src_path.exists() {
         return Err(CoreError::Invalid(format!(
             "enhance: 文件不存在 {}",
@@ -54,19 +89,39 @@ pub fn run_pipeline(src_path: &Path) -> Result<PipelineOutput> {
     let mut trace: Vec<String> = Vec::new();
     let mut current = src;
 
-    current = step(current, "deskew", &mut trace, |m| enhance_geom::deskew(m))?;
-    current = step(current, "dewarp", &mut trace, |m| enhance_geom::dewarp(m))?;
-    current = step(current, "autocrop", &mut trace, |m| enhance_geom::autocrop(m))?;
+    current = opt_step(current, "deskew", opts.deskew, &mut trace, |m| {
+        enhance_geom::deskew(m)
+    })?;
+    current = opt_step(current, "dewarp", opts.dewarp, &mut trace, |m| {
+        enhance_geom::dewarp(m)
+    })?;
+    current = opt_step(current, "autocrop", opts.autocrop, &mut trace, |m| {
+        enhance_geom::autocrop(m)
+    })?;
+    current = opt_step(current, "denoise", opts.denoise, &mut trace, |m| {
+        enhance_pixel::denoise_median(m)
+    })?;
+    current = opt_step(current, "sharpen", opts.sharpen, &mut trace, |m| {
+        enhance_pixel::unsharp_mask(m)
+    })?;
 
-    // 步骤 1-3 后：保存彩色输出
+    // 步骤 1-5 后：保存彩色输出
     let mat_color = current
         .try_clone()
         .map_err(|e| CoreError::Invalid(e.to_string()))?;
 
-    // 步骤 4：灰度化
-    let mat_gray = step(current, "grayscale", &mut trace, |m| enhance_pixel::to_grayscale(m))?;
-    // 步骤 5：自适应二值化
-    let mat_ocr = step(mat_gray, "binarize_sauvola", &mut trace, enhance_pixel::binarize_sauvola)?;
+    // 步骤 6：灰度化
+    let mat_gray = opt_step(current, "grayscale", opts.grayscale, &mut trace, |m| {
+        enhance_pixel::to_grayscale(m)
+    })?;
+    // 步骤 7：自适应二值化
+    let mat_ocr = opt_step(
+        mat_gray,
+        "binarize_sauvola",
+        opts.binarize,
+        &mut trace,
+        enhance_pixel::binarize_sauvola,
+    )?;
 
     Ok(PipelineOutput {
         mat_color,
@@ -75,11 +130,21 @@ pub fn run_pipeline(src_path: &Path) -> Result<PipelineOutput> {
     })
 }
 
-/// 步骤包装：单步失败跳过。
-fn step<F>(mut current: Mat, name: &str, trace: &mut Vec<String>, f: F) -> Result<Mat>
+/// 步骤包装：开关关闭记 `off` 透传；执行失败记 `skip` 跳过；成功记 `ok`。
+fn opt_step<F>(
+    mut current: Mat,
+    name: &str,
+    enabled: bool,
+    trace: &mut Vec<String>,
+    f: F,
+) -> Result<Mat>
 where
     F: FnOnce(&Mat) -> Result<Mat>,
 {
+    if !enabled {
+        trace.push(format!("{name}:off"));
+        return Ok(current);
+    }
     match f(&current) {
         Ok(next) => {
             trace.push(format!("{name}:ok"));
@@ -169,9 +234,10 @@ impl SourceKind {
 pub fn write_enhanced(
     src_abs: &Path,
     rel_base: &str,
+    opts: &PipelineOptions,
 ) -> Option<String> {
     // 1. 跑流水线（任一步失败内部已 skip，不抛错）
-    let out = match run_pipeline(src_abs) {
+    let out = match run_pipeline_with(src_abs, opts) {
         Ok(o) => o,
         Err(e) => {
             log::warn!("增强流水线启动失败: {e}");
@@ -237,10 +303,10 @@ mod tests {
         assert!(run_pipeline(&p).is_err());
     }
 
-    /// B 步实装验证：5 步流水线跑一张合成图
+    /// B 步实装验证：7 步流水线跑一张合成图
     /// - 用 OpenCV 画一张 800x600 的"含文字"的合成图（白底黑矩形模拟文档）
-    /// - 跑 5 步流水线
-    /// - 断言：mat_color/mat_ocr 都有非零尺寸，trace 至少包含 5 步
+    /// - 跑 7 步流水线
+    /// - 断言：mat_color/mat_ocr 都有非零尺寸，trace 至少包含 7 步
     #[test]
     fn pipeline_runs_synthetic_document() {
         use opencv::{
@@ -276,7 +342,7 @@ mod tests {
             &mut src,
             "VOUCHER NO 001",
             opencv::core::Point::new(120, 120),
-            FONT_HERSHEY_SIMPLEX as i32,
+            FONT_HERSHEY_SIMPLEX,
             1.0,
             Scalar::new(0.0, 0.0, 0.0, 0.0),
             2,
@@ -306,7 +372,7 @@ mod tests {
             .expect("imencode");
         std::fs::write(&img_path, buf.to_vec()).expect("write png");
 
-        // 跑 5 步流水线
+        // 跑 7 步流水线（默认全开）
         let out = run_pipeline(&img_path).expect("pipeline ok");
 
         // 断言：彩色图、二值图都有非零尺寸
@@ -315,8 +381,44 @@ mod tests {
         assert_eq!(out.mat_color.channels(), 3, "mat_color 应保持 3 通道");
         assert_eq!(out.mat_ocr.channels(), 1, "mat_ocr 应为单通道二值图");
 
-        // 断言：trace 至少记录 5 步（允许部分 skip）
-        assert!(out.trace.len() >= 5, "trace 应至少 5 条，实际 {} 条", out.trace.len());
-        eprintln!("5 步流水线 trace = {:?}", out.trace);
+        // 断言：trace 恰好 7 条（全开：ok 或 skip，不缺步）
+        assert_eq!(out.trace.len(), 7, "trace 应 7 条，实际 {} 条", out.trace.len());
+        eprintln!("7 步流水线 trace = {:?}", out.trace);
+    }
+
+    /// v0.6.1：步骤开关——关掉的步骤记 `off` 并透传，trace 仍为 7 条
+    #[test]
+    fn pipeline_respects_step_toggles() {
+        use opencv::core::{Mat, Scalar, Size};
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let img_path = dir.path().join("toggle_doc.png");
+
+        let mut src = unsafe { Mat::new_size(Size::new(400, 300), opencv::core::CV_8UC3) }
+            .expect("new_size");
+        src.set_to_def(&Scalar::new(255.0, 255.0, 255.0, 0.0))
+            .expect("set_to");
+        let mut buf = opencv::core::Vector::<u8>::new();
+        opencv::imgcodecs::imencode(".png", &src, &mut buf, &opencv::core::Vector::<i32>::new())
+            .expect("imencode");
+        std::fs::write(&img_path, buf.to_vec()).expect("write png");
+
+        // 只开灰度化 + 二值化，其余全关
+        let opts = PipelineOptions {
+            deskew: false,
+            dewarp: false,
+            autocrop: false,
+            denoise: false,
+            sharpen: false,
+            grayscale: true,
+            binarize: true,
+        };
+        let out = run_pipeline_with(&img_path, &opts).expect("pipeline ok");
+        assert_eq!(out.trace.len(), 7);
+        assert!(out.trace.iter().any(|t| t.starts_with("deskew:off")));
+        assert!(out.trace.iter().any(|t| t.starts_with("denoise:off")));
+        assert!(out.trace.iter().any(|t| t.starts_with("sharpen:off")));
+        assert!(!out.mat_ocr.empty(), "灰度+二值开时 mat_ocr 不应为空");
     }
 }
