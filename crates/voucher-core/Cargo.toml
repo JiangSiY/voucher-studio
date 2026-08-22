@@ -32,3 +32,7 @@ ort = "=2.0.0-rc.13"
 
 [dev-dependencies]
 tempfile = "3"
+
+# 文件锁的 POSIX 实现用 flock（CI/Linux 及未来 macOS）
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
