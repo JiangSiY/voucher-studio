@@ -34,7 +34,8 @@ async function backupNow() {
     } else {
       toast.success(`备份完成：${info.fileName}（含 ${info.attachmentCount} 个附件）`);
     }
-    await load();
+    // 备份含 WebDAV 自动上传：本地 + 云端列表都要刷新
+    await Promise.all([load(), loadRemote()]);
   } catch (e) {
     toastError(e);
   } finally {
@@ -151,7 +152,11 @@ let unlistenBackupDone: UnlistenFn | null = null;
 onMounted(async () => {
   load();
   loadRemote();
-  unlistenBackupDone = await listen("backup:done", () => load());
+  // 自动/手动备份完成（backup:done 由手动备份也触发）：云端可能新增上传副本
+  unlistenBackupDone = await listen("backup:done", () => {
+    load();
+    loadRemote();
+  });
 });
 
 onUnmounted(() => unlistenBackupDone?.());

@@ -625,13 +625,22 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
 
-    // 重试：2s / 8s 指数退避
+    // 重试：2s / 8s 指数退避；PUT 404/409（父目录不存在）时自动 MKCOL 创建
+    // 目标目录（坚果云等服务器允许在可写父目录下建文件夹；RFC 4918 对
+    // PUT 到不存在集合返回 409，部分实现返回 404）。MKCOL 成功后跳过退避
+    // 立即重试；若立即重试仍失败，后续轮次恢复正常退避。
     let mut last_err = None;
+    let mkcol_tried = std::cell::Cell::new(false);
+    let skip_next_delay = std::cell::Cell::new(false);
     for attempt in 0..UPLOAD_ATTEMPTS {
         if attempt > 0 {
-            let delay = 2u64.pow(attempt); // 2s, 4s
-            std::thread::sleep(std::time::Duration::from_secs(delay));
-            log::info!("WebDAV 上传重试 #{attempt}: {file_name}");
+            if skip_next_delay.replace(false) {
+                log::info!("WebDAV 目录已建，立即重试 PUT: {file_name}");
+            } else {
+                let delay = 2u64.pow(attempt); // 2s, 4s
+                std::thread::sleep(std::time::Duration::from_secs(delay));
+                log::info!("WebDAV 上传重试 #{attempt}: {file_name}");
+            }
         }
         match client
             .put(&url)
@@ -642,6 +651,29 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
             Ok(resp) if resp.status().is_success() => {
                 last_err = None;
                 break;
+            }
+            Ok(resp)
+                if (resp.status() == reqwest::StatusCode::NOT_FOUND
+                    || resp.status() == reqwest::StatusCode::CONFLICT)
+                    && !mkcol_tried.get() =>
+            {
+                // 目录可能不存在：MKCOL 创建（已存在返回 405，忽略），下轮重试 PUT
+                mkcol_tried.set(true);
+                let mkcol = client
+                    .request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), base)
+                    .basic_auth(&webdav.username, Some(&password))
+                    .send();
+                match mkcol {
+                    Ok(r) if r.status().is_success() || r.status().as_u16() == 405 => {
+                        log::info!("WebDAV 目标目录不存在，已 MKCOL 创建: {base}");
+                        skip_next_delay.set(true);
+                    }
+                    Ok(r) => {
+                        log::warn!("WebDAV MKCOL {} 返回 {}", base, r.status());
+                    }
+                    Err(e) => log::warn!("WebDAV MKCOL 请求失败: {e}"),
+                }
+                last_err = Some(CoreError::Invalid(format!("WebDAV 返回 {}", resp.status())));
             }
             Ok(resp) => {
                 last_err = Some(CoreError::Invalid(format!("WebDAV 返回 {}", resp.status())))
@@ -786,32 +818,35 @@ fn webdav_target(ctx: &CoreContext) -> Result<WebdavTarget> {
     })
 }
 
-/// 连接测试：PROPFIND 根目录，返回远端已有备份数（配置错误/凭据错误/网络不通都会报错）
-pub fn test_webdav(ctx: &CoreContext) -> Result<u32> {
-    let t = webdav_target(ctx)?;
+/// PROPFIND base 目录并解析备份文件名（连接测试/远端列表共用）。
+/// 目录不存在时给出明确提示（认证已通过；首次备份上传时会自动 MKCOL 创建）。
+fn propfind_backup_names(t: &WebdavTarget) -> Result<Vec<String>> {
     let resp = t
         .client
         .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &t.base)
         .basic_auth(&t.username, Some(&t.password))
         .header("Depth", "1")
-        .send()?
-        .error_for_status()?;
-    let body = resp.text()?;
-    Ok(parse_backup_hrefs(&body).len() as u32)
+        .send()?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(CoreError::Invalid(format!(
+            "认证成功但目录不存在：{}（首次备份上传时会自动创建）",
+            t.base
+        )));
+    }
+    let body = resp.error_for_status()?.text()?;
+    Ok(parse_backup_hrefs(&body))
+}
+
+/// 连接测试：PROPFIND 根目录，返回远端已有备份数（配置错误/凭据错误/网络不通都会报错）
+pub fn test_webdav(ctx: &CoreContext) -> Result<u32> {
+    let t = webdav_target(ctx)?;
+    Ok(propfind_backup_names(&t)?.len() as u32)
 }
 
 /// 远端备份列表（新 → 旧：文件名含时间戳，倒序即最新在前）
 pub fn list_webdav_backups(ctx: &CoreContext) -> Result<Vec<WebdavBackupRow>> {
     let t = webdav_target(ctx)?;
-    let resp = t
-        .client
-        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &t.base)
-        .basic_auth(&t.username, Some(&t.password))
-        .header("Depth", "1")
-        .send()?
-        .error_for_status()?;
-    let body = resp.text()?;
-    let mut names = parse_backup_hrefs(&body);
+    let mut names = propfind_backup_names(&t)?;
     names.sort();
     names.dedup();
     names.reverse(); // 新 → 旧
