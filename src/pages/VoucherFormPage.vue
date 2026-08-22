@@ -5,7 +5,7 @@
  * 表单字段：编号/日期/摘要/对方账户/金额/状态/标签/备注 + 快照历史。
  * 拖放导入在 Rust 侧全局处理（App.vue 反馈）；本页新建模式监听完成事件跳转到新凭证。
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -44,10 +44,6 @@ const noPreview = ref("");
 const attachmentsDir = computed(() =>
   configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
 );
-
-function attSrc(a: Attachment): string {
-  return convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
-}
 
 async function refreshNoPreview() {
   try {
@@ -101,6 +97,8 @@ async function createByImage() {
     if (!summary) return; // 用户取消
     reportImport(summary);
     if (summary.vouchers.length) {
+      // 显式提示：建卡在选图这一刻完成，即将跳到编辑页显示图片
+      toast.info(`已创建 ${summary.vouchers.length} 张凭证，正在打开第一张…`);
       // 多张时进入第一张；其余已在列表中
       router.replace(`/vouchers/${summary.vouchers[0].voucherId}`);
     }
@@ -208,6 +206,10 @@ const SNAPSHOT_LABELS: Record<string, string> = {
 // 拖放导入（Rust 侧全局处理）：新建模式下完成后跳到第一张新凭证
 let unlistenImportDone: UnlistenFn | null = null;
 
+// 路由参数变化时重载（同一组件实例从「新建 /vouchers/new」跳到「编辑 /vouchers/<id>」
+// 时不重挂载，onMounted 只跑一次，必须显式监听 editId 变化）
+watch(editId, () => loadDetail());
+
 onMounted(async () => {
   loadDetail();
   unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
@@ -232,6 +234,58 @@ function openViewer(a: Attachment) {
   viewerAttachmentId.value = a.id;
   viewerVisible.value = true;
 }
+
+// ---------- D-1：编辑页缩略图优先用增强版，支持「原图/增强」切换 ----------
+
+/** D-1：单图默认用增强版（如有）；查看器/查看大图也走同一规则 */
+function attSrc(a: Attachment): string {
+  // enhancedPath 始终指向 5 步矫正后的 JPEG；缺失时回退原图
+  const rel = a.enhancedPath ?? a.filePath;
+  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+}
+
+/** 切换该附件当前显示的图（编辑页用，per-attachment 状态） */
+const useEnhanced = ref<Record<number, boolean>>({});
+function thumbSrc(a: Attachment): string {
+  // 默认 true（优先增强版），用户切换时改 map
+  const preferEnhanced = useEnhanced.value[a.id] ?? true;
+  const rel = preferEnhanced && a.enhancedPath ? a.enhancedPath : a.filePath;
+  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+}
+function toggleThumbSource(a: Attachment) {
+  useEnhanced.value[a.id] = !(useEnhanced.value[a.id] ?? true);
+}
+
+// ---------- D-4：增强版 vs 原图 A/B 对比滑块 ----------
+// 用 `clip-path: inset(0 (1-x)*100% 0 0)` 把"已显示"区裁出来
+// slider=0.5 → 增强版占左半、原图层占右半（用户能直接看到差异）
+// 仅当 a.enhancedPath 存在时启用
+const compareOpen = ref<Record<number, boolean>>({});
+const compareSplit = ref<Record<number, number>>({}); // 0..1，0.5 = 中线
+function isCompareOpen(a: Attachment): boolean {
+  return compareOpen.value[a.id] ?? false;
+}
+function openCompare(a: Attachment) {
+  compareOpen.value[a.id] = true;
+  if (compareSplit.value[a.id] === undefined) {
+    compareSplit.value[a.id] = 0.5; // 默认中线
+  }
+}
+function closeCompare(a: Attachment) {
+  compareOpen.value[a.id] = false;
+}
+function setSplit(a: Attachment, v: number) {
+  compareSplit.value[a.id] = Math.max(0, Math.min(1, v));
+}
+function compareOriginalSrc(a: Attachment): string {
+  // 原图层 = always 原图（不受 useEnhanced 切换影响）
+  return convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
+}
+function compareClipRight(a: Attachment): string {
+  // 增强版（thumbSrc）只显示左侧，比例 = compareSplit
+  const p = (compareSplit.value[a.id] ?? 0.5) * 100;
+  return `inset(0 ${100 - p}% 0 0)`;
+}
 </script>
 
 <template>
@@ -245,7 +299,7 @@ function openViewer(a: Attachment) {
             <span class="ci">🖼</span>
             <div class="ct">
               <strong>一张图片就是一张凭证。</strong>
-              选择图片即自动建卡，并立即 OCR 识别回填日期 / 金额 / 对方账户（可再修改）。
+              选择图片后系统会立即建卡 + OCR 识别回填日期 / 金额 / 对方账户（可再修改），然后自动跳到编辑页查看图片与完善字段。
             </div>
           </div>
           <div class="dropzone" style="padding: 48px 24px" @click="createByImage">
@@ -356,12 +410,45 @@ function openViewer(a: Attachment) {
         <div class="fluent-panel-body">
           <div v-if="attachments.length" class="att-grid">
             <div v-for="a in attachments" :key="a.id" class="att-card">
-              <div class="att-img" title="点击查看大图（滚轮缩放 / 拖动平移）" @click="openViewer(a)">
-                <img :src="attSrc(a)" :alt="a.fileName" loading="lazy" />
+              <div class="att-img" :class="{ 'is-compare': isCompareOpen(a) }"
+                title="点击查看大图（滚轮缩放 / 拖动平移）" @click="!isCompareOpen(a) && openViewer(a)">
+                <!-- D-4：对比模式 - 底层原图（始终原图，不受 useEnhanced 影响） + 上层增强版用 clip-path 裁剪 -->
+                <template v-if="isCompareOpen(a) && a.enhancedPath">
+                  <img class="att-img-compare-base" :src="compareOriginalSrc(a)" :alt="a.fileName + ' (原图)'" />
+                  <img class="att-img-compare-top" :src="thumbSrc(a)" :alt="a.fileName + ' (增强版)'"
+                    :style="{ clipPath: compareClipRight(a) }" />
+                  <!-- 中线 -->
+                  <div class="att-compare-divider" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }"></div>
+                  <!-- 滑块手柄 -->
+                  <div class="att-compare-handle" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }">
+                    <span>⇆</span>
+                  </div>
+                  <!-- 角标：左=增强 右=原图 -->
+                  <span class="att-compare-tag att-compare-tag-left">✨ 增强</span>
+                  <span class="att-compare-tag att-compare-tag-right">原图</span>
+                </template>
+                <!-- 非对比模式：单图（thumbSrc 受 useEnhanced 切换） -->
+                <template v-else>
+                  <img :src="thumbSrc(a)" :alt="a.fileName" loading="lazy" />
+                </template>
+                <!-- v0.6 增强状态角标 -->
+                <span v-if="a.enhancedPath && !isCompareOpen(a)" class="att-enhanced-badge" title="已通过 5 步算法矫正（用于 OCR / 查看器）">
+                  ✨ 已增强
+                </span>
+                <!-- D-1：原图/增强版切换器（无增强版时隐藏；对比模式下隐藏避免双控制） -->
+                <button v-if="a.enhancedPath && !isCompareOpen(a)" class="att-thumb-toggle"
+                  :title="(useEnhanced[a.id] ?? true) ? '点击查看原图' : '点击查看增强版'"
+                  @click.stop="toggleThumbSource(a)">
+                  {{ (useEnhanced[a.id] ?? true) ? "增强" : "原图" }}
+                </button>
               </div>
               <div class="att-meta">
                 <div class="att-name" :title="a.fileName">{{ a.fileName }}</div>
-                <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{ OCR_META[a.ocrStatus].label }}</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
+                  <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{ OCR_META[a.ocrStatus].label }}</span>
+                  <span v-if="a.enhancedSource === 'screenshot'" class="tag tag-muted" title="截图（增强收益小）">截图</span>
+                  <span v-else-if="a.enhancedSource === 'scan'" class="tag tag-info" title="扫描件 / 拍照">扫描件</span>
+                </div>
                 <div class="att-ops">
                   <button class="btn btn-sm" :disabled="ocrBusy" @click="runOcr(a)">
                     {{ ocrBusy ? "识别中…" : "重新识别" }}
@@ -369,6 +456,24 @@ function openViewer(a: Attachment) {
                   <button class="btn btn-sm" :disabled="replacing" @click="replaceImage">
                     {{ replacing ? "更换中…" : "更换图片" }}
                   </button>
+                  <!-- D-4：A/B 对比开关（无增强版不可用） -->
+                  <button v-if="a.enhancedPath" class="btn btn-sm"
+                    :class="{ 'btn-primary': isCompareOpen(a) }"
+                    :title="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'"
+                    @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)">
+                    {{ isCompareOpen(a) ? "✕ 关闭对比" : "⇆ A/B 对比" }}
+                  </button>
+                </div>
+                <!-- D-4：对比模式滑块行（仅打开时显示） -->
+                <div v-if="isCompareOpen(a) && a.enhancedPath" class="att-compare-row">
+                  <span class="att-compare-label">✨ 增强</span>
+                  <input type="range" min="0" max="100" step="1"
+                    class="att-compare-slider"
+                    :value="Math.round((compareSplit[a.id] ?? 0.5) * 100)"
+                    @input="setSplit(a, +($event.target as HTMLInputElement).value / 100)"
+                    title="拖动调整：左=增强 / 右=原图" />
+                  <span class="att-compare-label">原图</span>
+                  <span class="att-compare-pct">{{ Math.round((compareSplit[a.id] ?? 0.5) * 100) }}%</span>
                 </div>
                 <div v-if="a.ocrText" class="ocr-text">{{ a.ocrText }}</div>
               </div>

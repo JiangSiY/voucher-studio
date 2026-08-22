@@ -186,6 +186,13 @@ fn main() {
             commands::restore_backup,
             commands::drill_backup,
             commands::upload_backup,
+            commands::enhance_status,
+            commands::clear_enhance_cache,
+            commands::enhance_status_v2,
+            commands::clear_enhance_cache_v2,
+            commands::delete_enhanced_one,
+            commands::recent_enhanced,
+            commands::record_viewer_hit,
         ])
         .run(tauri::generate_context!())
         .expect("Voucher Studio 启动失败");

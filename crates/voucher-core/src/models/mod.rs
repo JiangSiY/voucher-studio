@@ -6,7 +6,7 @@ pub mod export_batch;
 pub mod snapshot;
 pub mod voucher;
 
-pub use attachment::{Attachment, NewAttachment};
+pub use attachment::{Attachment, EnhanceSource, NewAttachment};
 pub use enums::{ExportStatus, OcrStatus, VoucherStatus};
 pub use export_batch::{ExportBatch, ExportItem, NewExportBatch};
 pub use snapshot::VoucherSnapshot;

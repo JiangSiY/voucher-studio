@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::db::repos::attachment_repo;
-use crate::models::{Attachment, NewAttachment, NewVoucher};
-use crate::services::{dedup, imaging, naming, ocr, ocr_fields, voucher_mgr};
+use crate::models::{Attachment, EnhanceSource, NewAttachment, NewVoucher};
+use crate::services::{dedup, enhance, imaging, naming, ocr, ocr_fields, voucher_mgr};
 use crate::{CoreContext, CoreError, Result};
 
 /// 一次导入产生的一张凭证（一张图片）
@@ -138,6 +138,21 @@ pub fn import_images(
         }
         let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
 
+        // v0.6 C 步：增强版入库（仅在「扫描件」来源时跑；总开关 / only_scans 控制）
+        // 失败兜底：返回 None → 走原图，不影响主流程
+        let cfg = ctx.config();
+        let enhance_cfg = &cfg.enhance;
+        let source = enhance::classify_source(path);
+        let only_scans = enhance_cfg.only_scans;
+        let enhanced_rel = if enhance_cfg.enabled && !(only_scans && source == enhance::SourceKind::Screenshot) {
+            // 关闭某步 → 用原图作为输入（流水线下一步可继续处理）
+            // 注：v0.6 仍跑全 5 步，开关的"单步跳过"在 v0.6.1 实现。
+            // 这里先按总开关 + 来源过滤决策
+            enhance::write_enhanced(&dest, &rel)
+        } else {
+            None
+        };
+
         // 凭证 + 附件行同一事务（文件已复制成功才建卡——无空卡）
         let created = import_one(
             ctx,
@@ -154,15 +169,41 @@ pub fn import_images(
                 if voucher_id.is_some() {
                     attach_done = true; // 附加模式：该凭证已满
                 }
+                // v0.6 C 步：写入增强版路径 + 来源分类（事务外；失败仅告警）
+                if enhanced_rel.is_some() {
+                    if let Err(e) = ctx.db.with_conn(|conn| {
+                        attachment_repo::set_enhanced(conn, attachment.id, &enhanced_rel.as_ref().unwrap())
+                    }) {
+                        log::warn!("写入增强版路径失败（附件 {}）: {e}", attachment.id);
+                    }
+                }
+                let db_source = match source {
+                    enhance::SourceKind::Screenshot => EnhanceSource::Screenshot,
+                    enhance::SourceKind::PhotoOrScan => EnhanceSource::Scan,
+                };
+                if let Err(e) = ctx.db.with_conn(|conn| {
+                    attachment_repo::set_enhanced_source(conn, attachment.id, db_source)
+                }) {
+                    log::warn!("写入增强来源失败（附件 {}）: {e}", attachment.id);
+                }
+
+                // 反射回 attachment：把增强字段也带出来
+                let mut attachment_out = attachment;
+                attachment_out.enhanced_path = enhanced_rel.clone();
+                attachment_out.enhanced_source = db_source;
+
                 summary.vouchers.push(ImportedVoucher {
                     voucher_id: created_voucher_id,
                     voucher_no,
-                    attachment,
+                    attachment: attachment_out,
                 });
             }
             Err(e) => {
-                // 事务失败：清理刚复制的文件，不留孤儿
+                // 事务失败：清理刚复制的文件 + 增强版文件，不留孤儿
                 let _ = std::fs::remove_file(&dest);
+                if let Some(er) = &enhanced_rel {
+                    let _ = std::fs::remove_file(ctx.paths.attachment_abs(er));
+                }
                 summary.failed.push(ImportFailure {
                     reason: e.to_string(),
                     file_name,
@@ -172,6 +213,7 @@ pub fn import_images(
     }
 
     // 可选 OCR + 自动填单 + 重命名（尽力而为，失败仅告警）
+    // v0.6 C 步：OCR 服务内部已读 attachments.enhanced_path，存在则用增强图、否则回退原图
     if run_ocr {
         for v in &summary.vouchers {
             match ocr::run_for_attachment(ctx, v.attachment.id) {
@@ -325,10 +367,16 @@ pub fn replace_attachment(
         )
     })?;
 
-    // 事务外：清理旧物理文件（尽力而为）
+    // 事务外：清理旧物理文件（含增强版，尽力而为）
     let old_abs = ctx.paths.attachment_abs(&old.file_path);
     if ctx.paths.is_inside_attachments(&old_abs) {
         let _ = std::fs::remove_file(&old_abs);
+    }
+    if let Some(old_enh) = &old.enhanced_path {
+        let enh_abs = ctx.paths.attachment_abs(old_enh);
+        if ctx.paths.is_inside_attachments(&enh_abs) {
+            let _ = std::fs::remove_file(&enh_abs);
+        }
     }
     Ok(new_attachment)
 }

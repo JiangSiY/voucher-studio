@@ -10,7 +10,7 @@ use std::time::Duration;
 use base64::Engine;
 use rusqlite::Connection;
 
-use crate::db::repos::{attachment_repo, ocr_cache_repo};
+use crate::db::repos::{attachment_repo, enhance_hit_repo, ocr_cache_repo};
 use crate::models::{Attachment, OcrStatus};
 use crate::utils::config::SECRET_OCR_API_KEY;
 use crate::{CoreContext, CoreError, Result};
@@ -34,9 +34,29 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         )));
     }
 
+    // v0.6 C 步：优先用增强版（5 步算法后的彩色 JPEG）做 OCR；
+    // 增强版不存在（未增强 / 失败）时回退原图。
+    // v0.6.5 D-2：使用增强版时记一条 enhance_hits 命中（OCR 来源），给设置页命中率统计。
+    let ocr_target = if let Some(ep) = &attachment.enhanced_path {
+        let enhanced_abs = ctx.paths.attachment_abs(ep);
+        if enhanced_abs.exists() {
+            if let Err(e) = ctx.db.with_conn(|conn| {
+                enhance_hit_repo::record(conn, attachment.id, enhance_hit_repo::HitSource::Ocr)
+            }) {
+                log::warn!("记录 enhance_hits 失败（不影响 OCR）: {e}");
+            }
+            enhanced_abs
+        } else {
+            log::warn!("增强版文件缺失，回退原图: {}", enhanced_abs.display());
+            abs.clone()
+        }
+    } else {
+        abs.clone()
+    };
+
     let text = ctx
         .db
-        .with_conn(|conn| recognize_with_cache(conn, ctx, &attachment, &abs))?;
+        .with_conn(|conn| recognize_with_cache(conn, ctx, &attachment, &ocr_target))?;
 
     ctx.db.with_conn(|conn| {
         attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&text))?;

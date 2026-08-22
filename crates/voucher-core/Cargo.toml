@@ -20,6 +20,10 @@ directories = "5"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 printpdf = { version = "0.7", features = ["embedded_images"] }
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+# v0.6 文档扫描矫正与增强（5.5 方案）：opencv-rust 绑定 OpenCV 4.x
+# +30MB 装包、首次编译 3-8 分钟。链接到系统 OpenCV 4.x（环境变量 OpenCV_DIR + OPENCV_LINK_*）。
+# 必须保留 default features（含 core/types），否则会报 GpuMat/UMat trait bound 错误。
+opencv = { version = "0.100", features = ["imgproc", "imgcodecs", "calib3d"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 notify = "6"
 base64 = "0.22"

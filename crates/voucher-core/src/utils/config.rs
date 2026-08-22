@@ -21,6 +21,8 @@ pub struct AppConfig {
     pub backup: BackupConfig,
     pub wechat: WechatConfig,
     pub print: PrintConfig,
+    /// v0.6：文档扫描矫正（5 步算法开关）
+    pub enhance: EnhanceConfig,
 }
 
 /// 外观：light / dark / system
@@ -177,6 +179,52 @@ impl Default for PrintConfig {
             columns: 3,
             include_images: true,
             group_by_day: true,
+        }
+    }
+}
+
+/// v0.6：文档扫描矫正（5 步算法 + 2 占位）
+///
+/// 5 个真实可调开关对应 5 步算法；2 个占位（锐化、去噪）UI 显示但 v0.6 不生效，
+/// 留作 v0.6.1 评估（决策：UI 先行，避免后续反复改页）。
+///
+/// 单步失败跳过由编排器天然兜底，关闭后该步不执行；建议默认全开。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EnhanceConfig {
+    /// 总开关；关闭后导入图片不再跑 5 步流水线
+    pub enabled: bool,
+    /// 步骤 1：倾斜矫正（Hough 直线）
+    pub step_deskew: bool,
+    /// 步骤 2：透视矫正（最大四边形）
+    pub step_dewarp: bool,
+    /// 步骤 3：自动裁边（去白边）
+    pub step_autocrop: bool,
+    /// 步骤 4：灰度化
+    pub step_grayscale: bool,
+    /// 步骤 5：自适应二值化
+    pub step_binarize: bool,
+    /// v0.6.1 评估：锐化（占位，v0.6 UI 显示但代码不执行）
+    pub step_sharpen: bool,
+    /// v0.6.1 评估：去噪（占位，v0.6 UI 显示但代码不执行）
+    pub step_denoise: bool,
+    /// 仅在导入「扫描件」（非截图）时走流水线；截图已接近二值图无收益
+    /// 默认 false：全量走；true = 仅对扫描件走
+    pub only_scans: bool,
+}
+
+impl Default for EnhanceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            step_deskew: true,
+            step_dewarp: true,
+            step_autocrop: true,
+            step_grayscale: true,
+            step_binarize: true,
+            step_sharpen: false,
+            step_denoise: false,
+            only_scans: false,
         }
     }
 }

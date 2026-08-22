@@ -11,10 +11,36 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::repos::{attachment_repo, export_repo, snapshot_repo, voucher_repo};
-use crate::models::{Attachment, ExportBatch, Voucher, VoucherStatus};
+use crate::db::repos::{attachment_repo, enhance_hit_repo, export_repo, snapshot_repo, voucher_repo};
+use crate::models::{Attachment, EnhanceSource, ExportBatch, Voucher, VoucherStatus};
 use crate::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfInput, PdfOptions};
 use crate::{CoreContext, CoreError, Result};
+
+/// D-6：PDF 附录取图规则——扫描件/拍照件优先增强版（5 步矫正后更清晰可印）；
+/// 截图/未识别回退原图（截图增强版仅用于 OCR，不进 PDF）。
+/// 增强版文件缺失时同样回退原图，保证导出不中断（与 OCR 回退口径一致）。
+pub fn pdf_image_abs(ctx: &CoreContext, a: &Attachment) -> std::path::PathBuf {
+    if a.enhanced_source == EnhanceSource::Scan {
+        if let Some(ep) = &a.enhanced_path {
+            let abs = ctx.paths.attachment_abs(ep);
+            if abs.exists() {
+                return abs;
+            }
+            log::warn!("增强版文件缺失，PDF 回退原图: {}", abs.display());
+        }
+    }
+    ctx.paths.attachment_abs(&a.file_path)
+}
+
+/// D-6：该附件的增强版是否实际进了 PDF（与 pdf_image_abs 同口径）
+pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
+    a.enhanced_source == EnhanceSource::Scan
+        && a
+            .enhanced_path
+            .as_ref()
+            .map(|ep| ctx.paths.attachment_abs(ep).exists())
+            .unwrap_or(false)
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -172,7 +198,7 @@ fn images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> Vec<Pdf
         .iter()
         .flat_map(|(v, atts)| {
             atts.iter().filter(|a| a.is_image()).map(move |a| PdfImage {
-                path: ctx.paths.attachment_abs(&a.file_path),
+                path: pdf_image_abs(ctx, a),
                 caption: format!("{} {}", v.voucher_no, a.file_name),
             })
         })
@@ -201,7 +227,7 @@ fn daily_images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> V
                 }
                 label.push_str(&format!("（{}）", v.voucher_no));
                 PdfImage {
-                    path: ctx.paths.attachment_abs(&a.file_path),
+                    path: pdf_image_abs(ctx, a),
                     caption: label,
                 }
             })
@@ -238,6 +264,10 @@ fn next_batch_no(ctx: &CoreContext, prefix: &str) -> Result<String> {
 }
 
 /// 落批次记录 + 明细 + 状态流转（非归档 → 已导出，先落快照）
+/// D-5：同步记录每张被导出图附件的 `enhance_hits` 命中（source='export'），
+/// 让设置页「累计命中」/「活跃占比」指标能反映导出的实际使用。
+/// - 优先 enhanced_path 走增强版（与 OCR/查看器口径一致）；
+/// - 写命中走新连接，错误仅 warn 不中断批次（PDF 已生成不撤）。
 fn record_batch(
     ctx: &CoreContext,
     items: &[(Voucher, Vec<Attachment>)],
@@ -245,7 +275,7 @@ fn record_batch(
     pdf_path: String,
 ) -> Result<ExportBatch> {
     let count = items.len() as i64;
-    ctx.db.with_tx(|tx| {
+    let batch = ctx.db.with_tx(|tx| {
         let batch = export_repo::insert_batch(
             tx,
             &crate::models::NewExportBatch {
@@ -255,7 +285,7 @@ fn record_batch(
                 status: crate::models::ExportStatus::Done,
             },
         )?;
-        for (i, (v, _)) in items.iter().enumerate() {
+        for (i, (v, _atts)) in items.iter().enumerate() {
             export_repo::insert_item(tx, batch.id, v.id, i as i64)?;
             // 已归档的保持归档态，其余标记为已导出（先落快照，与其他写操作口径一致）
             if v.status != VoucherStatus::Archived {
@@ -271,5 +301,20 @@ fn record_batch(
             }
         }
         Ok(batch)
-    })
+    })?;
+
+    // D-5 增强版命中埋点（D-6 收紧口径）：只有增强版实际进了 PDF 的附件
+    // （扫描件 + enhanced_path 存在 + 文件在盘）才算一次 Export 命中，
+    // 与 pdf_image_abs 的取图规则完全一致，避免命中率虚高。
+    for (_v, atts) in items {
+        for a in atts.iter().filter(|a| a.is_image() && uses_enhanced_in_pdf(ctx, a)) {
+            if let Err(e) = ctx.db.with_conn(|conn| {
+                enhance_hit_repo::record(conn, a.id, enhance_hit_repo::HitSource::Export)
+            }) {
+                log::warn!("记录 enhance_hits(Export) 失败（不影响导出）: {e}");
+            }
+        }
+    }
+
+    Ok(batch)
 }

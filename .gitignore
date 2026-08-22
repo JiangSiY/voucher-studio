@@ -11,3 +11,6 @@ src-tauri/target/
 
 # 打印 spike 测试产物（每次 cargo test 都会重新生成，无需入库）
 /spikes/print-poc/sample-*.pdf
+
+# 真机验收走查存档（截图、压测图、UIA 脚本本地保留；不走 git）
+/.archive-*/

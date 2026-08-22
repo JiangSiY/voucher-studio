@@ -53,9 +53,9 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "");
       <nav class="sidebar-nav">
         <template v-for="g in navGroups" :key="g.group">
           <div class="nav-group">{{ g.group }}</div>
-          <router-link v-for="item in g.items" :key="item.to" :to="item.to">
+          <router-link v-for="item in g.items" :key="item.to" :to="item.to" :title="item.label">
             <span class="nav-icon">{{ item.icon }}</span>
-            {{ item.label }}
+            <span class="nav-label">{{ item.label }}</span>
           </router-link>
         </template>
       </nav>

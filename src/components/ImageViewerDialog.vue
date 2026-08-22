@@ -36,7 +36,14 @@ const zoomLabel = computed(() => `${Math.round(scale.value * 100)}%`);
 watch(
   () => props.visible,
   (v) => {
-    if (v) resetView();
+    if (v) {
+      resetView();
+      // D-7：查看器打开即落一条 viewer 命中（后端校验：无增强版的附件不计入）
+      // 静默失败——埋点失败绝不能影响看图
+      if (props.attachmentId != null) {
+        api.recordViewerHit(props.attachmentId).catch(() => {});
+      }
+    }
     document.body.style.overflow = v ? "hidden" : "";
   },
 );

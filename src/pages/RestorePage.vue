@@ -77,11 +77,19 @@ async function restart() {
 
 async function runDrill() {
   drilling.value = true;
+  // G3-4：演练开始即清旧报告——失败/进行中都不残留上一次的「演练通过」
+  drill.value = null;
   try {
     drill.value = await api.drillBackup();
     toast.success("演练通过：备份可完整恢复");
   } catch (e) {
-    toastError(e);
+    // G3-4：后端术语翻译成用户语言（原样弹「IO 错误: Invalid checksum」不友好）
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/checksum|校验/i.test(msg)) {
+      toast.danger("演练失败：备份文件校验不一致（可能已损坏），请换用其他备份或重新备份");
+    } else {
+      toastError(e);
+    }
   } finally {
     drilling.value = false;
   }

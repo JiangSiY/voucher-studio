@@ -2,6 +2,7 @@
 
 pub mod attachment_repo;
 pub mod config_repo;
+pub mod enhance_hit_repo;
 pub mod export_repo;
 pub mod ocr_cache_repo;
 pub mod snapshot_repo;

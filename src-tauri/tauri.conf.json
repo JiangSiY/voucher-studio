@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Voucher Studio",
-  "version": "0.4.0",
+  "version": "0.6.5",
   "identifier": "com.voucherstudio.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -15,7 +15,7 @@
         "title": "Voucher Studio",
         "width": 1280,
         "height": 820,
-        "minWidth": 960,
+        "minWidth": 720,
         "minHeight": 640,
         "center": true,
         "transparent": true,
@@ -38,7 +38,8 @@
     "targets": "all",
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": {
-      "../assets/ocr-models/": "ocr-models/"
+      "../assets/ocr-models/": "ocr-models/",
+      "vendor/opencv_world4100.dll": "opencv_world4100.dll"
     }
   }
 }

@@ -143,7 +143,7 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
     }
-    // 事务内：逐个删除凭证（附件行由 ON DELETE CASCADE 移除），先收集附件相对路径
+    // 事务内：逐个删除凭证（附件行由 ON DELETE CASCADE 移除），先收集附件相对路径（含增强版）
     let (deleted, attachment_rels) = ctx.db.with_tx(|tx| {
         let mut deleted = 0u64;
         let mut rels: Vec<String> = Vec::new();
@@ -153,6 +153,9 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
             }
             for a in attachment_repo::list_by_voucher(tx, *id)? {
                 rels.push(a.file_path);
+                if let Some(er) = a.enhanced_path {
+                    rels.push(er);
+                }
             }
             voucher_repo::delete(tx, *id)?;
             deleted += 1;

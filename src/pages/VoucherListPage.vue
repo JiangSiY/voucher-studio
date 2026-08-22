@@ -1,15 +1,18 @@
 <script setup lang="ts">
 /** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type Voucher, type VoucherStatus } from "../api/client";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { useConfigStore } from "../stores/config";
+import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
 import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
+const configStore = useConfigStore();
 
 type Filter = "all" | VoucherStatus;
 const filters: { key: Filter; label: string }[] = [
@@ -21,6 +24,8 @@ const filters: { key: Filter; label: string }[] = [
 ];
 
 const items = ref<Voucher[]>([]);
+// D-1：每张凭证的缩略图（enhanced 优先）。key = voucher.id
+const thumbs = ref<Record<number, VoucherThumb>>({});
 const total = ref(0);
 const page = ref(1);
 const pageSize = 20;
@@ -29,12 +34,69 @@ const keyword = ref("");
 const selected = ref<Set<number>>(new Set());
 const loading = ref(false);
 
+// D-3 翻页预取缓存：key = `${filter}|${keyword}|${pageSize}`，value = page → VoucherListResult
+// hover › 200ms 时预取下一页；点击 › 时优先消费缓存，避免翻页闪烁
+type ListKey = string;
+const prefetched = ref<Map<ListKey, Map<number, VoucherListResult>>>(new Map());
+let nextPagePrefetchTimer: ReturnType<typeof setTimeout> | null = null;
+function listKey(): ListKey {
+  return `${filter.value}|${keyword.value}|${pageSize}`;
+}
+function getPrefetched(p: number): VoucherListResult | null {
+  return prefetched.value.get(listKey())?.get(p) ?? null;
+}
+function putPrefetched(p: number, data: VoucherListResult) {
+  const k = listKey();
+  let m = prefetched.value.get(k);
+  if (!m) {
+    m = new Map();
+    prefetched.value.set(k, m);
+  }
+  m.set(p, data);
+  // 限制每 key 最多 2 页缓存（防内存膨胀）
+  if (m.size > 2) {
+    const oldest = m.keys().next().value;
+    if (oldest !== undefined) m.delete(oldest);
+  }
+}
+function clearPrefetched() {
+  if (nextPagePrefetchTimer) {
+    clearTimeout(nextPagePrefetchTimer);
+    nextPagePrefetchTimer = null;
+  }
+  prefetched.value.clear();
+}
+
+const attachmentsDir = computed(() =>
+  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
+);
+
+/** D-1：列表缩略图 URL，enhanced 优先；convertFileSrc 把本地路径转 webview asset 协议 */
+function thumbUrl(v: Voucher): string | null {
+  const t = thumbs.value[v.id];
+  if (!t) return null;
+  const rel = t.enhancedPath ?? t.filePath;
+  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+}
+
 // 删除确认
 const confirmVisible = ref(false);
 const confirmText = ref("");
 let pendingDelete: number[] = [];
 
 async function load() {
+  // D-3：先查预取缓存（用户可能刚点过 › 但 UI 还没消费；或 hover 预取完就点了 ›）
+  const cached = getPrefetched(page.value);
+  if (cached) {
+    items.value = cached.items;
+    total.value = cached.total;
+    thumbs.value = cached.thumbs ?? {};
+    selected.value.clear();
+    // 已用过的缓存不再保留，释放内存
+    const m = prefetched.value.get(listKey());
+    m?.delete(page.value);
+    return;
+  }
   loading.value = true;
   try {
     const result = await api.listVouchers({
@@ -55,9 +117,11 @@ async function load() {
       });
       items.value = retry.items;
       total.value = retry.total;
+      thumbs.value = retry.thumbs ?? {};
     } else {
       items.value = result.items;
       total.value = result.total;
+      thumbs.value = result.thumbs ?? {};
     }
     selected.value.clear();
   } catch (e) {
@@ -67,14 +131,43 @@ async function load() {
   }
 }
 
+/** D-3：hover › 200ms 后静默预取下一页；不抢当前 load，不闪烁 */
+function prefetchNextPage() {
+  if (page.value >= totalPages()) return; // 末页不预取
+  if (getPrefetched(page.value + 1)) return; // 已预取过
+  if (nextPagePrefetchTimer) clearTimeout(nextPagePrefetchTimer);
+  nextPagePrefetchTimer = setTimeout(async () => {
+    nextPagePrefetchTimer = null;
+    try {
+      const data = await api.listVouchers({
+        page: page.value + 1,
+        pageSize,
+        status: filter.value === "all" ? null : filter.value,
+        keyword: keyword.value || null,
+      });
+      putPrefetched(page.value + 1, data);
+    } catch {
+      // 静默失败，不打扰用户
+    }
+  }, 200);
+}
+function cancelPrefetchNextPage() {
+  if (nextPagePrefetchTimer) {
+    clearTimeout(nextPagePrefetchTimer);
+    nextPagePrefetchTimer = null;
+  }
+}
+
 function switchFilter(f: Filter) {
   filter.value = f;
   page.value = 1;
+  clearPrefetched();
   load();
 }
 
 function search() {
   page.value = 1;
+  clearPrefetched();
   load();
 }
 
@@ -152,6 +245,8 @@ async function doDelete() {
     } else {
       toast.success(`已删除 ${n} 张凭证`);
     }
+    // D-3：删后数据变化（总数 / 页数）→ 清预取缓存
+    clearPrefetched();
     load();
   } catch (e) {
     toastError(e);
@@ -164,14 +259,22 @@ let unlistenWxImported: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
-  unlistenImportDone = await listen("import:done", () => load());
+  unlistenImportDone = await listen("import:done", () => {
+    // D-3：导入后总数变化 → 清预取缓存
+    clearPrefetched();
+    load();
+  });
   // 微信监听为后台入库，用户停留本页时列表同样需要刷新
-  unlistenWxImported = await listen("wechat:imported", () => load());
+  unlistenWxImported = await listen("wechat:imported", () => {
+    clearPrefetched();
+    load();
+  });
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
   unlistenWxImported?.();
+  cancelPrefetchNextPage();
 });
 </script>
 
@@ -215,6 +318,8 @@ onUnmounted(() => {
           <thead>
             <tr>
               <th style="width: 32px"><input type="checkbox" class="cb" :checked="selected.size === items.length && items.length > 0" @change="toggleAll" /></th>
+              <!-- D-1：缩略图列（增强版优先显示） -->
+              <th style="width: 64px">图</th>
               <th>凭证编号</th>
               <th>日期</th>
               <th>摘要</th>
@@ -225,8 +330,17 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="v in items" :key="v.id">
-              <td><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
+            <!-- 场景11：行点击进编辑页；复选框/操作按钮 stop 冒泡不触发跳转 -->
+            <tr v-for="v in items" :key="v.id" style="cursor: pointer" @click="router.push(`/vouchers/${v.id}`)">
+              <td @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
+              <td>
+                <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '✨ 增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
+                  <img :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
+                  <span v-if="thumbs[v.id]?.enhancedSource === 'scan'" class="list-thumb-source" title="扫描件">扫</span>
+                  <span v-else-if="thumbs[v.id]?.enhancedSource === 'screenshot'" class="list-thumb-source muted" title="截图">截</span>
+                </div>
+                <div v-else class="list-thumb list-thumb-empty" title="无附件">🖼</div>
+              </td>
               <td><span class="mono">{{ v.voucherNo }}</span></td>
               <td>{{ v.voucherDate }}</td>
               <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.description">{{ v.description || "—" }}</td>
@@ -237,7 +351,7 @@ onUnmounted(() => {
                 <span v-if="v.tags.length > 2" style="font-size: 11px; color: var(--text-4)">+{{ v.tags.length - 2 }}</span>
               </td>
               <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
-              <td>
+              <td @click.stop>
                 <div class="action-row">
                   <button class="icon-btn" title="编辑" @click="router.push(`/vouchers/${v.id}`)">✎</button>
                   <button class="icon-btn" title="导出 PDF" @click="exportOne(v)">🖨</button>
@@ -256,9 +370,9 @@ onUnmounted(() => {
       <div class="tbl-foot" style="padding: 12px 16px">
         <div class="info">共 {{ total }} 条记录</div>
         <div class="pager">
-          <button :disabled="page <= 1" @click="page--; load()">‹</button>
+          <button :disabled="page <= 1" @mouseenter="cancelPrefetchNextPage" @click="page--; load()">‹</button>
           <button class="active">{{ page }}</button>
-          <button :disabled="page >= totalPages()" @click="page++; load()">›</button>
+          <button :disabled="page >= totalPages()" @mouseenter="prefetchNextPage" @mouseleave="cancelPrefetchNextPage" @click="page++; load()">›</button>
         </div>
       </div>
     </div>

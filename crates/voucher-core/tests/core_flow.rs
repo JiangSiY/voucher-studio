@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use chrono::Datelike;
+use voucher_core::db::repos::attachment_repo;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
 use voucher_core::models::{NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
 use voucher_core::services::{
@@ -23,7 +24,7 @@ fn make_png(path: &std::path::Path) {
 }
 
 #[test]
-fn schema_creates_seven_tables() -> Result<()> {
+fn schema_creates_eight_tables() -> Result<()> {
     let (_dir, ctx) = test_ctx();
     ctx.db.with_conn(|conn| {
         let tables: Vec<String> = {
@@ -39,6 +40,7 @@ fn schema_creates_seven_tables() -> Result<()> {
         for t in [
             "vouchers",
             "attachments",
+            "enhance_hits",     // v4：D-2 增强版命中埋点
             "export_batches",
             "export_items",
             "snapshots",
@@ -47,8 +49,21 @@ fn schema_creates_seven_tables() -> Result<()> {
         ] {
             assert!(tables.iter().any(|x| x == t), "缺表 {t}");
         }
+        // v3 升级：documents 增强（5 步流水线 + 来源分类）
+        // 验证 attachments 表的列名包含 enhanced_path + enhanced_source
+        let cols: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(attachments)")?;
+            let mut rows = stmt.query([])?;
+            let mut v = Vec::new();
+            while let Some(r) = rows.next()? {
+                v.push(r.get::<_, String>(1)?);
+            }
+            v
+        };
+        assert!(cols.iter().any(|c| c == "enhanced_path"), "缺列 enhanced_path");
+        assert!(cols.iter().any(|c| c == "enhanced_source"), "缺列 enhanced_source");
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        assert_eq!(v, 2);
+        assert_eq!(v, 4, "user_version 应为 4（v0.6.5 D-2 增强缓存管理）");
         Ok(())
     })
 }
@@ -422,11 +437,24 @@ fn delete_vouchers_cleans_attachment_files() -> Result<()> {
     let abs = ctx.paths.attachment_abs(&rel);
     assert!(abs.is_file(), "附件文件应已落盘: {}", abs.display());
 
+    // 造一个增强版文件并登记（模拟 5 步增强已跑过）
+    let att_id = summary.vouchers[0].attachment.id;
+    let stem = rel.trim_end_matches(".png");
+    let enh_rel = format!("{stem}.enhanced.jpg");
+    let enh_abs = ctx.paths.attachment_abs(&enh_rel);
+    std::fs::copy(&abs, &enh_abs)?;
+    ctx.db.with_conn(|conn| attachment_repo::set_enhanced(conn, att_id, &enh_rel))?;
+
     // 批量删除（含一个不存在的 id，验证幂等跳过）
     let vid = summary.vouchers[0].voucher_id;
     let n = voucher_mgr::delete_vouchers(&ctx, &[vid, 99999])?;
     assert_eq!(n, 1, "只应删除实际存在的 1 张");
     assert!(!abs.exists(), "附件物理文件应随凭证删除被清理");
+    assert!(
+        !enh_abs.exists(),
+        "增强版文件应随凭证删除一并清理: {}",
+        enh_abs.display()
+    );
     let att_count: i64 = ctx.db.with_conn(|conn| {
         conn.query_row("SELECT COUNT(*) FROM attachments", [], |r| r.get(0))
             .map_err(CoreError::from)

@@ -44,6 +44,10 @@ export interface Attachment {
   mimeType: string;
   ocrStatus: "pending" | "running" | "done" | "failed";
   ocrText: string | null;
+  /** v0.6：5 步增强后的 JPEG 相对路径（null = 未增强，原图回退） */
+  enhancedPath: string | null;
+  /** v0.6：来源分类（screenshot=截图 / scan=扫描件 / unknown=未识别） */
+  enhancedSource: "screenshot" | "scan" | "unknown";
   createdAt: string;
 }
 
@@ -73,6 +77,15 @@ export interface VoucherQuery {
 export interface VoucherListResult {
   items: Voucher[];
   total: number;
+  /** D-1：当前页每张凭证的首附件缩略图信息（key = voucher.id）。无附件时不在 map 中 */
+  thumbs: Record<number, VoucherThumb>;
+}
+
+/** D-1 列表缩略图：相对附件根的路径，前端用 convertFileSrc 拼 URL */
+export interface VoucherThumb {
+  filePath: string;
+  enhancedPath: string | null;
+  enhancedSource: "screenshot" | "scan" | "unknown";
 }
 
 export interface VoucherStats {
@@ -162,6 +175,76 @@ export interface AppConfig {
   };
   wechat: { enabled: boolean; watchDir: string; mode: string };
   print: { title: string; cardStyle: string; columns: number; includeImages: boolean; groupByDay: boolean };
+  /** v0.6：文档扫描矫正（5 步算法 + 2 占位） */
+  enhance: EnhanceConfig;
+}
+
+/** v0.6 文档扫描矫正设置 */
+export interface EnhanceConfig {
+  /** 总开关：关闭后导入图片不再跑流水线 */
+  enabled: boolean;
+  /** 仅对扫描件（非截图）走流水线；true = 截图跳过 */
+  onlyScans: boolean;
+  stepDeskew: boolean;
+  stepDewarp: boolean;
+  stepAutocrop: boolean;
+  stepGrayscale: boolean;
+  stepBinarize: boolean;
+  /** v0.6.1 评估：UI 占位，v0.6 不生效 */
+  stepSharpen: boolean;
+  /** v0.6.1 评估：UI 占位，v0.6 不生效 */
+  stepDenoise: boolean;
+}
+
+/** v0.6 增强缓存状态（设置页显示） */
+export interface EnhanceStatus {
+  total: number;
+  totalSize: number;
+  screenshotCount: number;
+  scanCount: number;
+}
+
+/** D-2 增强缓存状态 v2：摘要 + 命中率（D-8 起命中按来源分列） */
+export interface EnhanceStatusV2 {
+  total: number;
+  totalSize: number;
+  screenshotCount: number;
+  scanCount: number;
+  hitCount: number;
+  hitCount30d: number;
+  /** D-8：OCR 用增强版识别的次数 */
+  hitCountOcr: number;
+  /** D-8：增强版进 PDF 的次数（D-6 起仅扫描件） */
+  hitCountExport: number;
+  /** D-8：查看器打开增强版的次数（D-7 接通） */
+  hitCountViewer: number;
+  oldestEnhancedAt: string | null;
+  newestEnhancedAt: string | null;
+}
+
+/** D-2 释放策略 */
+export type ClearStrategy = "all" | "older_than_days" | "larger_than_mb";
+
+/** D-2 释放结果 */
+export interface ClearSummary {
+  deletedFiles: number;
+  freedBytes: number;
+  strategy: ClearStrategy;
+  threshold: number;
+  candidateCount: number;
+}
+
+/** D-2 最近增强（设置页表格行） */
+export interface RecentEnhancedRow {
+  attachmentId: number;
+  voucherId: number;
+  voucherNo: string;
+  fileName: string;
+  fileSize: number;
+  enhancedSize: number;
+  enhancedSource: "screenshot" | "scan" | "unknown";
+  enhancedAt: string;
+  hitCount: number;
 }
 
 export interface AppInfo {
@@ -281,4 +364,21 @@ export const api = {
   drillBackup: (path?: string) =>
     invoke<DrillReport>("drill_backup", { path: path ?? null }),
   uploadBackup: (path: string) => invoke<void>("upload_backup", { path }),
+
+  // v0.6 文档扫描矫正
+  enhanceStatus: () => invoke<EnhanceStatus>("enhance_status"),
+  clearEnhanceCache: () => invoke<number>("clear_enhance_cache"),
+
+  // v0.6.5 D-2 增强缓存管理
+  enhanceStatusV2: () => invoke<EnhanceStatusV2>("enhance_status_v2"),
+  clearEnhanceCacheV2: (strategy: ClearStrategy, threshold: number) =>
+    invoke<ClearSummary>("clear_enhance_cache_v2", { strategy, threshold }),
+  deleteEnhancedOne: (attachmentId: number) =>
+    invoke<number>("delete_enhanced_one", { attachmentId }),
+  recentEnhanced: (limit: number) =>
+    invoke<RecentEnhancedRow[]>("recent_enhanced", { limit }),
+
+  // v0.6.5 D-7 查看器命中埋点（静默调用，失败不打扰用户）
+  recordViewerHit: (attachmentId: number) =>
+    invoke<void>("record_viewer_hit", { attachmentId }),
 };

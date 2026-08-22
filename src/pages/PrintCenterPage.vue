@@ -6,7 +6,8 @@
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type ExportBatch, type Voucher } from "../api/client";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { api, type ExportBatch, type Voucher, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import VoucherCard from "../components/VoucherCard.vue";
 import { useConfigStore } from "../stores/config";
@@ -16,6 +17,11 @@ const configStore = useConfigStore();
 
 const vouchers = ref<Voucher[]>([]);
 const selected = ref<Set<number>>(new Set());
+/** D-9：各页拉到的凭证首附件缩略图（key = voucher.id），供图片附录预览 */
+const thumbs = ref<Record<number, VoucherThumb>>({});
+const attachmentsDir = computed(() =>
+  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
+);
 
 const title = ref("凭证整理单");
 const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
@@ -32,17 +38,40 @@ async function loadVouchers() {
   try {
     // 分页拉全：只取首页会漏掉第 100 张以后的凭证，导致无法勾选打印
     const all: Voucher[] = [];
+    const allThumbs: Record<number, VoucherThumb> = {};
     let page = 1;
     for (;;) {
       const result = await api.listVouchers({ page, pageSize: 200 });
       all.push(...result.items);
+      Object.assign(allThumbs, result.thumbs ?? {});
       if (all.length >= result.total || result.items.length === 0) break;
       page++;
     }
     vouchers.value = all;
+    thumbs.value = allThumbs;
   } catch (e) {
     toastError(e);
   }
+}
+
+// ---------- D-9：图片附录预览（与 PDF 附录取图同规则） ----------
+
+/** 选中凭证的附录缩略图行（key = voucher.id，与 PDF 附录顺序一致：预览列表已按日期序） */
+const previewThumbRows = computed(() =>
+  previewVouchers.value
+    .map((v) => ({ voucher: v, thumb: thumbs.value[v.id] }))
+    .filter((r): r is { voucher: Voucher; thumb: VoucherThumb } => r.thumb != null),
+);
+
+/**
+ * D-9：缩略图 URL——与 Rust 端 export::pdf_image_abs 同规则：
+ * 扫描件用增强版（5 步矫正后更清晰可印），截图/未识别用原图（截图增强版仅 OCR 用）。
+ * 预览即所见即所得，用户在预览里看到的图就是 PDF 附录里印出来的图。
+ */
+function appendixThumbUrl(t: VoucherThumb): string {
+  const rel =
+    t.enhancedSource === "scan" && t.enhancedPath ? t.enhancedPath : t.filePath;
+  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
 }
 
 async function load() {
@@ -266,9 +295,25 @@ onUnmounted(() => {
         <div v-if="!groupByDay && previewVouchers.length > cardsPerPage" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 8px">
           仅预览第 1 页（共 {{ Math.ceil(previewVouchers.length / cardsPerPage) }} 页），PDF 中完整输出
         </div>
-        <div v-if="includeImages && previewVouchers.length" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
-          {{ groupByDay ? "每份日报将在汇总表后附带当日图片附录页" : "PDF 将在卡片后附带附件图片附录页" }}
-        </div>
+
+        <!-- D-9：图片附录预览（与 PDF 附录同取图规则：扫描件用增强版，截图用原图） -->
+        <template v-if="includeImages && previewThumbRows.length">
+          <div class="appendix-divider"></div>
+          <div class="appendix-title">图片附录预览（PDF 每页 2×2）</div>
+          <div class="appendix-grid">
+            <figure v-for="r in previewThumbRows.slice(0, 8)" :key="r.voucher.id" class="appendix-cell">
+              <img :src="appendixThumbUrl(r.thumb)" :alt="r.voucher.voucherNo" loading="lazy" />
+              <figcaption>
+                <span class="mono">{{ r.voucher.voucherNo }}</span>
+                <span v-if="r.thumb.enhancedSource === 'scan' && r.thumb.enhancedPath" class="appendix-badge"
+                  title="PDF 附录将印 5 步矫正后的增强版">✨ 增强版</span>
+              </figcaption>
+            </figure>
+          </div>
+          <div v-if="previewThumbRows.length > 8" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+            其余 {{ previewThumbRows.length - 8 }} 张图片在 PDF 附录中完整输出
+          </div>
+        </template>
       </div>
       <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
         预览仅供参考，实际打印以 PDF 输出为准

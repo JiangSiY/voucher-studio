@@ -142,6 +142,54 @@ body {
   color: var(--text-4);
 }
 
+/* 窄窗口断点（三档语义）：>960 完整双列 / 760–960 仪表盘统计单列 / ≤760 侧栏收成图标栏、主区单列。
+   宽表格由 .dtable-wrap 的 overflow-x:auto 兜底（容器内滚动，不撑破页面）。 */
+@media (max-width: 760px) {
+  .sidebar {
+    width: 56px;
+  }
+
+  .sidebar-header {
+    padding: var(--s-4) 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  .sidebar-logo {
+    justify-content: center;
+    gap: 0;
+  }
+
+  .sidebar-logo > span:not(.badge) {
+    display: none;
+  }
+
+  .sidebar-nav {
+    padding: var(--s-3) var(--s-1);
+  }
+
+  .sidebar-nav .nav-group {
+    display: none;
+  }
+
+  .sidebar-nav a {
+    justify-content: center;
+    padding: var(--s-2) 0;
+  }
+
+  .sidebar-nav .nav-label {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .main-scroll {
+    padding: var(--s-4);
+  }
+}
+
 .main-area {
   flex: 1;
   min-width: 0;
@@ -608,6 +656,48 @@ select.input {
   text-align: right;
 }
 
+/* D-1：列表缩略图（40×52 卡片预览，增强版优先） */
+.dtable .list-thumb {
+  width: 40px;
+  height: 52px;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  background: var(--surface-3);
+  border: 1px solid var(--stroke);
+  display: inline-block;
+}
+.dtable .list-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dtable .list-thumb-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-4);
+  background: var(--surface-2);
+}
+.dtable .list-thumb-source {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.dtable .list-thumb-source.muted {
+  background: rgba(0, 0, 0, 0.55);
+}
+
 .action-row {
   display: flex;
   align-items: center;
@@ -823,6 +913,53 @@ select.input {
 
 .print-grid.cols-1 {
   grid-template-columns: 1fr;
+}
+
+/* ===== D-9 打印中心：图片附录预览（与 PDF 附录同取图规则） ===== */
+.appendix-divider {
+  border-top: 1px dashed #d8d8d8;
+  margin: 12px 0 8px;
+}
+.appendix-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5f5f5f;
+  margin-bottom: 6px;
+}
+.appendix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.appendix-cell {
+  margin: 0;
+  border: 1px solid #e1e1e1;
+  border-radius: var(--r-2);
+  background: #fafafa;
+  overflow: hidden;
+}
+.appendix-cell img {
+  display: block;
+  width: 100%;
+  height: 110px;
+  object-fit: contain;
+  background: white;
+}
+.appendix-cell figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+  color: #6e6e6e;
+  border-top: 1px solid #ececec;
+}
+.appendix-badge {
+  font-size: 9px;
+  font-weight: 600;
+  color: #6366f1;
+  white-space: nowrap;
 }
 
 .vcard {
@@ -1047,13 +1184,177 @@ select.input {
 }
 
 .att-card .att-img {
-  height: 100px;
+  height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--surface-3);
   overflow: hidden;
   cursor: zoom-in;
+  position: relative;
+}
+.att-card .att-img.is-compare { height: 260px; cursor: default; }
+
+/* v0.6 增强状态角标（位于缩略图右上角） */
+.att-card .att-enhanced-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.2px;
+  pointer-events: none;
+}
+
+/* D-1：原图/增强版切换器（左上角小按钮；不抢占看图点击） */
+.att-card .att-thumb-toggle {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.att-card .att-thumb-toggle:hover {
+  background: rgba(99, 102, 241, 0.85);
+}
+
+/* D-4：增强版 vs 原图 A/B 对比（双层 img 叠加，clip-path 切左半显示增强） */
+.att-card .att-img.is-compare { cursor: default; }
+.att-card .att-img-compare-base,
+.att-card .att-img-compare-top {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.att-card .att-img-compare-top {
+  /* clip-path 通过内联 style 绑定 compareClipRight(a) */
+  transition: clip-path 0.06s linear;
+}
+.att-card .att-compare-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
+}
+.att-card .att-compare-handle {
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 2;
+}
+.att-card .att-compare-tag {
+  position: absolute;
+  top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #fff;
+  pointer-events: none;
+}
+.att-card .att-compare-tag-left {
+  left: 4px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.att-card .att-compare-tag-right {
+  right: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* D-4：att-meta 区内的滑块行 */
+.att-card .att-compare-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--surface-3);
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+}
+.att-card .att-compare-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+  min-width: 32px;
+  text-align: center;
+}
+.att-card .att-compare-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--stroke);
+  border-radius: 2px;
+  outline: none;
+  cursor: ew-resize;
+  margin: 0;
+}
+.att-card .att-compare-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: ew-resize;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.att-card .att-compare-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: ew-resize;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.att-card .att-compare-pct {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+  text-align: right;
 }
 
 .att-card img {
