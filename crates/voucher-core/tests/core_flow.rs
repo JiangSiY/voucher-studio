@@ -502,6 +502,86 @@ fn set_status_creates_snapshot() -> Result<()> {
     Ok(())
 }
 
+/// v0.7 B-1：批量状态流转——单事务逐张快照、幂等跳过、不存在跳过
+#[test]
+fn batch_set_status_snapshots_and_skips() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let v1 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "批1".into(),
+            ..Default::default()
+        },
+    )?;
+    let v2 = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "批2".into(),
+            ..Default::default()
+        },
+    )?;
+    // v2 先单独复核，批量时已是目标状态 → 应跳过
+    voucher_mgr::set_status(&ctx, v2.id, VoucherStatus::Reviewed)?;
+
+    // 批量复核：v1 生效、v2 幂等跳过、99999 不存在跳过
+    let n = voucher_mgr::batch_set_status(
+        &ctx,
+        &[v1.id, v2.id, 99999],
+        VoucherStatus::Reviewed,
+    )?;
+    assert_eq!(n, 1, "只有 v1 实际变更");
+
+    let d1 = voucher_mgr::get_detail(&ctx, v1.id)?;
+    assert_eq!(d1.voucher.status, VoucherStatus::Reviewed);
+    assert_eq!(d1.snapshots.len(), 1, "v1 应有一条 batch_status 快照");
+    assert_eq!(d1.snapshots[0].reason, "batch_status");
+
+    let d2 = voucher_mgr::get_detail(&ctx, v2.id)?;
+    assert_eq!(d2.snapshots.len(), 1, "v2 不应因幂等跳过产生新快照");
+
+    // 空列表 → 0
+    assert_eq!(voucher_mgr::batch_set_status(&ctx, &[], VoucherStatus::Archived)?, 0);
+    Ok(())
+}
+
+/// v0.7 R-1：Top 对方账户——按金额降序、空名排除、limit 生效
+#[test]
+fn top_counterparties_orders_by_amount() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let mk = |desc: &str, cp: &str, cents: i64| {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                description: desc.into(),
+                counterparty: cp.into(),
+                amount_cents: Some(cents),
+                ..Default::default()
+            },
+        )
+    };
+    mk("a", "美团", 5000)?;
+    mk("b", "美团", 3000)?;
+    mk("c", "京东", 9000)?;
+    mk("d", "", 12345)?; // 空对方：不进榜
+    mk("e", "滴滴", 100)?;
+
+    // 全部历史（months=0）
+    let all = voucher_core::services::reports::top_counterparties(&ctx, 0, 10)?;
+    assert_eq!(all.len(), 3, "空名排除，三个对方入榜");
+    assert_eq!(all[0].name, "京东");
+    assert_eq!(all[0].amount_cents, 9000);
+    assert_eq!(all[1].name, "美团");
+    assert_eq!(all[1].count, 2, "美团两张合计 8000");
+    assert_eq!(all[1].amount_cents, 8000);
+    assert_eq!(all[2].name, "滴滴");
+
+    // limit 截断
+    let top1 = voucher_core::services::reports::top_counterparties(&ctx, 0, 1)?;
+    assert_eq!(top1.len(), 1);
+    assert_eq!(top1[0].name, "京东");
+    Ok(())
+}
+
 #[test]
 fn update_with_blank_voucher_no_keeps_old() -> Result<()> {
     let (_dir, ctx) = test_ctx();

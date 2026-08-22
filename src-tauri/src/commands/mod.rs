@@ -203,6 +203,17 @@ pub fn delete_vouchers(ctx: Ctx, ids: Vec<i64>) -> std::result::Result<u64, Stri
     err_string(voucher_mgr::delete_vouchers(&ctx, &ids))
 }
 
+/// 批量变更状态（单事务逐张快照，reason=batch_status），返回实际变更数
+/// （已是目标状态/不存在的跳过不计入）
+#[tauri::command]
+pub fn batch_update_status(
+    ctx: Ctx,
+    ids: Vec<i64>,
+    status: voucher_core::models::VoucherStatus,
+) -> std::result::Result<usize, String> {
+    err_string(voucher_mgr::batch_set_status(&ctx, &ids, status))
+}
+
 #[tauri::command]
 pub fn voucher_stats(
     ctx: Ctx,
@@ -220,6 +231,20 @@ pub fn monthly_summary(
 ) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
     let n = months.unwrap_or(6).clamp(1, 24);
     err_string(voucher_core::services::reports::monthly_summary(&ctx, n))
+}
+
+/// Top 对方账户排行（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50）
+#[tauri::command]
+pub fn top_counterparties(
+    ctx: Ctx,
+    months: Option<u32>,
+    limit: Option<u32>,
+) -> std::result::Result<Vec<voucher_core::services::reports::CounterpartyRow>, String> {
+    err_string(voucher_core::services::reports::top_counterparties(
+        &ctx,
+        months.unwrap_or(0),
+        limit.unwrap_or(10),
+    ))
 }
 
 // ---------- 崩溃恢复 ----------
@@ -382,6 +407,27 @@ pub async fn run_ocr(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// OCR 字段提取预览（只读）：从附件已识别文本抽取结构化字段，不写库。
+/// 前端「识别结果卡片」用——用户确认/勾选后走 update_voucher 应用。
+#[tauri::command]
+pub fn ocr_preview_fields(
+    ctx: Ctx,
+    attachment_id: i64,
+) -> std::result::Result<voucher_core::services::ocr_fields::ExtractedFields, String> {
+    let text = ctx
+        .db
+        .with_conn(|conn| {
+            attachment_repo::get(conn, attachment_id)?
+                .map(|a| a.ocr_text)
+                .ok_or_else(|| {
+                    voucher_core::CoreError::NotFound(format!("附件 {attachment_id} 不存在"))
+                })
+        })
+        .map_err(|e| e.to_string())?;
+    let fields = voucher_core::services::ocr_fields::extract(text.as_deref().unwrap_or(""));
+    Ok(fields)
 }
 
 #[tauri::command]

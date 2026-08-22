@@ -101,3 +101,75 @@ fn query_grouped(conn: &Connection) -> Result<HashMap<String, [i64; 6]>> {
     }
     Ok(map)
 }
+
+// ---------- R-1：Top 对方账户排行（按金额降序） ----------
+
+/// 单个对方账户的聚合行
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CounterpartyRow {
+    /// 对方账户名
+    pub name: String,
+    /// 凭证张数
+    pub count: i64,
+    /// 金额合计（分；空金额不计入）
+    pub amount_cents: i64,
+}
+
+/// Top 对方账户：按金额合计降序（同金额按张数降序），取前 `limit` 名。
+/// 统计范围近 `months` 个月（含当月；0 = 全部历史）。
+pub fn top_counterparties(
+    ctx: &CoreContext,
+    months: u32,
+    limit: u32,
+) -> Result<Vec<CounterpartyRow>> {
+    let limit = limit.clamp(1, 50);
+    ctx.db.with_conn(|conn| {
+        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<CounterpartyRow> {
+            Ok(CounterpartyRow {
+                name: r.get(0)?,
+                count: r.get(1)?,
+                amount_cents: r.get(2)?,
+            })
+        };
+        if months == 0 {
+            let mut stmt = conn.prepare(
+                "SELECT counterparty AS name,
+                        COUNT(*) AS cnt,
+                        COALESCE(SUM(amount_cents), 0) AS amt
+                 FROM vouchers
+                 WHERE TRIM(counterparty) <> ''
+                 GROUP BY counterparty
+                 ORDER BY amt DESC, cnt DESC
+                 LIMIT ?1",
+            )?;
+            let rows = stmt
+                .query_map([limit as i64], map_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        } else {
+            // 月份窗口起点（含当月往前推 months-1 个月）
+            let first = chrono::Local::now()
+                .date_naive()
+                .with_day(1)
+                .and_then(|d| d.checked_sub_months(chrono::Months::new(months.saturating_sub(1))))
+                .ok_or_else(|| CoreError::Invalid("月份窗口计算失败".into()))?;
+            let prefix_from = first.format("%Y-%m").to_string();
+            let mut stmt = conn.prepare(
+                "SELECT counterparty AS name,
+                        COUNT(*) AS cnt,
+                        COALESCE(SUM(amount_cents), 0) AS amt
+                 FROM vouchers
+                 WHERE TRIM(counterparty) <> ''
+                   AND substr(voucher_date, 1, 7) >= ?1
+                 GROUP BY counterparty
+                 ORDER BY amt DESC, cnt DESC
+                 LIMIT ?2",
+            )?;
+            let rows = stmt
+                .query_map(rusqlite::params![prefix_from, limit as i64], map_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        }
+    })
+}

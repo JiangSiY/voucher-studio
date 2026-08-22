@@ -9,7 +9,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type Attachment, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
+import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
 import ImageViewerDialog from "../components/ImageViewerDialog.vue";
 import { OCR_META, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
@@ -70,6 +70,59 @@ function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
   applyForm(detail.voucher);
   attachments.value = detail.attachments;
   snapshots.value = detail.snapshots;
+  // v0.7 S-2：识别文本就绪时拉取结构化提取预览（只读，不写库）
+  loadExtracted(detail.attachments[0]);
+}
+
+// ---------- v0.7 S-2：OCR 识别结果卡片（提取预览 + 一键填入） ----------
+
+const extracted = ref<ExtractedFields | null>(null);
+const fieldsBusy = ref(false);
+
+/** 从附件已识别文本抽取结构化字段（只读预览；失败静默，不打扰主流程） */
+async function loadExtracted(a: Attachment | undefined) {
+  extracted.value = null;
+  if (!a || !a.ocrText) return;
+  fieldsBusy.value = true;
+  try {
+    extracted.value = await api.ocrPreviewFields(a.id);
+  } catch {
+    // 提取预览是辅助功能，失败不影响编辑
+  } finally {
+    fieldsBusy.value = false;
+  }
+}
+
+/** 提取字段是否可填入（至少一个字段非空才显示卡片） */
+const hasExtracted = computed(() => {
+  const f = extracted.value;
+  return !!f && (f.date != null || f.amountCents != null || !!f.counterparty || !!f.merchant);
+});
+
+/** 单字段填入：只改表单值，不落库（用户点「保存」才生效） */
+function applyExtractedField(field: "date" | "amount" | "counterparty" | "merchant") {
+  const f = extracted.value;
+  if (!f) return;
+  if (field === "date" && f.date) voucherDate.value = f.date;
+  else if (field === "amount" && f.amountCents != null) {
+    amountYuan.value = (f.amountCents / 100).toFixed(2);
+  } else if (field === "counterparty" && f.counterparty) {
+    counterparty.value = f.counterparty;
+  } else if (field === "merchant" && f.merchant) {
+    // 商家/销售方作摘要素材（发票场景对方账户与商家是两个实体）
+    description.value = f.merchant;
+  }
+}
+
+/** 全部填入：四个字段一次性套用到表单 */
+function applyAllExtracted() {
+  const f = extracted.value;
+  if (!f) return;
+  if (f.date) voucherDate.value = f.date;
+  if (f.amountCents != null) amountYuan.value = (f.amountCents / 100).toFixed(2);
+  if (f.counterparty) counterparty.value = f.counterparty;
+  if (f.merchant) description.value = f.merchant;
+  toast.info("已填入表单，核对后点「保存」生效");
 }
 
 async function loadDetail() {
@@ -486,9 +539,93 @@ function compareClipRight(a: Attachment): string {
           </div>
         </div>
       </div>
+
+      <!-- v0.7 S-2：OCR 识别结果（结构化提取预览，一键填入表单） -->
+      <div class="fluent-panel" v-if="hasExtracted || fieldsBusy">
+        <div class="fluent-panel-header">
+          <h3>识别结果</h3>
+          <button class="btn btn-sm btn-primary" v-if="hasExtracted" @click="applyAllExtracted">⚡ 全部填入</button>
+        </div>
+        <div class="fluent-panel-body">
+          <div v-if="fieldsBusy" style="font-size: 13px; color: var(--text-2)">正在提取字段…</div>
+          <template v-else-if="extracted">
+            <div class="ext-row">
+              <span class="ext-label">日期</span>
+              <span class="ext-value mono">{{ extracted.date ?? "—" }}</span>
+              <button v-if="extracted.date" class="btn btn-sm" @click="applyExtractedField('date')">填入</button>
+            </div>
+            <div class="ext-row">
+              <span class="ext-label">金额</span>
+              <span class="ext-value mono">
+                {{ extracted.amountCents != null ? `¥${(extracted.amountCents / 100).toFixed(2)}` : "—" }}
+                <!-- 置信度：标签命中可信 / 全文唯一兜底低置信 -->
+                <span v-if="extracted.amountSource === 'labeled'" class="tag tag-success" title="命中「价税合计/合计」等标签">可信</span>
+                <span v-else-if="extracted.amountSource === 'uniqueonly'" class="tag tag-warning" title="全文唯一金额兜底，无标签佐证，请人工核对">低置信</span>
+              </span>
+              <button v-if="extracted.amountCents != null" class="btn btn-sm" @click="applyExtractedField('amount')">填入</button>
+            </div>
+            <div class="ext-row">
+              <span class="ext-label">对方账户</span>
+              <span class="ext-value">{{ extracted.counterparty ?? "—" }}</span>
+              <button v-if="extracted.counterparty" class="btn btn-sm" @click="applyExtractedField('counterparty')">填入</button>
+            </div>
+            <div class="ext-row">
+              <span class="ext-label">商家</span>
+              <span class="ext-value">{{ extracted.merchant ?? "—" }}</span>
+              <button v-if="extracted.merchant" class="btn btn-sm" title="商家名作为摘要填入" @click="applyExtractedField('merchant')">填入摘要</button>
+            </div>
+            <div class="ext-tip">提取自 OCR 识别文本；「填入」只改表单值，点「保存」才落库。</div>
+          </template>
+        </div>
+      </div>
     </div>
   </div>
 
   <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
     :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
 </template>
+
+<style scoped>
+/* v0.7 S-2：识别结果卡片行（label / value / 填入按钮三段式） */
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.ext-row:last-of-type {
+  border-bottom: none;
+}
+
+.ext-label {
+  flex: none;
+  width: 72px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.ext-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ext-value .tag {
+  flex: none;
+}
+
+.ext-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-4);
+}
+</style>

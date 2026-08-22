@@ -22,25 +22,44 @@ pub enum FillMode {
 }
 
 /// 从 OCR 文本中抽取的结构化字段
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtractedFields {
     /// YYYY-MM-DD
     pub date: Option<String>,
     pub amount_cents: Option<i64>,
     pub counterparty: Option<String>,
+    /// 商家/销售方（发票「销售方」、小票顶部商家行）
+    pub merchant: Option<String>,
+    /// 金额提取来源：标签命中（可信）还是全文唯一兜底（低置信）
+    pub amount_source: Option<AmountSource>,
+}
+
+/// 金额提取来源（供前端展示置信度）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AmountSource {
+    /// 命中「价税合计/合计」等标签——高置信
+    Labeled,
+    /// 全文唯一金额兜底——低置信（无标签，仅凭唯一性）
+    UniqueOnly,
 }
 
 /// 金额标签优先级：靠前的优先命中。注意「价税合计」必须排在「合计」之前——
 /// `find("合计")` 会命中「价税合计」内部，若顺序颠倒则更具体的标签永远轮不到。
 const AMOUNT_LABELS: [&str; 7] = ["价税合计", "合计", "总计", "实付", "实收", "小计", "金额"];
 const COUNTERPARTY_LABELS: [&str; 4] = ["收款方", "对方账户", "商户", "收款人"];
+const MERCHANT_LABELS: [&str; 4] = ["销售方", "开票方", "销售单位", "商家名称"];
 
 /// 从识别文本抽取字段（保守策略）
 pub fn extract(text: &str) -> ExtractedFields {
+    let (amount_cents, amount_source) = extract_amount(text);
     ExtractedFields {
         date: extract_date(text),
-        amount_cents: extract_amount(text),
+        amount_cents,
         counterparty: extract_counterparty(text),
+        merchant: extract_merchant(text),
+        amount_source,
     }
 }
 
@@ -115,14 +134,15 @@ fn read_number(chars: &[char], pos: usize) -> Option<(i64, usize)> {
     Some((digits.parse().ok()?, i))
 }
 
-/// 金额：优先按标签优先级取「标签行内跟随后」的数字；无标签时全文仅一个金额才采用
-fn extract_amount(text: &str) -> Option<i64> {
+/// 金额：优先按标签优先级取「标签行内跟随后」的数字；无标签时全文仅一个金额才采用。
+/// 返回 (金额分, 来源)；来源供前端区分「标签命中（可信）」与「唯一兜底（低置信）」。
+fn extract_amount(text: &str) -> (Option<i64>, Option<AmountSource>) {
     for label in AMOUNT_LABELS {
         for line in text.lines() {
             if let Some(idx) = line.find(label) {
                 let rest = &line[idx + label.len()..];
                 if let Some(cents) = first_money_in(rest) {
-                    return Some(cents);
+                    return (Some(cents), Some(AmountSource::Labeled));
                 }
             }
         }
@@ -133,9 +153,9 @@ fn extract_amount(text: &str) -> Option<i64> {
         all.extend(moneys_in(line));
     }
     if all.len() == 1 {
-        return Some(all[0]);
+        return (Some(all[0]), Some(AmountSource::UniqueOnly));
     }
-    None
+    (None, None)
 }
 
 /// 行内所有金额（元，含小数与千分位；「元」后缀或小数部分均可），单位：分。
@@ -269,6 +289,44 @@ fn extract_counterparty(text: &str) -> Option<String> {
     None
 }
 
+/// 商家/销售方：标签行内容优先；无标签时取小票顶部首个「纯中文行」（首行大概率是店名）。
+/// 与对方账户独立：发票场景两者常同时存在（购买方 vs 销售方）。
+fn extract_merchant(text: &str) -> Option<String> {
+    for label in MERCHANT_LABELS {
+        for line in text.lines() {
+            if let Some(idx) = line.find(label) {
+                let rest = &line[idx + label.len()..];
+                let cleaned = rest
+                    .trim()
+                    .trim_start_matches(['：', ':', ' ', '　', '-'])
+                    .trim();
+                // 去掉「名称：xxx」二次标签与数字尾巴
+                let cleaned = cleaned.trim_start_matches(['：', ':', ' ', '　']);
+                let name: String = cleaned
+                    .chars()
+                    .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
+                    .collect();
+                let name = name.trim();
+                if name.chars().count() >= 2 {
+                    return Some(name.chars().take(30).collect());
+                }
+            }
+        }
+    }
+    // 兜底：首个「以中文开头且长度≥4」的行视为店名（小票顶部布局）
+    for line in text.lines() {
+        let t = line.trim();
+        if t.chars().count() >= 4
+            && t.chars().next().is_some_and(|c| c.is_alphabetic() && !c.is_ascii())
+            && !t.contains('：')
+            && !t.contains(':')
+        {
+            return Some(t.chars().take(30).collect());
+        }
+    }
+    None
+}
+
 // ---------- 填单 + 重命名 ----------
 
 /// 识别完成后应用：抽取字段回填凭证 + 附件语义化重命名。
@@ -332,7 +390,14 @@ fn apply_fields(
                 }
             }
             FillMode::Manual => {
-                // 事后识别：只填空字段，日期/摘要/已录金额不动
+                // 事后识别：只填空字段，绝不覆盖已录入内容
+                // 日期：仅当仍为空时回填（此前 Manual 完全不填日期，漏掉纯空白凭证）
+                if current.voucher_date.is_empty() {
+                    if let Some(d) = &fields.date {
+                        update.voucher_date = Some(d.clone());
+                        date_refilled = true;
+                    }
+                }
                 if current.amount_cents.is_none() {
                     update.amount_cents = fields.amount_cents;
                 }
@@ -342,6 +407,12 @@ fn apply_fields(
                         if current.description.is_empty() {
                             update.description = Some(c.clone());
                         }
+                    }
+                }
+                // 商家：作为摘要候选（仅摘要为空时；优先级低于对方账户）
+                if current.description.is_empty() && update.description.is_none() {
+                    if let Some(m) = &fields.merchant {
+                        update.description = Some(m.clone());
                     }
                 }
             }
@@ -554,6 +625,36 @@ mod tests {
             extract("商户：肯德基（人民广场店） 45.00").counterparty,
             Some("肯德基（人民广场店）".into())
         );
+    }
+
+    #[test]
+    fn extracts_merchant_from_label() {
+        let f = extract("销售方：肯德基有限公司\n合计：45.00元");
+        assert_eq!(f.merchant, Some("肯德基有限公司".into()));
+    }
+
+    #[test]
+    fn extracts_merchant_from_receipt_header() {
+        // 无标签小票：首个中文行（≥4 字、无冒号）视为店名
+        let f = extract("老娘舅餐饮管理\n门店号 021\n实付 32.50 元");
+        assert_eq!(f.merchant, Some("老娘舅餐饮管理".into()));
+    }
+
+    #[test]
+    fn merchant_label_beats_header() {
+        // 标签命中的销售方优先于首行兜底
+        let f = extract("某某购物中心\n销售方：星巴克咖啡\n合计：38.00元");
+        assert_eq!(f.merchant, Some("星巴克咖啡".into()));
+    }
+
+    #[test]
+    fn amount_source_labeled_vs_unique() {
+        let labeled = extract("合计：128.50元");
+        assert_eq!(labeled.amount_source, Some(AmountSource::Labeled));
+        let unique = extract("出租车票 45.00元");
+        assert_eq!(unique.amount_source, Some(AmountSource::UniqueOnly));
+        let none = extract("无金额文本");
+        assert_eq!(none.amount_source, None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useConfigStore } from "../stores/config";
@@ -12,6 +12,7 @@ import { STATUS_META, fmtAmount } from "../composables/format";
 import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
+const route = useRoute();
 const configStore = useConfigStore();
 
 type Filter = "all" | VoucherStatus;
@@ -226,6 +227,31 @@ async function exportSelected() {
   }
 }
 
+// ---------- v0.7 B-1：批量状态流转（单事务逐张快照，后端保证原子性） ----------
+
+const batchStatus = ref<VoucherStatus>("reviewed");
+const batchStatusBusy = ref(false);
+
+async function applyBatchStatus() {
+  const ids = [...selected.value];
+  if (!ids.length || batchStatusBusy.value) return;
+  batchStatusBusy.value = true;
+  try {
+    const n = await api.batchUpdateStatus(ids, batchStatus.value);
+    if (n < ids.length) {
+      toast.warning(`已变更 ${n} 张（${ids.length - n} 张已是目标状态或不存在）`);
+    } else {
+      toast.success(`已将 ${n} 张凭证标记为「${STATUS_META[batchStatus.value].label}」`);
+    }
+    clearPrefetched();
+    load();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    batchStatusBusy.value = false;
+  }
+}
+
 function askDelete(ids: number[]) {
   pendingDelete = ids;
   const suffix = "删除后凭证、附件图片及历史快照将被永久移除，不可恢复。";
@@ -258,6 +284,11 @@ let unlistenImportDone: UnlistenFn | null = null;
 let unlistenWxImported: UnlistenFn | null = null;
 
 onMounted(async () => {
+  // v0.7 R-2：从仪表盘状态卡片跳转进来时按 status 预筛选（非法值忽略）
+  const q = route.query.status;
+  if (typeof q === "string" && filters.some((f) => f.key === q)) {
+    filter.value = q as Filter;
+  }
   load();
   unlistenImportDone = await listen("import:done", () => {
     // D-3：导入后总数变化 → 清预取缓存
@@ -305,7 +336,18 @@ onUnmounted(() => {
     <div style="padding: 0 16px" v-if="selected.size > 0">
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0; background: var(--accent-soft); margin: 8px 0; border-radius: 4px; padding: 8px 12px">
         <span style="font-size: 13px; color: var(--accent); font-weight: 600">已选择 {{ selected.size }} 项</span>
-        <div style="display: flex; gap: 8px">
+        <div style="display: flex; gap: 8px; align-items: center">
+          <!-- v0.7 B-1：批量状态流转 -->
+          <select v-model="batchStatus" class="input batch-status-select"
+            title="选择目标状态后应用到全部选中凭证">
+            <option value="draft">草稿</option>
+            <option value="reviewed">已复核</option>
+            <option value="exported">已导出</option>
+            <option value="archived">已归档</option>
+          </select>
+          <button class="btn btn-sm" :disabled="batchStatusBusy" @click="applyBatchStatus">
+            {{ batchStatusBusy ? "变更中…" : "✓ 批量改状态" }}
+          </button>
           <button class="btn btn-sm" @click="exportSelected">📤 批量导出 PDF</button>
           <button class="btn btn-sm btn-danger" @click="askDelete([...selected])">🗑 删除选中</button>
         </div>
@@ -381,3 +423,12 @@ onUnmounted(() => {
   <ConfirmDialog :visible="confirmVisible" title="删除凭证" :body="confirmText" confirm-text="删除"
     @confirm="doDelete" @cancel="confirmVisible = false" />
 </template>
+
+<style scoped>
+/* v0.7 B-1：批量状态选择器（工具栏内紧凑尺寸） */
+.batch-status-select {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+</style>

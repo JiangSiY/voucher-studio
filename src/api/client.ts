@@ -108,6 +108,23 @@ export interface MonthlySummary {
   archived: number;
 }
 
+/** v0.7 R-1：Top 对方账户行（按金额降序） */
+export interface CounterpartyRow {
+  name: string;
+  count: number;
+  amountCents: number;
+}
+
+/** v0.7 S-2：OCR 提取预览（只读，不写库） */
+export interface ExtractedFields {
+  date: string | null;
+  amountCents: number | null;
+  counterparty: string | null;
+  merchant: string | null;
+  /** 金额来源：labeled=标签命中（可信） uniqueonly=全文唯一兜底（低置信） */
+  amountSource: "labeled" | "uniqueonly" | null;
+}
+
 export interface RecoveryReport {
   abnormalExit: boolean;
   lastSession: { startedAt: string; pid: number } | null;
@@ -344,9 +361,16 @@ export const api = {
   updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
   /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
   deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),
+  /** v0.7 B-1：批量状态流转（单事务逐张快照），返回实际变更数 */
+  batchUpdateStatus: (ids: number[], status: VoucherStatus) =>
+    invoke<number>("batch_update_status", { ids, status }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
+
+  /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10） */
+  topCounterparties: (months?: number, limit?: number) =>
+    invoke<CounterpartyRow[]>("top_counterparties", { months, limit }),
 
   getRecoveryReport: () => invoke<RecoveryReport>("get_recovery_report"),
 
@@ -363,6 +387,9 @@ export const api = {
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
+  /** v0.7 S-2：OCR 字段提取预览（只读） */
+  ocrPreviewFields: (attachmentId: number) =>
+    invoke<ExtractedFields>("ocr_preview_fields", { attachmentId }),
   runOcrPending: (limit?: number) => invoke<number>("run_ocr_pending", { limit }),
   getLocalOcrStatus: () => invoke<LocalOcrStatus>("local_ocr_status"),
 

@@ -236,6 +236,41 @@ pub fn set_status(ctx: &CoreContext, id: i64, status: VoucherStatus) -> Result<(
     })
 }
 
+/// 批量变更状态（单事务逐张快照；不存在的跳过不计入）。
+/// 整批一个事务：要么全部生效要么全部回滚，与单张口径一致。
+pub fn batch_set_status(
+    ctx: &CoreContext,
+    ids: &[i64],
+    status: VoucherStatus,
+) -> Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    ctx.db.with_tx(|tx| {
+        let mut changed = 0usize;
+        for id in ids {
+            let current = match voucher_repo::get(tx, *id)? {
+                Some(v) => v,
+                None => continue, // 不存在/已删：跳过
+            };
+            if current.status == status {
+                continue; // 已是目标状态：幂等跳过，不产生无意义快照
+            }
+            snapshot_repo::insert(
+                tx,
+                &crate::models::snapshot::NewSnapshot {
+                    voucher_id: *id,
+                    payload: serde_json::to_value(&current)?,
+                    reason: "batch_status".into(),
+                },
+            )?;
+            voucher_repo::set_status(tx, *id, status)?;
+            changed += 1;
+        }
+        Ok(changed)
+    })
+}
+
 fn validate_date(d: &str) -> Result<String> {
     if chrono::NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d").is_ok() {
         Ok(d.trim().to_string())

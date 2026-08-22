@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type BackupInfo, type MonthlySummary, type Voucher, type VoucherStats } from "../api/client";
+import { api, type BackupInfo, type CounterpartyRow, type MonthlySummary, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
@@ -19,6 +19,20 @@ const busy = ref(false);
 
 const REPORT_MONTHS = 6;
 
+// ---------- v0.7 R-1：Top 对方账户排行（按金额降序） ----------
+
+const CP_TOP = 10;
+const counterparties = ref<CounterpartyRow[]>([]);
+
+const cpMaxAmount = computed(() =>
+  Math.max(1, ...counterparties.value.map((c) => c.amountCents)),
+);
+
+/** 条形宽度：按最大金额归一化（最小 2% 保证可见） */
+function cpBarWidth(c: CounterpartyRow): string {
+  return `${Math.max(2, (c.amountCents / cpMaxAmount.value) * 100)}%`;
+}
+
 async function load() {
   try {
     stats.value = await api.voucherStats();
@@ -26,6 +40,7 @@ async function load() {
     recent.value = list.items;
     backups.value = await api.listBackups();
     monthly.value = await api.monthlySummary(REPORT_MONTHS);
+    counterparties.value = await api.topCounterparties(0, CP_TOP);
   } catch (e) {
     toastError(e);
   }
@@ -132,10 +147,19 @@ onUnmounted(() => {
 
 <template>
   <div class="stat-grid" v-if="stats">
-    <StatCard label="凭证总数" :value="stats.total" :delta="`本月新增 ${stats.thisMonth}`" />
-    <StatCard label="草稿" :value="stats.draft" delta="待整理" />
-    <StatCard label="已复核" :value="stats.reviewed" delta="可归档打印" />
-    <StatCard label="已导出" :value="stats.exported" delta="已生成 PDF" />
+    <!-- v0.7 R-2：状态卡片点击联动——跳转凭证列表并按状态预筛选 -->
+    <div class="stat-click" title="查看全部凭证" @click="router.push('/vouchers')">
+      <StatCard label="凭证总数" :value="stats.total" :delta="`本月新增 ${stats.thisMonth}`" />
+    </div>
+    <div class="stat-click" title="查看草稿凭证" @click="router.push('/vouchers?status=draft')">
+      <StatCard label="草稿" :value="stats.draft" delta="待整理" />
+    </div>
+    <div class="stat-click" title="查看已复核凭证" @click="router.push('/vouchers?status=reviewed')">
+      <StatCard label="已复核" :value="stats.reviewed" delta="可归档打印" />
+    </div>
+    <div class="stat-click" title="查看已导出凭证" @click="router.push('/vouchers?status=exported')">
+      <StatCard label="已导出" :value="stats.exported" delta="已生成 PDF" />
+    </div>
     <StatCard label="附件图片" :value="stats.attachments" delta="含 OCR 识别" />
     <StatCard label="本地备份" :value="backups.length" :delta="backups[0] ? `最近 ${fmtDate(backups[0].createdAt)}` : '尚无备份'" />
   </div>
@@ -223,6 +247,26 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <!-- v0.7 R-1：Top 对方账户排行（按金额降序，全部历史） -->
+  <div class="fluent-panel" v-if="counterparties.length">
+    <div class="fluent-panel-header">
+      <h3>Top 对方账户（按金额 · 全部历史）</h3>
+      <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
+    </div>
+    <div class="fluent-panel-body">
+      <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row">
+        <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 }">{{ i + 1 }}</span>
+        <span class="cp-name" :title="c.name">{{ c.name }}</span>
+        <div class="cp-bar-wrap">
+          <div class="cp-bar" :style="{ width: cpBarWidth(c) }"
+            :title="`${c.name} · ¥${fmtAmount(c.amountCents)} · ${c.count} 张`" />
+        </div>
+        <span class="cp-amount num" :title="`¥${fmtAmount(c.amountCents)}`">¥{{ fmtAmount(c.amountCents) }}</span>
+        <span class="cp-count">{{ c.count }} 张</span>
+      </div>
+    </div>
+  </div>
+
   <div class="fluent-panel">
     <div class="fluent-panel-header">
       <h3>最近凭证</h3>
@@ -271,6 +315,17 @@ onUnmounted(() => {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: stretch;
+}
+
+/* v0.7 R-2：状态卡片可点击（hover 提示可跳转） */
+.stat-click {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: transform 0.12s ease;
+}
+
+.stat-click:hover {
+  transform: translateY(-1px);
 }
 
 @media (max-width: 960px) {
@@ -395,5 +450,77 @@ onUnmounted(() => {
 
 .dot-archived {
   background: var(--text-disabled);
+}
+
+/* v0.7 R-1：Top 对方账户排行行（排名 / 名称 / 条形 / 金额 / 张数） */
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.cp-rank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 50%;
+  background: var(--stroke);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-rank-top {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cp-name {
+  flex: none;
+  width: 140px;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-bar-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.cp-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--accent);
+  transition: opacity 0.15s ease;
+}
+
+.cp-bar:hover {
+  opacity: 0.8;
+}
+
+.cp-amount {
+  flex: none;
+  width: 110px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-count {
+  flex: none;
+  width: 52px;
+  font-size: 12px;
+  color: var(--text-4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 </style>
