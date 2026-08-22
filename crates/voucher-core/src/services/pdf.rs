@@ -799,6 +799,10 @@ fn font_candidates() -> Vec<PathBuf> {
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/System/Library/Fonts/Supplemental/Songti.ttc",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        // Linux（fonts-noto-cjk 的 TTC 优先；Droid 为单文件 TTF 兜底，
+        // 防部分 PDF 库解析集合字体失败）
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
     ]
     .iter()
     .map(PathBuf::from)

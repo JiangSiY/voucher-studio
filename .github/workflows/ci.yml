@@ -50,7 +50,8 @@ jobs:
             libclang-dev \
             libssl-dev \
             pkg-config \
-            fonts-noto-cjk
+            fonts-noto-cjk \
+            fonts-droid-fallback
 
       - uses: dtolnay/rust-toolchain@stable
         with:
