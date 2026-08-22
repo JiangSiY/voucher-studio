@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
+import FluentIcon from "../components/FluentIcon.vue";
 
 const route = useRoute();
 const configStore = useConfigStore();
@@ -12,24 +13,24 @@ const navGroups = [
   {
     group: "概览",
     items: [
-      { to: "/dashboard", icon: "▦", label: "仪表盘" },
-      { to: "/search", icon: "🔍", label: "搜索" },
+      { to: "/dashboard", icon: "dashboard", label: "仪表盘" },
+      { to: "/search", icon: "search", label: "搜索" },
     ],
   },
   {
     group: "凭证管理",
     items: [
-      { to: "/vouchers", icon: "📋", label: "凭证列表" },
-      { to: "/print", icon: "🖨", label: "打印中心" },
-      { to: "/exports", icon: "📊", label: "导出历史" },
+      { to: "/vouchers", icon: "list", label: "凭证列表" },
+      { to: "/print", icon: "print", label: "打印中心" },
+      { to: "/exports", icon: "chart", label: "导出历史" },
     ],
   },
   {
     group: "数据与设置",
     items: [
-      { to: "/settings", icon: "⚙", label: "设置" },
-      { to: "/restore", icon: "💾", label: "备份与恢复" },
-      { to: "/help", icon: "?", label: "帮助" },
+      { to: "/settings", icon: "settings", label: "设置" },
+      { to: "/restore", icon: "save", label: "备份与恢复" },
+      { to: "/help", icon: "help", label: "帮助" },
     ],
   },
 ];
@@ -54,7 +55,7 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "");
         <template v-for="g in navGroups" :key="g.group">
           <div class="nav-group">{{ g.group }}</div>
           <router-link v-for="item in g.items" :key="item.to" :to="item.to" :title="item.label">
-            <span class="nav-icon">{{ item.icon }}</span>
+            <span class="nav-icon"><FluentIcon :name="item.icon" :size="17" /></span>
             <span class="nav-label">{{ item.label }}</span>
           </router-link>
         </template>

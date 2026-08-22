@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type SearchHit } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
 import { toastError } from "../stores/toast";
 
@@ -92,13 +93,13 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
-      <EmptyState v-else icon="🔍" title="没有找到相关凭证"
+      <EmptyState v-else icon="search" title="没有找到相关凭证"
         desc="换个关键词试试；图片上的文字需要先完成 OCR 识别才可被搜到" />
     </div>
   </div>
 
   <div v-else class="empty-state">
-    <div class="es-icon">🔍</div>
+    <div class="es-icon"><FluentIcon name="search" :size="42" /></div>
     <div class="es-title">全文搜索</div>
     <div class="es-desc">支持搜索凭证编号、摘要、备注、标签，以及附件图片上的文字（OCR 识别结果）</div>
   </div>

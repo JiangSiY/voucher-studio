@@ -1,7 +1,24 @@
 /**
  * 后端 API 封装：类型与 Tauri invoke 一一对应（src-tauri/src/commands）
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+
+/** 是否运行在 Tauri 桌面壳内（纯浏览器打开 dev URL 时为 false） */
+export const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * 统一 invoke 封装：纯浏览器环境（如误开 dev URL）下返回可读的中文错误，
+ * 避免 UI 弹出 "Cannot read properties of undefined (reading 'invoke')" 这类裸 JS 错误。
+ */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri) {
+    return Promise.reject(
+      new Error("桌面功能不可用：当前页面运行在纯浏览器中，请通过 Voucher Studio 桌面应用使用"),
+    );
+  }
+  return tauriInvoke<T>(cmd, args);
+}
 
 // ---------- 类型 ----------
 

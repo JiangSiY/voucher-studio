@@ -6,6 +6,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus, type WechatStatus } from "../api/client";
+import FluentIcon from "../components/FluentIcon.vue";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 
@@ -452,13 +453,15 @@ onUnmounted(() => unlistenOcrProgress?.());
           可用令牌：<code>{date}</code> 当天日期（如 20260819）、<code>{seq}</code> 当日序号（001 起）。
           默认 <code>{date}-{seq}</code> 生成形如 20260819-001 的编号。
         </div>
-        <div v-if="templateError" class="desc" style="color: var(--danger)">⚠ {{ templateError }}</div>
-        <div v-else-if="templatePreview" class="desc" style="color: var(--success)">
-          ✓ 保存后新凭证编号形如：{{ templatePreview }}
+        <div v-if="templateError" class="desc" style="color: var(--danger); display: flex; align-items: center; gap: 4px">
+          <FluentIcon name="warning" :size="13" />{{ templateError }}
+        </div>
+        <div v-else-if="templatePreview" class="desc" style="color: var(--success); display: flex; align-items: center; gap: 4px">
+          <FluentIcon name="check" :size="13" />保存后新凭证编号形如：{{ templatePreview }}
         </div>
       </div>
       <div class="callout info" style="margin: 0">
-        <span class="ci">💡</span>
+        <span class="ci"><FluentIcon name="bulb" :size="18" /></span>
         <div class="ct">修改模板只影响之后新建的凭证，已有编号不会变。</div>
       </div>
     </div>
@@ -486,7 +489,7 @@ onUnmounted(() => unlistenOcrProgress?.());
         <div class="desc">本地引擎完全离线运行，数据不出本机（PP-OCRv4，Spike B 实测字符准确率 99.9%）。</div>
       </div>
       <div v-if="localOcr?.installed" class="callout success" style="margin: 0 0 16px">
-        <span class="ci">✓</span>
+        <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
         <div class="ct">
           <strong>本地模型已安装</strong>
           <span v-if="localOcr.files.length">（{{ localOcr.files.length }} 个文件，约 {{ (localOcr.totalSize / 1048576).toFixed(1) }} MB）</span>
@@ -494,7 +497,7 @@ onUnmounted(() => unlistenOcrProgress?.());
         </div>
       </div>
       <div v-else class="callout warning" style="margin: 0 0 16px">
-        <span class="ci">⚠</span>
+        <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
           <strong>本地模型未安装</strong>——将模型文件（ch_PP-OCRv4_det_infer.onnx 等 3 个）放入
           <code>{{ localOcr?.modelsDir || "数据目录/models" }}</code> 后重启应用即可启用。
@@ -537,7 +540,7 @@ onUnmounted(() => unlistenOcrProgress?.());
   <div v-else-if="tab === 'enhance'" class="fluent-panel">
     <div class="fluent-panel-body">
       <div class="callout info" style="margin: 0 0 16px">
-        <span class="ci">✨</span>
+        <span class="ci"><FluentIcon name="sparkle" :size="18" /></span>
         <div class="ct">
           <strong>文档扫描矫正</strong>：对导入的图片自动跑 7 步算法（Hough 倾斜矫正 → 透视矫正 → 自动裁边 → 中值去噪 → Unsharp 锐化 → 灰度化 → 自适应二值化），
           矫正后的增强版用于 OCR（更准）和查看器（更易读）；任一步失败自动跳过、回退到上一步输出。
@@ -590,7 +593,7 @@ onUnmounted(() => unlistenOcrProgress?.());
       <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
         <label style="display: flex; align-items: center; gap: 8px">
           增强缓存
-          <button class="btn-mini" @click="refreshEnhancePanel" title="刷新">↻</button>
+          <button class="btn-mini" @click="refreshEnhancePanel" title="刷新"><FluentIcon name="refresh" :size="12" /></button>
         </label>
 
         <!-- 摘要卡：总数 / 大小 / 截图 / 扫描件 -->
@@ -763,7 +766,7 @@ onUnmounted(() => unlistenOcrProgress?.());
     <div class="fluent-panel-header"><h3>密钥管理</h3></div>
     <div class="fluent-panel-body">
       <div class="callout info">
-        <span class="ci">🔐</span>
+        <span class="ci"><FluentIcon name="lock" :size="18" /></span>
         <div class="ct">
           <strong>密钥保存在系统凭据库</strong>（Windows 凭据管理器 / macOS 钥匙串），不写进任何文件——
           换电脑需要重新录入。

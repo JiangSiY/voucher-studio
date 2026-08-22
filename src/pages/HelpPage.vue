@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useConfigStore } from "../stores/config";
+import FluentIcon from "../components/FluentIcon.vue";
 
 const configStore = useConfigStore();
 const version = computed(() => configStore.appInfo?.version ?? "…");
@@ -13,21 +14,21 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "…");
     <div class="fluent-panel-body">
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
-          <div style="font-size: 22px; margin-bottom: 6px">🖼</div>
+          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>
           <div style="font-size: 12px; color: var(--text-3)">
             把票据/凭证图片拖进「凭证列表」，自动建卡入库；重复图片自动去重；也可在设置里开启微信文件夹监听。
           </div>
         </div>
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
-          <div style="font-size: 22px; margin-bottom: 6px">✎</div>
+          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="edit" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">2 · 整理</div>
           <div style="font-size: 12px; color: var(--text-3)">
             补全摘要、金额、标签；一键 OCR 提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
           </div>
         </div>
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
-          <div style="font-size: 22px; margin-bottom: 6px">🖨</div>
+          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="print" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">3 · 打印归档</div>
           <div style="font-size: 12px; color: var(--text-3)">
             「打印中心」勾选凭证，选卡片风格与列数，生成 A4 省墨整理单 PDF，用系统查看器打印归档。

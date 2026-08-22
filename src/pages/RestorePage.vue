@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { fmtDate, fmtSize } from "../composables/format";
 import { toast, toastError } from "../stores/toast";
 
@@ -164,7 +165,7 @@ onUnmounted(() => unlistenBackupDone?.());
 
 <template>
   <div class="callout warning">
-    <span class="ci">⚠</span>
+    <span class="ci"><FluentIcon name="warning" :size="18" /></span>
     <div class="ct">
       <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库、配置与附件，流程为「就绪 → 重启应用 → 生效」。
       恢复前建议先做一次当前数据的备份。
@@ -172,7 +173,7 @@ onUnmounted(() => unlistenBackupDone?.());
   </div>
 
   <div v-if="staged" class="callout info">
-    <span class="ci">✅</span>
+    <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
     <div class="ct">
       <strong>备份已就绪：</strong>{{ staged.batch }}（创建于 {{ staged.createdAt }}，含
       {{ staged.attachmentCount }} 个附件{{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
@@ -184,7 +185,7 @@ onUnmounted(() => unlistenBackupDone?.());
   </div>
 
   <div v-if="drill" class="callout success">
-    <span class="ci">✓</span>
+    <span class="ci"><FluentIcon name="check" :size="18" /></span>
     <div class="ct">
       <strong>演练通过：</strong>{{ drill.batch }}（{{ fmtDate(drill.createdAt) || drill.createdAt }}）
       校验 {{ drill.filesChecked }} 个文件、{{ drill.attachmentCount }} 个附件，数据库可正常打开。
@@ -198,12 +199,12 @@ onUnmounted(() => unlistenBackupDone?.());
     <div class="fluent-panel-header">
       <h3>本地备份（{{ backups.length }}）</h3>
       <div style="display: flex; gap: 8px">
-        <button class="btn btn-sm" @click="pickAndBackup">🔎 校验外部备份</button>
+        <button class="btn btn-sm" @click="pickAndBackup"><FluentIcon name="search" :size="14" />校验外部备份</button>
         <button class="btn btn-sm" :disabled="drilling || !backups.length" @click="runDrill">
-          {{ drilling ? "演练中…" : "🧪 演练恢复" }}
+          <FluentIcon v-if="!drilling" name="flask" :size="14" />{{ drilling ? "演练中…" : "演练恢复" }}
         </button>
         <button class="btn btn-sm btn-primary" :disabled="busy" @click="backupNow">
-          {{ busy ? "备份中…" : "💾 立即备份" }}
+          <FluentIcon v-if="!busy" name="save" :size="14" />{{ busy ? "备份中…" : "立即备份" }}
         </button>
       </div>
     </div>
@@ -227,16 +228,16 @@ onUnmounted(() => unlistenBackupDone?.());
               <td>{{ b.attachmentCount || "—" }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)">⏪</button>
-                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)">☁</button>
+                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)"><FluentIcon name="undo" :size="15" /></button>
+                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)"><FluentIcon name="cloudUp" :size="15" /></button>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <EmptyState v-else icon="💾" title="还没有备份" desc="点击右上角「立即备份」创建第一份备份">
-        <button class="btn btn-primary" :disabled="busy" @click="backupNow">💾 立即备份</button>
+      <EmptyState v-else icon="save" title="还没有备份" desc="点击右上角「立即备份」创建第一份备份">
+        <button class="btn btn-primary" :disabled="busy" @click="backupNow"><FluentIcon v-if="!busy" name="save" :size="14" />立即备份</button>
       </EmptyState>
     </div>
   </div>
@@ -247,13 +248,13 @@ onUnmounted(() => unlistenBackupDone?.());
       <h3>WebDAV 云端备份（{{ remoteBackups.length }}）</h3>
       <div style="display: flex; gap: 8px">
         <button class="btn btn-sm" :disabled="remoteLoading" @click="loadRemote">
-          {{ remoteLoading ? "加载中…" : "↻ 刷新远端" }}
+          <FluentIcon name="refresh" :size="14" />{{ remoteLoading ? "加载中…" : "刷新远端" }}
         </button>
       </div>
     </div>
     <div class="fluent-panel-body" style="padding: 0">
       <div v-if="remoteError" class="callout warning" style="margin: 12px">
-        <span class="ci">⚠</span>
+        <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
           无法读取云端列表：{{ remoteError }}。
           请在「设置 → 备份与同步」检查 WebDAV 配置并点「测试连接」。
@@ -279,7 +280,7 @@ onUnmounted(() => unlistenBackupDone?.());
                 <div class="action-row">
                   <button class="icon-btn" title="下载到本地备份目录"
                     :disabled="downloading !== '' || isLocal(r.fileName)" @click="downloadRemote(r.fileName)">
-                    {{ downloading === r.fileName ? "…" : "⬇" }}
+                    <FluentIcon name="download" :size="15" />
                   </button>
                 </div>
               </td>
@@ -287,7 +288,7 @@ onUnmounted(() => unlistenBackupDone?.());
           </tbody>
         </table>
       </div>
-      <EmptyState v-else-if="!remoteLoading" icon="☁" title="云端还没有备份"
+      <EmptyState v-else-if="!remoteLoading" icon="cloud" title="云端还没有备份"
         desc="在「设置 → 备份与同步」启用 WebDAV 后，每次备份会自动上传云端；也可在上方列表手动补传" />
     </div>
   </div>

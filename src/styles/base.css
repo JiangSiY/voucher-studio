@@ -130,9 +130,10 @@ body {
 
 .sidebar-nav .nav-icon {
   width: 20px;
-  text-align: center;
-  font-size: 15px;
-  opacity: 0.8;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0.85;
 }
 
 .sidebar-footer {
@@ -784,13 +785,18 @@ select.input {
 }
 
 .search::before {
-  content: "🔍";
+  /* Fluent 风格搜索图标（mask 方案：颜色跟随主题变量） */
+  content: "";
   position: absolute;
   left: 8px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 12px;
-  opacity: 0.5;
+  width: 13px;
+  height: 13px;
+  background: var(--text-3);
+  opacity: 0.65;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E") center/contain no-repeat;
 }
 
 /* ===== 提示条 ===== */
@@ -824,7 +830,8 @@ select.input {
 }
 
 .callout .ci {
-  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
@@ -1149,7 +1156,9 @@ select.input {
 }
 
 .dropzone .dz-icon {
-  font-size: 32px;
+  display: flex;
+  justify-content: center;
+  color: var(--text-4);
   margin-bottom: var(--s-2);
 }
 
@@ -1200,6 +1209,9 @@ select.input {
   position: absolute;
   top: 4px;
   right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 10px;
   font-weight: 600;
   padding: 2px 6px;
@@ -1280,6 +1292,9 @@ select.input {
 .att-card .att-compare-tag {
   position: absolute;
   top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 10px;
   font-weight: 600;
   padding: 2px 6px;
@@ -1401,9 +1416,10 @@ select.input {
 }
 
 .empty-state .es-icon {
-  font-size: 44px;
+  display: flex;
+  justify-content: center;
   margin-bottom: var(--s-3);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .empty-state .es-title {

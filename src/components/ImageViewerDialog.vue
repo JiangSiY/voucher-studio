@@ -6,6 +6,7 @@
  */
 import { computed, onUnmounted, ref, watch } from "vue";
 import { api } from "../api/client";
+import FluentIcon from "./FluentIcon.vue";
 import { toastError } from "../stores/toast";
 
 const props = defineProps<{
@@ -187,14 +188,14 @@ async function openExternal() {
       />
 
       <div class="viewer-toolbar" @mousedown.stop @wheel.stop @dblclick.stop>
-        <button class="vbtn" title="放大（滚轮/+=）" @click="zoomCenter(1.25)">＋</button>
+        <button class="vbtn" title="放大（滚轮/+=）" @click="zoomCenter(1.25)"><FluentIcon name="zoomIn" :size="14" /></button>
         <span class="viewer-zoom">{{ zoomLabel }}</span>
-        <button class="vbtn" title="缩小（滚轮/-）" @click="zoomCenter(0.8)">－</button>
-        <button class="vbtn" title="旋转 90°" @click="rotate">⟳</button>
+        <button class="vbtn" title="缩小（滚轮/-）" @click="zoomCenter(0.8)"><FluentIcon name="zoomOut" :size="14" /></button>
+        <button class="vbtn" title="旋转 90°" @click="rotate"><FluentIcon name="rotate" :size="14" /></button>
         <button class="vbtn" title="重置（0）" @click="resetView">适配</button>
         <button v-if="attachmentId != null" class="vbtn" title="用系统默认看图程序打开原图"
           @click="openExternal">系统打开</button>
-        <button class="vbtn vbtn-close" title="关闭（Esc）" @click="emit('close')">✕</button>
+        <button class="vbtn vbtn-close" title="关闭（Esc）" @click="emit('close')"><FluentIcon name="close" :size="14" /></button>
       </div>
 
       <div class="viewer-info" @mousedown.stop>{{ fileName }} · {{ zoomLabel }}</div>

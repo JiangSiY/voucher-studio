@@ -2,11 +2,12 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useRouter } from "vue-router";
-import { api, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
+import { api, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
+import FluentIcon from "./components/FluentIcon.vue";
 
 const configStore = useConfigStore();
 const router = useRouter();
@@ -29,6 +30,11 @@ const importing = ref(false);
 const recovery = ref<RecoveryReport | null>(null);
 
 onMounted(async () => {
+  // 纯浏览器打开 dev URL：跳过所有 Tauri 相关初始化，避免裸 JS 错误刷屏
+  if (!isTauri) {
+    toast.info("浏览器预览模式：仅界面可浏览，请通过桌面应用使用完整功能");
+    return;
+  }
   configStore.init();
 
   // 恢复检查：报告由后端启动时生成缓存（marker 检测 + 只读健康检查）
@@ -132,29 +138,39 @@ onUnmounted(() => {
           可能由崩溃、强制结束进程或断电引起。已对数据做了只读健康检查：
         </p>
         <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
-          <li>
-            <template v-if="recovery.dbOk">✅ 数据库完整性检查通过</template>
+          <li style="display: flex; align-items: flex-start; gap: 6px">
+            <template v-if="recovery.dbOk"><span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="15" /></span><span>数据库完整性检查通过</span></template>
             <template v-else>
-              ⚠️ 数据库完整性检查发现问题：
-              <span class="mono" style="color: var(--danger)">{{
-                recovery.integrityErrors.join("；") || "未知错误"
-              }}</span>
+              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>
+              <span>数据库完整性检查发现问题：
+                <span class="mono" style="color: var(--danger)">{{
+                  recovery.integrityErrors.join("；") || "未知错误"
+                }}</span>
+              </span>
             </template>
           </li>
-          <li v-if="recovery.attachmentTotal > 0">
+          <li v-if="recovery.attachmentTotal > 0" style="display: flex; align-items: flex-start; gap: 6px">
             <template v-if="recovery.attachmentMissingCount === 0">
-              ✅ 附件文件核对通过（{{ recovery.attachmentTotal }} 张图片全部在位）
+              <span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="15" /></span>
+              <span>附件文件核对通过（{{ recovery.attachmentTotal }} 张图片全部在位）</span>
             </template>
             <template v-else>
-              ⚠️ 有 {{ recovery.attachmentMissingCount }} 张附件图片文件缺失（如
-              {{ recovery.attachmentMissing[0] }}）
+              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>
+              <span>有 {{ recovery.attachmentMissingCount }} 张附件图片文件缺失（如
+                {{ recovery.attachmentMissing[0] }}）
+              </span>
             </template>
           </li>
-          <li v-else>ℹ️ 尚无附件图片</li>
-          <li v-if="recovery.lastBackup">
-            💾 最近备份：{{ fmtDate(recovery.lastBackup.createdAt) }}
+          <li v-else style="display: flex; align-items: center; gap: 6px">
+            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="info" :size="15" /></span>尚无附件图片
           </li>
-          <li v-else>⚠️ 尚无任何备份</li>
+          <li v-if="recovery.lastBackup" style="display: flex; align-items: center; gap: 6px">
+            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="save" :size="15" /></span>
+            最近备份：{{ fmtDate(recovery.lastBackup.createdAt) }}
+          </li>
+          <li v-else style="display: flex; align-items: center; gap: 6px">
+            <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>尚无任何备份
+          </li>
         </ul>
         <p
           v-if="!recovery.dbOk || recovery.attachmentMissingCount > 0"

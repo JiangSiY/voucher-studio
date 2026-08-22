@@ -9,6 +9,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type ExportBatch, type Voucher, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import VoucherCard from "../components/VoucherCard.vue";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
@@ -198,7 +199,7 @@ onUnmounted(() => {
               </tbody>
             </table>
           </div>
-          <EmptyState v-else icon="🗂" title="还没有凭证" desc="先到凭证列表页导入或新建" />
+          <EmptyState v-else icon="folder" title="还没有凭证" desc="先到凭证列表页导入或新建" />
         </div>
       </div>
 
@@ -251,7 +252,7 @@ onUnmounted(() => {
           </div>
           <button class="btn btn-primary" style="width: 100%; justify-content: center; padding: 8px" :disabled="busy"
             @click="generate">
-            {{ busy ? "生成中…" : groupByDay ? "🖨 生成凭证日报" : "🖨 生成 PDF" }}
+            <FluentIcon v-if="!busy" name="print" :size="15" />{{ busy ? "生成中…" : groupByDay ? "生成凭证日报" : "生成 PDF" }}
           </button>
           <button v-if="lastBatches.length" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
             @click="openLastPdf">
@@ -306,7 +307,7 @@ onUnmounted(() => {
               <figcaption>
                 <span class="mono">{{ r.voucher.voucherNo }}</span>
                 <span v-if="r.thumb.enhancedSource === 'scan' && r.thumb.enhancedPath" class="appendix-badge"
-                  title="PDF 附录将印 5 步矫正后的增强版">✨ 增强版</span>
+                  title="PDF 附录将印 5 步矫正后的增强版"><FluentIcon name="sparkle" :size="9" /> 增强版</span>
               </figcaption>
             </figure>
           </div>

@@ -8,6 +8,7 @@ import { useConfigStore } from "../stores/config";
 import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult, type BatchEditPatch } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
 import { toast, toastError } from "../stores/toast";
 
@@ -369,7 +370,7 @@ onUnmounted(() => {
       <h3>凭证</h3>
       <div style="display: flex; gap: 8px">
         <button class="btn btn-sm" :disabled="importing" @click="importPicked">
-          {{ importing ? "导入中…" : "🖼 导入图片" }}
+          <FluentIcon name="image" :size="14" /> {{ importing ? "导入中…" : "导入图片" }}
         </button>
         <button class="btn btn-sm btn-primary" @click="router.push('/vouchers/new')">＋ 新建凭证</button>
       </div>
@@ -400,11 +401,11 @@ onUnmounted(() => {
             <option value="archived">已归档</option>
           </select>
           <button class="btn btn-sm" :disabled="batchStatusBusy" @click="applyBatchStatus">
-            {{ batchStatusBusy ? "变更中…" : "✓ 批量改状态" }}
+            {{ batchStatusBusy ? "变更中…" : "批量改状态" }}
           </button>
-          <button class="btn btn-sm" @click="openBatchEdit">✎ 批量编辑</button>
-          <button class="btn btn-sm" @click="exportSelected">📤 批量导出 PDF</button>
-          <button class="btn btn-sm btn-danger" @click="askDelete([...selected])">🗑 删除选中</button>
+          <button class="btn btn-sm" @click="openBatchEdit"><FluentIcon name="edit" :size="14" />批量编辑</button>
+          <button class="btn btn-sm" @click="exportSelected"><FluentIcon name="upload" :size="14" />批量导出 PDF</button>
+          <button class="btn btn-sm btn-danger" @click="askDelete([...selected])"><FluentIcon name="delete" :size="14" />删除选中</button>
         </div>
       </div>
       <!-- 功能深化 2：批量编辑面板（日期/备注/标签；改日期会按新日期重排档号） -->
@@ -446,12 +447,12 @@ onUnmounted(() => {
             <tr v-for="v in items" :key="v.id" style="cursor: pointer" @click="router.push(`/vouchers/${v.id}`)">
               <td @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
               <td>
-                <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '✨ 增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
+                <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
                   <img :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
                   <span v-if="thumbs[v.id]?.enhancedSource === 'scan'" class="list-thumb-source" title="扫描件">扫</span>
                   <span v-else-if="thumbs[v.id]?.enhancedSource === 'screenshot'" class="list-thumb-source muted" title="截图">截</span>
                 </div>
-                <div v-else class="list-thumb list-thumb-empty" title="无附件">🖼</div>
+                <div v-else class="list-thumb list-thumb-empty" title="无附件"><FluentIcon name="image" :size="18" /></div>
               </td>
               <td><span class="mono">{{ v.voucherNo }}</span></td>
               <td>{{ v.voucherDate }}</td>
@@ -465,15 +466,15 @@ onUnmounted(() => {
               <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
               <td @click.stop>
                 <div class="action-row">
-                  <button class="icon-btn" title="编辑" @click="router.push(`/vouchers/${v.id}`)">✎</button>
-                  <button class="icon-btn" title="导出 PDF" @click="exportOne(v)">🖨</button>
-                  <button class="icon-btn danger" title="删除" @click="askDelete([v.id])">🗑</button>
+                  <button class="icon-btn" title="编辑" @click="router.push(`/vouchers/${v.id}`)"><FluentIcon name="edit" :size="14" /></button>
+                  <button class="icon-btn" title="导出 PDF" @click="exportOne(v)"><FluentIcon name="print" :size="14" /></button>
+                  <button class="icon-btn danger" title="删除" @click="askDelete([v.id])"><FluentIcon name="delete" :size="14" /></button>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
-        <EmptyState v-else-if="!loading" icon="🗂" title="没有符合条件的凭证"
+        <EmptyState v-else-if="!loading" icon="folder" title="没有符合条件的凭证"
           desc="拖入图片快速建卡，或调整筛选条件">
           <button class="btn btn-primary" @click="router.push('/vouchers/new')">＋ 新建凭证</button>
         </EmptyState>
@@ -482,9 +483,9 @@ onUnmounted(() => {
       <div class="tbl-foot" style="padding: 12px 16px">
         <div class="info">共 {{ total }} 条记录</div>
         <div class="pager">
-          <button :disabled="page <= 1" @mouseenter="cancelPrefetchNextPage" @click="page--; load()">‹</button>
+          <button :disabled="page <= 1" @mouseenter="cancelPrefetchNextPage" @click="page--; load()"><FluentIcon name="chevronLeft" :size="13" /></button>
           <button class="active">{{ page }}</button>
-          <button :disabled="page >= totalPages()" @mouseenter="prefetchNextPage" @mouseleave="cancelPrefetchNextPage" @click="page++; load()">›</button>
+          <button :disabled="page >= totalPages()" @mouseenter="prefetchNextPage" @mouseleave="cancelPrefetchNextPage" @click="page++; load()"><FluentIcon name="chevronRight" :size="13" /></button>
         </div>
       </div>
     </div>

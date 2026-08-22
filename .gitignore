@@ -14,3 +14,6 @@ src-tauri/target/
 
 # 真机验收走查存档（截图、压测图、UIA 脚本本地保留；不走 git）
 /.archive-*/
+
+# 发布产物校验文件（正式校验随 GitHub Release 资产发布，不入库）
+/sha256sums.txt

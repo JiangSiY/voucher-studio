@@ -354,14 +354,14 @@ function compareClipRight(a: Attachment): string {
         <div class="fluent-panel-header"><h3>新建凭证</h3></div>
         <div class="fluent-panel-body">
           <div class="callout info" style="margin: 0 0 16px">
-            <span class="ci">🖼</span>
+            <span class="ci"><FluentIcon name="image" :size="18" /></span>
             <div class="ct">
               <strong>一张图片就是一张凭证。</strong>
               选择图片后系统会立即建卡 + OCR 识别回填日期 / 金额 / 对方账户（可再修改），然后自动跳到编辑页查看图片与完善字段。
             </div>
           </div>
           <div class="dropzone" style="padding: 48px 24px" @click="createByImage">
-            <div class="dz-icon">🖼</div>
+            <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
             <div style="font-weight: 600">点击选择图片，或拖放到此处</div>
             <div style="font-size: 12px; margin-top: 4px">
               支持 jpg / png / bmp / webp；多张图片会各自创建凭证，相同图片自动去重
@@ -479,10 +479,10 @@ function compareClipRight(a: Attachment): string {
                   <div class="att-compare-divider" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }"></div>
                   <!-- 滑块手柄 -->
                   <div class="att-compare-handle" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }">
-                    <span>⇆</span>
+                    <FluentIcon name="compare" :size="13" />
                   </div>
                   <!-- 角标：左=增强 右=原图 -->
-                  <span class="att-compare-tag att-compare-tag-left">✨ 增强</span>
+                  <span class="att-compare-tag att-compare-tag-left"><FluentIcon name="sparkle" :size="10" /> 增强</span>
                   <span class="att-compare-tag att-compare-tag-right">原图</span>
                 </template>
                 <!-- 非对比模式：单图（thumbSrc 受 useEnhanced 切换） -->
@@ -491,7 +491,7 @@ function compareClipRight(a: Attachment): string {
                 </template>
                 <!-- v0.6 增强状态角标 -->
                 <span v-if="a.enhancedPath && !isCompareOpen(a)" class="att-enhanced-badge" title="已通过 5 步算法矫正（用于 OCR / 查看器）">
-                  ✨ 已增强
+                  <FluentIcon name="sparkle" :size="10" /> 已增强
                 </span>
                 <!-- D-1：原图/增强版切换器（无增强版时隐藏；对比模式下隐藏避免双控制） -->
                 <button v-if="a.enhancedPath && !isCompareOpen(a)" class="att-thumb-toggle"
@@ -519,12 +519,13 @@ function compareClipRight(a: Attachment): string {
                     :class="{ 'btn-primary': isCompareOpen(a) }"
                     :title="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'"
                     @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)">
-                    {{ isCompareOpen(a) ? "✕ 关闭对比" : "⇆ A/B 对比" }}
+                    <FluentIcon :name="isCompareOpen(a) ? 'close' : 'compare'" :size="14" />
+                    {{ isCompareOpen(a) ? "关闭对比" : "A/B 对比" }}
                   </button>
                 </div>
                 <!-- D-4：对比模式滑块行（仅打开时显示） -->
                 <div v-if="isCompareOpen(a) && a.enhancedPath" class="att-compare-row">
-                  <span class="att-compare-label">✨ 增强</span>
+                  <span class="att-compare-label"><FluentIcon name="sparkle" :size="10" /> 增强</span>
                   <input type="range" min="0" max="100" step="1"
                     class="att-compare-slider"
                     :value="Math.round((compareSplit[a.id] ?? 0.5) * 100)"
@@ -538,7 +539,7 @@ function compareClipRight(a: Attachment): string {
             </div>
           </div>
           <div v-else class="dropzone" @click="replaceImage">
-            <div class="dz-icon">🖼</div>
+            <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
             <div style="font-weight: 600">点击选择图片补挂到这张凭证</div>
             <div style="font-size: 12px; margin-top: 4px">一图一凭证：每张凭证只关联一张图片</div>
           </div>
@@ -549,7 +550,7 @@ function compareClipRight(a: Attachment): string {
       <div class="fluent-panel" v-if="hasExtracted || fieldsBusy">
         <div class="fluent-panel-header">
           <h3>识别结果</h3>
-          <button class="btn btn-sm btn-primary" v-if="hasExtracted" @click="applyAllExtracted">⚡ 全部填入</button>
+          <button class="btn btn-sm btn-primary" v-if="hasExtracted" @click="applyAllExtracted"><FluentIcon name="flash" :size="14" />全部填入</button>
         </div>
         <div class="fluent-panel-body">
           <div v-if="fieldsBusy" style="font-size: 13px; color: var(--text-2)">正在提取字段…</div>

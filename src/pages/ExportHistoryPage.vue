@@ -3,6 +3,7 @@
 import { onMounted, ref } from "vue";
 import { api, type ExportBatch } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { fmtDate } from "../composables/format";
 import { toastError } from "../stores/toast";
 
@@ -54,14 +55,14 @@ onMounted(load);
               <td>{{ fmtDate(b.createdAt) }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="打开 PDF" @click="open(b)">📄</button>
+                  <button class="icon-btn" title="打开 PDF" @click="open(b)"><FluentIcon name="file" :size="15" /></button>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <EmptyState v-else icon="📊" title="还没有导出记录"
+      <EmptyState v-else icon="chart" title="还没有导出记录"
         desc="到「打印中心」勾选凭证并生成 PDF 后，这里会显示每一次导出批次" />
     </div>
   </div>

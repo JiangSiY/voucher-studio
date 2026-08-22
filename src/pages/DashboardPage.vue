@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type BackupInfo, type CounterpartyRow, type MonthlySummary, type TagRow, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
@@ -198,7 +199,7 @@ onUnmounted(() => {
   </div>
 
   <div class="callout info">
-    <span class="ci">💡</span>
+    <span class="ci"><FluentIcon name="bulb" :size="18" /></span>
     <div class="ct">
       <strong>快捷入口：</strong>把凭证图片直接拖进「凭证列表」页面即可自动建卡入库；
       数据全部保存在本机（{{ configStore.appInfo?.dataDir }}），
@@ -285,7 +286,7 @@ onUnmounted(() => {
           </div>
         </template>
         <div v-else class="empty-state" style="padding: 32px">
-          <div class="es-icon">📊</div>
+          <div class="es-icon"><FluentIcon name="chart" :size="42" /></div>
           <div class="es-title">近 {{ REPORT_MONTHS }} 月暂无凭证</div>
           <div class="es-desc">导入图片后这里会出现统计图表</div>
         </div>
@@ -341,8 +342,8 @@ onUnmounted(() => {
     <div class="fluent-panel-header">
       <h3>最近凭证</h3>
       <div style="display: flex; gap: 8px">
-        <button class="btn btn-sm" :disabled="busy" @click="backupNow()">💾 立即备份</button>
-        <button class="btn btn-sm" @click="router.push('/vouchers/new')">＋ 新建凭证</button>
+        <button class="btn btn-sm" :disabled="busy" @click="backupNow()"><FluentIcon v-if="!busy" name="save" :size="14" />立即备份</button>
+        <button class="btn btn-sm" @click="router.push('/vouchers/new')"><FluentIcon name="plus" :size="14" />新建凭证</button>
       </div>
     </div>
     <div class="fluent-panel-body" style="padding: 0">
@@ -369,10 +370,10 @@ onUnmounted(() => {
           </tbody>
         </table>
         <div v-else class="empty-state" style="padding: 40px">
-          <div class="es-icon">🗂</div>
+          <div class="es-icon"><FluentIcon name="folder" :size="42" /></div>
           <div class="es-title">还没有凭证</div>
           <div class="es-desc">拖入图片、或点「新建凭证」开始整理</div>
-          <button class="btn btn-primary" @click="router.push('/vouchers/new')">＋ 新建凭证</button>
+          <button class="btn btn-primary" @click="router.push('/vouchers/new')"><FluentIcon name="plus" :size="14" />新建凭证</button>
         </div>
       </div>
     </div>
