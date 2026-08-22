@@ -39,7 +39,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # opencv-rust 0.100 通过 pkg-config 探测系统 OpenCV 4.x；
-      # clang/libclang 供 bindgen 生成绑定；libssl-dev 供 reqwest 默认 TLS
+      # clang/libclang 供 bindgen 生成绑定；libssl-dev 供 reqwest 默认 TLS；
+      # fonts-noto-cjk 供 PDF 导出测试的中文字体需求
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -48,7 +49,8 @@ jobs:
             clang \
             libclang-dev \
             libssl-dev \
-            pkg-config
+            pkg-config \
+            fonts-noto-cjk
 
       - uses: dtolnay/rust-toolchain@stable
         with:
