@@ -154,19 +154,16 @@ async function openLastPdf() {
   }
 }
 
-// 停留本页期间拖放/微信入库的新凭证，需出现在左侧可选列表（不重置打印选项）
+// 停留本页期间拖放入库的新凭证，需出现在左侧可选列表（不重置打印选项）
 let unlistenImportDone: UnlistenFn | null = null;
-let unlistenWxImported: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
   unlistenImportDone = await listen("import:done", () => loadVouchers());
-  unlistenWxImported = await listen("wechat:imported", () => loadVouchers());
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
-  unlistenWxImported?.();
 });
 </script>
 

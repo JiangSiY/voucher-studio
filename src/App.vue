@@ -15,8 +15,6 @@ const router = useRouter();
 // 全局事件告警（任何页面都可见）
 let unlistenDone: UnlistenFn | null = null;
 let unlistenFailed: UnlistenFn | null = null;
-let unlistenWxImported: UnlistenFn | null = null;
-let unlistenWxError: UnlistenFn | null = null;
 // 拖放导入（Rust 侧处理）：遮罩与结果反馈
 let unlistenDragEnter: UnlistenFn | null = null;
 let unlistenDragLeave: UnlistenFn | null = null;
@@ -55,19 +53,6 @@ onMounted(async () => {
   });
   unlistenFailed = await listen<string>("backup:failed", (e) => {
     toast.danger(`自动备份失败：${e.payload}`);
-  });
-
-  // 微信监听：导入结果与错误实时提示（事件内容哈希去重，重复图片静默跳过）
-  unlistenWxImported = await listen<ImportSummary>("wechat:imported", (e) => {
-    const s = e.payload;
-    if (s.vouchers.length) {
-      const parts = [`微信图片已入库：${s.vouchers.length} 张图片 → ${s.vouchers.length} 张凭证`];
-      if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
-      toast.success(parts.join(" · "));
-    }
-  });
-  unlistenWxError = await listen<string>("wechat:error", (e) => {
-    toast.danger(`微信监听异常：${e.payload}`);
   });
 
   // 拖放导入（Rust 侧处理）：进入/离开遮罩 → 开始提示 → 结果反馈
@@ -109,8 +94,6 @@ function gotoRestore() {
 onUnmounted(() => {
   unlistenDone?.();
   unlistenFailed?.();
-  unlistenWxImported?.();
-  unlistenWxError?.();
   unlistenDragEnter?.();
   unlistenDragLeave?.();
   unlistenImportStarted?.();

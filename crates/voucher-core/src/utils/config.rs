@@ -19,7 +19,6 @@ pub struct AppConfig {
     pub naming: NamingConfig,
     pub ocr: OcrConfig,
     pub backup: BackupConfig,
-    pub wechat: WechatConfig,
     pub print: PrintConfig,
     /// v0.6：文档扫描矫正（5 步算法开关）
     pub enhance: EnhanceConfig,
@@ -131,26 +130,6 @@ impl Default for WebdavConfig {
             username: String::new(),
             password_set: false,
             remote_retention: 10,
-        }
-    }
-}
-
-/// 微信收件夹监听：新图片自动入库
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct WechatConfig {
-    pub enabled: bool,
-    pub watch_dir: String,
-    /// 监听模式：events（notify 事件）| poll（轮询兜底）
-    pub mode: String,
-}
-
-impl Default for WechatConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            watch_dir: String::new(),
-            mode: "events".into(),
         }
     }
 }

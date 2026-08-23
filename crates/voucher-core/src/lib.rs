@@ -33,8 +33,6 @@ pub enum CoreError {
     Pdf(#[from] printpdf::Error),
     #[error("压缩包错误: {0}")]
     Zip(#[from] zip::result::ZipError),
-    #[error("文件监听错误: {0}")]
-    Notify(#[from] notify::Error),
     #[error("未实现: {0}")]
     NotImplemented(&'static str),
     #[error("本地 OCR: {0}")]

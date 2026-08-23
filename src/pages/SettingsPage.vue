@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
  * 设置（Tab 分区，对齐 UI 方案的配置页模式）：
- * 通用 / 凭证参数 / OCR / 密钥管理 / 备份与同步 / 微信监听
+ * 通用 / 凭证参数 / OCR / 密钥管理 / 备份与同步
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus, type WechatStatus } from "../api/client";
+import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus } from "../api/client";
 import FluentIcon from "../components/FluentIcon.vue";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
@@ -19,7 +19,6 @@ const tabs = [
   { key: "enhance", label: "扫描矫正" },
   { key: "secrets", label: "密钥管理" },
   { key: "backup", label: "备份与同步" },
-  { key: "wechat", label: "微信监听" },
 ] as const;
 type TabKey = (typeof tabs)[number]["key"];
 const tab = ref<TabKey>("general");
@@ -41,7 +40,6 @@ function defaultConfig(): AppConfig {
       secondaryDir: "",
       webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10 },
     },
-    wechat: { enabled: false, watchDir: "", mode: "events" },
     print: { title: "凭证日报", cardStyle: "standard", columns: 3, includeImages: true, groupByDay: true },
     enhance: {
       enabled: true,
@@ -59,7 +57,6 @@ function defaultConfig(): AppConfig {
 
 const secrets = ref<SecretStatus[]>([]);
 const localOcr = ref<LocalOcrStatus | null>(null);
-const wechatStatus = ref<WechatStatus | null>(null);
 const enhanceStat = ref<EnhanceStatus | null>(null);
 // D-2：增强缓存管理 v2
 const enhanceStatV2 = ref<EnhanceStatusV2 | null>(null);
@@ -85,7 +82,6 @@ async function load() {
     Object.assign(cfg, c);
     secrets.value = await api.listSecrets();
     localOcr.value = await api.getLocalOcrStatus();
-    wechatStatus.value = await api.getWechatStatus();
     enhanceStat.value = await api.enhanceStatus();
     await refreshEnhancePanel();
     validateTemplate();
@@ -231,13 +227,7 @@ async function save() {
   try {
     await configStore.save(JSON.parse(JSON.stringify(cfg)));
     secrets.value = await api.listSecrets();
-    wechatStatus.value = await api.getWechatStatus();
     toast.success("设置已保存");
-    // 微信监听保存后即时生效；失败在此明确提示
-    const ws = wechatStatus.value;
-    if (ws?.enabled && !ws.running) {
-      toast.warning(`微信监听未能启动：${ws.error ?? "未知原因"}`);
-    }
   } catch (e) {
     toastError(e);
   } finally {
@@ -307,11 +297,6 @@ async function testWebdavConnection() {
   } finally {
     webdavTesting.value = false;
   }
-}
-
-async function pickWatchDir() {
-  const dir = await api.pickDirectory();
-  if (dir) cfg.wechat.watchDir = dir;
 }
 
 // 批量识别待处理附件（列表页导入未跑 OCR 的、历史失败件等），成功后自动填单（只填空字段）
@@ -874,44 +859,6 @@ onUnmounted(() => unlistenOcrProgress?.());
           <span class="ci">{{ webdavTestResult.ok ? "●" : "!" }}</span>
           <div class="ct">{{ webdavTestResult.text }}</div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 微信监听 -->
-  <div v-else-if="tab === 'wechat'" class="fluent-panel">
-    <div class="fluent-panel-body">
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
-        <div>
-          <div style="font-size: 13px; font-weight: 600">监听微信收件文件夹</div>
-          <div style="font-size: 12px; color: var(--text-3)">文件夹里出现新图片时自动导入建卡（保存后立即生效，含子目录）</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" v-model="cfg.wechat.enabled" />
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div v-if="wechatStatus" class="field">
-        <div v-if="wechatStatus.enabled && wechatStatus.running" class="callout success" style="margin: 0">
-          <span class="ci">●</span>
-          <div class="ct">监听运行中：{{ wechatStatus.watchDir || "（未设置目录）" }}</div>
-        </div>
-        <div v-else-if="wechatStatus.enabled && !wechatStatus.running" class="callout danger" style="margin: 0">
-          <span class="ci">●</span>
-          <div class="ct">
-            监听未运行{{ wechatStatus.error ? `：${wechatStatus.error}` : "（保存设置后自动启动）" }}
-          </div>
-        </div>
-        <div v-else class="desc" style="margin: 0">监听未启用</div>
-      </div>
-      <div class="field">
-        <label>监听目录</label>
-        <div style="display: flex; gap: 8px">
-          <input v-model="cfg.wechat.watchDir" class="input mono" placeholder="如 C:\Users\你\Documents\WeChat Files\...\FileStorage\Image"
-            style="flex: 1" />
-          <button class="btn" @click="pickWatchDir">选择文件夹</button>
-        </div>
-        <div class="desc">建议指向微信「文件存储 → 图片」目录（递归监听子目录）；同一张图片重复出现会自动去重。</div>
       </div>
     </div>
   </div>

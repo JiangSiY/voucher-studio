@@ -336,7 +336,6 @@ async function doDelete() {
 
 // 拖放导入由 Rust 侧处理（App.vue 全局反馈），此处监听入库事件刷新列表
 let unlistenImportDone: UnlistenFn | null = null;
-let unlistenWxImported: UnlistenFn | null = null;
 
 onMounted(async () => {
   // v0.7 R-2：从仪表盘状态卡片跳转进来时按 status 预筛选（非法值忽略）
@@ -350,16 +349,10 @@ onMounted(async () => {
     clearPrefetched();
     load();
   });
-  // 微信监听为后台入库，用户停留本页时列表同样需要刷新
-  unlistenWxImported = await listen("wechat:imported", () => {
-    clearPrefetched();
-    load();
-  });
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
-  unlistenWxImported?.();
   cancelPrefetchNextPage();
 });
 </script>

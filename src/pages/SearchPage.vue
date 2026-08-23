@@ -29,22 +29,17 @@ async function search() {
   }
 }
 
-// 已出结果后发生拖放/微信入库，自动重跑当前关键词，避免结果陈旧
+// 已出结果后发生拖放入库，自动重跑当前关键词，避免结果陈旧
 let unlistenImportDone: UnlistenFn | null = null;
-let unlistenWxImported: UnlistenFn | null = null;
 
 onMounted(async () => {
   unlistenImportDone = await listen("import:done", () => {
-    if (searched.value && keyword.value.trim()) search();
-  });
-  unlistenWxImported = await listen("wechat:imported", () => {
     if (searched.value && keyword.value.trim()) search();
   });
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
-  unlistenWxImported?.();
 });
 </script>
 

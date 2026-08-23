@@ -221,7 +221,6 @@ export interface AppConfig {
       remoteRetention: number;
     };
   };
-  wechat: { enabled: boolean; watchDir: string; mode: string };
   print: { title: string; cardStyle: string; columns: number; includeImages: boolean; groupByDay: boolean };
   /** v0.6：文档扫描矫正（5 步算法 + 2 占位） */
   enhance: EnhanceConfig;
@@ -327,14 +326,6 @@ export interface SecretStatus {
   exists: boolean;
 }
 
-/** 微信监听运行状态 */
-export interface WechatStatus {
-  enabled: boolean;
-  running: boolean;
-  watchDir: string;
-  error: string | null;
-}
-
 export interface BackupInfo {
   fileName: string;
   path: string;
@@ -388,8 +379,6 @@ export const api = {
 
   listSecrets: () => invoke<SecretStatus[]>("list_secrets"),
   setSecret: (alias: string, value: string) => invoke<void>("set_secret", { alias, value }),
-  /** 微信监听运行状态（保存配置后热重载，无需重启） */
-  getWechatStatus: () => invoke<WechatStatus>("get_wechat_status"),
   deleteSecret: (alias: string) => invoke<boolean>("delete_secret", { alias }),
 
   listVouchers: (query: VoucherQuery) => invoke<VoucherListResult>("list_vouchers", { query }),
@@ -422,8 +411,7 @@ export const api = {
   /** Rust 侧对话框选图更换凭证图片（换图不换卡）。null = 用户取消 */
   pickAndReplaceImage: (voucherId: number) =>
     invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId }),
-  /** Rust 侧对话框选目录。null = 用户取消 */
-  pickDirectory: () => invoke<string | null>("pick_directory"),
+  /** 附件绝对路径（打开原图用） */
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),

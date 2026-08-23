@@ -380,7 +380,7 @@ function compareClipRight(a: Attachment): string {
         <div class="fluent-panel-header"><h3>录入流程</h3></div>
         <div class="fluent-panel-body">
           <ol style="padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-2)">
-            <li>选择 / 拖放 / 微信监听导入图片</li>
+            <li>选择 / 拖放导入图片（支持批量，一图一凭证）</li>
             <li>自动建卡并 OCR 识别（离线引擎，数据不出本机）</li>
             <li>核对自动回填的日期、金额、对方账户，补充摘要与标签</li>
             <li>按天导出「凭证日报」PDF 归档</li>

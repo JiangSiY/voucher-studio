@@ -159,22 +159,19 @@ function pct(n: number) {
   return `${((n / dist.value.total) * 100).toFixed(1)}%`;
 }
 
-// 拖放/微信导入在任意页面全局生效，概览停留期间入库也需实时刷新
+// 拖放导入在任意页面全局生效，概览停留期间入库也需实时刷新
 let unlistenImportDone: UnlistenFn | null = null;
-let unlistenWxImported: UnlistenFn | null = null;
 // 自动备份在后台完成 → 刷新备份卡片与最近备份时间
 let unlistenBackupDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
   unlistenImportDone = await listen("import:done", () => load());
-  unlistenWxImported = await listen("wechat:imported", () => load());
   unlistenBackupDone = await listen("backup:done", () => load());
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
-  unlistenWxImported?.();
   unlistenBackupDone?.();
 });
 </script>

@@ -75,7 +75,6 @@ pub fn get_config(ctx: Ctx) -> AppConfig {
 #[tauri::command]
 pub fn save_config(
     ctx: Ctx,
-    app: AppHandle,
     config: AppConfig,
 ) -> std::result::Result<AppConfig, String> {
     // 命名模板先校验再落盘
@@ -84,15 +83,7 @@ pub fn save_config(
     let mut config = config;
     config.naming.template = validated;
     err_string(ctx.set_config(config))?;
-    // 微信监听随配置热重载（无需重启应用）
-    crate::platform::sync_wechat_watch(app, ctx.inner());
     Ok(ctx.config())
-}
-
-/// 微信监听运行状态（设置页徽标 + 排障）
-#[tauri::command]
-pub fn get_wechat_status(ctx: Ctx) -> crate::platform::WechatStatus {
-    crate::platform::wechat_status(ctx.inner())
 }
 
 #[tauri::command]
@@ -384,20 +375,6 @@ pub async fn pick_and_replace_image(
     .await
     .map_err(|e| e.to_string())??;
     Ok(Some(detail))
-}
-
-/// 系统对话框选目录（设置页备用份目录 / 微信监听目录）。返回 None = 用户取消。
-#[tauri::command]
-pub async fn pick_directory(app: AppHandle) -> std::result::Result<Option<String>, String> {
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        use tauri_plugin_dialog::DialogExt;
-        app.dialog().file().blocking_pick_folder()
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(picked
-        .and_then(|f| f.into_path().ok())
-        .map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]

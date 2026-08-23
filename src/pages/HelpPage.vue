@@ -17,7 +17,7 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "…");
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>
           <div style="font-size: 12px; color: var(--text-3)">
-            把票据/凭证图片拖进「凭证列表」，自动建卡入库；重复图片自动去重；也可在设置里开启微信文件夹监听。
+            把票据/凭证图片拖进「凭证列表」，自动建卡入库；支持批量拖放，一图一凭证；重复图片自动去重。
           </div>
         </div>
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">

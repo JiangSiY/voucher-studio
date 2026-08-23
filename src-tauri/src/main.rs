@@ -64,8 +64,7 @@ fn main() {
                 }
             }
 
-            // 4. 微信监听 + 定时备份调度（配置启用时生效；监听支持保存配置后热重载）
-            platform::sync_wechat_watch(app.handle().clone(), &ctx);
+            // 4. 定时备份调度（配置启用时生效）
             platform::spawn_backup_scheduler(app.handle().clone(), ctx.clone());
 
             // 5. 崩溃恢复：标记会话运行中 + 健康检查（只读），报告缓存供前端读取
@@ -157,7 +156,6 @@ fn main() {
             commands::restart_app,
             commands::get_config,
             commands::save_config,
-            commands::get_wechat_status,
             commands::validate_naming_template,
             commands::preview_voucher_no,
             commands::list_secrets,
@@ -176,7 +174,6 @@ fn main() {
             commands::search_vouchers,
             commands::pick_and_import,
             commands::pick_and_replace_image,
-            commands::pick_directory,
             commands::attachment_abs_path,
             commands::run_ocr,
             commands::ocr_preview_fields,
