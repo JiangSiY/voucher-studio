@@ -73,10 +73,7 @@ pub fn get_config(ctx: Ctx) -> AppConfig {
 }
 
 #[tauri::command]
-pub fn save_config(
-    ctx: Ctx,
-    config: AppConfig,
-) -> std::result::Result<AppConfig, String> {
+pub fn save_config(ctx: Ctx, config: AppConfig) -> std::result::Result<AppConfig, String> {
     // 命名模板先校验再落盘
     let validated =
         naming::NamingEngine::validate(&config.naming.template).map_err(|e| e.to_string())?;
