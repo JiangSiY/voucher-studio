@@ -84,6 +84,8 @@ pub struct BackupConfig {
     pub auto_enabled: bool,
     /// 自动备份间隔（小时）
     pub interval_hours: u64,
+    /// 关闭应用前自动备份（本地 zip，跳过 WebDAV/异盘双写；避免关闭卡顿）
+    pub auto_backup_on_close: bool,
     /// GFS 分层保留：近 N 天每日备份全保留
     pub keep_daily: u32,
     /// GFS 分层保留：再保留 N 周的每周最新一份
@@ -100,6 +102,7 @@ impl Default for BackupConfig {
         Self {
             auto_enabled: true,
             interval_hours: 24,
+            auto_backup_on_close: false,
             keep_daily: 7,
             keep_weekly: 4,
             keep_monthly: 6,

@@ -209,6 +209,7 @@ export interface AppConfig {
   backup: {
     autoEnabled: boolean;
     intervalHours: number;
+    autoBackupOnClose: boolean;
     keepDaily: number;
     keepWeekly: number;
     keepMonthly: number;

@@ -34,6 +34,7 @@ function defaultConfig(): AppConfig {
     backup: {
       autoEnabled: true,
       intervalHours: 24,
+      autoBackupOnClose: false,
       keepDaily: 7,
       keepWeekly: 4,
       keepMonthly: 6,
@@ -797,6 +798,16 @@ onUnmounted(() => unlistenOcrProgress?.());
           </div>
           <div class="desc">建议指向另一块物理盘或移动硬盘：本盘故障时备份仍在。该目录同样应用下方保留策略。</div>
         </div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px">
+        <div>
+          <div style="font-size: 13px; font-weight: 600">关闭前自动备份</div>
+          <div style="font-size: 12px; color: var(--text-3)">每次退出应用前执行一次本地快速备份（跳过 WebDAV/异盘双写，避免关闭卡顿）；60 分钟内已备份则跳过</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" v-model="cfg.backup.autoBackupOnClose" />
+          <span class="slider"></span>
+        </label>
       </div>
       <div class="field">
         <label>分层保留（日 / 周 / 月）</label>

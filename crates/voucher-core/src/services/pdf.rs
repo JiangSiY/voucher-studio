@@ -343,38 +343,45 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
     Ok(())
 }
 
-/// 封面页（档案装订形态，坐标对齐参照 PDF《原始凭证_2026-07-26》）：
+/// 封面页（档案装订形态）：
 /// 左侧装订线（竖排「装订线」三字 + 细线）+ 居中大标题 + 5 行信息表
-/// （凭证日期 / 档号范围 / 附件张数 / 金额合计 / 生成时间）。
+/// 标题在页面上半部居中，信息表在标题下方，整体视觉重心中上。
 fn draw_cover_page(
     layer: &PdfLayerReference,
     font: &IndirectFontRef,
     day: &DailyInput,
     title: &str,
 ) {
-    // 装订线三字（竖排）
+    // 装订线三字（竖排）——与标题垂直居中对齐
+    let title_top = 140.0; // 标题 baseline 距页顶 140mm（原 88mm 下移导致上方 78mm 空白，上移 52mm 至中上位置）
     layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
     for (i, ch) in ["装", "订", "线"].iter().enumerate() {
-        layer.use_text(*ch, 10.5, Mm(18.0), y(86.0 + i as f32 * 13.0), font);
+        layer.use_text(*ch, 12.0, Mm(18.0), y(title_top + i as f32 * 14.0), font);
     }
-    // 装订线
+    // 装订线（贯穿全页，左侧 24.7mm）
     layer.set_outline_thickness(0.3);
     layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
     layer.add_line(Line {
         points: vec![
-            (Point::new(Mm(24.7), y(21.2)), false),
-            (Point::new(Mm(24.7), y(275.9)), false),
+            (Point::new(Mm(24.7), y(15.0)), false),
+            (Point::new(Mm(24.7), y(282.0)), false),
         ],
         is_closed: false,
     });
 
-    // 居中标题
+    // 居中大标题（18pt → 22pt，更醒目；上移 52mm 至中上位置）
     let cover_title = format!("{title}封面");
     layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    let tw = text_width_mm(&cover_title, 18.0);
-    layer.use_text(&cover_title, 18.0, Mm((PAGE_W - tw) / 2.0), y(88.0), font);
+    let tw = text_width_mm(&cover_title, 22.0);
+    layer.use_text(
+        &cover_title,
+        22.0,
+        Mm((PAGE_W - tw) / 2.0),
+        y(title_top + 10.0),
+        font,
+    );
 
-    // 信息表 5 行
+    // 信息表 5 行（下移至标题下方，table_top = 175mm → 标题下约 25mm）
     let count = day.cards.len();
     let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
     let unrecognized = day
@@ -420,10 +427,9 @@ fn draw_cover_page(
     let label_x = table_left + 2.0;
     let value_x = 77.6;
     let row_h = 18.4;
-    let table_top = 82.5;
+    let table_top = title_top + 35.0; // 标题下方 25mm 开始表格
     for (i, (label, value)) in rows.iter().enumerate() {
         let top = table_top + i as f32 * row_h;
-        // 行底线
         layer.set_outline_thickness(0.4);
         layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
         layer.add_line(Line {
@@ -433,10 +439,8 @@ fn draw_cover_page(
             ],
             is_closed: false,
         });
-        // 标签（灰）
         layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
         layer.use_text(label, 10.5, Mm(label_x), y(top + 12.0), font);
-        // 值（深色）
         layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
         layer.use_text(value, 10.5, Mm(value_x), y(top + 12.0), font);
     }

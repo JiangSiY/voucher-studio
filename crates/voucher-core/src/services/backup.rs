@@ -65,6 +65,42 @@ struct Manifest {
 /// 立即执行一次备份：DB 快照 + 配置 + 附件 → zip → 本地 + 异盘 + WebDAV。
 /// 手动与自动备份统一走这里，保证行为一致。
 pub fn run_backup(ctx: &CoreContext) -> Result<BackupInfo> {
+    run_backup_impl(ctx, false)
+}
+
+/// 关闭应用前的本地快速备份：只做 DB 快照 + 配置 + 附件 → zip → 本地 + GFS。
+/// 跳过异盘双写和 WebDAV（两者可能慢且失败不影响本地主备份）。
+/// 已在最近 60 分钟内备份过则跳过（幂等）。
+pub fn run_local_backup(ctx: &CoreContext) -> Result<Option<BackupInfo>> {
+    // 1. 最近备份检查：60 分钟内已有备份则跳过
+    let recent = last_backup_within(ctx, 60 * 60);
+    if recent {
+        log::info!("本地备份跳过：60 分钟内已备份");
+        return Ok(None);
+    }
+    // 2. 执行本地快速备份
+    let info = run_backup_impl(ctx, true)?;
+    Ok(Some(info))
+}
+
+/// 最近一次备份是否在 `seconds` 秒内
+fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
+    let last: Option<String> = ctx
+        .db
+        .with_conn(|conn| config_repo::get(conn, KEY_LAST_BACKUP))
+        .ok()
+        .flatten();
+    if let Some(rfc) = last {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&rfc) {
+            let diff = chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
+            return diff.num_seconds() >= 0 && diff.num_seconds() < seconds;
+        }
+    }
+    false
+}
+
+/// 备份实现：`local_only` = 跳过异盘双写和 WebDAV 上传
+fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
     // 1. 数据库一致性快照
     let snap = ctx.paths.temp.join("backup-snapshot.db");
     if snap.exists() {
@@ -132,17 +168,17 @@ pub fn run_backup(ctx: &CoreContext) -> Result<BackupInfo> {
     let _ = std::fs::remove_file(&tmp_zip);
     let _ = std::fs::remove_file(&snap);
 
-    // 4. 异盘双写（secondary_dir 配置了才启用；失败不阻断主流程，记入告警）
+    // 4. 异盘双写 + WebDAV（关闭快速备份跳过这两步）
     let mut warnings = Vec::new();
-    if let Err(e) = copy_to_secondary(ctx, &zip_path) {
-        log::warn!("备用份目录写入失败: {e}");
-        warnings.push(format!("异盘副本写入失败：{e}"));
-    }
-
-    // 5. WebDAV 上传（带重试）+ 远端保留清理；失败不阻断主流程，记入告警
-    if let Err(e) = upload_backup_to_webdav(ctx, &zip_path) {
-        log::warn!("WebDAV 上传失败（本地备份不受影响）: {e}");
-        warnings.push(format!("WebDAV 异地副本上传失败：{e}"));
+    if !local_only {
+        if let Err(e) = copy_to_secondary(ctx, &zip_path) {
+            log::warn!("备用份目录写入失败: {e}");
+            warnings.push(format!("异盘副本写入失败：{e}"));
+        }
+        if let Err(e) = upload_backup_to_webdav(ctx, &zip_path) {
+            log::warn!("WebDAV 上传失败（本地备份不受影响）: {e}");
+            warnings.push(format!("WebDAV 异地副本上传失败：{e}"));
+        }
     }
 
     let info = BackupInfo {
@@ -154,10 +190,10 @@ pub fn run_backup(ctx: &CoreContext) -> Result<BackupInfo> {
         warnings,
     };
 
-    // 6. 本地 GFS 分层保留
+    // 5. 本地 GFS 分层保留
     enforce_retention(ctx)?;
 
-    // 7. 记录状态
+    // 6. 记录状态
     ctx.db.with_conn(|conn| {
         config_repo::set(conn, KEY_LAST_BACKUP, &chrono::Utc::now().to_rfc3339())
     })?;

@@ -94,9 +94,22 @@ fn main() {
         })
         .on_window_event(|window, event| {
             match event {
-                // 正常关闭窗口 → 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
+                // 正常关闭窗口 → 可选自动备份 + 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
                 tauri::WindowEvent::CloseRequested { .. } => {
                     if let Some(ctx) = window.try_state::<Arc<CoreContext>>() {
+                        // 关闭前自动备份（本地快速备份，跳过 WebDAV/异盘）
+                        if ctx.config().backup.auto_backup_on_close {
+                            log::info!("关闭触发本地快速备份…");
+                            match voucher_core::services::backup::run_local_backup(&ctx) {
+                                Ok(Some(info)) => log::info!(
+                                    "关闭备份完成：{}（{} 附件）",
+                                    info.file_name,
+                                    info.attachment_count
+                                ),
+                                Ok(None) => log::info!("关闭备份跳过：60 分钟内已备份"),
+                                Err(e) => log::warn!("关闭自动备份失败（不影响退出）: {e}"),
+                            }
+                        }
                         let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
                     }
                 }

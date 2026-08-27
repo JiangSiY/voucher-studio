@@ -7,7 +7,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type ExportBatch, type Voucher, type VoucherThumb } from "../api/client";
+import { api, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import VoucherCard from "../components/VoucherCard.vue";
@@ -18,7 +18,6 @@ const configStore = useConfigStore();
 
 const vouchers = ref<Voucher[]>([]);
 const selected = ref<Set<number>>(new Set());
-/** D-9：各页拉到的凭证首附件缩略图（key = voucher.id），供图片附录预览 */
 const thumbs = ref<Record<number, VoucherThumb>>({});
 const attachmentsDir = computed(() =>
   configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
@@ -28,8 +27,55 @@ const title = ref("凭证整理单");
 const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
 const columns = ref<1 | 2 | 3>(3);
 const includeImages = ref(true);
-/** 按天分组导出（每天一份日报 PDF）；false = 全部合并为一份整理单 */
 const groupByDay = ref(true);
+
+// ---------- 筛选器（按日期范围 / 状态 / 标签） ----------
+const filterDateFrom = ref("");
+const filterDateTo = ref("");
+const filterStatus = ref<"all" | VoucherStatus>("all");
+const filterTag = ref("");
+
+/** 筛选后的可选凭证 */
+const filteredVouchers = computed(() => {
+  return vouchers.value.filter((v) => {
+    if (filterDateFrom.value && v.voucherDate < filterDateFrom.value) return false;
+    if (filterDateTo.value && v.voucherDate > filterDateTo.value) return false;
+    if (filterStatus.value !== "all" && v.status !== filterStatus.value) return false;
+    if (filterTag.value.trim()) {
+      const tag = filterTag.value.trim().toLowerCase();
+      if (!v.tags.some((t) => t.toLowerCase().includes(tag))) return false;
+    }
+    return true;
+  });
+});
+
+/** 全选当前筛选结果；未筛选时全选全部 */
+function selectAll() {
+  const list = filteredVouchers.value;
+  selected.value = new Set(list.map((v) => v.id));
+}
+
+/** 取消全选 */
+function selectNone() {
+  selected.value = new Set();
+}
+
+/** 反选（仅在筛选结果内反选，不在筛选外的保持不变） */
+function invertSelection() {
+  const list = filteredVouchers.value;
+  for (const v of list) {
+    if (selected.value.has(v.id)) selected.value.delete(v.id);
+    else selected.value.add(v.id);
+  }
+}
+
+/** 清空筛选 */
+function clearFilters() {
+  filterDateFrom.value = "";
+  filterDateTo.value = "";
+  filterStatus.value = "all";
+  filterTag.value = "";
+}
 
 const busy = ref(false);
 const lastBatches = ref<ExportBatch[]>([]);
@@ -173,30 +219,54 @@ onUnmounted(() => {
     <div>
       <div class="fluent-panel">
         <div class="fluent-panel-header">
-          <h3>选择凭证（已选 {{ selected.size }}）</h3>
+          <h3>选择凭证（已选 {{ selected.size }} / 筛选 {{ filteredVouchers.length }} / 共 {{ vouchers.length }}）</h3>
         </div>
-        <div class="fluent-panel-body" style="padding: 0; max-height: 340px; overflow-y: auto">
-          <div class="dtable-wrap" v-if="vouchers.length">
+        <!-- 筛选器 -->
+        <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" />
+            <span style="color: var(--text-3); font-size: 12px">至</span>
+            <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" />
+            <select v-model="filterStatus" class="input" style="width: 100px">
+              <option value="all">全部状态</option>
+              <option value="draft">草稿</option>
+              <option value="reviewed">已复核</option>
+              <option value="exported">已导出</option>
+              <option value="archived">已归档</option>
+            </select>
+            <input v-model="filterTag" class="input" style="flex: 1; min-width: 120px" placeholder="标签过滤（模糊匹配）" />
+            <button class="btn btn-subtle" @click="clearFilters">清除筛选</button>
+          </div>
+          <div style="display: flex; gap: 4px; margin-top: 8px">
+            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="selectAll">全选筛选结果</button>
+            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="selectNone">清空选择</button>
+            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="invertSelection">反选</button>
+          </div>
+        </div>
+        <div class="fluent-panel-body" style="padding: 0; max-height: 280px; overflow-y: auto">
+          <div class="dtable-wrap" v-if="filteredVouchers.length">
             <table class="dtable">
               <thead>
                 <tr>
-                  <th style="width: 32px"></th>
+                  <th style="width: 32px"><input type="checkbox" class="cb" :checked="filteredVouchers.length > 0 && filteredVouchers.every(v => selected.has(v.id))" :indeterminate="filteredVouchers.some(v => selected.has(v.id)) && !filteredVouchers.every(v => selected.has(v.id))" @change="($event.target as HTMLInputElement).checked ? selectAll() : selectNone()" /></th>
                   <th>编号</th>
                   <th>日期</th>
                   <th>摘要</th>
+                  <th>状态</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="v in vouchers" :key="v.id">
+                <tr v-for="v in filteredVouchers" :key="v.id">
                   <td><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
                   <td><span class="mono">{{ v.voucherNo }}</span></td>
                   <td>{{ v.voucherDate }}</td>
                   <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
+                  <td><span :class="['status-tag', v.status]">{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</span></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <EmptyState v-else icon="folder" title="还没有凭证" desc="先到凭证列表页导入或新建" />
+          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到凭证列表页导入或新建' : '试试调整筛选条件'" />
         </div>
       </div>
 
