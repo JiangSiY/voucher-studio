@@ -27,6 +27,15 @@ fn main() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
+                // 落盘到 app log 目录（如 %LOCALAPPDATA%\VoucherStudio\logs），
+                // 排查 WebDAV/备份等偶发故障时可直接查历史日志
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("voucher-studio".to_string()),
+                    },
+                ))
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),
         )
         .setup(|app| {
