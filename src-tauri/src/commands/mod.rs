@@ -414,22 +414,29 @@ pub async fn run_ocr(
 
 /// OCR 字段提取预览（只读）：从附件已识别文本抽取结构化字段，不写库。
 /// 前端「识别结果卡片」用——用户确认/勾选后走 update_voucher 应用。
+/// v5：有版面数据走几何配对（含置信度），否则回退纯文本。
 #[tauri::command]
 pub fn ocr_preview_fields(
     ctx: Ctx,
     attachment_id: i64,
 ) -> std::result::Result<voucher_core::services::ocr_fields::ExtractedFields, String> {
-    let text = ctx
+    let fields = ctx
         .db
         .with_conn(|conn| {
-            attachment_repo::get(conn, attachment_id)?
+            let text = attachment_repo::get(conn, attachment_id)?
                 .map(|a| a.ocr_text)
                 .ok_or_else(|| {
                     voucher_core::CoreError::NotFound(format!("附件 {attachment_id} 不存在"))
-                })
+                })?;
+            let layout = voucher_core::db::repos::ocr_layout_repo::get_layout(conn, attachment_id)?;
+            Ok(match layout {
+                Some(lines) if !lines.is_empty() => {
+                    voucher_core::services::ocr_layout::extract_with_layout(&lines)
+                }
+                _ => voucher_core::services::ocr_fields::extract(text.as_deref().unwrap_or("")),
+            })
         })
-        .map_err(|e| e.to_string())?;
-    let fields = voucher_core::services::ocr_fields::extract(text.as_deref().unwrap_or(""));
+        .map_err(|e: voucher_core::CoreError| e.to_string())?;
     Ok(fields)
 }
 
@@ -547,6 +554,18 @@ pub async fn run_backup(ctx: Ctx<'_>) -> std::result::Result<backup::BackupInfo,
     tauri::async_runtime::spawn_blocking(move || err_string(backup::run_backup(&core)))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// 关闭备份进行中时用户点击「跳过备份直接退出」：
+/// 写 clean-exit marker（数据无损，仅本次关闭备份可能不完整）后直接销毁窗口。
+/// 后台备份线程随后被进程退出终止——其写盘目标全部是 temp 文件，中断不影响数据。
+#[tauri::command]
+pub fn skip_closing_backup(
+    ctx: Ctx,
+    window: tauri::WebviewWindow,
+) -> std::result::Result<(), String> {
+    let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+    window.destroy().map_err(|e| format!("关闭窗口失败：{e}"))
 }
 
 #[tauri::command]

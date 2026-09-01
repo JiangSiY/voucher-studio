@@ -11,6 +11,12 @@ use voucher_core::utils::file_lock::FileLockGuard;
 use voucher_core::utils::paths::AppPaths;
 use voucher_core::CoreContext;
 
+/// 关闭流程状态：备份进行中标记（AtomicBool，swap 抢占式防重入）
+#[derive(Default)]
+struct ClosingState {
+    in_progress: std::sync::atomic::AtomicBool,
+}
+
 /// 持有数据目录文件锁（进程存活期间不释放；字段仅在 Drop 时起作用）
 #[allow(dead_code)]
 struct DataLock(FileLockGuard);
@@ -99,28 +105,57 @@ fn main() {
             }
             app.manage(report);
 
+            // 6. 关闭流程状态（CloseRequested 防重复触发标记）
+            app.manage(Arc::new(ClosingState::default()));
+
             Ok(())
         })
         .on_window_event(|window, event| {
             match event {
                 // 正常关闭窗口 → 可选自动备份 + 清除会话 marker；崩溃/强杀不会走到这里，下次启动即触发恢复检查
-                tauri::WindowEvent::CloseRequested { .. } => {
-                    if let Some(ctx) = window.try_state::<Arc<CoreContext>>() {
-                        // 关闭前自动备份（本地快速备份，跳过 WebDAV/异盘）
-                        if ctx.config().backup.auto_backup_on_close {
-                            log::info!("关闭触发本地快速备份…");
-                            match voucher_core::services::backup::run_local_backup(&ctx) {
-                                Ok(Some(info)) => log::info!(
-                                    "关闭备份完成：{}（{} 附件）",
-                                    info.file_name,
-                                    info.attachment_count
-                                ),
-                                Ok(None) => log::info!("关闭备份跳过：60 分钟内已备份"),
-                                Err(e) => log::warn!("关闭自动备份失败（不影响退出）: {e}"),
-                            }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let Some(ctx) = window.try_state::<Arc<CoreContext>>() else {
+                        return;
+                    };
+                    let Some(closing) = window.try_state::<Arc<ClosingState>>() else {
+                        return;
+                    };
+                    // 未开启关闭备份：直接放行（正常退出路径）
+                    if !ctx.config().backup.auto_backup_on_close {
+                        let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+                        return;
+                    }
+                    // 已在备份流程中：拦下重复的关闭请求（防止中断进行中的备份）
+                    if closing
+                        .in_progress
+                        .swap(true, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        api.prevent_close();
+                        return;
+                    }
+                    // 首次关闭：拦下 → 前端弹「正在备份」遮罩 → 后台执行本地快速备份 → 完成后销毁窗口
+                    api.prevent_close();
+                    let _ = window.app_handle().emit("backup:closing", ());
+                    log::info!("关闭触发本地快速备份…");
+                    let ctx: Arc<CoreContext> = ctx.inner().clone();
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        match voucher_core::services::backup::run_local_backup(&ctx) {
+                            Ok(Some(info)) => log::info!(
+                                "关闭备份完成：{}（{} 附件）",
+                                info.file_name,
+                                info.attachment_count
+                            ),
+                            Ok(None) => log::info!("关闭备份跳过：60 分钟内已备份"),
+                            Err(e) => log::warn!("关闭自动备份失败（不影响退出）: {e}"),
                         }
                         let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
-                    }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.destroy();
+                        } else {
+                            app.exit(0);
+                        }
+                    });
                 }
                 // 拖放导入（Rust 侧直接处理，绕开 WebView JS 事件桥在透明窗口下不稳定的已知问题）。
                 // 语义：任何页面拖入图片 = 新建凭证导入（一图一凭证）。
@@ -205,6 +240,7 @@ fn main() {
             commands::export_pdf_daily,
             commands::list_export_batches,
             commands::run_backup,
+            commands::skip_closing_backup,
             commands::list_backups,
             commands::inspect_backup,
             commands::restore_backup,

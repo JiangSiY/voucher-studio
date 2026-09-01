@@ -36,15 +36,8 @@ const REC_IMG_H: u32 = 48;
 const REC_IMG_W_MAX: u32 = 320;
 const TEXT_SCORE: f32 = 0.5;
 
-/// 一行识别结果
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OcrLine {
-    pub text: String,
-    pub score: f32,
-    /// 文本框 [x0, y0, x1, y1]（原图像素坐标）
-    pub box_xyxy: [f32; 4],
-}
+/// 一行识别结果（v5 起定义于 models 层，供版面分析复用）
+pub use crate::models::OcrLine;
 
 pub struct LocalOcr {
     det: Session,

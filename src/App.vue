@@ -15,6 +15,7 @@ const router = useRouter();
 // 全局事件告警（任何页面都可见）
 let unlistenDone: UnlistenFn | null = null;
 let unlistenFailed: UnlistenFn | null = null;
+let unlistenClosing: UnlistenFn | null = null;
 // 拖放导入（Rust 侧处理）：遮罩与结果反馈
 let unlistenDragEnter: UnlistenFn | null = null;
 let unlistenDragLeave: UnlistenFn | null = null;
@@ -23,6 +24,8 @@ let unlistenImportDone: UnlistenFn | null = null;
 let unlistenImportError: UnlistenFn | null = null;
 const draggingOver = ref(false);
 const importing = ref(false);
+// 关闭前备份进行中（遮罩 + 跳过按钮）
+const closingBackup = ref(false);
 
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
@@ -53,6 +56,11 @@ onMounted(async () => {
   });
   unlistenFailed = await listen<string>("backup:failed", (e) => {
     toast.danger(`自动备份失败：${e.payload}`);
+  });
+
+  // 关闭前自动备份：Rust 拦截关闭请求 → 遮罩提示 + 可跳过
+  unlistenClosing = await listen("backup:closing", () => {
+    closingBackup.value = true;
   });
 
   // 拖放导入（Rust 侧处理）：进入/离开遮罩 → 开始提示 → 结果反馈
@@ -86,6 +94,15 @@ function dismissRecovery() {
   recovery.value = null;
 }
 
+/** 跳过关闭备份直接退出（数据无损；本次备份不完整） */
+async function skipClosingBackup() {
+  try {
+    await api.skipClosingBackup();
+  } catch (e) {
+    toast.danger(`退出失败：${e}`);
+  }
+}
+
 function gotoRestore() {
   recovery.value = null;
   router.push("/restore");
@@ -94,6 +111,7 @@ function gotoRestore() {
 onUnmounted(() => {
   unlistenDone?.();
   unlistenFailed?.();
+  unlistenClosing?.();
   unlistenDragEnter?.();
   unlistenDragLeave?.();
   unlistenImportStarted?.();
@@ -108,6 +126,15 @@ onUnmounted(() => {
   <!-- 拖放导入遮罩（Rust 侧 drag-enter/leave 事件驱动） -->
   <div v-if="draggingOver" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>
   <div v-else-if="importing" class="drop-overlay" style="pointer-events: none">正在导入图片，请稍候…</div>
+
+  <!-- 关闭前自动备份遮罩（Rust 拦截关闭请求后触发；完成后窗口自动销毁，此遮罩随之消失） -->
+  <div v-else-if="closingBackup" class="closing-backup-overlay">
+    <div class="closing-backup-card">
+      <div class="closing-backup-title">正在执行关闭前备份…</div>
+      <div class="closing-backup-hint">本地快速备份（跳过云端），完成后自动退出</div>
+      <button class="btn" @click="skipClosingBackup">跳过备份，直接退出</button>
+    </div>
+  </div>
 
   <ToastHost />
 

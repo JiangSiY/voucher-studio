@@ -1178,6 +1178,43 @@ select.input {
   pointer-events: none;
 }
 
+/* 关闭前自动备份遮罩（Rust 拦截关闭请求后展示；完成后窗口销毁） */
+.closing-backup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.closing-backup-card {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-8);
+  box-shadow: var(--shadow-28);
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 320px;
+}
+
+.closing-backup-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.closing-backup-hint {
+  font-size: 12px;
+  color: var(--text-4);
+  margin-bottom: 8px;
+}
+
 /* ===== 附件缩略图 ===== */
 .att-grid {
   display: grid;

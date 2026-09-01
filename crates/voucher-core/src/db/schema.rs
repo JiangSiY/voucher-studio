@@ -123,6 +123,17 @@ DROP TABLE IF EXISTS config;
 DROP TABLE IF EXISTS vouchers;
 "#;
 
+/// v5 附加表：OCR 版面数据（每行文本 + 置信度 + 坐标框，JSON 存储）。
+/// 与 v4 主体 schema 解耦：`CREATE TABLE IF NOT EXISTS` 幂等执行，
+/// 对已存在的 v4 库无损新增（不清库、不动 attachments）。
+pub const SCHEMA_LAYOUT: &str = r#"
+CREATE TABLE IF NOT EXISTS ocr_layouts (
+    attachment_id INTEGER PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+    lines         TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -138,5 +149,7 @@ pub fn init(conn: &Connection) -> Result<()> {
         conn.execute_batch(SCHEMA_V4)?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
+    // v5：OCR 版面表（幂等，新旧库统一补齐；旧附件无 layout，识别时回退纯文本抽取）
+    conn.execute_batch(SCHEMA_LAYOUT)?;
     Ok(())
 }

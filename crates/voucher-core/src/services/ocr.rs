@@ -10,7 +10,7 @@ use std::time::Duration;
 use base64::Engine;
 use rusqlite::Connection;
 
-use crate::db::repos::{attachment_repo, enhance_hit_repo, ocr_cache_repo};
+use crate::db::repos::{attachment_repo, enhance_hit_repo, ocr_cache_repo, ocr_layout_repo};
 use crate::models::{Attachment, OcrStatus};
 use crate::utils::config::SECRET_OCR_API_KEY;
 use crate::{CoreContext, CoreError, Result};
@@ -54,12 +54,19 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         abs.clone()
     };
 
-    let text = ctx
+    let (text, lines) = ctx
         .db
         .with_conn(|conn| recognize_with_cache(conn, ctx, &attachment, &ocr_target))?;
 
     ctx.db.with_conn(|conn| {
         attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&text))?;
+        // v5：本地引擎的版面数据（行文本+置信度+坐标框）落 ocr_layouts，
+        // 供 ocr_fields 几何配对；缓存命中（None）时保留旧 layout 不动
+        if let Some(lines) = &lines {
+            if let Err(e) = ocr_layout_repo::set_layout(conn, attachment.id, lines) {
+                log::warn!("写入 OCR 版面失败（不影响识别结果）: {e}");
+            }
+        }
         attachment_repo::get(conn, attachment.id)?
             .ok_or_else(|| CoreError::Invalid("附件更新后读取失败".into()))
     })
@@ -103,15 +110,17 @@ pub fn run_pending(
     Ok(ok)
 }
 
+/// 识别 + 缓存。返回 (纯文本, 版面数据)：
+/// 版面仅本地引擎产生；缓存命中 / 云端引擎 → None（抽取回退纯文本模式）。
 fn recognize_with_cache(
     conn: &Connection,
     ctx: &CoreContext,
     attachment: &Attachment,
     abs: &Path,
-) -> Result<String> {
+) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
     if let Some((engine, text)) = ocr_cache_repo::get(conn, &attachment.file_hash)? {
         let _ = engine;
-        return Ok(text);
+        return Ok((text, None));
     }
 
     let cfg = ctx.config();
@@ -119,30 +128,35 @@ fn recognize_with_cache(
         return Err(CoreError::Invalid("OCR 未启用（设置 → OCR）".into()));
     }
 
-    let text = match cfg.ocr.engine.as_str() {
-        "cloud" => cloud_recognize(ctx, abs)?,
+    let (text, lines) = match cfg.ocr.engine.as_str() {
+        "cloud" => (cloud_recognize(ctx, abs)?, None),
         "local" => local_recognize(ctx, abs)?,
         other => return Err(CoreError::Invalid(format!("未知 OCR 引擎: {other}"))),
     };
 
     ocr_cache_repo::upsert(conn, &attachment.file_hash, &cfg.ocr.engine, &text)?;
-    Ok(text)
+    Ok((text, lines))
 }
 
 /// 本地识别（G1 Spike B 验证路线：ort + RapidOCR PP-OCRv4，完全离线）
-fn local_recognize(ctx: &CoreContext, image_path: &Path) -> Result<String> {
+/// v5：返回版面数据（每行文本 + 置信度 + 坐标框），不再丢坐标。
+fn local_recognize(
+    ctx: &CoreContext,
+    image_path: &Path,
+) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
     let engine = ctx.local_ocr()?;
     let decoded = image::io::Reader::open(image_path)
         .map_err(|e| e.to_string())
         .and_then(|r| r.decode().map_err(|e| e.to_string()));
     let img = decoded
-        .map_err(|e| CoreError::LocalOcr(format!("读取图片失败 {}: {e}", image_path.display())))?;
+        .map_err(|e| CoreError::LocalOcr(format!("读取图片失败 {}. {e}", image_path.display())))?;
     let lines = engine.lock().unwrap().recognize_image(&img)?;
-    Ok(lines
+    let text = lines
         .iter()
         .map(|l| l.text.as_str())
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n");
+    Ok((text, Some(lines)))
 }
 
 /// 云端识别：POST {image_base64, model} → {text}（兼容 data.text / result 字段）

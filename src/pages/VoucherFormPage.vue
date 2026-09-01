@@ -11,6 +11,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
 import ImageViewerDialog from "../components/ImageViewerDialog.vue";
+import ConfidenceTag from "../components/ConfidenceTag.vue";
 import { OCR_META, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
@@ -115,18 +116,22 @@ function applyExtractedField(field: "date" | "amount" | "counterparty" | "mercha
 }
 
 /** 全部填入：四个字段一次性套用到表单。
- * 置信度策略：仅「标签命中（可信）」的金额自动填入；
- * 「全文唯一兜底（低置信）」的金额不自动填——用户可在卡片上单字段点填，避免静默填错。 */
+ * 置信度策略：金额仅「标签命中（可信）」自动填；v5 版面置信度为 low 的字段
+ * （启发式兜底：首行店名 / 全文唯一金额）不自动填——用户可在卡片上单字段点填。 */
 function applyAllExtracted() {
   const f = extracted.value;
   if (!f) return;
+  const low = (c: "high" | "medium" | "low" | null) => c === "low";
   if (f.date) voucherDate.value = f.date;
-  const amountTrusted = f.amountCents != null && f.amountSource === "labeled";
+  const amountTrusted = f.amountCents != null && f.amountSource === "labeled" && !low(f.confidence?.amount);
   if (amountTrusted) amountYuan.value = (f.amountCents! / 100).toFixed(2);
-  if (f.counterparty) counterparty.value = f.counterparty;
-  if (f.merchant) description.value = f.merchant;
-  const skipped =
-    f.amountCents != null && !amountTrusted ? "（低置信金额未自动填，可单独点「填」）" : "";
+  if (f.counterparty && !low(f.confidence?.counterparty)) counterparty.value = f.counterparty;
+  if (f.merchant && !low(f.confidence?.merchant)) description.value = f.merchant;
+  const skippedParts: string[] = [];
+  if (f.amountCents != null && !amountTrusted) skippedParts.push("金额");
+  if (f.counterparty && low(f.confidence?.counterparty)) skippedParts.push("对方账户");
+  if (f.merchant && low(f.confidence?.merchant)) skippedParts.push("商家");
+  const skipped = skippedParts.length ? `（${skippedParts.join("、")}为低置信未自动填，可单独点「填」）` : "";
   toast.info(`已填入表单，核对后点「保存」生效${skipped}`);
 }
 
@@ -557,7 +562,10 @@ function compareClipRight(a: Attachment): string {
           <template v-else-if="extracted">
             <div class="ext-row">
               <span class="ext-label">日期</span>
-              <span class="ext-value mono">{{ extracted.date ?? "—" }}</span>
+              <span class="ext-value mono">
+                {{ extracted.date ?? "—" }}
+                <ConfidenceTag :level="extracted.confidence?.date ?? null" />
+              </span>
               <button v-if="extracted.date" class="btn btn-sm" @click="applyExtractedField('date')">填入</button>
             </div>
             <div class="ext-row">
@@ -572,12 +580,18 @@ function compareClipRight(a: Attachment): string {
             </div>
             <div class="ext-row">
               <span class="ext-label">对方账户</span>
-              <span class="ext-value">{{ extracted.counterparty ?? "—" }}</span>
+              <span class="ext-value">
+                {{ extracted.counterparty ?? "—" }}
+                <ConfidenceTag :level="extracted.confidence?.counterparty ?? null" />
+              </span>
               <button v-if="extracted.counterparty" class="btn btn-sm" @click="applyExtractedField('counterparty')">填入</button>
             </div>
             <div class="ext-row">
               <span class="ext-label">商家</span>
-              <span class="ext-value">{{ extracted.merchant ?? "—" }}</span>
+              <span class="ext-value">
+                {{ extracted.merchant ?? "—" }}
+                <ConfidenceTag :level="extracted.confidence?.merchant ?? null" />
+              </span>
               <button v-if="extracted.merchant" class="btn btn-sm" title="商家名作为摘要填入" @click="applyExtractedField('merchant')">填入摘要</button>
             </div>
             <div class="ext-tip">提取自 OCR 识别文本；「填入」只改表单值，点「保存」才落库。</div>

@@ -21,8 +21,40 @@ pub enum FillMode {
     Manual,
 }
 
+/// 金额提取来源（供前端展示置信度）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AmountSource {
+    /// 命中「价税合计/合计」等标签——高置信
+    Labeled,
+    /// 全文唯一金额兜底——低置信（无标签，仅凭唯一性）
+    UniqueOnly,
+}
+
+/// 字段置信度（v5 版面分析引入；前端可按级别提示用户复核）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    /// 几何 KV 配对 / 标签命中 + 版面佐证 / 大小写金额互验一致
+    High,
+    /// 纯文本标签命中（无几何佐证）/ 唯一日期
+    Medium,
+    /// 启发式兜底（首行店名 / 全文唯一金额）
+    Low,
+}
+
+/// 各字段置信度（None = 字段未抽出）
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldConfidence {
+    pub date: Option<Confidence>,
+    pub amount: Option<Confidence>,
+    pub counterparty: Option<Confidence>,
+    pub merchant: Option<Confidence>,
+}
+
 /// 从 OCR 文本中抽取的结构化字段
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractedFields {
     /// YYYY-MM-DD
@@ -33,16 +65,8 @@ pub struct ExtractedFields {
     pub merchant: Option<String>,
     /// 金额提取来源：标签命中（可信）还是全文唯一兜底（低置信）
     pub amount_source: Option<AmountSource>,
-}
-
-/// 金额提取来源（供前端展示置信度）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AmountSource {
-    /// 命中「价税合计/合计」等标签——高置信
-    Labeled,
-    /// 全文唯一金额兜底——低置信（无标签，仅凭唯一性）
-    UniqueOnly,
+    /// v5：字段级置信度（无版面数据的旧路径为 default 全 None）
+    pub confidence: FieldConfidence,
 }
 
 /// 金额标签优先级：靠前的优先命中。注意「价税合计」必须排在「合计」之前——
@@ -63,11 +87,13 @@ pub fn extract(text: &str) -> ExtractedFields {
         counterparty: extract_counterparty(text).or(merchant.clone()),
         merchant,
         amount_source,
+        confidence: FieldConfidence::default(),
     }
 }
 
 /// 日期：支持 2026-08-20 / 2026.08.20 / 2026/8/20 / 2026年8月20日，取第一个合法日期
-fn extract_date(text: &str) -> Option<String> {
+/// （v5：pub(crate) 供 ocr_layout 按行解析候选日期）
+pub(crate) fn extract_date(text: &str) -> Option<String> {
     for line in text.lines() {
         let chars: Vec<char> = line.chars().collect();
         let mut i = 0;
@@ -345,6 +371,7 @@ fn extract_merchant(text: &str) -> Option<String> {
 
 /// 识别完成后应用：抽取字段回填凭证 + 附件语义化重命名。
 /// 任何一步失败都只告警，不影响已完成的 OCR 结果。
+/// v5：优先用版面数据（坐标框）做几何配对；无版面回退纯文本抽取。
 pub fn apply_for_attachment(
     ctx: &CoreContext,
     voucher_id: i64,
@@ -360,7 +387,16 @@ pub fn apply_for_attachment(
         return Ok(());
     }
 
-    let fields = extract(text);
+    // v5：有版面数据走几何配对（准确率更高），否则回退纯文本抽取（旧路径不变）
+    let layout = ctx
+        .db
+        .with_conn(|conn| crate::db::repos::ocr_layout_repo::get_layout(conn, attachment_id))?;
+    let fields = match layout {
+        Some(lines) if !lines.is_empty() => {
+            crate::services::ocr_layout::extract_with_layout(&lines)
+        }
+        _ => extract(text),
+    };
     apply_fields(ctx, voucher_id, &fields, mode)?;
     semantic_rename(ctx, voucher_id, &attachment)?;
     Ok(())

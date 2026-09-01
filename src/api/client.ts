@@ -154,6 +154,13 @@ export interface ExtractedFields {
   merchant: string | null;
   /** 金额来源：labeled=标签命中（可信） uniqueonly=全文唯一兜底（低置信） */
   amountSource: "labeled" | "uniqueonly" | null;
+  /** v5：字段级置信度（版面几何配对 high / 标签命中 medium / 启发式兜底 low；null=未抽出） */
+  confidence: {
+    date: "high" | "medium" | "low" | null;
+    amount: "high" | "medium" | "low" | null;
+    counterparty: "high" | "medium" | "low" | null;
+    merchant: "high" | "medium" | "low" | null;
+  };
 }
 
 export interface RecoveryReport {
@@ -430,6 +437,7 @@ export const api = {
   listExportBatches: (limit?: number) => invoke<ExportBatch[]>("list_export_batches", { limit }),
 
   runBackup: () => invoke<BackupInfo>("run_backup"),
+  skipClosingBackup: () => invoke<void>("skip_closing_backup"),
   listBackups: () => invoke<BackupInfo[]>("list_backups"),
   inspectBackup: (path: string) => invoke<RestoreSummary>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<RestoreSummary>("restore_backup", { path }),

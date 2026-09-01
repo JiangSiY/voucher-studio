@@ -8,6 +8,7 @@ pub mod ingestion;
 pub mod naming;
 pub mod ocr;
 pub mod ocr_fields;
+pub mod ocr_layout;
 pub mod ocr_local;
 pub mod pdf;
 pub mod recovery;
