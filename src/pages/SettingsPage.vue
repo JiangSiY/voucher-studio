@@ -39,7 +39,7 @@ function defaultConfig(): AppConfig {
       keepWeekly: 4,
       keepMonthly: 6,
       secondaryDir: "",
-      webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10 },
+      webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10, onceDaily: false },
     },
     print: {
       title: "凭证日报",
@@ -936,6 +936,16 @@ onUnmounted(() => {
             style="max-width: 110px" />
           <div class="desc">超出删远端最旧（0 = 不清理）。备份文件名含时间戳，按名排序即按时间。</div>
         </div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 0">
+        <div>
+          <div style="font-size: 13px; font-weight: 600">云端每日一份（流量保护）</div>
+          <div style="font-size: 12px; color: var(--text-3)">坚果云等免费服务有上传流量配额；开启后当日云端已有备份则跳过上传（本地备份不受影响）</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" v-model="cfg.backup.webdav.onceDaily" />
+          <span class="slider"></span>
+        </label>
       </div>
       <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px">
         <button class="btn" :disabled="webdavTesting" @click="testWebdavConnection">

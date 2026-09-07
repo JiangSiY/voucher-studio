@@ -123,6 +123,9 @@ pub struct WebdavConfig {
     pub password_set: bool,
     /// 远端保留份数（超出删最旧；0 = 不清理）
     pub remote_retention: u32,
+    /// v0.8：云端每日最多上传一份（坚果云等免费服务有上传流量配额，
+    /// 备份 zip 随附件增长后高频全量上传会耗尽配额；当日云端已有备份则跳过）
+    pub once_daily: bool,
 }
 
 impl Default for WebdavConfig {
@@ -133,6 +136,7 @@ impl Default for WebdavConfig {
             username: String::new(),
             password_set: false,
             remote_retention: 10,
+            once_daily: false,
         }
     }
 }

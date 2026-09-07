@@ -227,6 +227,8 @@ export interface AppConfig {
       username: string;
       passwordSet: boolean;
       remoteRetention: number;
+      /** v0.8：云端每日最多上传一份（流量保护，当日已有则跳过） */
+      onceDaily: boolean;
     };
   };
   print: {

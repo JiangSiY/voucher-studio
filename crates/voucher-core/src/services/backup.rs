@@ -659,7 +659,28 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
     let base = webdav.url.trim().trim_end_matches('/');
     let url = format!("{base}/{file_name}");
 
+    // v0.8 流量保护：当日云端已有备份则跳过（坚果云等免费服务上传配额有限，
+    // 全量 zip 随附件增长后高频上传会耗尽配额；本地备份与异盘双写不受影响）
+    if webdav.once_daily {
+        let today = chrono::Local::now().format("%Y%m%d").to_string();
+        let uploaded_today = list_webdav_backups(ctx)
+            .map(|rows| {
+                rows.first()
+                    .is_some_and(|r| r.file_name.starts_with(&format!("voucher-backup-{today}")))
+            })
+            .unwrap_or(false);
+        if uploaded_today {
+            log::info!("WebDAV 当日已有备份，跳过上传（流量保护）：{file_name}");
+            return Ok(());
+        }
+    }
+
     let bytes = std::fs::read(zip_path)?;
+    let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
+    if size_mb > 50.0 {
+        // 大备份提醒：全量上传对流量配额的消耗开始显著（后续考虑增量方案）
+        log::warn!("WebDAV 上传大备份 {size_mb:.1} MB（附件增长后建议关注云端流量配额）");
+    }
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
