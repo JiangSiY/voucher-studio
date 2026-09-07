@@ -55,6 +55,9 @@ pub struct CoreContext {
     pub secrets: SecretStore,
     /// 本地 OCR 引擎（首次使用时加载；Session::run 需 &mut，用 Mutex 串行化）
     local_ocr: RwLock<Option<Arc<Mutex<LocalOcr>>>>,
+    /// 备份互斥：手动/定时/关闭前备份可能并发触发，
+    /// VACUUM INTO 写同一固定 temp 路径 + zip 时间戳秒级可碰撞——串行化整个备份流程
+    backup_lock: Mutex<()>,
 }
 
 impl CoreContext {
@@ -74,6 +77,7 @@ impl CoreContext {
             config: RwLock::new(config),
             secrets: SecretStore::new("VoucherStudio"),
             local_ocr: RwLock::new(None),
+            backup_lock: Mutex::new(()),
             paths,
         })
     }
@@ -88,6 +92,11 @@ impl CoreContext {
         cfg.save(&self.paths.config_file())?;
         *self.config.write().unwrap() = cfg;
         Ok(())
+    }
+
+    /// 备份流程互斥（手动/定时/关闭前共享；抢不到锁 = 已有备份在跑，本次直接排队等）
+    pub fn backup_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.backup_lock.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// 本地 OCR 引擎（懒加载 + 共享）。模型未安装时报错并提示处理方式。

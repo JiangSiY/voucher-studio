@@ -70,7 +70,12 @@ async function backupNow() {
   busy.value = true;
   try {
     const info = await api.runBackup();
-    toast.success(`备份完成：${info.fileName}`);
+    // 副本告警（WebDAV/异盘失败）：本地主备份成功但 3-2-1 不完整，必须显式提示
+    if (info.warnings?.length) {
+      toast.warning(`备份完成：${info.fileName}，但副本存在问题：${info.warnings.join("；")}`);
+    } else {
+      toast.success(`备份完成：${info.fileName}`);
+    }
     backups.value = await api.listBackups();
   } catch (e) {
     toastError(e);

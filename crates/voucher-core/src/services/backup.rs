@@ -99,8 +99,11 @@ fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
     false
 }
 
-/// 备份实现：`local_only` = 跳过异盘双写和 WebDAV 上传
+/// 备份实现：`local_only` = 跳过异盘双写和 WebDAV 上传。
+/// v0.8 起全程持 `backup_lock` 互斥——手动/定时/关闭前备份可能并发触发，
+/// VACUUM INTO 写同一固定 temp 路径 + zip 文件名秒级时间戳可碰撞，串行化避免互相破坏。
 fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
+    let _guard = ctx.backup_guard();
     // 1. 数据库一致性快照
     let snap = ctx.paths.temp.join("backup-snapshot.db");
     if snap.exists() {
@@ -661,16 +664,16 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
 
-    // 重试：2s / 8s 指数退避；PUT 404/409（父目录不存在）时自动 MKCOL 创建
-    // 目标目录（坚果云等服务器允许在可写父目录下建文件夹；RFC 4918 对
-    // PUT 到不存在集合返回 409，部分实现返回 404）。MKCOL 成功后跳过退避
-    // 立即重试；若立即重试仍失败，后续轮次恢复正常退避。
+    // 重试策略（v0.8 修正）：
+    // - 401/403/507：认证 / 权限 / 存储配额——确定性失败，重试无意义，立即报错
+    // - 404/409：目标目录不存在 → 逐级 MKCOL 创建（多层路径如 /dav/a/b/c 也能建），成功后跳过退避立即重试
+    // - 网络错误 / 5xx：2s / 4s 指数退避重试
     let mut last_err = None;
-    let mkcol_tried = std::cell::Cell::new(false);
-    let skip_next_delay = std::cell::Cell::new(false);
+    let mut skip_next_delay = false;
     for attempt in 0..UPLOAD_ATTEMPTS {
         if attempt > 0 {
-            if skip_next_delay.replace(false) {
+            if skip_next_delay {
+                skip_next_delay = false;
                 log::info!("WebDAV 目录已建，立即重试 PUT: {file_name}");
             } else {
                 let delay = 2u64.pow(attempt); // 2s, 4s
@@ -688,31 +691,22 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
                 last_err = None;
                 break;
             }
-            Ok(resp)
-                if (resp.status() == reqwest::StatusCode::NOT_FOUND
-                    || resp.status() == reqwest::StatusCode::CONFLICT)
-                    && !mkcol_tried.get() =>
-            {
-                // 目录可能不存在：MKCOL 创建（已存在返回 405，忽略），下轮重试 PUT
-                mkcol_tried.set(true);
-                let mkcol = client
-                    .request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), base)
-                    .basic_auth(&webdav.username, Some(&password))
-                    .send();
-                match mkcol {
-                    Ok(r) if r.status().is_success() || r.status().as_u16() == 405 => {
-                        log::info!("WebDAV 目标目录不存在，已 MKCOL 创建: {base}");
-                        skip_next_delay.set(true);
-                    }
-                    Ok(r) => {
-                        log::warn!("WebDAV MKCOL {} 返回 {}", base, r.status());
-                    }
-                    Err(e) => log::warn!("WebDAV MKCOL 请求失败: {e}"),
-                }
-                last_err = Some(CoreError::Invalid(format!("WebDAV 返回 {}", resp.status())));
-            }
             Ok(resp) => {
-                last_err = Some(CoreError::Invalid(format!("WebDAV 返回 {}", resp.status())))
+                let status = resp.status();
+                // 确定性失败：不重试（重试只会浪费时间并掩盖真实原因）
+                if matches!(status.as_u16(), 401 | 403 | 507) {
+                    return Err(CoreError::Invalid(format!(
+                        "WebDAV 返回 {status}（认证/权限/配额问题，请检查账号与服务器设置）"
+                    )));
+                }
+                // 目录不存在：逐级创建后立即重试
+                if (status == reqwest::StatusCode::NOT_FOUND
+                    || status == reqwest::StatusCode::CONFLICT)
+                    && mkcol_all(&client, base, &webdav.username, &password)
+                {
+                    skip_next_delay = true;
+                }
+                last_err = Some(CoreError::Invalid(format!("WebDAV 返回 {status}")));
             }
             Err(e) => last_err = Some(CoreError::Http(e)),
         }
@@ -734,6 +728,89 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         }
     }
     Ok(())
+}
+
+/// 逐级 MKCOL 创建目录路径（如 `https://host/dav/a/b/c` → 依次 MKCOL
+/// `/dav/a`、`/dav/a/b`、`/dav/a/b/c`）。已存在（405）视为成功；
+/// 单级失败返回 false（中间目录缺失时单级 MKCOL 必然 409，逐级才能真正建出深路径）。
+fn mkcol_all(client: &reqwest::blocking::Client, base: &str, user: &str, password: &str) -> bool {
+    let Some(scheme_at) = base.find("://") else {
+        return false;
+    };
+    let Some(path_at) = base[scheme_at + 3..].find('/') else {
+        return true; // base 无路径（主机根），无需创建
+    };
+    let root = &base[..scheme_at + 3 + path_at]; // scheme://host
+    let mut cur = root.to_string();
+    for seg in base[scheme_at + 3 + path_at..]
+        .split('/')
+        .filter(|s| !s.is_empty())
+    {
+        cur = format!("{cur}/{seg}");
+        let r = client
+            .request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), &cur)
+            .basic_auth(user, Some(password))
+            .send();
+        match r {
+            Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 405 => continue,
+            Ok(resp) => {
+                log::warn!("WebDAV MKCOL {cur} 返回 {}", resp.status());
+                return false;
+            }
+            Err(e) => {
+                log::warn!("WebDAV MKCOL 请求失败: {e}");
+                return false;
+            }
+        }
+    }
+    log::info!("WebDAV 目标目录已就绪: {base}");
+    true
+}
+
+/// v0.8：补传「本地有、云端无」的备份（应用启动时后台执行）。
+///
+/// 修复场景：某次备份时 WebDAV 上传失败（仅记 warning），本地 zip 一直在，
+/// 但此后没有机制再传——远端永远缺这一份。补传在启动时跑（趁本地 GFS
+/// 清理把旧备份删掉之前）。WebDAV 未启用 / 网络不通时静默跳过。
+/// 返回补传成功数。
+pub fn upload_missing_backups(ctx: &CoreContext) -> Result<usize> {
+    let cfg = ctx.config();
+    if !cfg.backup.webdav.enabled || cfg.backup.webdav.url.trim().is_empty() {
+        return Ok(0);
+    }
+    let remote = match list_webdav_backups(ctx) {
+        Ok(rows) => rows,
+        Err(e) => {
+            // 启动时网络未就绪很常见——静默跳过，不制造启动告警噪音
+            log::info!("启动补传检查跳过（远端列表获取失败：{e}）");
+            return Ok(0);
+        }
+    };
+    let remote_names: std::collections::HashSet<String> =
+        remote.into_iter().map(|r| r.file_name).collect();
+    let local = list_backups(ctx)?;
+    let _guard = ctx.backup_guard();
+    let mut ok = 0usize;
+    for b in &local {
+        if remote_names.contains(&b.file_name) {
+            continue;
+        }
+        // 只补传本程序命名的备份（外部拷入的 zip 不上云）
+        if !is_valid_remote_name(&b.file_name) {
+            continue;
+        }
+        match upload_backup_to_webdav(ctx, Path::new(&b.path)) {
+            Ok(()) => {
+                ok += 1;
+                log::info!("补传备份到云端：{}", b.file_name);
+            }
+            Err(e) => log::warn!("补传统份失败（{}）: {e}", b.file_name),
+        }
+    }
+    if ok > 0 {
+        log::info!("启动补传完成：{ok} 份");
+    }
+    Ok(ok)
 }
 
 /// 列出远端 voucher-backup-*.zip，超出保留数删最旧。

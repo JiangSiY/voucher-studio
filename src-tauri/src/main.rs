@@ -82,6 +82,17 @@ fn main() {
             // 4. 定时备份调度（配置启用时生效）
             platform::spawn_backup_scheduler(app.handle().clone(), ctx.clone());
 
+            // 4.5 启动补传：WebDAV 上传曾失败的本地备份（延迟 15s 等网络就绪；失败仅日志）
+            {
+                let ctx = ctx.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(15));
+                    if let Err(e) = voucher_core::services::backup::upload_missing_backups(&ctx) {
+                        log::warn!("启动补传检查失败: {e}");
+                    }
+                });
+            }
+
             // 5. 崩溃恢复：标记会话运行中 + 健康检查（只读），报告缓存供前端读取
             let report = voucher_core::services::recovery::check_recovery(&ctx)?;
             if report.abnormal_exit {
