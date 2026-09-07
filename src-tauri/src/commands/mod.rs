@@ -465,6 +465,31 @@ pub async fn run_ocr_pending(
     .map_err(|e| e.to_string())?
 }
 
+/// v0.8：批量重新增强存量附件（autocrop 修复后按新算法重算增强版）。
+/// 逐张推送 enhance:progress {done, total}；返回 { ok, failed }。
+#[tauri::command]
+pub async fn re_enhance_all(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> std::result::Result<serde_json::Value, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ok, failed) = err_string(voucher_core::services::enhance::re_enhance_all(
+            &core,
+            &|done, total| {
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "enhance:progress",
+                    serde_json::json!({ "done": done, "total": total }),
+                );
+            },
+        ))?;
+        Ok(serde_json::json!({ "ok": ok, "failed": failed }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------- 本地 OCR 状态 ----------
 
 #[derive(Serialize)]

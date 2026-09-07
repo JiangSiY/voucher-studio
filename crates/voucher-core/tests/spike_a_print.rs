@@ -77,6 +77,7 @@ fn generate(dir: &Path, name: &str, cards: usize, images: usize, include_images:
             card_style: "standard".into(),
             columns: 3,
             include_images,
+            daily_template: "compact".into(),
         },
     )
     .expect("generate pdf");
@@ -206,18 +207,20 @@ fn daily_report_cover_layout() {
             card_style: "standard".into(),
             columns: 3,
             include_images: true,
+            daily_template: "compact".into(),
         },
     )
     .expect("generate daily pdf");
 
     let text = pdf_text(&out);
-    // 5 卡片 → 封面 1 + 汇总表 1 + 图片页 ceil(4/4)=1 → 共 3 页
+    // v0.8 compact 模板：5 卡片 → 首页（横幅+汇总表）1 + 图片页 ceil(4/4)=1 → 共 2 页
+    // （archive 模板为封面+汇总表+图片页 3 页）
     assert_eq!(
         page_count(&text),
-        3,
-        "5 卡片+4 图片 = 封面+汇总表+图片页 3 页"
+        2,
+        "5 卡片+4 图片 = 首页横幅+表格 1 + 图片页 1 = 2 页"
     );
-    // 位图只出现在图片附录页（封面/汇总表纯矢量）→ 恰好 4 个 Image XObject
+    // 位图只出现在图片附录页（首页纯矢量）→ 恰好 4 个 Image XObject
     assert_eq!(
         text.matches("/Subtype/Image").count(),
         4,

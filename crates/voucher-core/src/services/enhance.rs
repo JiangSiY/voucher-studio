@@ -276,6 +276,63 @@ fn parse_rel(rel: &str) -> Option<(String, String)> {
     Some((year_month, stem))
 }
 
+/// v0.8：批量重新增强存量附件（autocrop 算法修复后，旧增强版需按新算法重算）。
+///
+/// 范围：已有增强版的附件（`list_enhanced`，即被旧算法处理的存量）。
+/// 每张从**原图**重跑流水线（步骤开关遵循当前设置），覆盖写同名增强文件
+/// （原图不动、凭证数据不动、档号不变）。OCR 缓存按 hash 失效由 `ocr_cache` 天然隔离——
+/// 增强版变化不影响已识别文本缓存（ocr_text 保留，不重复消耗识别）。
+/// 返回 (成功数, 失败数)；`on_progress(已完成, 总数)` 供上层做进度反馈。
+pub fn re_enhance_all(
+    ctx: &crate::CoreContext,
+    on_progress: &dyn Fn(usize, usize),
+) -> Result<(usize, usize)> {
+    let atts = ctx
+        .db
+        .with_conn(crate::db::repos::attachment_repo::list_enhanced)?;
+    let total = atts.len();
+
+    // 步骤开关遵循当前设置（显式重增强不受总开关 enabled 限制——用户明确要求重算）
+    let enhance_cfg = ctx.config().enhance.clone();
+    let opts = PipelineOptions {
+        deskew: enhance_cfg.step_deskew,
+        dewarp: enhance_cfg.step_dewarp,
+        autocrop: enhance_cfg.step_autocrop,
+        denoise: enhance_cfg.step_denoise,
+        sharpen: enhance_cfg.step_sharpen,
+        grayscale: enhance_cfg.step_grayscale,
+        binarize: enhance_cfg.step_binarize,
+    };
+
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    for (i, a) in atts.into_iter().enumerate() {
+        let src_abs = ctx.paths.attachment_abs(&a.file_path);
+        if !src_abs.exists() {
+            log::warn!("重新增强跳过（原图缺失）: {}", src_abs.display());
+            failed += 1;
+            on_progress(i + 1, total);
+            continue;
+        }
+        // write_enhanced 从原图重跑管线并覆盖写 <hash>.enhanced.jpg（与原路径同名）
+        match write_enhanced(&src_abs, &a.file_path, &opts) {
+            Some(rel) => {
+                // 路径理论上不变（同 hash 同命名）；万一变化则同步 DB
+                if a.enhanced_path.as_deref() != Some(rel.as_str()) {
+                    let _ = ctx.db.with_conn(|conn| {
+                        crate::db::repos::attachment_repo::set_enhanced(conn, a.id, &rel)
+                    });
+                }
+                ok += 1;
+            }
+            None => failed += 1,
+        }
+        on_progress(i + 1, total);
+    }
+    log::info!("重新增强完成：{ok} 成功 / {failed} 失败（共 {total}）");
+    Ok((ok, failed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -229,7 +229,17 @@ export interface AppConfig {
       remoteRetention: number;
     };
   };
-  print: { title: string; cardStyle: string; columns: number; includeImages: boolean; groupByDay: boolean };
+  print: {
+    title: string;
+    cardStyle: string;
+    columns: number;
+    includeImages: boolean;
+    groupByDay: boolean;
+    /** v0.8 日报模板：compact（省纸）| archive（档案装订） */
+    dailyTemplate: "compact" | "archive";
+    /** v0.8 打印是否优先增强版图片（仅扫描件；关闭始终用原图） */
+    preferEnhancedImages: boolean;
+  };
   /** v0.6：文档扫描矫正（5 步算法 + 2 占位） */
   enhance: EnhanceConfig;
 }
@@ -438,6 +448,8 @@ export const api = {
 
   runBackup: () => invoke<BackupInfo>("run_backup"),
   skipClosingBackup: () => invoke<void>("skip_closing_backup"),
+  /** v0.8：批量重新增强存量附件（autocrop 修复后重算） */
+  reEnhanceAll: () => invoke<{ ok: number; failed: number }>("re_enhance_all"),
   listBackups: () => invoke<BackupInfo[]>("list_backups"),
   inspectBackup: (path: string) => invoke<RestoreSummary>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<RestoreSummary>("restore_backup", { path }),

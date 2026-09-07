@@ -21,8 +21,9 @@ use crate::{CoreContext, CoreError, Result};
 /// D-6：PDF 附录取图规则——扫描件/拍照件优先增强版（5 步矫正后更清晰可印）；
 /// 截图/未识别回退原图（截图增强版仅用于 OCR，不进 PDF）。
 /// 增强版文件缺失时同样回退原图，保证导出不中断（与 OCR 回退口径一致）。
+/// v0.8：`print.prefer_enhanced_images = false` 时一律用原图（增强版异常时的兜底开关）。
 pub fn pdf_image_abs(ctx: &CoreContext, a: &Attachment) -> std::path::PathBuf {
-    if a.enhanced_source == EnhanceSource::Scan {
+    if ctx.config().print.prefer_enhanced_images && a.enhanced_source == EnhanceSource::Scan {
         if let Some(ep) = &a.enhanced_path {
             let abs = ctx.paths.attachment_abs(ep);
             if abs.exists() {
@@ -36,7 +37,8 @@ pub fn pdf_image_abs(ctx: &CoreContext, a: &Attachment) -> std::path::PathBuf {
 
 /// D-6：该附件的增强版是否实际进了 PDF（与 pdf_image_abs 同口径）
 pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
-    a.enhanced_source == EnhanceSource::Scan
+    ctx.config().print.prefer_enhanced_images
+        && a.enhanced_source == EnhanceSource::Scan
         && a.enhanced_path
             .as_ref()
             .map(|ep| ctx.paths.attachment_abs(ep).exists())
@@ -52,6 +54,8 @@ pub struct ExportOptions {
     /// 1 | 2 | 3
     pub columns: u8,
     pub include_images: bool,
+    /// v0.8 日报模板：compact（省纸）| archive（档案装订）
+    pub daily_template: String,
 }
 
 impl ExportOptions {
@@ -61,6 +65,7 @@ impl ExportOptions {
             card_style: cfg.card_style.clone(),
             columns: cfg.columns,
             include_images: cfg.include_images,
+            daily_template: cfg.daily_template.clone(),
         }
     }
 }
@@ -246,6 +251,7 @@ fn pdf_options(opts: &ExportOptions) -> PdfOptions {
         card_style: opts.card_style.clone(),
         columns: opts.columns,
         include_images: opts.include_images,
+        daily_template: opts.daily_template.clone(),
     }
 }
 

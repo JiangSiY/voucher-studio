@@ -267,6 +267,7 @@ fn export_pdf_and_batch_recorded() -> Result<()> {
             card_style: "standard".into(),
             columns: 3,
             include_images: false,
+            daily_template: "compact".into(),
         },
     )?;
     assert!(batch.voucher_count == 1);
@@ -1466,6 +1467,7 @@ fn export_daily_groups_by_date() -> Result<()> {
             card_style: "standard".into(),
             columns: 3,
             include_images: false,
+            daily_template: "compact".into(),
         },
     )?;
     assert_eq!(batches.len(), 2, "两个日期应各出一份日报");

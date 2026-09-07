@@ -166,11 +166,13 @@ async function generate() {
   }
   busy.value = true;
   try {
+    // v0.8：dailyTemplate 走全局打印设置（SettingsPage 可切 archive/compact）
     const options = {
       title: title.value,
       cardStyle: cardStyle.value,
       columns: columns.value,
       includeImages: includeImages.value,
+      dailyTemplate: configStore.config?.print.dailyTemplate ?? "compact",
     };
     if (groupByDay.value) {
       const batches = await api.exportPdfDaily([...selected.value], options);

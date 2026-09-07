@@ -24,6 +24,8 @@ pub struct PdfOptions {
     /// 1 | 2 | 3
     pub columns: u8,
     pub include_images: bool,
+    /// v0.8 日报模板：compact（省纸）| archive（档案装订）
+    pub daily_template: String,
 }
 
 /// 凭证卡片数据
@@ -190,7 +192,7 @@ pub fn generate(path: &Path, input: &PdfInput, opts: &PdfOptions) -> Result<()> 
 }
 
 // ---------- 按天日报版式常量（mm） ----------
-/// 汇总表行高
+/// 汇总表行高（archive 档案模板）
 const TROW_H: f32 = 6.2;
 /// 表头行高
 const THEAD_H: f32 = 5.5;
@@ -203,12 +205,36 @@ const TCOL_NO: f32 = 45.0;
 const TCOL_DESC: f32 = 70.0;
 const TCOL_PARTY: f32 = 50.0;
 
-/// 生成「按天日报」PDF（档案装订形态，参照原始凭证版式）：
-/// P1 封面（装订线 + 档号范围/张数/金额合计）→ P2+ 汇总表（自动分页 + 合计行）→ 图片页（2×2/页）
+// ---------- v0.8 省纸模板常量（compact） ----------
+/// 省纸表格行高（5.5mm）
+const C_TROW_H: f32 = 5.5;
+/// 省纸首页（含信息横幅）行数
+const C_ROWS_FIRST_PAGE: usize = 32;
+/// 省纸后续页行数
+const C_ROWS_PER_PAGE: usize = 38;
+/// 信息横幅高度（原独立封面页的替代，压到 22mm）
+const C_BANNER_H: f32 = 22.0;
+/// 竖版票据每页张数（3×3）
+const C_PORTRAITS_PER_PAGE: usize = 9;
+/// 横版票据每页张数（2×2）
+const C_LANDSCAPES_PER_PAGE: usize = 4;
+
+/// 生成「按天日报」PDF。v0.8 起按 `daily_template` 分版式：
+/// - compact（默认）：省纸——首页信息横幅 + 表格 38 行/页 + 竖票 3×3 / 横票 2×2
+/// - archive：档案装订——独立封面 + 装订线 + 表格 34 行/页 + 图片 2×2
 pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Result<()> {
     if day.cards.is_empty() {
         return Err(CoreError::Invalid("当天没有可导出的凭证".into()));
     }
+    if opts.daily_template == "archive" {
+        generate_daily_archive(path, day, opts)
+    } else {
+        generate_daily_compact(path, day, opts)
+    }
+}
+
+/// 档案装订模板：P1 封面（装订线 + 档号范围/张数/金额合计）→ P2+ 汇总表（自动分页 + 合计行）→ 图片页（2×2/页）
+fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Result<()> {
     let base_title = if opts.title.trim().is_empty() {
         "原始凭证".to_string()
     } else {
@@ -270,7 +296,7 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
         let end = (start + TROWS_PER_PAGE).min(count);
         for (i, card) in day.cards[start..end].iter().enumerate() {
             let top = table_top + THEAD_H + i as f32 * TROW_H;
-            draw_table_row(&layer, &font, card, top);
+            draw_table_row(&layer, &font, card, top, TROW_H);
         }
 
         // 合计行（最后一页表格底部）
@@ -341,6 +367,218 @@ pub fn generate_daily(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Resul
 
     doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
     Ok(())
+}
+
+/// 省纸模板：首页信息横幅 + 汇总表 → 竖票 3×3 → 横票 2×2。
+/// 无独立封面页（横幅替代）；表格行高 5.5mm，首页 32 行 / 后续 38 行。
+/// 图片按宽高比自动分桶（等比缩放完整显示，不混排：横图塞 3×3 窄格会不可读）。
+fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Result<()> {
+    let sum_title = format!("凭证汇总表 · {}", day.date);
+
+    let (doc, first_page, first_layer) =
+        PdfDocument::new(&sum_title, Mm(PAGE_W), Mm(PAGE_H), "Summary");
+    let font = load_cjk_font(&doc)?;
+
+    let usable_w = PAGE_W - MARGIN * 2.0;
+    let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
+
+    let count = day.cards.len();
+    let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
+
+    // 图片分桶：竖图（h > w）进 3×3 页，横图进 2×2 页。
+    // 读尺寸头失败按横图处理（2×2 单格更大，保守）；等比缩放下两者都完整显示。
+    let mut portraits: Vec<&PdfImage> = Vec::new();
+    let mut landscapes: Vec<&PdfImage> = Vec::new();
+    for img in &day.images {
+        match image::image_dimensions(&img.path) {
+            Ok((w, h)) if h > w => portraits.push(img),
+            _ => landscapes.push(img),
+        }
+    }
+    let img_pages = if opts.include_images {
+        portraits.len().div_ceil(C_PORTRAITS_PER_PAGE)
+            + landscapes.len().div_ceil(C_LANDSCAPES_PER_PAGE)
+    } else {
+        0
+    };
+
+    // 表格分页：首页含横幅（行数少），后续页满行
+    let table_pages = if count <= C_ROWS_FIRST_PAGE {
+        1
+    } else {
+        1 + (count - C_ROWS_FIRST_PAGE).div_ceil(C_ROWS_PER_PAGE)
+    };
+    let total_pages = table_pages + img_pages;
+
+    // ===== 表格页（首页含信息横幅，无独立封面） =====
+    for t in 0..table_pages {
+        let layer = if t == 0 {
+            doc.get_page(first_page).get_layer(first_layer)
+        } else {
+            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
+            doc.get_page(p).get_layer(l)
+        };
+        draw_header(&layer, &font, &sum_title);
+
+        let (table_top, start, end) = if t == 0 {
+            draw_compact_banner(&layer, &font, day, count, total_cents);
+            (
+                MARGIN + HEADER_H + C_BANNER_H + TSUM_GAP,
+                0,
+                count.min(C_ROWS_FIRST_PAGE),
+            )
+        } else {
+            let start = C_ROWS_FIRST_PAGE + (t - 1) * C_ROWS_PER_PAGE;
+            (
+                MARGIN + HEADER_H + TSUM_GAP,
+                start,
+                (start + C_ROWS_PER_PAGE).min(count),
+            )
+        };
+
+        draw_table_head(&layer, &font, table_top);
+        for (i, card) in day.cards[start..end].iter().enumerate() {
+            let top = table_top + THEAD_H + i as f32 * C_TROW_H;
+            draw_table_row(&layer, &font, card, top, C_TROW_H);
+        }
+
+        // 合计行（末页表格底部）
+        if t == table_pages - 1 {
+            let top = table_top + THEAD_H + (end - start) as f32 * C_TROW_H + 1.0;
+            layer.set_outline_thickness(0.8);
+            layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
+            layer.add_line(Line {
+                points: vec![
+                    (Point::new(Mm(MARGIN), y(top)), false),
+                    (Point::new(Mm(PAGE_W - MARGIN), y(top)), false),
+                ],
+                is_closed: false,
+            });
+            layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+            layer.use_text("合计", 9.0, Mm(MARGIN + 1.0), y(top + 4.4), &font);
+            let cnt_label = format!("{count} 张");
+            layer.use_text(
+                &cnt_label,
+                9.0,
+                Mm(right_x(&cnt_label, 9.0, PAGE_W - MARGIN - 2.0)),
+                y(top + 4.4),
+                &font,
+            );
+            let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
+            layer.use_text(
+                &amt_label,
+                9.0,
+                Mm(right_x(&amt_label, 9.0, PAGE_W - MARGIN)),
+                y(top + 4.4),
+                &font,
+            );
+        }
+
+        draw_footer(&layer, &font, t + 1, total_pages);
+    }
+
+    // ===== 图片页：先竖票 3×3，后横票 2×2（caption 6.5pt 紧凑） =====
+    if opts.include_images {
+        let mut page_no = table_pages;
+        let buckets: [(Vec<&PdfImage>, usize, usize); 2] = [(portraits, 3, 3), (landscapes, 2, 2)];
+        for (imgs, cols, rows) in buckets {
+            if imgs.is_empty() {
+                continue;
+            }
+            let per_page = cols * rows;
+            let pages = imgs.len().div_ceil(per_page);
+            for page_idx in 0..pages {
+                let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
+                let layer = doc.get_page(p).get_layer(l);
+                draw_header(&layer, &font, &format!("附件 · {}", day.date));
+
+                let cell_w = (usable_w - GAP) / cols as f32;
+                let cell_h = (usable_h - GAP) / rows as f32;
+                for slot in 0..per_page {
+                    let idx = page_idx * per_page + slot;
+                    if idx >= imgs.len() {
+                        break;
+                    }
+                    let col = slot % cols;
+                    let row = slot / cols;
+                    let x = MARGIN + col as f32 * (cell_w + GAP);
+                    let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
+                    let caption_h = 4.5;
+                    let img_area_h = cell_h - caption_h - 1.0;
+                    place_image(&layer, imgs[idx], x, top, cell_w, img_area_h);
+                    layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+                    let caption = truncate_chars(
+                        &imgs[idx].caption,
+                        chars_for_width(&imgs[idx].caption, 6.5, cell_w - 2.0),
+                    );
+                    layer.use_text(caption, 6.5, Mm(x + 1.0), y(top + cell_h - 0.4), &font);
+                }
+                page_no += 1;
+                draw_footer(&layer, &font, page_no, total_pages);
+            }
+        }
+    }
+
+    doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
+    Ok(())
+}
+
+/// 省纸模板信息横幅（替代档案模板的独立封面页）：
+/// 左侧主色竖线 + 3 行关键信息（日期/生成时间、档号范围、张数/金额合计）。
+fn draw_compact_banner(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    day: &DailyInput,
+    count: usize,
+    total_cents: i64,
+) {
+    let top = MARGIN + HEADER_H;
+
+    // 左侧主色竖线（视觉锚点，提示这是摘要信息块）
+    layer.set_outline_thickness(0.8);
+    layer.set_outline_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+    layer.add_line(Line {
+        points: vec![
+            (Point::new(Mm(MARGIN), y(top)), false),
+            (Point::new(Mm(MARGIN), y(top + C_BANNER_H)), false),
+        ],
+        is_closed: false,
+    });
+
+    let first_no = day
+        .cards
+        .first()
+        .map(|c| c.voucher_no.as_str())
+        .unwrap_or_default();
+    let last_no = day
+        .cards
+        .last()
+        .map(|c| c.voucher_no.as_str())
+        .unwrap_or_default();
+    let range = if first_no == last_no {
+        first_no.to_string()
+    } else {
+        format!("{first_no} ～ {last_no}")
+    };
+    let generated = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let rows = [
+        format!("凭证日期：{} · 生成时间：{generated}", day.date),
+        format!("档号范围：{range}"),
+        format!(
+            "{count} 张 · 合计 ￥{}（按识别金额统计）",
+            crate::models::voucher::format_money(total_cents)
+        ),
+    ];
+    for (i, r) in rows.iter().enumerate() {
+        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+        layer.use_text(
+            r,
+            9.0,
+            Mm(MARGIN + 3.0),
+            y(top + 5.0 + i as f32 * 6.8),
+            font,
+        );
+    }
 }
 
 /// 封面页（档案装订形态）：
@@ -478,9 +716,17 @@ fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) 
     });
 }
 
-fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfCard, top: f32) {
+/// 行绘制（`row_h` 参数化：archive 6.2mm / compact 5.5mm 共用）
+fn draw_table_row(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    card: &PdfCard,
+    top: f32,
+    row_h: f32,
+) {
     let desc_x = MARGIN + TCOL_NO + 1.0;
     let party_x = MARGIN + TCOL_NO + TCOL_DESC + 1.0;
+    let text_y = top + row_h - 1.9; // 文字基线：行内底部留 1.9mm
 
     // 编号（等宽感：主色）
     layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
@@ -488,7 +734,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfC
         &card.voucher_no,
         chars_for_width(&card.voucher_no, 8.5, TCOL_NO - 2.0),
     );
-    layer.use_text(no, 8.5, Mm(MARGIN + 1.0), y(top + 4.3), font);
+    layer.use_text(no, 8.5, Mm(MARGIN + 1.0), y(text_y), font);
 
     // 摘要（空则占位横线，保持行可读）
     layer.set_fill_color(rgb(BODY.0, BODY.1, BODY.2));
@@ -498,7 +744,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfC
         &card.description
     };
     let desc = truncate_chars(desc, chars_for_width(desc, 8.5, TCOL_DESC - 2.0));
-    layer.use_text(desc, 8.5, Mm(desc_x), y(top + 4.3), font);
+    layer.use_text(desc, 8.5, Mm(desc_x), y(text_y), font);
 
     // 对方账户（小灰字）
     layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
@@ -508,7 +754,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfC
         &card.counterparty
     };
     let party = truncate_chars(party, chars_for_width(party, 8.5, TCOL_PARTY - 2.0));
-    layer.use_text(party, 8.5, Mm(party_x), y(top + 4.3), font);
+    layer.use_text(party, 8.5, Mm(party_x), y(text_y), font);
 
     // 金额（右对齐，无金额留空）
     if !card.amount_label.is_empty() {
@@ -517,7 +763,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfC
             &card.amount_label,
             9.0,
             Mm(right_x(&card.amount_label, 9.0, PAGE_W - MARGIN)),
-            y(top + 4.3),
+            y(text_y),
             font,
         );
     }
@@ -527,11 +773,8 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, card: &PdfC
     layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
     layer.add_line(Line {
         points: vec![
-            (Point::new(Mm(MARGIN), y(top + TROW_H - 0.3)), false),
-            (
-                Point::new(Mm(PAGE_W - MARGIN), y(top + TROW_H - 0.3)),
-                false,
-            ),
+            (Point::new(Mm(MARGIN), y(top + row_h - 0.3)), false),
+            (Point::new(Mm(PAGE_W - MARGIN), y(top + row_h - 0.3)), false),
         ],
         is_closed: false,
     });

@@ -235,6 +235,7 @@ fn main() {
             commands::run_ocr,
             commands::ocr_preview_fields,
             commands::run_ocr_pending,
+            commands::re_enhance_all,
             commands::local_ocr_status,
             commands::export_pdf,
             commands::export_pdf_daily,

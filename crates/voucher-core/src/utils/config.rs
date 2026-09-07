@@ -151,6 +151,11 @@ pub struct PrintConfig {
     pub include_images: bool,
     /// 按天分组导出（每天一份「凭证日报」PDF）；false = 合并单份
     pub group_by_day: bool,
+    /// v0.8 日报模板：compact（默认，省纸：信息横幅 + 表格 38 行/页 + 竖票 3×3）
+    /// | archive（档案装订：独立封面 + 表格 34 行/页 + 图片 2×2）
+    pub daily_template: String,
+    /// v0.8 打印是否优先使用增强版图片（仅扫描件有增强版；关闭则始终用原图）
+    pub prefer_enhanced_images: bool,
 }
 
 impl Default for PrintConfig {
@@ -161,6 +166,8 @@ impl Default for PrintConfig {
             columns: 3,
             include_images: true,
             group_by_day: true,
+            daily_template: "compact".into(),
+            prefer_enhanced_images: true,
         }
     }
 }

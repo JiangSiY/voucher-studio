@@ -41,7 +41,15 @@ function defaultConfig(): AppConfig {
       secondaryDir: "",
       webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10 },
     },
-    print: { title: "凭证日报", cardStyle: "standard", columns: 3, includeImages: true, groupByDay: true },
+    print: {
+      title: "凭证日报",
+      cardStyle: "standard",
+      columns: 3,
+      includeImages: true,
+      groupByDay: true,
+      dailyTemplate: "compact",
+      preferEnhancedImages: true,
+    },
     enhance: {
       enabled: true,
       onlyScans: false,
@@ -195,12 +203,44 @@ async function clearEnhance() {
 const enhanceActiveSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
   { key: "stepDeskew",    label: "1. 倾斜矫正",      desc: "Hough 直线 → 取最强水平线倾角 → 旋转校正" },
   { key: "stepDewarp",    label: "2. 透视矫正",      desc: "检测最大四边形 → 透视变换" },
-  { key: "stepAutocrop",  label: "3. 自动裁边",      desc: "去白边，按轮廓裁剪 + 5% 边距" },
+  { key: "stepAutocrop",  label: "3. 自动裁边",      desc: "Otsu 自适应阈值 → 最大轮廓 bbox → 外扩 2% 安全边（v0.8 修复：旧版会裁掉票据边缘）" },
   { key: "stepDenoise",   label: "4. 中值去噪",      desc: "3×3 中值滤波，保边去噪点（默认关，建议搭配锐化开）" },
   { key: "stepSharpen",   label: "5. Unsharp 锐化",  desc: "高斯差分锐化文字边缘（默认关，过度锐化会放大噪声）" },
   { key: "stepGrayscale", label: "6. 灰度化",        desc: "BGR → GRAY，给 OCR 用" },
   { key: "stepBinarize",  label: "7. 自适应二值化",  desc: "高斯加权 → 31 窗口 / C=10" },
 ];
+
+// v0.8：存量重新增强（进度事件 enhance:progress 驱动按钮文案）
+const reEnhancing = ref(false);
+const reEnhanceDone = ref(0);
+const reEnhanceTotal = ref(0);
+let unlistenEnhanceProgress: UnlistenFn | null = null;
+
+async function reEnhanceAll() {
+  if (reEnhancing.value) return;
+  if (!confirm("按新算法重新增强全部已有增强版图片？原图与凭证数据不变，仅重算增强版文件。")) return;
+  reEnhancing.value = true;
+  reEnhanceDone.value = 0;
+  reEnhanceTotal.value = 0;
+  try {
+    if (!unlistenEnhanceProgress) {
+      unlistenEnhanceProgress = await listen<{ done: number; total: number }>(
+        "enhance:progress",
+        (e) => {
+          reEnhanceDone.value = e.payload.done;
+          reEnhanceTotal.value = e.payload.total;
+        },
+      );
+    }
+    const r = await api.reEnhanceAll();
+    toast.success(`重新增强完成：${r.ok} 成功${r.failed ? ` · ${r.failed} 失败` : ""}`);
+    refreshEnhancePanel();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    reEnhancing.value = false;
+  }
+}
 
 async function validateTemplate() {
   templateError.value = "";
@@ -349,7 +389,10 @@ onMounted(async () => {
   });
 });
 
-onUnmounted(() => unlistenOcrProgress?.());
+onUnmounted(() => {
+  unlistenOcrProgress?.();
+  unlistenEnhanceProgress?.();
+});
 </script>
 
 <template>
@@ -417,12 +460,32 @@ onUnmounted(() => unlistenOcrProgress?.());
             </div>
           </div>
         </div>
+        <div class="form-grid" style="margin-top: 8px">
+          <div class="field">
+            <label>日报模板（v0.8）</label>
+            <select v-model="cfg.print.dailyTemplate" class="input">
+              <option value="compact">省纸紧凑 · 横幅+表格 38 行/页 + 竖票 3×3（推荐）</option>
+              <option value="archive">档案装订 · 独立封面 + 表格 34 行/页 + 图片 2×2</option>
+            </select>
+            <div class="desc">20 张/天约省 43% 用纸；图片均等比缩放完整显示不裁内容。</div>
+          </div>
+          <div class="field">
+            <label>打印优先增强版图片</label>
+            <div style="display: flex; gap: 8px; align-items: center; padding-top: 6px">
+              <label class="toggle">
+                <input type="checkbox" v-model="cfg.print.preferEnhancedImages" />
+                <span class="slider"></span>
+              </label>
+              <span style="font-size: 12px; color: var(--text-3)">扫描件用矫正后增强版；关闭则始终用原图</span>
+            </div>
+          </div>
+        </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
           <label class="toggle">
             <input type="checkbox" v-model="cfg.print.includeImages" />
             <span class="slider"></span>
           </label>
-          <span style="font-size: 12px; color: var(--text-3)">附带附件图片页（每页 2×2）</span>
+          <span style="font-size: 12px; color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
         </div>
         <div class="desc">打印中心进入时按此默认值初始化；在打印中心内的临时调整不影响这里。</div>
       </div>
@@ -572,6 +635,19 @@ onUnmounted(() => unlistenOcrProgress?.());
               <div class="step-desc">{{ s.desc }}</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- v0.8：存量重新增强（autocrop 算法修复后按新算法重算已有增强版） -->
+      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+        <label>重新增强存量图片（v0.8）</label>
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px">
+          <button class="btn" :disabled="reEnhancing" @click="reEnhanceAll">
+            {{ reEnhancing ? `重新增强中 ${reEnhanceDone}/${reEnhanceTotal}…` : "重新增强全部" }}
+          </button>
+          <span style="font-size: 12px; color: var(--text-3)">
+            自动裁边算法已修复（旧版会把票据边缘裁掉）；点击后按新算法重算全部已有增强版，原图与凭证数据不变
+          </span>
         </div>
       </div>
 

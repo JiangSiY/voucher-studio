@@ -236,7 +236,14 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
     Ok(dst)
 }
 
-/// 自动裁边：找非白边 → 内缩 5% 边距。
+/// 自动裁边（v0.8 重写：修复「内缩 5% 切掉票据边缘内容」的方向性 bug）。
+///
+/// 原实现四个缺陷与本版修复：
+/// 1. bbox 后内缩 5% —— 把印章/税率栏/二维码等票据边缘直接裁掉 → 改为**外扩 2% 安全边**
+/// 2. 固定阈值 240 —— 拍照阴影/暗角 < 240 被误判为内容（bbox 全图，裁不动）→ 改 **Otsu 自适应**
+/// 3. 全轮廓并集 —— 角落脏点扩大边界 → 改取**最大面积轮廓**的 bbox
+/// 4. 极端结果照单全收 → 裁后面积 < 原图 10% 或 > 97% 视为检测失败，**回退原图不裁**
+///    （宁可不裁，不可裁错）
 pub fn autocrop(src: &Mat) -> Result<Mat> {
     if src.empty() {
         return Err(CoreError::Invalid("autocrop: 输入图像为空".into()));
@@ -252,18 +259,29 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
         )
         .map_err(|e| CoreError::Invalid(format!("autocrop: 灰度化失败: {e}")))?;
     } else {
-        gray = src.clone();
+        gray = src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()))?;
     }
 
-    let mut binary = Mat::default();
-    opencv::imgproc::threshold(
+    // 高斯模糊抑制纸纹/噪点（否则细小噪声会连成大轮廓或碎轮廓）
+    let mut blurred = Mat::default();
+    opencv::imgproc::gaussian_blur(
         &gray,
-        &mut binary,
-        240.0,
-        255.0,
-        ThresholdTypes::THRESH_BINARY_INV as i32,
+        &mut blurred,
+        Size::new(5, 5),
+        0.0,
+        0.0,
+        opencv::core::BORDER_DEFAULT,
     )
-    .map_err(|e| CoreError::Invalid(format!("autocrop: threshold 失败: {e}")))?;
+    .map_err(|e| CoreError::Invalid(format!("autocrop: 模糊失败: {e}")))?;
+
+    // Otsu 自动阈值：亮背景暗内容的自适应分界（替代固定 240，抗阴影/曝光差异）
+    let mut binary = Mat::default();
+    let otsu_inv =
+        (ThresholdTypes::THRESH_BINARY_INV as i32) | (ThresholdTypes::THRESH_OTSU as i32);
+    opencv::imgproc::threshold(&blurred, &mut binary, 0.0, 255.0, otsu_inv)
+        .map_err(|e| CoreError::Invalid(format!("autocrop: threshold 失败: {e}")))?;
 
     let mut contours: Vector<opencv::core::Vector<Point>> = Vector::new();
     find_contours(
@@ -281,29 +299,47 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
             .map_err(|e| CoreError::Invalid(e.to_string()));
     }
 
-    let mut min_x = i32::MAX;
-    let mut min_y = i32::MAX;
-    let mut max_x = i32::MIN;
-    let mut max_y = i32::MIN;
+    // 最大面积轮廓的 bbox（脏点/杂物不参与边界，原实现取全轮廓并集会被噪声撑大）
+    let mut best: Option<opencv::core::Rect> = None;
+    let mut best_area: f64 = 0.0;
     for c in contours.iter() {
         let r = bounding_rect(&c)
             .map_err(|e| CoreError::Invalid(format!("autocrop: bbox 失败: {e}")))?;
-        min_x = min_x.min(r.x);
-        min_y = min_y.min(r.y);
-        max_x = max_x.max(r.x + r.width);
-        max_y = max_y.max(r.y + r.height);
+        let area = (r.width as f64) * (r.height as f64);
+        if area > best_area {
+            best_area = area;
+            best = Some(r);
+        }
     }
-    if min_x >= max_x || min_y >= max_y {
+    let Some(r) = best else {
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
+    };
+
+    // 合理性校验：裁剪结果面积占比（太小=误检碎块；接近全图=背景脏/阴影导致 bbox 全开）
+    let src_area = (src.cols() as f64) * (src.rows() as f64);
+    let ratio = best_area / src_area;
+    if !(0.10..=0.97).contains(&ratio) {
         return src
             .try_clone()
             .map_err(|e| CoreError::Invalid(e.to_string()));
     }
-    let pad_x = ((max_x - min_x) as f32 * 0.05) as i32;
-    let pad_y = ((max_y - min_y) as f32 * 0.05) as i32;
-    let x = (min_x + pad_x).max(0);
-    let y = (min_y + pad_y).max(0);
-    let w = (max_x - min_x - 2 * pad_x).max(1);
-    let h = (max_y - min_y - 2 * pad_y).max(1);
+
+    // 外扩 2% 安全边（方向与原实现相反：向内容外侧留白，不切内容），clamp 到图像边界
+    let pad_x = ((r.width as f64) * 0.02) as i32;
+    let pad_y = ((r.height as f64) * 0.02) as i32;
+    let x = (r.x - pad_x).max(0);
+    let y = (r.y - pad_y).max(0);
+    let x2 = (r.x + r.width + pad_x).min(src.cols());
+    let y2 = (r.y + r.height + pad_y).min(src.rows());
+    let w = (x2 - x).max(1);
+    let h = (y2 - y).max(1);
+    if w >= src.cols() && h >= src.rows() {
+        return src
+            .try_clone()
+            .map_err(|e| CoreError::Invalid(e.to_string()));
+    }
     let roi = opencv::core::Rect::new(x, y, w, h);
     let cropped =
         Mat::roi(src, roi).map_err(|e| CoreError::Invalid(format!("autocrop: roi 失败: {e}")))?;
@@ -334,5 +370,94 @@ mod tests {
     fn autocrop_empty_errors() {
         let m = Mat::default();
         assert!(autocrop(&m).is_err());
+    }
+
+    /// 合成图：白底 + 深色矩形块（模拟亮背景暗内容票据）
+    fn synth(src_w: i32, src_h: i32, x: i32, y: i32, w: i32, h: i32) -> Mat {
+        let mut m = Mat::new_rows_cols_with_default(
+            src_h,
+            src_w,
+            opencv::core::CV_8UC3,
+            Scalar::new(255.0, 255.0, 255.0, 0.0),
+        )
+        .expect("new mat");
+        fill_rect(&mut m, x, y, w, h);
+        m
+    }
+
+    /// 矩形填充深色（BGR 30,30,30）
+    fn fill_rect(m: &mut Mat, x: i32, y: i32, w: i32, h: i32) {
+        for yy in y..(y + h) {
+            for xx in x..(x + w) {
+                if let Ok(px) = m.at_2d_mut::<opencv::core::Vec3b>(yy, xx) {
+                    *px = opencv::core::Vec3b::from([30, 30, 30]);
+                }
+            }
+        }
+    }
+
+    /// 核心回归：裁剪后票据边缘内容必须全保留（原实现内缩 5% 会切掉边缘）
+    #[test]
+    fn autocrop_keeps_full_content_with_margin() {
+        // 400×300 图，票据位于 (100, 80) 尺寸 200×140
+        let m = synth(400, 300, 100, 80, 200, 140);
+        let out = autocrop(&m).expect("crop ok");
+        // 裁后尺寸 ≥ 票据尺寸（外扩安全边），且 < 原图（真的裁了白边）
+        assert!(out.cols() >= 200, "宽度切到内容: {}", out.cols());
+        assert!(out.rows() >= 140, "高度切到内容: {}", out.rows());
+        assert!(out.cols() < 400 && out.rows() < 300, "没有裁剪白边");
+        // 内容完整：输出中深色像素的覆盖范围 ≥ 票据本体 200×140
+        // （角上白边是外扩安全边的预期行为，与原实现内缩切内容相反）
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        for yy in 0..out.rows() {
+            for xx in 0..out.cols() {
+                let p = *out.at_2d::<opencv::core::Vec3b>(yy, xx).expect("pixel");
+                if p[0] < 128 {
+                    min_x = min_x.min(xx);
+                    max_x = max_x.max(xx);
+                    min_y = min_y.min(yy);
+                    max_y = max_y.max(yy);
+                }
+            }
+        }
+        let (dw, dh) = (max_x - min_x + 1, max_y - min_y + 1);
+        assert!(dw >= 200, "深色内容宽度被裁: {dw} < 200");
+        assert!(dh >= 140, "深色内容高度被裁: {dh} < 140");
+    }
+
+    /// 噪声/脏点不扩大 bbox（原实现全轮廓并集会被角落脏点撑大）
+    #[test]
+    fn autocrop_ignores_small_noise() {
+        let mut m = synth(400, 300, 100, 80, 200, 140);
+        // 右下角加一个 8×8 脏点（远离票据）
+        fill_rect(&mut m, 380, 280, 8, 8);
+        let out = autocrop(&m).expect("crop ok");
+        // 脏点被忽略：裁剪结果只含票据 + 安全边（脏点在 380+，票据右界 300+pad≈306）
+        assert!(out.cols() < 340, "脏点被算进 bbox: {}", out.cols());
+    }
+
+    /// 全图皆内容（无白边可裁，bbox ≈ 全图）→ 回退原图
+    #[test]
+    fn autocrop_full_content_falls_back() {
+        let m = Mat::new_rows_cols_with_default(
+            200,
+            200,
+            opencv::core::CV_8UC3,
+            Scalar::new(30.0, 30.0, 30.0, 0.0),
+        )
+        .expect("new mat");
+        let out = autocrop(&m).expect("ok");
+        assert_eq!((out.cols(), out.rows()), (200, 200), "应回退原图");
+    }
+
+    /// 内容占比过小（< 10%，碎块误检）→ 回退原图不裁
+    #[test]
+    fn autocrop_tiny_content_falls_back() {
+        let m = synth(400, 300, 190, 145, 20, 14); // 占比 0.23%
+        let out = autocrop(&m).expect("ok");
+        assert_eq!((out.cols(), out.rows()), (400, 300), "碎块应回退原图");
     }
 }
