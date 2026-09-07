@@ -22,12 +22,16 @@ use crate::utils::config::SECRET_WEBDAV_PASSWORD;
 use crate::{CoreContext, CoreError, Result};
 
 const BACKUP_FORMAT: &str = "voucher-studio-backup";
-/// v2：附件入包 + sha256 清单（v1 备份仍可恢复，附件缺失时保留现有附件）
-const BACKUP_VERSION: u32 = 2;
+/// v3：云端增量结构（snapshot + 内容寻址附件包；v2 及以下为全量单文件，均可恢复）
+const BACKUP_VERSION: u32 = 3;
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const DB_ENTRY: &str = "voucher.db";
 pub const CONFIG_ENTRY: &str = "app.json";
 pub const ATTACHMENTS_PREFIX: &str = "attachments/";
+/// v0.8 云端快照文件名前缀（db+config+manifest，KB 级）
+pub const SNAPSHOT_PREFIX: &str = "voucher-snapshot-";
+/// v0.8 云端附件包文件名前缀（内容寻址：voucher-attachments-<hash8>.zip）
+pub const BUNDLE_PREFIX: &str = "voucher-attachments-";
 
 pub const KEY_LAST_BACKUP: &str = "last_backup_at";
 
@@ -60,6 +64,10 @@ struct Manifest {
     checksums: HashMap<String, String>,
     #[serde(default)]
     attachment_count: u32,
+    /// v3 快照指向的附件包文件名（仅云端增量结构的 snapshot 有；
+    /// 全量备份 / 附件包自身为 None）
+    #[serde(default)]
+    attachments_bundle: Option<String>,
 }
 
 /// 立即执行一次备份：DB 快照 + 配置 + 附件 → zip → 本地 + 异盘 + WebDAV。
@@ -162,6 +170,7 @@ fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
             files: checksums.keys().cloned().collect(),
             checksums,
             attachment_count: attachments.len() as u32,
+            attachments_bundle: None,
         };
         zip.start_file(MANIFEST_FILE, zip::write::SimpleFileOptions::default())?;
         zip.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
@@ -637,10 +646,221 @@ fn extract_verified<R: Read + std::io::Seek>(
     Ok(())
 }
 
-// ---------- WebDAV（上传 + 重试 + 远端保留） ----------
+// ---------- v0.8 云端增量结构：snapshot + 内容寻址附件包 ----------
+//
+// 本地全量 zip（v2 格式）保持不变（恢复链路零改动）；云端上传拆两个文件：
+//   voucher-snapshot-<ts>.zip      db + config + manifest（KB 级，每次都传）
+//   voucher-attachments-<hash8>.zip 全部附件（内容寻址：附件集合未变文件名相同，
+//                                  远端已有即跳过 → 附件未变时每次 0 流量）
+// 恢复时下载两文件在本地合成 v2 全量 zip，复用现有恢复流程。
+// 云端旧的全量 voucher-backup-*.zip 仍可直接下载恢复（兼容并存）。
+
+/// 附件集合指纹：对全部附件条目的 (entry, sha256) 排序后整体 sha256。
+/// 附件未增未删未换 → 指纹不变 → 附件包文件名不变 → 云端命中跳过。
+fn attachments_set_hash(checksums: &HashMap<String, String>) -> String {
+    let mut pairs: Vec<(&String, &String)> = checksums
+        .iter()
+        .filter(|(k, _)| k.starts_with(ATTACHMENTS_PREFIX))
+        .collect();
+    pairs.sort();
+    let mut input = String::new();
+    for (k, v) in pairs {
+        input.push_str(k);
+        input.push('\n');
+        input.push_str(v);
+        input.push('\n');
+    }
+    sha256_hex(input.as_bytes())
+}
+
+/// 从本地全量 zip 拆出云端增量两件套。
+/// 返回 (snapshot 路径, bundle 路径, bundle 文件名)——bundle 仅在附件非空时产生。
+/// 拆出的文件写入 temp 目录，由调用方清理。
+fn write_cloud_parts(
+    full_zip: &Path,
+    temp_dir: &Path,
+) -> Result<(PathBuf, Option<PathBuf>, String)> {
+    let file = std::fs::File::open(full_zip)?;
+    let mut zip = zip::ZipArchive::new(file)?;
+    let manifest: Manifest = {
+        let mut e = zip.by_name(MANIFEST_FILE)?;
+        let mut buf = String::new();
+        e.read_to_string(&mut buf)?;
+        serde_json::from_str(&buf)?
+    };
+
+    let set_hash = attachments_set_hash(&manifest.checksums);
+    let bundle_name = format!("{BUNDLE_PREFIX}{}.zip", &set_hash[..8]);
+    let has_attachments = manifest.attachment_count > 0;
+
+    // 1. 附件包：attachments/* 条目 + 自带 manifest（校验和仅附件条目）
+    let bundle_path = if has_attachments {
+        let p = temp_dir.join(&bundle_name);
+        let out = std::fs::File::create(&p)?;
+        let mut w = zip::ZipWriter::new(out);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let mut bundle_checksums = HashMap::new();
+        for i in 0..zip.len() {
+            let name = {
+                let e = zip.by_index(i)?;
+                e.name().to_string()
+            };
+            if !name.starts_with(ATTACHMENTS_PREFIX) || name.ends_with('/') {
+                continue;
+            }
+            let mut buf = Vec::new();
+            let mut e = zip.by_name(&name)?;
+            e.read_to_end(&mut buf)?;
+            bundle_checksums.insert(name.clone(), sha256_hex(&buf));
+            w.start_file(name.as_str(), opts)?;
+            w.write_all(&buf)?;
+        }
+        let bundle_manifest = Manifest {
+            format: BACKUP_FORMAT.into(),
+            version: BACKUP_VERSION,
+            created_at: manifest.created_at.clone(),
+            files: bundle_checksums.keys().cloned().collect(),
+            checksums: bundle_checksums,
+            attachment_count: manifest.attachment_count,
+            attachments_bundle: None,
+        };
+        w.start_file(MANIFEST_FILE, opts)?;
+        w.write_all(serde_json::to_string_pretty(&bundle_manifest)?.as_bytes())?;
+        w.finish()?;
+        Some(p)
+    } else {
+        None
+    };
+
+    // 2. 快照：db + config + v3 manifest（指向附件包名；校验和仅自身条目）
+    let snap_path = temp_dir.join(format!(
+        "{SNAPSHOT_PREFIX}{}.zip",
+        date_time_of_name(
+            full_zip
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+        )
+    ));
+    let out = std::fs::File::create(&snap_path)?;
+    let mut w = zip::ZipWriter::new(out);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut snap_checksums = HashMap::new();
+    for entry in [DB_ENTRY, CONFIG_ENTRY] {
+        if let Ok(mut e) = zip.by_name(entry) {
+            let mut buf = Vec::new();
+            e.read_to_end(&mut buf)?;
+            snap_checksums.insert(entry.to_string(), sha256_hex(&buf));
+            w.start_file(entry, opts)?;
+            w.write_all(&buf)?;
+        }
+    }
+    let snap_manifest = Manifest {
+        format: BACKUP_FORMAT.into(),
+        version: BACKUP_VERSION,
+        created_at: manifest.created_at.clone(),
+        files: snap_checksums.keys().cloned().collect(),
+        checksums: snap_checksums,
+        attachment_count: manifest.attachment_count,
+        attachments_bundle: if has_attachments {
+            Some(bundle_name.clone())
+        } else {
+            None
+        },
+    };
+    w.start_file(MANIFEST_FILE, opts)?;
+    w.write_all(serde_json::to_string_pretty(&snap_manifest)?.as_bytes())?;
+    w.finish()?;
+
+    Ok((snap_path, bundle_path, bundle_name))
+}
+
+/// 从备份文件名提取「日期时间」段（voucher-backup-YYYYMMDD-HHMMSS.zip → YYYYMMDD-HHMMSS）。
+/// 提不出时退化为当前时间（snapshot 名只需可排序唯一）。
+fn date_time_of_name(name: &str) -> String {
+    let digits: String = name
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .take(14)
+        .collect();
+    if digits.len() == 14 {
+        format!("{}-{}", &digits[..8], &digits[8..])
+    } else {
+        chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
+    }
+}
+
+/// 合成 v2 全量 zip（下载恢复链路）：snapshot 的 db/config + 附件包的 attachments。
+/// 产物走现有 inspect/restore 流程，恢复逻辑零改动。
+fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> Result<()> {
+    let snap_manifest: Manifest = read_manifest(snapshot)
+        .ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
+    let bundle_manifest: Manifest = read_manifest(bundle)
+        .ok_or_else(|| CoreError::Invalid("附件包损坏：缺 manifest".into()))?;
+
+    let out = std::fs::File::create(dest)?;
+    let mut w = zip::ZipWriter::new(out);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut merged = HashMap::new();
+    // db + config 来自 snapshot
+    {
+        let file = std::fs::File::open(snapshot)?;
+        let mut zip = zip::ZipArchive::new(file)?;
+        for entry in [DB_ENTRY, CONFIG_ENTRY] {
+            if let Ok(mut e) = zip.by_name(entry) {
+                let mut buf = Vec::new();
+                e.read_to_end(&mut buf)?;
+                merged.insert(entry.to_string(), sha256_hex(&buf));
+                w.start_file(entry, opts)?;
+                w.write_all(&buf)?;
+            }
+        }
+    }
+    // attachments 来自 bundle
+    {
+        let file = std::fs::File::open(bundle)?;
+        let mut zip = zip::ZipArchive::new(file)?;
+        for i in 0..zip.len() {
+            let name = {
+                let e = zip.by_index(i)?;
+                e.name().to_string()
+            };
+            if !name.starts_with(ATTACHMENTS_PREFIX) || name.ends_with('/') {
+                continue;
+            }
+            let mut buf = Vec::new();
+            let mut e = zip.by_name(&name)?;
+            e.read_to_end(&mut buf)?;
+            merged.insert(name.clone(), sha256_hex(&buf));
+            w.start_file(name.as_str(), opts)?;
+            w.write_all(&buf)?;
+        }
+    }
+
+    let full_manifest = Manifest {
+        format: BACKUP_FORMAT.into(),
+        version: BACKUP_VERSION,
+        created_at: snap_manifest.created_at.clone(),
+        files: merged.keys().cloned().collect(),
+        checksums: merged,
+        attachment_count: bundle_manifest.attachment_count,
+        attachments_bundle: None,
+    };
+    w.start_file(MANIFEST_FILE, opts)?;
+    w.write_all(serde_json::to_string_pretty(&full_manifest)?.as_bytes())?;
+    w.finish()?;
+    Ok(())
+}
 
 /// 上传备份到 WebDAV（设置 → 备份与同步）；带指数退避重试，成功后清理远端超额备份。
 /// 未启用时静默跳过（Ok）。
+///
+/// v0.8 增量：含附件的备份拆成 snapshot（KB 级，每次传）+ 附件包（内容寻址，
+/// 附件未变则远端命中跳过，0 流量）；无附件 / 旧格式备份原样整文件上传。
 pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
     let cfg = ctx.config();
     let webdav = &cfg.backup.webdav;
@@ -656,17 +876,19 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| CoreError::Invalid("非法的备份文件名".into()))?;
-    let base = webdav.url.trim().trim_end_matches('/');
-    let url = format!("{base}/{file_name}");
+    let base = webdav.url.trim().trim_end_matches('/').to_string();
 
-    // v0.8 流量保护：当日云端已有备份则跳过（坚果云等免费服务上传配额有限，
-    // 全量 zip 随附件增长后高频上传会耗尽配额；本地备份与异盘双写不受影响）
+    // v0.8 流量保护：当日云端已有备份则跳过（坚果云等免费服务上传配额有限；
+    // snapshot 与旧全量都算「今日已有」）
     if webdav.once_daily {
         let today = chrono::Local::now().format("%Y%m%d").to_string();
         let uploaded_today = list_webdav_backups(ctx)
             .map(|rows| {
-                rows.first()
-                    .is_some_and(|r| r.file_name.starts_with(&format!("voucher-backup-{today}")))
+                rows.first().is_some_and(|r| {
+                    r.file_name.starts_with(&format!("voucher-backup-{today}"))
+                        || r.file_name
+                            .starts_with(&format!("{SNAPSHOT_PREFIX}{today}"))
+                })
             })
             .unwrap_or(false);
         if uploaded_today {
@@ -675,20 +897,115 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         }
     }
 
-    let bytes = std::fs::read(zip_path)?;
-    let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
-    if size_mb > 50.0 {
-        // 大备份提醒：全量上传对流量配额的消耗开始显著（后续考虑增量方案）
-        log::warn!("WebDAV 上传大备份 {size_mb:.1} MB（附件增长后建议关注云端流量配额）");
-    }
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
 
-    // 重试策略（v0.8 修正）：
-    // - 401/403/507：认证 / 权限 / 存储配额——确定性失败，重试无意义，立即报错
-    // - 404/409：目标目录不存在 → 逐级 MKCOL 创建（多层路径如 /dav/a/b/c 也能建），成功后跳过退避立即重试
-    // - 网络错误 / 5xx：2s / 4s 指数退避重试
+    // 增量分流：有附件 → snapshot + 附件包；否则整文件上传（无附件备份本身极小）
+    let incremental = read_manifest(zip_path)
+        .map(|m| m.attachment_count > 0)
+        .unwrap_or(false);
+    if incremental {
+        upload_incremental(ctx, &client, &base, &webdav.username, &password, zip_path)?;
+    } else {
+        let bytes = std::fs::read(zip_path)?;
+        put_with_retry(
+            &client,
+            &format!("{base}/{file_name}"),
+            &base,
+            &webdav.username,
+            &password,
+            bytes,
+            file_name,
+        )?;
+    }
+
+    // 远端保留清理
+    if webdav.remote_retention > 0 {
+        if let Err(e) = cleanup_webdav(
+            &client,
+            &base,
+            &webdav.username,
+            &password,
+            webdav.remote_retention,
+        ) {
+            log::warn!("WebDAV 远端清理失败（不影响上传结果）: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// v0.8 增量上传：全量 zip → 拆 snapshot + 附件包 → 附件包远端命中则跳过 → PUT snapshot。
+fn upload_incremental(
+    ctx: &CoreContext,
+    client: &reqwest::blocking::Client,
+    base: &str,
+    user: &str,
+    password: &str,
+    full_zip: &Path,
+) -> Result<()> {
+    let temp_dir = ctx.paths.temp.join("cloud-parts");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir)?;
+    let result = (|| {
+        let (snap_path, bundle_path, bundle_name) = write_cloud_parts(full_zip, &temp_dir)?;
+        let snap_name = snap_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+
+        // 附件包：内容寻址命中（远端已有同名）→ 跳过，本次上传附件 0 流量
+        let existing = propfind_all_names(client, base, user, password)?;
+        if existing.contains(&bundle_name) {
+            log::info!("附件集合未变，云端命中附件包（0 附件流量）：{bundle_name}");
+        } else if let Some(bp) = &bundle_path {
+            let bytes = std::fs::read(bp)?;
+            let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
+            log::info!("上传附件包 {bundle_name}（{size_mb:.1} MB，附件集合已变化）");
+            put_with_retry(
+                client,
+                &format!("{base}/{}", url_escape(&bundle_name)),
+                base,
+                user,
+                password,
+                bytes,
+                &bundle_name,
+            )?;
+        }
+
+        // snapshot：KB 级，每次都传
+        let bytes = std::fs::read(&snap_path)?;
+        put_with_retry(
+            client,
+            &format!("{base}/{}", url_escape(&snap_name)),
+            base,
+            user,
+            password,
+            bytes,
+            &snap_name,
+        )?;
+        log::info!("云端增量上传完成：{snap_name}");
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    result
+}
+
+/// PUT + 重试（v0.8 修正的重试策略）：
+/// - 401/403/507：认证 / 权限 / 存储配额——确定性失败，立即报错
+/// - 404/409：目标目录不存在 → 逐级 MKCOL 创建，成功后跳过退避立即重试
+/// - 网络错误 / 5xx：2s / 4s 指数退避重试
+#[allow(clippy::too_many_arguments)]
+fn put_with_retry(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    base: &str,
+    user: &str,
+    password: &str,
+    bytes: Vec<u8>,
+    file_name: &str,
+) -> Result<()> {
     let mut last_err = None;
     let mut skip_next_delay = false;
     for attempt in 0..UPLOAD_ATTEMPTS {
@@ -703,15 +1020,12 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
             }
         }
         match client
-            .put(&url)
-            .basic_auth(&webdav.username, Some(&password))
+            .put(url)
+            .basic_auth(user, Some(password))
             .body(bytes.clone())
             .send()
         {
-            Ok(resp) if resp.status().is_success() => {
-                last_err = None;
-                break;
-            }
+            Ok(resp) if resp.status().is_success() => return Ok(()),
             Ok(resp) => {
                 let status = resp.status();
                 // 确定性失败：不重试（重试只会浪费时间并掩盖真实原因）
@@ -723,7 +1037,7 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
                 // 目录不存在：逐级创建后立即重试
                 if (status == reqwest::StatusCode::NOT_FOUND
                     || status == reqwest::StatusCode::CONFLICT)
-                    && mkcol_all(&client, base, &webdav.username, &password)
+                    && mkcol_all(client, base, user, password)
                 {
                     skip_next_delay = true;
                 }
@@ -732,23 +1046,7 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
             Err(e) => last_err = Some(CoreError::Http(e)),
         }
     }
-    if let Some(e) = last_err {
-        return Err(e);
-    }
-
-    // 远端保留清理
-    if webdav.remote_retention > 0 {
-        if let Err(e) = cleanup_webdav(
-            &client,
-            base,
-            &webdav.username,
-            &password,
-            webdav.remote_retention,
-        ) {
-            log::warn!("WebDAV 远端清理失败（不影响上传结果）: {e}");
-        }
-    }
-    Ok(())
+    Err(last_err.unwrap_or_else(|| CoreError::Invalid("WebDAV 上传失败".into())))
 }
 
 /// 逐级 MKCOL 创建目录路径（如 `https://host/dav/a/b/c` → 依次 MKCOL
@@ -834,8 +1132,10 @@ pub fn upload_missing_backups(ctx: &CoreContext) -> Result<usize> {
     Ok(ok)
 }
 
-/// 列出远端 voucher-backup-*.zip，超出保留数删最旧。
-/// PROPFIND 解析采用宽松文本匹配（兼容 Nextcloud / 坚果云 / Alist 等主流实现）。
+/// 远端保留清理（v0.8 增量适配）：
+/// - 可恢复备份（旧全量 voucher-backup-* + 快照 voucher-snapshot-*）合并按新→旧保留 `keep` 份
+/// - 附件包（voucher-attachments-*）：被任一保留快照引用的留下，其余回收
+///   （引用关系读快照 manifest——KB 级 GET，成本可忽略）
 fn cleanup_webdav(
     client: &reqwest::blocking::Client,
     base: &str,
@@ -853,8 +1153,15 @@ fn cleanup_webdav(
     let mut names = parse_backup_hrefs(&body);
     names.sort();
     names.dedup();
-    let excess = names.len().saturating_sub(keep as usize);
-    for name in &names[..excess] {
+
+    // 1. 可恢复备份（全量 + 快照）合并保留
+    let restorable: Vec<String> = names
+        .iter()
+        .filter(|n| !n.starts_with(BUNDLE_PREFIX))
+        .cloned()
+        .collect();
+    let excess = restorable.len().saturating_sub(keep as usize);
+    for name in &restorable[..excess] {
         let del_url = format!("{base}/{}", url_escape(name));
         let status = client
             .delete(&del_url)
@@ -865,7 +1172,82 @@ fn cleanup_webdav(
             log::warn!("WebDAV 删除远端备份 {name} 返回 {status}");
         }
     }
+    let kept: Vec<&String> = restorable.iter().skip(excess).collect();
+
+    // 2. 附件包回收：收集保留快照引用的 bundle 名，未引用的删
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for name in &kept {
+        if !name.starts_with(SNAPSHOT_PREFIX) {
+            continue; // 旧全量自含附件，不引用 bundle
+        }
+        if let Ok(bytes) = webdav_get(client, base, user, password, name) {
+            if let Some(m) = parse_manifest_bytes(&bytes) {
+                if let Some(b) = m.attachments_bundle {
+                    referenced.insert(b);
+                }
+            }
+        }
+    }
+    for name in names.iter().filter(|n| n.starts_with(BUNDLE_PREFIX)) {
+        if referenced.contains(name) {
+            continue;
+        }
+        let del_url = format!("{base}/{}", url_escape(name));
+        let status = client
+            .delete(&del_url)
+            .basic_auth(user, Some(password))
+            .send()?
+            .status();
+        if !status.is_success() {
+            log::warn!("WebDAV 回收附件包 {name} 返回 {status}");
+        }
+    }
     Ok(())
+}
+
+/// GET 远端文件到内存（快照 manifest 读取用，KB 级）
+fn webdav_get(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    user: &str,
+    password: &str,
+    name: &str,
+) -> Result<Vec<u8>> {
+    let url = format!("{base}/{}", url_escape(name));
+    let resp = client
+        .get(&url)
+        .basic_auth(user, Some(password))
+        .send()?
+        .error_for_status()?;
+    Ok(resp.bytes()?.to_vec())
+}
+
+/// PROPFIND base 并返回全部本程序远端文件名（三类：全量/快照/附件包；
+/// 增量上传判附件包是否已存在用）。
+fn propfind_all_names(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    user: &str,
+    password: &str,
+) -> Result<Vec<String>> {
+    let resp = client
+        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), base)
+        .basic_auth(user, Some(password))
+        .header("Depth", "1")
+        .send()?
+        .error_for_status()?;
+    let body = resp.text()?;
+    Ok(parse_backup_hrefs(&body))
+}
+
+/// 从 zip 字节流解析 manifest（远端快照引用读取用）
+fn parse_manifest_bytes(bytes: &[u8]) -> Option<Manifest> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut zip = zip::ZipArchive::new(cursor).ok()?;
+    let mut entry = zip.by_name(MANIFEST_FILE).ok()?;
+    let mut buf = String::new();
+    entry.read_to_string(&mut buf).ok()?;
+    serde_json::from_str(&buf).ok()
 }
 
 /// 从 PROPFIND 响应体解析备份文件名：提取所有 href，过滤 voucher-backup-*.zip
@@ -901,10 +1283,12 @@ fn parse_backup_hrefs(body: &str) -> Vec<String> {
     names
 }
 
-/// 远端备份文件名白名单：voucher-backup-*.zip 且不含路径分隔符/..
-/// （下载入参校验用，防路径穿越；备份名含时间戳，天然可排序）
+/// 远端备份文件名白名单（v0.8 增量适配）：三类 zip 且不含路径分隔符/..
+/// （下载入参校验用，防路径穿越；名字含时间戳或内容哈希，天然可排序）
 fn is_valid_remote_name(name: &str) -> bool {
-    name.starts_with("voucher-backup-")
+    (name.starts_with("voucher-backup-")
+        || name.starts_with(SNAPSHOT_PREFIX)
+        || name.starts_with(BUNDLE_PREFIX))
         && name.ends_with(".zip")
         && !name.contains('/')
         && !name.contains('\\')
@@ -977,10 +1361,12 @@ pub fn test_webdav(ctx: &CoreContext) -> Result<u32> {
     Ok(propfind_backup_names(&t)?.len() as u32)
 }
 
-/// 远端备份列表（新 → 旧：文件名含时间戳，倒序即最新在前）
+/// 远端备份列表（新 → 旧）。v0.8 增量适配：只列「可恢复」备份
+/// （旧全量 + 快照）；附件包是内部件（由快照引用），不进列表。
 pub fn list_webdav_backups(ctx: &CoreContext) -> Result<Vec<WebdavBackupRow>> {
     let t = webdav_target(ctx)?;
     let mut names = propfind_backup_names(&t)?;
+    names.retain(|n| !n.starts_with(BUNDLE_PREFIX));
     names.sort();
     names.dedup();
     names.reverse(); // 新 → 旧
@@ -992,11 +1378,58 @@ pub fn list_webdav_backups(ctx: &CoreContext) -> Result<Vec<WebdavBackupRow>> {
 
 /// 下载远端备份到本地 backups/ 目录（换机恢复链路：云端列表 → 下载 → 本地恢复）。
 /// 返回落地的本地路径。同名本地备份直接跳过下载（幂等）。
+/// v0.8 增量适配：下载快照时自动拉取其引用的附件包并合成 v2 全量 zip（复用现有恢复流程）。
 pub fn download_webdav_backup(ctx: &CoreContext, file_name: &str) -> Result<String> {
     if !is_valid_remote_name(file_name) {
         return Err(CoreError::Invalid(format!("非法的远端备份名：{file_name}")));
     }
+    if file_name.starts_with(BUNDLE_PREFIX) {
+        return Err(CoreError::Invalid(
+            "附件包是内部文件（由快照引用），请下载对应的快照".into(),
+        ));
+    }
     let t = webdav_target(ctx)?;
+
+    // 增量快照：下载 snapshot + 引用的 bundle → 合成全量（落地名为 voucher-backup-*，与本地列表口径一致）
+    if file_name.starts_with(SNAPSHOT_PREFIX) {
+        let snap_bytes = webdav_get(&t.client, &t.base, &t.username, &t.password, file_name)?;
+        if snap_bytes.is_empty() {
+            return Err(CoreError::Invalid("远端返回空文件（备份可能损坏）".into()));
+        }
+        let bundle_name = parse_manifest_bytes(&snap_bytes)
+            .and_then(|m| m.attachments_bundle)
+            .ok_or_else(|| CoreError::Invalid("快照缺少附件包引用（格式异常）".into()))?;
+        let bundle_bytes = webdav_get(&t.client, &t.base, &t.username, &t.password, &bundle_name)?;
+        if bundle_bytes.is_empty() {
+            return Err(CoreError::Invalid(format!(
+                "附件包 {bundle_name} 下载为空（可能已被清理，请换一份备份）"
+            )));
+        }
+        let full_name = format!(
+            "voucher-backup-{}",
+            file_name.trim_start_matches(SNAPSHOT_PREFIX)
+        );
+        let dest = ctx.paths.backups.join(&full_name);
+        if dest.exists() {
+            return Ok(dest.to_string_lossy().into_owned()); // 幂等
+        }
+        let tmp_snap = ctx.paths.temp.join("webdav-dl-snapshot.zip");
+        let tmp_bundle = ctx.paths.temp.join("webdav-dl-bundle.zip");
+        let tmp_full = ctx.paths.temp.join(format!("webdav-compose-{full_name}"));
+        std::fs::write(&tmp_snap, &snap_bytes)?;
+        std::fs::write(&tmp_bundle, &bundle_bytes)?;
+        compose_full_zip(&tmp_snap, &tmp_bundle, &tmp_full)?;
+        if let Some(dir) = dest.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::rename(&tmp_full, &dest)?;
+        let _ = std::fs::remove_file(&tmp_snap);
+        let _ = std::fs::remove_file(&tmp_bundle);
+        log::info!("WebDAV 快照合成下载完成：{file_name} + {bundle_name} → {full_name}");
+        return Ok(dest.to_string_lossy().into_owned());
+    }
+
+    // 旧全量：直接下载
     let url = format!("{}/{}", t.base, url_escape(file_name));
     let dest = ctx.paths.backups.join(file_name);
     if dest.exists() {
@@ -1174,5 +1607,159 @@ mod tests {
         assert_eq!(percent_decode("2026%2E08%2E18"), "2026.08.18");
         // 尾部不完整 %XX：原样保留
         assert_eq!(percent_decode("100%"), "100%");
+    }
+
+    // ---------- v0.8 云端增量结构 ----------
+
+    #[test]
+    fn remote_name_whitelist_accepts_incremental_files() {
+        assert!(is_valid_remote_name("voucher-snapshot-20260818-093000.zip"));
+        assert!(is_valid_remote_name("voucher-attachments-a1b2c3d4.zip"));
+        assert!(!is_valid_remote_name("voucher-attachments-../evil.zip"));
+        assert!(!is_valid_remote_name("voucher-snapshot-x.exe"));
+    }
+
+    #[test]
+    fn attachments_set_hash_order_insensitive() {
+        // 集合指纹与条目顺序无关（HashMap 无序输入 → 同一指纹）
+        let a: HashMap<String, String> = [
+            ("attachments/2026/08/a.jpg", "hash-a"),
+            ("attachments/2026/08/b.jpg", "hash-b"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let b: HashMap<String, String> = [
+            ("attachments/2026/08/b.jpg", "hash-b"),
+            ("attachments/2026/08/a.jpg", "hash-a"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        assert_eq!(attachments_set_hash(&a), attachments_set_hash(&b));
+        // 任一附件 hash 变化 → 指纹变化（附件包文件名变化 → 重新上传）
+        let c: HashMap<String, String> = [(
+            "attachments/2026/08/a.jpg",
+            "hash-a2", // 内容变了
+        )]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        assert_ne!(attachments_set_hash(&a), attachments_set_hash(&c));
+    }
+
+    /// 增量拆包 + 合成 roundtrip：全量 zip → snapshot + bundle → 合成 →
+    /// inspect 校验通过 + 附件数与条目集合一致（恢复链路语义等价）
+    #[test]
+    fn cloud_parts_split_and_compose_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = dir.path().join("voucher-backup-20260818-093000.zip");
+
+        // 真实 SQLite 快照（restore_backup 校验库可打开）
+        let db_file = dir.path().join("voucher.db");
+        {
+            let conn = rusqlite::Connection::open(&db_file).unwrap();
+            conn.execute_batch("CREATE TABLE vouchers (id INTEGER PRIMARY KEY);")
+                .unwrap();
+        }
+        let db_bytes = std::fs::read(&db_file).unwrap();
+
+        // 构造小型 v2 全量 zip：db + config + 2 附件
+        {
+            let out = std::fs::File::create(&full).unwrap();
+            let mut w = zip::ZipWriter::new(out);
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            let mut checksums = HashMap::new();
+            let entries: Vec<(&str, Vec<u8>)> = vec![
+                (DB_ENTRY, db_bytes),
+                (CONFIG_ENTRY, b"config-bytes".to_vec()),
+                ("attachments/2026/08/a.jpg", b"image-a".to_vec()),
+                ("attachments/2026/08/b.jpg", b"image-b".to_vec()),
+            ];
+            for (name, bytes) in &entries {
+                checksums.insert(name.to_string(), sha256_hex(bytes));
+                w.start_file(*name, opts).unwrap();
+                w.write_all(bytes).unwrap();
+            }
+            let manifest = Manifest {
+                format: BACKUP_FORMAT.into(),
+                version: BACKUP_VERSION,
+                created_at: "2026-08-18 09:30:00".into(),
+                files: checksums.keys().cloned().collect(),
+                checksums,
+                attachment_count: 2,
+                attachments_bundle: None,
+            };
+            w.start_file(MANIFEST_FILE, opts).unwrap();
+            w.write_all(serde_json::to_string_pretty(&manifest).unwrap().as_bytes())
+                .unwrap();
+            w.finish().unwrap();
+        }
+
+        // 拆包：snapshot + bundle
+        let parts_dir = dir.path().join("parts");
+        std::fs::create_dir_all(&parts_dir).unwrap();
+        let (snap, bundle, bundle_name) = write_cloud_parts(&full, &parts_dir).unwrap();
+        // 调试：snapshot 内 db 条目长度
+        {
+            let f = std::fs::File::open(&snap).unwrap();
+            let mut z = zip::ZipArchive::new(f).unwrap();
+            let mut e = z.by_name(DB_ENTRY).unwrap();
+            use std::io::Read;
+            let mut buf = Vec::new();
+            e.read_to_end(&mut buf).unwrap();
+            println!("snapshot db entry len: {}", buf.len());
+        }
+        assert!(bundle.is_some(), "含附件备份应产生附件包");
+        assert!(bundle_name.starts_with(BUNDLE_PREFIX));
+        assert_eq!(
+            bundle_name.len(),
+            BUNDLE_PREFIX.len() + 8 + 4,
+            "附件包名 = 前缀 + hash8 + .zip"
+        );
+        assert!(
+            snap.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with(SNAPSHOT_PREFIX),
+            "快照名前缀"
+        );
+
+        // 合成：v2 全量等价物
+        let composed = dir.path().join("composed.zip");
+        compose_full_zip(&snap, bundle.as_ref().unwrap(), &composed).unwrap();
+
+        // inspect 通过（校验和全对）+ 附件数 2
+        let summary = inspect_backup(&composed).unwrap();
+        assert_eq!(summary.attachment_count, 2);
+        assert!(summary.checksums_verified);
+        // 条目集合 = db + config + 2 附件
+        assert_eq!(summary.restored_files.len(), 4);
+        assert!(summary
+            .restored_files
+            .contains(&"attachments/2026/08/b.jpg".into()));
+
+        // 合成产物可恢复（restore_backup 走通 = 恢复链路等价）
+        let restore_dir = dir.path().join("restore");
+        let restored = restore_backup(&composed, &restore_dir).unwrap();
+        assert_eq!(restored.attachment_count, 2);
+        assert!(restore_dir
+            .join("attachments")
+            .join("2026/08/b.jpg")
+            .exists());
+    }
+
+    #[test]
+    fn snapshot_bundle_names_parse() {
+        assert_eq!(
+            date_time_of_name("voucher-backup-20260818-093000.zip"),
+            "20260818-093000"
+        );
+        // 提不出时间戳 → fallback 当前时间（格式 YYYYMMDD-HHMMSS，不跨断言取两次时间）
+        let fallback = date_time_of_name("weird");
+        assert_eq!(fallback.len(), 15);
+        assert!(fallback.contains('-'));
     }
 }

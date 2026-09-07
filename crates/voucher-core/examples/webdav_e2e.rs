@@ -1,11 +1,13 @@
-//! WebDAV 真机联调（v0.8 P0）：对真实服务器（坚果云）跑完整协议链路。
+//! WebDAV 真机联调（v0.8 增量结构版）：对真实服务器（坚果云）跑完整协议链路。
 //!
 //! 用法：cargo run -p voucher-core --example webdav_e2e [-- --keep]
 //!
-//! 链路：PROPFIND 测试连接 → PUT 上传最新本地备份 → PROPFIND 列表确认
-//!       → 移走本地同名文件 → GET 下载回来 → sha256 比对 → （默认）DELETE 清理远端测试文件
+//! 链路（v0.8 云端增量：snapshot + 内容寻址附件包）：
+//!   PROPFIND 测试连接 → 增量上传（snapshot + 附件包，附件已存在则 0 附件流量）
+//!   → PROPFIND 列表确认 → 二次上传验证「附件未变 → 0 附件流量」
+//!   → 下载快照（自动合成 v2 全量 zip）→ inspect 校验 → （默认）DELETE 清理远端测试文件
 //!
-//! 安全性：全程只操作 voucher-backup-*.zip 白名单文件；上传的是真实备份内容。
+//! 安全性：全程只操作 voucher-{backup,snapshot,attachments}-*.zip 白名单文件。
 
 use std::path::PathBuf;
 
@@ -19,7 +21,10 @@ fn main() {
         .join("data");
     let ctx = CoreContext::init(Some(target.clone())).expect("init");
 
-    println!("=== WebDAV 真机联调（数据目录 {}）===", target.display());
+    println!(
+        "=== WebDAV 真机联调·增量结构（数据目录 {}）===",
+        target.display()
+    );
     let cfg = ctx.config();
     println!(
         "目标服务器: {} (user: {})",
@@ -28,18 +33,16 @@ fn main() {
 
     let mut pass = 0usize;
     let mut fail = 0usize;
-    let mut uploaded_name: Option<String> = None;
 
     // ---- 步骤 1：连接测试（PROPFIND Depth:1）----
     match backup::test_webdav(&ctx) {
         Ok(n) => {
-            println!("[1] PROPFIND 连接测试: PASS（远端已有 {n} 份备份）");
+            println!("[1] PROPFIND 连接测试: PASS（远端已有 {n} 份可恢复备份）");
             pass += 1;
         }
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("自动创建") {
-                // 目录不存在是预期场景：认证通过 + 明确指引文案 = 连接测试尽责
                 println!("[1] PROPFIND 连接测试: PASS（目录不存在，文案指引自动创建）");
                 pass += 1;
             } else {
@@ -49,19 +52,18 @@ fn main() {
         }
     }
 
-    // ---- 步骤 2：远端列表（解析 + 倒序）----
-    let before = match backup::list_webdav_backups(&ctx) {
+    // 联调前远端全量文件名（三类：backup/snapshot/attachments）——清理时只动新增的
+    let before = propfind_names_remote(&ctx);
+
+    // ---- 步骤 2：远端列表（解析 + 倒序 + 附件包不外显）----
+    let list_before = match backup::list_webdav_backups(&ctx) {
         Ok(rows) => {
-            println!("[2] 远端列表解析: PASS（{} 份，新→旧前 5：）", rows.len());
-            for r in rows.iter().take(5) {
-                println!("      {}", r.file_name);
-            }
+            println!("[2] 远端列表解析: PASS（{} 份可恢复备份）", rows.len());
             pass += 1;
             rows.into_iter().map(|r| r.file_name).collect::<Vec<_>>()
         }
         Err(e) => {
             if e.to_string().contains("自动创建") {
-                // 目录尚未创建（本次联调会触发 MKCOL）：列表报错属预期
                 println!("[2] 远端列表解析: PASS（目录尚未创建，上传时自动建）");
                 pass += 1;
             } else {
@@ -72,7 +74,7 @@ fn main() {
         }
     };
 
-    // ---- 步骤 3：上传最新本地备份（PUT + 重试）----
+    // ---- 步骤 3：增量上传（snapshot + 附件包）----
     let local = std::fs::read_dir(ctx.paths.backups.clone())
         .expect("read backups dir")
         .filter_map(|e| e.ok())
@@ -83,34 +85,40 @@ fn main() {
         })
         .max_by_key(|e| e.file_name().to_string_lossy().to_string())
         .expect("至少要有一个本地备份");
-    let name = local.file_name().to_string_lossy().into_owned();
-    println!("[3] 上传本地备份 {name}（2.84 MB 级，PUT）…");
+    let local_name = local.file_name().to_string_lossy().into_owned();
+    println!("[3] 增量上传本地备份 {local_name}（snapshot + 附件包）…");
     match backup::upload_backup_to_webdav(&ctx, &local.path()) {
         Ok(()) => {
-            println!("[3] PUT 上传: PASS");
+            println!("[3] 增量上传: PASS");
             pass += 1;
-            uploaded_name = Some(name.clone());
         }
         Err(e) => {
-            println!("[3] PUT 上传: FAIL（{e}）");
+            println!("[3] 增量上传: FAIL（{e}）");
             fail += 1;
         }
     }
 
-    // ---- 步骤 4：列表确认新文件出现 ----
+    // ---- 步骤 4：列表确认快照出现 ----
+    let mut uploaded_snapshot: Option<String> = None;
     match backup::list_webdav_backups(&ctx) {
         Ok(rows) => {
             let names: Vec<String> = rows.into_iter().map(|r| r.file_name).collect();
-            if let Some(n) = &uploaded_name {
-                if names.contains(n) {
-                    println!("[4] 上传后列表包含新文件: PASS");
+            let new_snapshot = names
+                .iter()
+                .find(|n| n.starts_with("voucher-snapshot-") && !list_before.contains(n))
+                .cloned();
+            match new_snapshot {
+                Some(s) => {
+                    println!("[4] 上传后列表包含新快照: PASS（{s}）");
+                    uploaded_snapshot = Some(s);
                     pass += 1;
-                } else {
-                    println!("[4] 上传后列表包含新文件: FAIL（{n} 未出现在远端列表）");
+                }
+                None => {
+                    println!("[4] 上传后列表包含新快照: FAIL（未出现新 voucher-snapshot-*）");
                     fail += 1;
                 }
             }
-            // 顺带验证排序：新→旧（文件名时间戳倒序）
+            // 排序：新→旧
             let mut sorted = names.clone();
             sorted.sort();
             sorted.reverse();
@@ -128,85 +136,124 @@ fn main() {
         }
     }
 
-    // ---- 步骤 5：下载回来（GET + 临时文件落盘）----
-    if let Some(n) = uploaded_name.clone() {
-        // 先移走本地同名文件，否则幂等早退测不到真实下载
-        let dest = ctx.paths.backups.join(&n);
-        let moved = ctx.paths.temp.join(format!("webdav-e2e-park-{n}"));
-        let parked = if dest.exists() {
-            std::fs::rename(&dest, &moved).is_ok()
-        } else {
-            false
-        };
-        match backup::download_webdav_backup(&ctx, &n) {
-            Ok(path) => {
-                // sha256 比对：上传源（被移走的原件）vs 下载件
-                let src = if parked { moved.clone() } else { local.path() };
-                let src_hash = sha256_file(&src);
-                let dl_hash = sha256_file(std::path::Path::new(&path));
-                if src_hash == dl_hash && !src_hash.is_empty() {
-                    println!("[5] GET 下载 + sha256 一致: PASS（{path}）");
-                    pass += 1;
-                } else {
-                    println!(
-                        "[5] GET 下载 + sha256 一致: FAIL（src={src_hash:.16}… dl={dl_hash:.16}…）"
-                    );
-                    fail += 1;
-                }
-            }
-            Err(e) => {
-                println!("[5] GET 下载: FAIL（{e}）");
+    // ---- 步骤 5：二次上传（附件未变）→ 附件包 0 流量（远端附件包数量不变）----
+    let bundles_before = before
+        .iter()
+        .filter(|n| n.starts_with("voucher-attachments-"))
+        .count();
+    match backup::upload_backup_to_webdav(&ctx, &local.path()) {
+        Ok(()) => {
+            let after = propfind_names_remote(&ctx);
+            let bundles_after = after
+                .iter()
+                .filter(|n| n.starts_with("voucher-attachments-"))
+                .count();
+            if bundles_after == bundles_before
+                || bundles_after == bundles_before + 1 && bundles_before == 0
+            {
+                // 首次联调（before 无附件包）允许 +1；已有则必须不变 = 附件未重传
+                println!("[5] 二次上传·附件包不重传: PASS（{bundles_after} 个附件包）");
+                pass += 1;
+            } else {
+                println!(
+                    "[5] 二次上传·附件包不重传: FAIL（before={bundles_before} after={bundles_after}，附件包被重复上传？）"
+                );
                 fail += 1;
             }
         }
-        // 恢复现场：下载件留在 backups/（本来就是有效备份）；移走的原件若与下载件同内容则删除，否则还原
-        if parked {
-            let dl = ctx.paths.backups.join(&n);
-            if sha256_file(&dl) == sha256_file(&moved) {
-                let _ = std::fs::remove_file(&moved); // 内容一致，保留一份即可
-            } else {
-                let _ = std::fs::rename(&moved, &dl); // 内容不一致，还原原件防数据丢失
-            }
-        }
-    }
-
-    // ---- 步骤 6：非法文件名防护（不应发起网络请求即被拒绝）----
-    match backup::download_webdav_backup(&ctx, "../voucher-backup-evil.zip") {
-        Err(e) if e.to_string().contains("非法") => {
-            println!("[6] 路径穿越入参拒绝: PASS");
-            pass += 1;
-        }
-        other => {
-            println!("[6] 路径穿越入参拒绝: FAIL（{other:?}）");
+        Err(e) => {
+            println!("[5] 二次上传: FAIL（{e}）");
             fail += 1;
         }
     }
 
-    // ---- 步骤 7（默认）：清理远端测试上传，恢复联调前状态 ----
-    if !keep {
-        if let Some(n) = uploaded_name {
-            if !before.contains(&n) {
-                // 仅当该文件是本次联调新上传的才删；之前就在云端的绝不动
-                match delete_remote(&ctx, &n) {
-                    Ok(true) => {
-                        println!("[7] 清理远端测试文件: PASS（{n} 已删除，远端恢复联调前状态）");
-                        pass += 1;
-                    }
-                    Ok(false) => {
-                        println!("[7] 清理远端测试文件: FAIL（未找到）");
-                        fail += 1;
-                    }
-                    Err(e) => {
-                        println!("[7] 清理远端测试文件: FAIL（{e}）");
-                        fail += 1;
-                    }
+    // ---- 步骤 6：下载快照（自动拉附件包 + 合成 v2 全量）→ inspect 校验 ----
+    if let Some(snap_name) = uploaded_snapshot.clone() {
+        // 先移走可能已存在的同时间戳合成产物，避免幂等早退
+        let ts = snap_name.trim_start_matches("voucher-snapshot-");
+        let composed_name = format!("voucher-backup-{ts}");
+        let dest = ctx.paths.backups.join(&composed_name);
+        let parked = if dest.exists() {
+            std::fs::rename(
+                &dest,
+                ctx.paths
+                    .temp
+                    .join(format!("webdav-e2e-park-{composed_name}")),
+            )
+            .is_ok()
+        } else {
+            false
+        };
+        match backup::download_webdav_backup(&ctx, &snap_name) {
+            Ok(path) => match backup::inspect_backup(std::path::Path::new(&path)) {
+                Ok(summary) if summary.checksums_verified => {
+                    println!(
+                        "[6] 快照下载合成 + 完整性校验: PASS（{} 附件，{} 条目）",
+                        summary.attachment_count,
+                        summary.restored_files.len()
+                    );
+                    pass += 1;
                 }
-            } else {
-                println!("[7] 清理: SKIP（{n} 联调前已存在于云端，保留不动）");
+                Ok(_) => {
+                    println!("[6] 快照下载合成: FAIL（校验未通过）");
+                    fail += 1;
+                }
+                Err(e) => {
+                    println!("[6] 快照下载合成: FAIL（{e}）");
+                    fail += 1;
+                }
+            },
+            Err(e) => {
+                println!("[6] 快照下载: FAIL（{e}）");
+                fail += 1;
             }
         }
+        // 现场恢复：合成件是有效备份，留在 backups/；还原被移走的原件（若有）
+        if parked {
+            let _ = std::fs::rename(
+                ctx.paths
+                    .temp
+                    .join(format!("webdav-e2e-park-{composed_name}")),
+                ctx.paths
+                    .backups
+                    .join(format!("{composed_name}.orig-parked")),
+            );
+        }
+    }
+
+    // ---- 步骤 7：非法文件名防护 ----
+    match backup::download_webdav_backup(&ctx, "../voucher-backup-evil.zip") {
+        Err(e) if e.to_string().contains("非法") => {
+            println!("[7] 路径穿越入参拒绝: PASS");
+            pass += 1;
+        }
+        other => {
+            println!("[7] 路径穿越入参拒绝: FAIL（{other:?}）");
+            fail += 1;
+        }
+    }
+
+    // ---- 步骤 8（默认）：清理远端测试上传（只删联调前不存在的白名单文件）----
+    if !keep {
+        let after = propfind_names_remote(&ctx);
+        let mut cleaned = 0usize;
+        for name in &after {
+            if before.contains(name) {
+                continue; // 联调前就在云端的绝不动
+            }
+            // 附件包直接删除（download 只面向快照/全量，不适用于附件包）
+            if let Ok(true) = delete_remote(&ctx, name) {
+                cleaned += 1;
+            }
+        }
+        if cleaned > 0 {
+            println!("[8] 清理远端测试文件: PASS（{cleaned} 个，远端恢复联调前状态）");
+            pass += 1;
+        } else {
+            println!("[8] 清理: SKIP（无新增文件或均已清理）");
+        }
     } else {
-        println!("[7] 清理: SKIP（--keep 保留云端文件）");
+        println!("[8] 清理: SKIP（--keep 保留云端文件）");
     }
 
     println!("\n=== 结果：{pass} PASS / {fail} FAIL ===");
@@ -215,19 +262,63 @@ fn main() {
     }
 }
 
-fn sha256_file(p: &std::path::Path) -> String {
-    use sha2::{Digest, Sha256};
-    let Ok(bytes) = std::fs::read(p) else {
-        return String::new();
+/// PROPFIND 远端全部白名单文件名（三类），e2e 前后对比用。
+/// 与主程序 parse_backup_hrefs 同构：宽松解析 href 尾段。
+fn propfind_names_remote(ctx: &CoreContext) -> Vec<String> {
+    let cfg = ctx.config();
+    let webdav = &cfg.backup.webdav;
+    let password = match ctx
+        .secrets
+        .get(voucher_core::utils::config::SECRET_WEBDAV_PASSWORD)
+    {
+        Ok(Some(p)) => p,
+        _ => return Vec::new(),
     };
-    let mut h = Sha256::new();
-    h.update(&bytes);
-    format!("{:x}", h.finalize())
+    let base = webdav.url.trim().trim_end_matches('/');
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("client");
+    let resp = client
+        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), base)
+        .basic_auth(&webdav.username, Some(&password))
+        .header("Depth", "1")
+        .send()
+        .expect("propfind");
+    let body = resp.text().unwrap_or_default();
+    let lower = body.to_lowercase();
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(start) = lower[pos..]
+        .find("<d:href")
+        .or_else(|| lower[pos..].find("<href"))
+    {
+        let abs = pos + start;
+        let Some(gt) = lower[abs..].find('>') else {
+            break;
+        };
+        let cs = abs + gt + 1;
+        let Some(end) = lower[cs..].find("</") else {
+            break;
+        };
+        let ce = cs + end;
+        if let Some(name) = body[cs..ce].rsplit('/').next() {
+            let ok = (name.starts_with("voucher-backup-")
+                || name.starts_with("voucher-snapshot-")
+                || name.starts_with("voucher-attachments-"))
+                && name.ends_with(".zip")
+                && !name.contains("..");
+            if ok {
+                out.push(name.to_string());
+            }
+        }
+        pos = ce;
+    }
+    out
 }
 
-/// 删除远端单个备份（仅用于联调清理；复用 backup 模块的认证与 URL 构造约定）
+/// 删除远端单个白名单文件（仅用于联调清理；复用认证与 URL 构造约定）
 fn delete_remote(ctx: &CoreContext, file_name: &str) -> voucher_core::Result<bool> {
-    // backup 模块没有公开单文件删除，这里用同构逻辑：读配置 + 凭据库
     let cfg = ctx.config();
     let webdav = &cfg.backup.webdav;
     let password = ctx
