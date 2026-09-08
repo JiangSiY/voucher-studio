@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type BackupInfo, type CounterpartyRow, type MonthlySummary, type TagRow, type Voucher, type VoucherStats } from "../api/client";
+import { api, type BackupInfo, type CounterpartyRow, type DuplicateGroup, type MonthlySummary, type TagRow, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
@@ -19,6 +19,10 @@ const monthly = ref<MonthlySummary[]>([]);
 const busy = ref(false);
 
 const REPORT_MONTHS = 6;
+
+// ---------- v0.10：疑似重复扫描（同日期 + 同金额；仅提示，不阻断任何操作） ----------
+
+const duplicates = ref<DuplicateGroup[]>([]);
 
 // ---------- v0.7 R-1：Top 对方账户排行（按金额降序） ----------
 
@@ -61,6 +65,12 @@ async function load() {
     monthly.value = await api.monthlySummary(REPORT_MONTHS);
     counterparties.value = await api.topCounterparties(0, CP_TOP);
     tagRows.value = await api.tagStats(0, TAG_TOP);
+    // 疑似重复是辅助检查，失败静默（不影响仪表盘其他数据展示）
+    try {
+      duplicates.value = await api.scanDuplicates();
+    } catch {
+      duplicates.value = [];
+    }
   } catch (e) {
     toastError(e);
   }
@@ -235,6 +245,25 @@ onUnmounted(() => {
       数据全部保存在本机（{{ configStore.appInfo?.dataDir }}），
       <span v-if="backups.length === 0" style="color: var(--warning)">建议先做一次备份。</span>
       <span v-else>最近备份 {{ fmtDate(backups[0].createdAt) }}。</span>
+    </div>
+  </div>
+
+  <!-- v0.10：疑似重复面板（同日期 + 同金额；点击凭证号跳编辑页人工比对） -->
+  <div class="callout warning" v-if="duplicates.length">
+    <span class="ci"><FluentIcon name="warning" :size="18" /></span>
+    <div class="ct">
+      <strong>发现 {{ duplicates.length }} 组疑似重复凭证</strong>
+      （同日期同金额；可能是同一票据多次拍照/扫描，也可能是同日两笔相同金额的正常业务——请人工核对）
+      <div v-for="(g, gi) in duplicates.slice(0, 4)" :key="gi" class="dup-group">
+        <span class="dup-key">{{ g.voucherDate }} · ¥{{ fmtAmount(g.amountCents) }} × {{ g.vouchers.length }} 张：</span>
+        <template v-for="(v, vi) in g.vouchers" :key="v.id">
+          <a class="dup-link" @click.prevent="router.push(`/vouchers/${v.id}`)" href="#"
+            :title="`${v.description || '（无摘要）'} · ${v.counterparty || '（无对方）'}`">{{ v.voucherNo }}</a><span v-if="vi < g.vouchers.length - 1">、</span>
+        </template>
+      </div>
+      <div v-if="duplicates.length > 4" style="font-size: 12px; margin-top: 4px">
+        其余 {{ duplicates.length - 4 }} 组在保存凭证时也会逐张提示
+      </div>
     </div>
   </div>
 
@@ -418,6 +447,24 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* v0.10 疑似重复面板：组行 + 可点凭证号 */
+.dup-group {
+  font-size: 13px;
+  margin-top: 6px;
+  line-height: 1.9;
+}
+
+.dup-key {
+  color: var(--text-2);
+}
+
+.dup-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

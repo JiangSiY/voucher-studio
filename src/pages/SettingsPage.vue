@@ -61,8 +61,21 @@ function defaultConfig(): AppConfig {
       stepSharpen: false,
       stepDenoise: false,
     },
+    voucher: { descriptionTemplates: [] },
   };
 }
+
+/** v0.10：常用摘要模板（每行一条 ↔ 数组互转；空行/首尾空白自动清理） */
+const descTemplatesText = computed({
+  get: () => (cfg.voucher?.descriptionTemplates ?? []).join("\n"),
+  set: (v: string) => {
+    if (!cfg.voucher) cfg.voucher = { descriptionTemplates: [] };
+    cfg.voucher.descriptionTemplates = v
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  },
+});
 
 const secrets = ref<SecretStatus[]>([]);
 const localOcr = ref<LocalOcrStatus | null>(null);
@@ -89,6 +102,8 @@ async function load() {
   try {
     const c = await api.getConfig();
     Object.assign(cfg, c);
+    // v0.10 兜底：极旧配置文件可能无 voucher 段（后端 serde default 已保证，此处双保险）
+    if (!cfg.voucher) cfg.voucher = { descriptionTemplates: [] };
     secrets.value = await api.listSecrets();
     localOcr.value = await api.getLocalOcrStatus();
     enhanceStat.value = await api.enhanceStatus();
@@ -512,6 +527,15 @@ onUnmounted(() => {
       <div class="callout info" style="margin: 0">
         <span class="ci"><FluentIcon name="bulb" :size="18" /></span>
         <div class="ct">修改模板只影响之后新建的凭证，已有编号不会变。</div>
+      </div>
+      <!-- v0.10：常用摘要模板（编辑页联想置顶项） -->
+      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px">
+        <label>常用摘要模板（每行一条）</label>
+        <textarea v-model="descTemplatesText" class="input" rows="5"
+          placeholder="如：&#10;办公用品采购&#10;差旅住宿费&#10;市内交通费"></textarea>
+        <div class="desc">
+          编辑凭证时聚焦「摘要」输入框，会联想这些模板（置顶）并合并历史高频摘要，点选即填，减少重复录入。
+        </div>
       </div>
     </div>
   </div>

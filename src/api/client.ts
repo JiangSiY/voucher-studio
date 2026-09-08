@@ -211,6 +211,24 @@ export interface ExportBatch {
   pdfPath: string;
   status: "done" | "failed";
   createdAt: string;
+  /** v0.10：导出格式 pdf（默认）| xlsx | csv */
+  format?: "pdf" | "xlsx" | "csv";
+}
+
+/** v0.10：表格式导出格式 */
+export type TableFormat = "xlsx" | "csv";
+
+/** v0.10：高频摘要行（编辑页联想） */
+export interface DescriptionRow {
+  description: string;
+  count: number;
+}
+
+/** v0.10：疑似重复组（全库扫描；同日期 + 同金额、组内 ≥2 张） */
+export interface DuplicateGroup {
+  voucherDate: string;
+  amountCents: number;
+  vouchers: Voucher[];
 }
 
 export interface ExportOptions {
@@ -255,6 +273,11 @@ export interface AppConfig {
   };
   /** v0.6：文档扫描矫正（5 步算法 + 2 占位） */
   enhance: EnhanceConfig;
+  /** v0.10：凭证录入辅助 */
+  voucher: {
+    /** 常用摘要模板（编辑页联想 = 模板 + 历史高频摘要合并去重） */
+    descriptionTemplates: string[];
+  };
 }
 
 /** v0.6 文档扫描矫正设置 */
@@ -431,6 +454,15 @@ export const api = {
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
 
+  /** v0.10：高频摘要（编辑页联想；自定义模板在 config.voucher.descriptionTemplates） */
+  frequentDescriptions: (limit?: number) =>
+    invoke<DescriptionRow[]>("frequent_descriptions", { limit }),
+  /** v0.10：单凭证疑似重复（同日期同金额的其他凭证；保存后提示用） */
+  checkVoucherDuplicates: (id: number) =>
+    invoke<Voucher[]>("check_voucher_duplicates", { id }),
+  /** v0.10：全库疑似重复扫描（仪表盘面板；同日期同金额、组内 ≥2 张） */
+  scanDuplicates: () => invoke<DuplicateGroup[]>("scan_duplicates"),
+
   /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10） */
   topCounterparties: (months?: number, limit?: number) =>
     invoke<CounterpartyRow[]>("top_counterparties", { months, limit }),
@@ -459,6 +491,9 @@ export const api = {
 
   exportPdf: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch>("export_pdf", { voucherIds, options }),
+  /** v0.10：表格式导出（Excel / CSV；列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行） */
+  exportTable: (voucherIds: number[], format: TableFormat) =>
+    invoke<ExportBatch>("export_table", { voucherIds, format }),
   /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */
   exportBatchVouchers: (batchId: number) =>
     invoke<Voucher[]>("export_batch_vouchers", { batchId }),

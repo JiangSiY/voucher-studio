@@ -22,6 +22,16 @@ pub struct AppConfig {
     pub print: PrintConfig,
     /// v0.6：文档扫描矫正（5 步算法开关）
     pub enhance: EnhanceConfig,
+    /// v0.10：凭证录入辅助（常用摘要模板等）
+    pub voucher: VoucherConfig,
+}
+
+/// v0.10：凭证录入辅助配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VoucherConfig {
+    /// 常用摘要模板（设置页维护；编辑页联想 = 模板 + 历史高频摘要合并去重）
+    pub description_templates: Vec<String>,
 }
 
 /// 外观：light / dark / system

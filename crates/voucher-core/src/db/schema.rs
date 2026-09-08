@@ -134,6 +134,18 @@ CREATE TABLE IF NOT EXISTS ocr_layouts (
 );
 "#;
 
+/// v6 附加结构（v0.10/v0.11）：疑似重复检测索引 + 会计期间锁。
+/// 幂等执行；`export_batches.format` 列与 `period_locks` 表见 `init` 中的 Rust 侧补齐。
+pub const SCHEMA_V6: &str = r#"
+-- 疑似重复检测（同日期 + 同金额分组扫描）
+CREATE INDEX IF NOT EXISTS idx_vouchers_dup ON vouchers(voucher_date, amount_cents);
+-- 会计期间锁（v0.11：按月封账；period = YYYY-MM）
+CREATE TABLE IF NOT EXISTS period_locks (
+    period    TEXT PRIMARY KEY,
+    locked_at TEXT NOT NULL
+);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -151,5 +163,25 @@ pub fn init(conn: &Connection) -> Result<()> {
     }
     // v5：OCR 版面表（幂等，新旧库统一补齐；旧附件无 layout，识别时回退纯文本抽取）
     conn.execute_batch(SCHEMA_LAYOUT)?;
+    // v6：疑似重复索引 + 期间锁表（幂等）；v0.9 已发布、用户已有数据，只增不改
+    conn.execute_batch(SCHEMA_V6)?;
+    // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
+    let has_format: bool = {
+        let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;
+        let mut rows = stmt.query([])?;
+        let mut found = false;
+        while let Some(r) = rows.next()? {
+            if r.get::<_, String>(1)? == "format" {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if !has_format {
+        conn.execute_batch(
+            "ALTER TABLE export_batches ADD COLUMN format TEXT NOT NULL DEFAULT 'pdf'",
+        )?;
+    }
     Ok(())
 }

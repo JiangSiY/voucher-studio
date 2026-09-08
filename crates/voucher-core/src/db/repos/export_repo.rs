@@ -2,20 +2,36 @@
 
 use rusqlite::{params, Connection};
 
-use crate::models::{ExportBatch, ExportItem, ExportStatus, NewExportBatch};
+use crate::models::{ExportBatch, ExportFormat, ExportItem, ExportStatus, NewExportBatch};
 use crate::utils::paths::now_iso;
 use crate::{CoreError, Result};
 
+/// 批次表列（v0.10 起含 format；旧库由 schema::init 幂等补列）
+const COLS: &str = "id, batch_no, voucher_count, pdf_path, status, created_at, format";
+
+fn row_to_batch(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportBatch> {
+    Ok(ExportBatch {
+        id: r.get(0)?,
+        batch_no: r.get(1)?,
+        voucher_count: r.get(2)?,
+        pdf_path: r.get(3)?,
+        status: ExportStatus::parse(&r.get::<_, String>(4)?).unwrap_or(ExportStatus::Done),
+        created_at: r.get(5)?,
+        format: ExportFormat::parse(&r.get::<_, String>(6)?),
+    })
+}
+
 pub fn insert_batch(conn: &Connection, b: &NewExportBatch) -> Result<ExportBatch> {
     conn.execute(
-        "INSERT INTO export_batches (batch_no, voucher_count, pdf_path, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO export_batches (batch_no, voucher_count, pdf_path, status, created_at, format)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             b.batch_no,
             b.voucher_count,
             b.pdf_path,
             b.status.as_str(),
-            now_iso()
+            now_iso(),
+            b.format.as_str(),
         ],
     )?;
     let id = conn.last_insert_rowid();
@@ -23,19 +39,10 @@ pub fn insert_batch(conn: &Connection, b: &NewExportBatch) -> Result<ExportBatch
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<Option<ExportBatch>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, batch_no, voucher_count, pdf_path, status, created_at FROM export_batches WHERE id = ?1",
-    )?;
+    let mut stmt = conn.prepare(&format!("SELECT {COLS} FROM export_batches WHERE id = ?1"))?;
     let mut rows = stmt.query(params![id])?;
     Ok(match rows.next()? {
-        Some(r) => Some(ExportBatch {
-            id: r.get(0)?,
-            batch_no: r.get(1)?,
-            voucher_count: r.get(2)?,
-            pdf_path: r.get(3)?,
-            status: ExportStatus::parse(&r.get::<_, String>(4)?).unwrap_or(ExportStatus::Done),
-            created_at: r.get(5)?,
-        }),
+        Some(r) => Some(row_to_batch(r)?),
         None => None,
     })
 }
@@ -80,19 +87,12 @@ pub fn list_items(conn: &Connection, batch_id: i64) -> Result<Vec<ExportItem>> {
 
 pub fn list_batches(conn: &Connection, limit: u32) -> Result<Vec<ExportBatch>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT id, batch_no, voucher_count, pdf_path, status, created_at FROM export_batches ORDER BY id DESC LIMIT {limit}"
+        "SELECT {COLS} FROM export_batches ORDER BY id DESC LIMIT {limit}"
     ))?;
     let mut rows = stmt.query([])?;
     let mut out = Vec::new();
     while let Some(r) = rows.next()? {
-        out.push(ExportBatch {
-            id: r.get(0)?,
-            batch_no: r.get(1)?,
-            voucher_count: r.get(2)?,
-            pdf_path: r.get(3)?,
-            status: ExportStatus::parse(&r.get::<_, String>(4)?).unwrap_or(ExportStatus::Done),
-            created_at: r.get(5)?,
-        });
+        out.push(row_to_batch(r)?);
     }
     Ok(out)
 }

@@ -273,3 +273,39 @@ pub fn tag_stats(ctx: &CoreContext, months: u32, limit: u32) -> Result<Vec<TagRo
         Ok(rows)
     })
 }
+
+// ---------- v0.10：常用摘要（编辑页联想） ----------
+
+/// 常用摘要行
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptionRow {
+    pub description: String,
+    /// 使用次数
+    pub count: i64,
+}
+
+/// 高频摘要：按历史使用频次降序，取前 `limit` 条。
+/// 空摘要（导入后未填写，描述=文件名）不参与——联想的目的是复用「人写过的」摘要。
+pub fn frequent_descriptions(ctx: &CoreContext, limit: u32) -> Result<Vec<DescriptionRow>> {
+    let limit = limit.clamp(1, 20);
+    ctx.db.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT description, COUNT(*) AS cnt
+             FROM vouchers
+             WHERE TRIM(description) <> ''
+             GROUP BY description
+             ORDER BY cnt DESC, description ASC
+             LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit as i64], |r| {
+                Ok(DescriptionRow {
+                    description: r.get(0)?,
+                    count: r.get(1)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })
+}

@@ -15,6 +15,7 @@ pub mod recovery;
 pub mod reports;
 pub mod scheduler;
 pub mod search;
+pub mod table;
 pub mod voucher_mgr;
 // v0.6 文档扫描矫正与增强（5.5 方案，A 步：依赖接入 + 占位）
 pub mod enhance;

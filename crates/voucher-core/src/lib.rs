@@ -33,6 +33,8 @@ pub enum CoreError {
     Pdf(#[from] printpdf::Error),
     #[error("压缩包错误: {0}")]
     Zip(#[from] zip::result::ZipError),
+    #[error("Excel 错误: {0}")]
+    Xlsx(#[from] rust_xlsxwriter::XlsxError),
     #[error("未实现: {0}")]
     NotImplemented(&'static str),
     #[error("本地 OCR: {0}")]

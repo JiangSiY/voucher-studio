@@ -28,6 +28,8 @@ const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
 const columns = ref<1 | 2 | 3>(3);
 const includeImages = ref(true);
 const groupByDay = ref(true);
+/** v0.10：导出格式（PDF 保留原有按天/合并两形态；Excel/CSV 走表格式导出） */
+const exportFormat = ref<"pdf" | "xlsx" | "csv">("pdf");
 
 // ---------- 筛选器（按日期范围 / 状态 / 标签） ----------
 const filterDateFrom = ref("");
@@ -79,6 +81,14 @@ function clearFilters() {
 
 const busy = ref(false);
 const lastBatches = ref<ExportBatch[]>([]);
+
+/** 生成按钮文案（格式 × 按天/合并） */
+const generateLabel = computed(() => {
+  if (busy.value) return "生成中…";
+  if (exportFormat.value === "xlsx") return "导出 Excel";
+  if (exportFormat.value === "csv") return "导出 CSV";
+  return groupByDay.value ? "生成凭证日报" : "生成 PDF";
+});
 
 /** 只刷新可选凭证列表（不动用户已调整的打印选项） */
 async function loadVouchers() {
@@ -161,11 +171,24 @@ const previewByDay = computed(() => {
 
 async function generate() {
   if (!selected.value.size) {
-    toast.warning("请先勾选要打印的凭证");
+    toast.warning(exportFormat.value === "pdf" ? "请先勾选要打印的凭证" : "请先勾选要导出的凭证");
     return;
   }
   busy.value = true;
   try {
+    // v0.10：表格式导出（Excel / CSV）——列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行
+    if (exportFormat.value !== "pdf") {
+      const batch = await api.exportTable([...selected.value], exportFormat.value);
+      lastBatches.value = [batch];
+      toast.success(
+        `已导出 ${exportFormat.value === "xlsx" ? "Excel" : "CSV"}：${batch.batchNo}（${batch.voucherCount} 张凭证）`,
+        {
+          label: "打开文件",
+          onClick: () => void api.openPath(batch.pdfPath),
+        },
+      );
+      return;
+    }
     // v0.8：dailyTemplate 走全局打印设置（SettingsPage 可切 archive/compact）
     const options = {
       title: title.value,
@@ -273,8 +296,19 @@ onUnmounted(() => {
       </div>
 
       <div class="fluent-panel">
-        <div class="fluent-panel-header"><h3>打印选项</h3></div>
+        <div class="fluent-panel-header"><h3>{{ exportFormat === "pdf" ? "打印选项" : "导出选项" }}</h3></div>
         <div class="fluent-panel-body">
+          <!-- v0.10：导出格式（PDF 走打印流水线；Excel/CSV 走表格式导出） -->
+          <div class="field">
+            <label>导出格式</label>
+            <div class="filter-chips">
+              <button class="fchip" :class="{ active: exportFormat === 'pdf' }" @click="exportFormat = 'pdf'">PDF（打印归档）</button>
+              <button class="fchip" :class="{ active: exportFormat === 'xlsx' }" @click="exportFormat = 'xlsx'">Excel</button>
+              <button class="fchip" :class="{ active: exportFormat === 'csv' }" @click="exportFormat = 'csv'">CSV</button>
+            </div>
+            <div class="desc" v-if="exportFormat !== 'pdf'">表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 标签 / 备注 + 合计行），适合对账与导入记账软件</div>
+          </div>
+          <template v-if="exportFormat === 'pdf'">
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 12px">
             <div>
               <div style="font-size: 13px; font-weight: 600">按天分组导出</div>
@@ -319,21 +353,58 @@ onUnmounted(() => {
               <span class="slider"></span>
             </label>
           </div>
+          </template>
           <button class="btn btn-primary" style="width: 100%; justify-content: center; padding: 8px" :disabled="busy"
             @click="generate">
-            <FluentIcon v-if="!busy" name="print" :size="15" />{{ busy ? "生成中…" : groupByDay ? "生成凭证日报" : "生成 PDF" }}
+            <FluentIcon v-if="!busy" name="print" :size="15" />{{ generateLabel }}
           </button>
           <button v-if="lastBatches.length" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
             @click="openLastPdf">
-            打开上一次生成的 PDF（{{ lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报` }}）
+            打开上一次生成的文件（{{ lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报` }}）
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 右：实时预览 -->
+    <!-- 右：实时预览（PDF：卡片/日报预览；Excel/CSV：导出表格预览） -->
     <div>
-      <div class="print-area">
+      <!-- v0.10 表格式导出预览：与导出文件同列序，只展示前 12 行 -->
+      <div v-if="exportFormat !== 'pdf'" class="print-area">
+        <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 8px">
+          {{ exportFormat === "xlsx" ? "Excel" : "CSV" }} 导出预览（{{ previewVouchers.length }} 张）
+        </div>
+        <div class="dtable-wrap" v-if="previewVouchers.length">
+          <table class="dtable">
+            <thead>
+              <tr>
+                <th>凭证号</th><th>日期</th><th>摘要</th><th>对方账户</th>
+                <th style="text-align: right">金额（元）</th><th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="v in previewVouchers.slice(0, 12)" :key="v.id">
+                <td><span class="mono">{{ v.voucherNo }}</span></td>
+                <td>{{ v.voucherDate }}</td>
+                <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
+                <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.counterparty || "—" }}</td>
+                <td style="text-align: right" class="mono">{{ v.amountCents != null ? (v.amountCents / 100).toFixed(2) : "" }}</td>
+                <td>{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else style="text-align: center; color: #8e8e8e; padding: 48px 0; font-size: 13px">
+          勾选左侧凭证后预览导出内容
+        </div>
+        <div v-if="previewVouchers.length > 12" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+          仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
+        </div>
+        <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
+          文件另含 标签 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
+        </div>
+      </div>
+
+      <div v-else class="print-area">
         <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 8px">{{ title }}</div>
 
         <!-- 按天分组预览：每天一个小节（日期 + 当日卡片） -->

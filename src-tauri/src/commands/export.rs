@@ -36,6 +36,21 @@ pub async fn export_pdf_daily(
     .map_err(|e| e.to_string())?
 }
 
+/// v0.10：表格式导出（Excel / CSV；format: xlsx | csv）
+#[tauri::command]
+pub async fn export_table(
+    ctx: Ctx<'_>,
+    voucher_ids: Vec<i64>,
+    format: voucher_core::models::ExportFormat,
+) -> std::result::Result<voucher_core::models::ExportBatch, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(export::export_vouchers_table(&core, &voucher_ids, format))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn list_export_batches(
     ctx: Ctx,

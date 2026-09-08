@@ -9,7 +9,7 @@ pub mod voucher;
 
 pub use attachment::{Attachment, EnhanceSource, NewAttachment};
 pub use enums::{ExportStatus, OcrStatus, VoucherStatus};
-pub use export_batch::{ExportBatch, ExportItem, NewExportBatch};
+pub use export_batch::{ExportBatch, ExportFormat, ExportItem, NewExportBatch};
 pub use ocr_line::OcrLine;
 pub use snapshot::VoucherSnapshot;
 pub use voucher::{NewVoucher, Voucher, VoucherUpdate};

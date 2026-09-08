@@ -8,7 +8,7 @@ use chrono::Datelike;
 use common::*;
 use voucher_core::db::repos::attachment_repo;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
-use voucher_core::models::{NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
+use voucher_core::models::{ExportFormat, NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
 use voucher_core::services::{export, ingestion, reports, search, voucher_mgr};
 use voucher_core::{CoreContext, CoreError, Result};
 #[test]
@@ -34,9 +34,24 @@ fn schema_creates_eight_tables() -> Result<()> {
             "snapshots",
             "ocr_cache",
             "config",
+            "period_locks", // v6（v0.11 会计期间锁；v0.10 起随 schema 幂等建表）
         ] {
             assert!(tables.iter().any(|x| x == t), "缺表 {t}");
         }
+        // v6：export_batches 补 format 列（v0.10 表格式导出）
+        let eb_cols: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;
+            let mut rows = stmt.query([])?;
+            let mut v = Vec::new();
+            while let Some(r) = rows.next()? {
+                v.push(r.get::<_, String>(1)?);
+            }
+            v
+        };
+        assert!(
+            eb_cols.iter().any(|c| c == "format"),
+            "缺列 export_batches.format"
+        );
         // v3 升级：documents 增强（5 步流水线 + 来源分类）
         // 验证 attachments 表的列名包含 enhanced_path + enhanced_source
         let cols: Vec<String> = {
@@ -1262,5 +1277,173 @@ fn neighbor_include_ocr_follows_search_scope() -> Result<()> {
     let n2 = voucher_mgr::neighbor(&ctx, a.id, &field_q)?;
     assert_eq!(n2.prev_id, None);
     assert_eq!(n2.total, 0);
+    Ok(())
+}
+
+// ---------- v0.10：表格式导出 / 疑似重复检测 / 高频摘要 ----------
+
+/// v0.10：Excel / CSV 表格式导出——文件落盘、批次记录格式、状态流转与 PDF 同口径
+#[test]
+fn export_table_xlsx_and_csv_records_batch() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let a = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "办公用品,采购".into(),
+            counterparty: "文一店".into(),
+            amount_cents: Some(12345),
+            ..Default::default()
+        },
+    )?;
+    let b = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "无金额凭证".into(),
+            amount_cents: None,
+            ..Default::default()
+        },
+    )?;
+
+    // XLSX
+    let bx = export::export_vouchers_table(&ctx, &[a.id, b.id], ExportFormat::Xlsx)?;
+    assert_eq!(bx.voucher_count, 2);
+    assert!(PathBuf::from(&bx.pdf_path).exists(), "xlsx 已生成");
+    assert!(bx.pdf_path.ends_with(".xlsx"));
+    assert!(
+        std::fs::metadata(&bx.pdf_path).unwrap().len() > 1000,
+        "合法 zip 容器"
+    );
+    assert!(
+        bx.batch_no.contains("EXP-X"),
+        "xlsx 批次号前缀: {}",
+        bx.batch_no
+    );
+
+    // CSV（含 BOM）
+    let bc = export::export_vouchers_table(&ctx, &[a.id], ExportFormat::Csv)?;
+    assert!(bc.pdf_path.ends_with(".csv"));
+    assert!(
+        bc.batch_no.contains("EXP-C"),
+        "csv 批次号前缀: {}",
+        bc.batch_no
+    );
+    let bytes = std::fs::read(&bc.pdf_path)?;
+    assert_eq!(&bytes[..3], &[0xEF, 0xBB, 0xBF], "CSV 带 UTF-8 BOM");
+    let text = String::from_utf8_lossy(&bytes[3..]);
+    assert!(text.contains("凭证号,日期,"));
+    assert!(
+        text.contains("\"办公用品,采购\""),
+        "含逗号字段 RFC4180 转义"
+    );
+    assert!(text.contains("123.45"), "金额数值口径");
+
+    // 批次表：格式字段 + 列表可见；凭证状态流转与 PDF 一致（非归档 → 已导出）
+    let batches = export::list_batches(&ctx, 10)?;
+    assert_eq!(batches.len(), 2);
+    assert_eq!(batches[0].format, ExportFormat::Csv, "最新为 csv");
+    assert_eq!(batches[1].format, ExportFormat::Xlsx);
+    let detail = voucher_mgr::get_detail(&ctx, a.id)?;
+    assert_eq!(detail.voucher.status, VoucherStatus::Exported);
+
+    // PDF 走表格式导出接口应报错（路由保护）
+    let err = export::export_vouchers_table(&ctx, &[a.id], ExportFormat::Pdf);
+    assert!(matches!(err, Err(CoreError::Invalid(_))));
+    Ok(())
+}
+
+/// v0.10：疑似重复——单凭证查询 + 全库分组；空金额不参与判定
+#[test]
+fn duplicate_detection_suspects_and_groups() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let a = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-09-01".into(),
+            description: "第一笔".into(),
+            amount_cents: Some(9900),
+            ..Default::default()
+        },
+    )?;
+    let b = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-09-01".into(),
+            description: "疑似重复".into(),
+            amount_cents: Some(9900),
+            ..Default::default()
+        },
+    )?;
+    // 同金额不同日期：不构成疑似重复
+    let c = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-09-02".into(),
+            description: "不同日期".into(),
+            amount_cents: Some(9900),
+            ..Default::default()
+        },
+    )?;
+    // 空金额：无判定意义
+    let d = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-09-01".into(),
+            description: "空金额".into(),
+            amount_cents: None,
+            ..Default::default()
+        },
+    )?;
+
+    // 单凭证视角：a 的疑似重复 = {b}
+    let suspects = ctx
+        .db
+        .with_conn(|conn| voucher_core::services::dedup::suspected_by_id(conn, a.id))?;
+    assert_eq!(suspects.len(), 1);
+    assert_eq!(suspects[0].id, b.id);
+
+    // 空金额凭证：无疑似
+    let empty = ctx
+        .db
+        .with_conn(|conn| voucher_core::services::dedup::suspected_by_id(conn, d.id))?;
+    assert!(empty.is_empty());
+
+    // 全库扫描：仅一组（a+b），c/d 不混入
+    let groups = ctx
+        .db
+        .with_conn(voucher_core::services::dedup::scan_groups)?;
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].voucher_date, "2026-09-01");
+    assert_eq!(groups[0].amount_cents, 9900);
+    let ids: Vec<i64> = groups[0].vouchers.iter().map(|v| v.id).collect();
+    assert!(ids.contains(&a.id) && ids.contains(&b.id));
+    assert!(!ids.contains(&c.id));
+    assert!(!ids.contains(&d.id));
+    Ok(())
+}
+
+/// v0.10：高频摘要——按次数降序、空摘要排除
+#[test]
+fn frequent_descriptions_orders_by_count() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    for (desc, n) in [("办公用品采购", 3), ("差旅住宿", 2), ("市内交通", 1)] {
+        for _ in 0..n {
+            voucher_mgr::create_voucher(
+                &ctx,
+                NewVoucher {
+                    description: desc.into(),
+                    ..Default::default()
+                },
+            )?;
+        }
+    }
+    // 空摘要（文件名默认值场景）不应参与联想
+    voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
+
+    let rows = reports::frequent_descriptions(&ctx, 8)?;
+    assert_eq!(rows.len(), 3, "空摘要被排除: {rows:?}");
+    assert_eq!(rows[0].description, "办公用品采购");
+    assert_eq!(rows[0].count, 3);
+    assert_eq!(rows[1].description, "差旅住宿");
+    assert_eq!(rows[2].description, "市内交通");
     Ok(())
 }

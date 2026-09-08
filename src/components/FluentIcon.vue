@@ -96,6 +96,7 @@ const ICONS: Record<string, string> = {
     '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8.25 10.5h4.5"/>',
   chevronLeft: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   chevronRight: '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
+  pin: '<path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 4-5.5 10-5.5 10S6.5 13.5 6.5 9.5A5.5 5.5 0 0 1 12 4z"/><circle cx="12" cy="9.5" r="1.8"/>',
 };
 
 const body = computed(() => ICONS[props.name] ?? "");

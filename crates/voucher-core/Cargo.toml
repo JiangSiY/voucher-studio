@@ -26,6 +26,8 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png"]
 opencv = { version = "0.100", features = ["imgproc", "imgcodecs", "calib3d"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
+# v0.10：Excel 导出（纯 Rust、无 C 依赖）
+rust_xlsxwriter = "0.79"
 # 本地 OCR（G1 Spike B 验证路线）：ort = ONNX Runtime 的 Rust 绑定
 ort = "=2.0.0-rc.13"
 

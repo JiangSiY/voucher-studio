@@ -161,6 +161,40 @@ pub fn tag_stats(
     ))
 }
 
+/// v0.10：高频摘要联想（编辑页摘要输入框；模板在前端与 config 合并）
+#[tauri::command]
+pub fn frequent_descriptions(
+    ctx: Ctx,
+    limit: Option<u32>,
+) -> std::result::Result<Vec<voucher_core::services::reports::DescriptionRow>, String> {
+    err_string(voucher_core::services::reports::frequent_descriptions(
+        &ctx,
+        limit.unwrap_or(8),
+    ))
+}
+
+// ---------- v0.10：疑似重复检测（同日期 + 同金额） ----------
+
+/// 单凭证疑似重复（保存后前端提示）：同日期同金额的其他凭证
+#[tauri::command]
+pub fn check_voucher_duplicates(
+    ctx: Ctx,
+    id: i64,
+) -> std::result::Result<Vec<voucher_core::models::Voucher>, String> {
+    err_string(
+        ctx.db
+            .with_conn(|conn| voucher_core::services::dedup::suspected_by_id(conn, id)),
+    )
+}
+
+/// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张
+#[tauri::command]
+pub fn scan_duplicates(
+    ctx: Ctx,
+) -> std::result::Result<Vec<voucher_core::services::dedup::DuplicateGroup>, String> {
+    err_string(ctx.db.with_conn(voucher_core::services::dedup::scan_groups))
+}
+
 // ---------- 搜索 ----------
 
 #[tauri::command]

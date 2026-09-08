@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::repos::{
     attachment_repo, enhance_hit_repo, export_repo, snapshot_repo, voucher_repo,
 };
-use crate::models::{Attachment, EnhanceSource, ExportBatch, Voucher, VoucherStatus};
+use crate::models::{Attachment, EnhanceSource, ExportBatch, ExportFormat, Voucher, VoucherStatus};
 use crate::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfInput, PdfOptions};
 use crate::{CoreContext, CoreError, Result};
 
@@ -111,6 +111,7 @@ pub fn export_vouchers_pdf(
         &items,
         batch_no,
         pdf_path.to_string_lossy().to_string(),
+        ExportFormat::Pdf,
     )
 }
 
@@ -155,6 +156,7 @@ pub fn export_vouchers_daily(
             &day_items,
             batch_no,
             pdf_path.to_string_lossy().to_string(),
+            ExportFormat::Pdf,
         )?);
     }
     Ok(batches)
@@ -164,6 +166,51 @@ pub fn list_batches(ctx: &CoreContext, limit: u32) -> Result<Vec<ExportBatch>> {
     let limit = if limit == 0 { 50 } else { limit };
     ctx.db
         .with_conn(|conn| export_repo::list_batches(conn, limit))
+}
+
+/// v0.10：表格式导出（Excel / CSV）。选单逻辑与 PDF 一致（同批次表、同状态流转），
+/// 批次号前缀 EXP-X（xlsx）/ EXP-C（csv）与 PDF 批次区分。
+pub fn export_vouchers_table(
+    ctx: &CoreContext,
+    voucher_ids: &[i64],
+    format: ExportFormat,
+) -> Result<ExportBatch> {
+    if voucher_ids.is_empty() {
+        return Err(CoreError::Invalid("未选择要导出的凭证".into()));
+    }
+    if format == ExportFormat::Pdf {
+        return Err(CoreError::Invalid(
+            "表格式导出仅支持 xlsx / csv（PDF 请走 export_pdf）".into(),
+        ));
+    }
+
+    let items = fetch_items(ctx, voucher_ids)?;
+    let vouchers: Vec<Voucher> = items.iter().map(|(v, _)| v.clone()).collect();
+
+    let today = chrono::Local::now().format("%Y%m%d").to_string();
+    let prefix = if format == ExportFormat::Xlsx {
+        format!("EXP-X{today}")
+    } else {
+        format!("EXP-C{today}")
+    };
+    let batch_no = next_batch_no(ctx, &prefix)?;
+    let path = ctx
+        .paths
+        .exports
+        .join(format!("{batch_no}.{}", format.ext()));
+    if format == ExportFormat::Xlsx {
+        crate::services::table::write_xlsx(&path, &vouchers)?;
+    } else {
+        crate::services::table::write_csv(&path, &vouchers)?;
+    }
+
+    record_batch(
+        ctx,
+        &items,
+        batch_no,
+        path.to_string_lossy().to_string(),
+        format,
+    )
 }
 
 /// 批次包含的凭证（导出历史反查：批次 → 凭证明细）。按导出时的排序输出；
@@ -285,11 +332,13 @@ fn next_batch_no(ctx: &CoreContext, prefix: &str) -> Result<String> {
 /// 让设置页「累计命中」/「活跃占比」指标能反映导出的实际使用。
 /// - 优先 enhanced_path 走增强版（与 OCR/查看器口径一致）；
 /// - 写命中走新连接，错误仅 warn 不中断批次（PDF 已生成不撤）。
+/// - v0.10：`format` 区分批次格式；仅 PDF 记录增强命中（表格式导出不涉及图片）。
 fn record_batch(
     ctx: &CoreContext,
     items: &[(Voucher, Vec<Attachment>)],
     batch_no: String,
-    pdf_path: String,
+    file_path: String,
+    format: ExportFormat,
 ) -> Result<ExportBatch> {
     let count = items.len() as i64;
     let batch = ctx.db.with_tx(|tx| {
@@ -298,8 +347,9 @@ fn record_batch(
             &crate::models::NewExportBatch {
                 batch_no,
                 voucher_count: count,
-                pdf_path,
+                pdf_path: file_path,
                 status: crate::models::ExportStatus::Done,
+                format,
             },
         )?;
         for (i, (v, _atts)) in items.iter().enumerate() {
@@ -323,15 +373,17 @@ fn record_batch(
     // D-5 增强版命中埋点（D-6 收紧口径）：只有增强版实际进了 PDF 的附件
     // （扫描件 + enhanced_path 存在 + 文件在盘）才算一次 Export 命中，
     // 与 pdf_image_abs 的取图规则完全一致，避免命中率虚高。
-    for (_v, atts) in items {
-        for a in atts
-            .iter()
-            .filter(|a| a.is_image() && uses_enhanced_in_pdf(ctx, a))
-        {
-            if let Err(e) = ctx.db.with_conn(|conn| {
-                enhance_hit_repo::record(conn, a.id, enhance_hit_repo::HitSource::Export)
-            }) {
-                log::warn!("记录 enhance_hits(Export) 失败（不影响导出）: {e}");
+    if format == ExportFormat::Pdf {
+        for (_v, atts) in items {
+            for a in atts
+                .iter()
+                .filter(|a| a.is_image() && uses_enhanced_in_pdf(ctx, a))
+            {
+                if let Err(e) = ctx.db.with_conn(|conn| {
+                    enhance_hit_repo::record(conn, a.id, enhance_hit_repo::HitSource::Export)
+                }) {
+                    log::warn!("记录 enhance_hits(Export) 失败（不影响导出）: {e}");
+                }
             }
         }
     }

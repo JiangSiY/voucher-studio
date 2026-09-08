@@ -16,6 +16,7 @@ import OcrResultCard from "../components/OcrResultCard.vue";
 import { OCR_META, fmtDate } from "../composables/format";
 import { useDirtyGuard } from "../composables/dirtyGuard";
 import { parseNavContext, useNeighborNav } from "../composables/neighborNav";
+import { useDescriptionSuggest } from "../composables/descriptionSuggest";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
 
@@ -262,6 +263,57 @@ async function replaceImage() {
   }
 }
 
+// ---------- v0.10：摘要快速录入（模板 + 历史高频联想） ----------
+
+const descTemplates = computed<string[]>(
+  () => configStore.config?.voucher?.descriptionTemplates ?? [],
+);
+const { load: loadDescHistory, suggest: suggestDesc } = useDescriptionSuggest({
+  templates: descTemplates,
+});
+const descFocused = ref(false);
+const descHighlight = ref(-1);
+
+/** 联想列表：聚焦时展示；键盘 ↑↓ 移动高亮（Enter 选中，Esc 关闭） */
+const descSuggestions = computed(() => suggestDesc(description.value));
+
+function onDescFocus() {
+  descFocused.value = true;
+  loadDescHistory();
+}
+
+function onDescBlur() {
+  // 延迟收起：点击下拉项时 mousedown 先于 blur 触发，直接关会吃掉点击
+  setTimeout(() => {
+    descFocused.value = false;
+    descHighlight.value = -1;
+  }, 150);
+}
+
+function pickDescription(text: string) {
+  description.value = text;
+  descFocused.value = false;
+  descHighlight.value = -1;
+}
+
+function onDescKeydown(e: KeyboardEvent) {
+  if (!descFocused.value || !descSuggestions.value.length) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    descHighlight.value = (descHighlight.value + 1) % descSuggestions.value.length;
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    descHighlight.value =
+      descHighlight.value <= 0 ? descSuggestions.value.length - 1 : descHighlight.value - 1;
+  } else if (e.key === "Enter" && descHighlight.value >= 0) {
+    e.preventDefault();
+    pickDescription(descSuggestions.value[descHighlight.value].description);
+  } else if (e.key === "Escape") {
+    descFocused.value = false;
+    descHighlight.value = -1;
+  }
+}
+
 // ---------- 保存 ----------
 
 /** 校验并保存，返回保存后的凭证（失败 / 无改动返回 null） */
@@ -305,12 +357,29 @@ async function save(): Promise<Voucher | null> {
     } else {
       toast.success("凭证已保存");
     }
+    // v0.10：保存后疑似重复检测（同日期同金额的其他凭证；仅提示，由用户判断）
+    checkDuplicateHint(saved);
     return saved;
   } catch (e) {
     toastError(e);
     return null;
   } finally {
     saving.value = false;
+  }
+}
+
+/** 疑似重复提示：金额为空不检测（空金额无判定意义）；失败静默 */
+async function checkDuplicateHint(v: Voucher) {
+  if (v.amountCents == null) return;
+  try {
+    const dup = await api.checkVoucherDuplicates(v.id);
+    if (dup.length) {
+      toast.warning(
+        `疑似重复：与凭证 ${dup.map((d) => d.voucherNo).join("、")} 同日期同金额（${v.voucherDate} · ￥${(v.amountCents / 100).toFixed(2)}），请核对是否重复报销`,
+      );
+    }
+  } catch {
+    // 提示是辅助能力，失败不打扰主流程
   }
 }
 
@@ -549,9 +618,21 @@ function compareClipRight(a: Attachment): string {
             <label>凭证日期</label>
             <input v-model="voucherDate" type="date" class="input" />
           </div>
-          <div class="field">
+          <div class="field desc-suggest">
             <label>摘要</label>
-            <input v-model="description" class="input" placeholder="如：八月办公用品采购" />
+            <input v-model="description" class="input" placeholder="如：八月办公用品采购（聚焦可联想常用摘要）"
+              @focus="onDescFocus" @blur="onDescBlur" @keydown="onDescKeydown" />
+            <!-- v0.10 摘要联想：模板（置顶标 pin）+ 历史高频（带次数） -->
+            <div v-if="descFocused && descSuggestions.length" class="desc-dropdown">
+              <button v-for="(s, i) in descSuggestions" :key="s.description" type="button"
+                class="desc-option" :class="{ active: i === descHighlight }"
+                @mousedown.prevent="pickDescription(s.description)"
+                @mousemove="descHighlight = i">
+                <FluentIcon v-if="s.pinned" name="pin" :size="11" />
+                <span class="desc-text">{{ s.description }}</span>
+                <span v-if="s.count != null" class="desc-count">{{ s.count }} 次</span>
+              </button>
+            </div>
           </div>
           <div class="field">
             <label>对方账户</label>
@@ -728,5 +809,58 @@ function compareClipRight(a: Attachment): string {
   font-size: 12px;
   color: var(--warning);
   white-space: nowrap;
+}
+
+/* v0.10 摘要联想下拉（模板置顶 + 历史高频） */
+.desc-suggest {
+  position: relative;
+}
+
+.desc-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  margin-top: 4px;
+  background: var(--bg-1, #fff);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.desc-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-1);
+}
+
+.desc-option.active {
+  background: var(--bg-3, rgba(0, 0, 0, 0.06));
+}
+
+.desc-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desc-count {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
 }
 </style>
