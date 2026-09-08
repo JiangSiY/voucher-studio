@@ -175,6 +175,18 @@ function search() {
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize));
 
+/** v0.9：编辑页上下文导航携带的筛选（行点击 / 编辑按钮共用） */
+function editQuery(): Record<string, string> {
+  const q: Record<string, string> = {};
+  if (filter.value !== "all") q.status = filter.value;
+  if (keyword.value.trim()) q.keyword = keyword.value.trim();
+  return q;
+}
+
+function openEdit(id: number) {
+  router.push({ path: `/vouchers/${id}`, query: editQuery() });
+}
+
 function toggle(id: number) {
   if (selected.value.has(id)) selected.value.delete(id);
   else selected.value.add(id);
@@ -437,7 +449,7 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <!-- 场景11：行点击进编辑页；复选框/操作按钮 stop 冒泡不触发跳转 -->
-            <tr v-for="v in items" :key="v.id" style="cursor: pointer" @click="router.push(`/vouchers/${v.id}`)">
+            <tr v-for="v in items" :key="v.id" style="cursor: pointer" @click="openEdit(v.id)">
               <td @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
               <td>
                 <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
@@ -459,7 +471,7 @@ onUnmounted(() => {
               <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
               <td @click.stop>
                 <div class="action-row">
-                  <button class="icon-btn" title="编辑" @click="router.push(`/vouchers/${v.id}`)"><FluentIcon name="edit" :size="14" /></button>
+                  <button class="icon-btn" title="编辑" @click="openEdit(v.id)"><FluentIcon name="edit" :size="14" /></button>
                   <button class="icon-btn" title="导出 PDF" @click="exportOne(v)"><FluentIcon name="print" :size="14" /></button>
                   <button class="icon-btn danger" title="删除" @click="askDelete([v.id])"><FluentIcon name="delete" :size="14" /></button>
                 </div>

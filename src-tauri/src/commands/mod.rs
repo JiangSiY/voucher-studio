@@ -180,6 +180,16 @@ pub fn get_voucher(ctx: Ctx, id: i64) -> std::result::Result<voucher_mgr::Vouche
     err_string(voucher_mgr::get_detail(&ctx, id))
 }
 
+/// 编辑页上下文导航：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用）
+#[tauri::command]
+pub fn get_voucher_neighbor(
+    ctx: Ctx,
+    id: i64,
+    query: VoucherQuery,
+) -> std::result::Result<voucher_core::db::repos::voucher_repo::VoucherNeighbor, String> {
+    err_string(voucher_mgr::neighbor(&ctx, id, &query))
+}
+
 #[tauri::command]
 pub fn update_voucher(
     ctx: Ctx,

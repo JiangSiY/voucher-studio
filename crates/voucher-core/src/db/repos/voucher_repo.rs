@@ -181,6 +181,32 @@ pub fn set_status(conn: &Connection, id: i64, status: VoucherStatus) -> Result<(
 
 /// 分页列表，返回 (当前页数据, 总条数)
 pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> {
+    let (where_sql, bind) = build_filter_where(q);
+
+    let total: u64 = conn.query_row(
+        &format!("SELECT COUNT(*) FROM vouchers {where_sql}"),
+        rusqlite::params_from_iter(bind.iter()),
+        |r| r.get::<_, i64>(0),
+    )? as u64;
+
+    let page_size = q.page_size();
+    let page = q.page().max(1);
+    let offset = ((page - 1) * page_size) as i64;
+    let sql = format!(
+        "SELECT {COLS} FROM vouchers {where_sql} ORDER BY voucher_date DESC, id DESC LIMIT {page_size} OFFSET {offset}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(bind.iter()))?;
+    let mut items = Vec::new();
+    while let Some(r) = rows.next()? {
+        items.push(row_to_voucher(r)?);
+    }
+    Ok((items, total))
+}
+
+/// 构造筛选 WHERE 子句（list 与 neighbor 共用同一口径，保证编辑页导航与列表所见一致）。
+/// 返回 ("WHERE ..." 或空串, 绑定参数列表)。
+fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
     let mut where_clauses: Vec<String> = Vec::new();
     let mut bind: Vec<String> = Vec::new();
 
@@ -215,26 +241,109 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
     } else {
         format!("WHERE {}", where_clauses.join(" AND "))
     };
+    (where_sql, bind)
+}
 
-    let total: u64 = conn.query_row(
-        &format!("SELECT COUNT(*) FROM vouchers {where_sql}"),
-        rusqlite::params_from_iter(bind.iter()),
-        |r| r.get::<_, i64>(0),
-    )? as u64;
+/// 相邻凭证信息（编辑页上下文导航用）
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoucherNeighbor {
+    /// 列表序上一张（更新；无则 None = 已是第一张）
+    pub prev_id: Option<i64>,
+    /// 列表序下一张（更早；无则 None = 已是最后一张）
+    pub next_id: Option<i64>,
+    /// 当前凭证在筛选结果中的位置（从 1 开始）
+    pub position: u64,
+    /// 筛选结果总数
+    pub total: u64,
+}
 
-    let page_size = q.page_size();
-    let page = q.page().max(1);
-    let offset = ((page - 1) * page_size) as i64;
-    let sql = format!(
-        "SELECT {COLS} FROM vouchers {where_sql} ORDER BY voucher_date DESC, id DESC LIMIT {page_size} OFFSET {offset}"
+/// 同筛选/同排序（voucher_date DESC, id DESC，与 list 一致）下的相邻凭证与位置。
+/// 当前凭证自身**不参与**筛选匹配——即使它已被筛除（如改状态后不再匹配 draft 筛选），
+/// 仍以其键位为基准找相邻的匹配凭证，支撑「保存并下一张」的连续核对动线。
+pub fn neighbor(conn: &Connection, id: i64, q: &VoucherQuery) -> Result<VoucherNeighbor> {
+    let cur_date: String = conn
+        .query_row(
+            "SELECT voucher_date FROM vouchers WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .map_err(|_| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+
+    let (where_sql, filter_bind) = build_filter_where(q);
+    // 键参数（日期/ID）追加在筛选参数之后；同一条 SQL 内编号参数可复用
+    let di = filter_bind.len() + 1;
+    let ii = filter_bind.len() + 2;
+    let mut bind: Vec<rusqlite::types::Value> = filter_bind
+        .iter()
+        .map(|s| rusqlite::types::Value::Text(s.clone()))
+        .collect();
+    bind.push(rusqlite::types::Value::Text(cur_date.clone()));
+    bind.push(rusqlite::types::Value::Integer(id));
+
+    // 筛选条件与键位条件拼接（筛选为空时键位条件顶上 WHERE）
+    let combined = |key_cond: &str| -> String {
+        if where_sql.is_empty() {
+            format!("WHERE {key_cond}")
+        } else {
+            format!("{where_sql} AND {key_cond}")
+        }
+    };
+
+    // 下一张 = 列表序更早（键更小）的第一条匹配凭证
+    let next_sql = format!(
+        "SELECT id FROM vouchers {} ORDER BY voucher_date DESC, id DESC LIMIT 1",
+        combined(&format!(
+            "(voucher_date < ?{di} OR (voucher_date = ?{di} AND id < ?{ii}))"
+        ))
     );
-    let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(rusqlite::params_from_iter(bind.iter()))?;
-    let mut items = Vec::new();
-    while let Some(r) = rows.next()? {
-        items.push(row_to_voucher(r)?);
+    let next_id = query_optional_id(conn, &next_sql, &bind)?;
+
+    // 上一张 = 列表序更新（键更大）的第一条匹配凭证
+    let prev_sql = format!(
+        "SELECT id FROM vouchers {} ORDER BY voucher_date ASC, id ASC LIMIT 1",
+        combined(&format!(
+            "(voucher_date > ?{di} OR (voucher_date = ?{di} AND id > ?{ii}))"
+        ))
+    );
+    let prev_id = query_optional_id(conn, &prev_sql, &bind)?;
+
+    // 位置 = 列表序更靠前（键更大）的匹配数 + 1
+    let pos_sql = format!(
+        "SELECT COUNT(*) FROM vouchers {}",
+        combined(&format!(
+            "(voucher_date > ?{di} OR (voucher_date = ?{di} AND id > ?{ii}))"
+        ))
+    );
+    let before: i64 = conn.query_row(&pos_sql, rusqlite::params_from_iter(bind.iter()), |r| {
+        r.get(0)
+    })?;
+
+    let total: i64 = conn.query_row(
+        &format!("SELECT COUNT(*) FROM vouchers {where_sql}"),
+        rusqlite::params_from_iter(filter_bind.iter()),
+        |r| r.get(0),
+    )?;
+
+    Ok(VoucherNeighbor {
+        prev_id,
+        next_id,
+        position: (before + 1).max(0) as u64,
+        total: total.max(0) as u64,
+    })
+}
+
+/// 单值 id 查询：无行返回 None，其余错误透传
+fn query_optional_id(
+    conn: &Connection,
+    sql: &str,
+    bind: &[rusqlite::types::Value],
+) -> Result<Option<i64>> {
+    match conn.query_row(sql, rusqlite::params_from_iter(bind.iter()), |r| r.get(0)) {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
     }
-    Ok((items, total))
 }
 
 /// LIKE 通配符转义（配合 `ESCAPE '\'` 使用）

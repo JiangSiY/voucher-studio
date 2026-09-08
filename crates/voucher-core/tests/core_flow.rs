@@ -1495,6 +1495,101 @@ fn export_daily_groups_by_date() -> Result<()> {
     Ok(())
 }
 
+/// v0.9 编辑动线：同筛选/同排序下的相邻凭证与位置（「保存并下一张」后端）
+#[test]
+fn neighbor_matches_list_order_and_filters() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    // 构造：08-01 两张（同日按 id 倒序）、08-02 一张；08-02 那张已复核
+    let a = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-01".into(),
+            description: "A".into(),
+            ..Default::default()
+        },
+    )?;
+    let b = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-01".into(),
+            description: "B".into(),
+            ..Default::default()
+        },
+    )?;
+    let c = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-02".into(),
+            description: "C".into(),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::set_status(&ctx, c.id, VoucherStatus::Reviewed)?;
+
+    // 列表序（DESC, DESC）：c(08-02) > b(08-01,id大) > a(08-01,id小)
+    let (items, total) = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            page: 1,
+            page_size: 10,
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(total, 3);
+    let order: Vec<i64> = items.iter().map(|v| v.id).collect();
+    assert_eq!(order, vec![c.id, b.id, a.id], "列表序前提");
+
+    // 中间张：上一张 = c，下一张 = a，位置 2/3
+    let mid = voucher_mgr::neighbor(&ctx, b.id, &VoucherQuery::default())?;
+    assert_eq!(mid.prev_id, Some(c.id));
+    assert_eq!(mid.next_id, Some(a.id));
+    assert_eq!(mid.position, 2);
+    assert_eq!(mid.total, 3);
+
+    // 首张：无上一张；末张：无下一张
+    let first = voucher_mgr::neighbor(&ctx, c.id, &VoucherQuery::default())?;
+    assert_eq!(first.prev_id, None);
+    assert_eq!(first.next_id, Some(b.id));
+    assert_eq!(first.position, 1);
+    let last = voucher_mgr::neighbor(&ctx, a.id, &VoucherQuery::default())?;
+    assert_eq!(last.prev_id, Some(b.id));
+    assert_eq!(last.next_id, None);
+    assert_eq!(last.position, 3);
+
+    // 筛选 = 草稿：只剩 b > a；当前是已复核的 c（不在筛选内）→
+    // 下一张仍指向筛选内的 b（键位基准，支撑「改状态后继续核对草稿」）
+    let draft_q = VoucherQuery {
+        status: Some(VoucherStatus::Draft),
+        ..Default::default()
+    };
+    let from_c = voucher_mgr::neighbor(&ctx, c.id, &draft_q)?;
+    assert_eq!(
+        from_c.next_id,
+        Some(b.id),
+        "已复核凭证在草稿筛选下仍有下一张"
+    );
+    assert_eq!(from_c.prev_id, None);
+    assert_eq!(from_c.total, 2);
+
+    // 关键词筛选
+    let kw_q = VoucherQuery {
+        keyword: Some("A".into()),
+        ..Default::default()
+    };
+    let kw = voucher_mgr::neighbor(&ctx, a.id, &kw_q)?;
+    assert_eq!(kw.total, 1);
+    assert_eq!(kw.position, 1);
+    assert_eq!(kw.prev_id, None);
+    assert_eq!(kw.next_id, None);
+
+    // 不存在的凭证 → NotFound
+    assert!(matches!(
+        voucher_mgr::neighbor(&ctx, 99999, &VoucherQuery::default()),
+        Err(CoreError::NotFound(_))
+    ));
+    Ok(())
+}
+
 /// OCR 字段抽取：保守策略（日期/金额/对方账户；歧义金额放弃）
 #[test]
 fn ocr_fields_extract_conservative() {

@@ -105,6 +105,15 @@ export interface VoucherListResult {
   thumbs: Record<number, VoucherThumb>;
 }
 
+/** v0.9 编辑动线：同筛选/同排序下的相邻凭证与位置（导航条 + 保存并下一张） */
+export interface VoucherNeighbor {
+  prevId: number | null;
+  nextId: number | null;
+  /** 当前凭证在筛选结果中的位置（从 1 开始） */
+  position: number;
+  total: number;
+}
+
 /** D-1 列表缩略图：相对附件根的路径，前端用 convertFileSrc 拼 URL */
 export interface VoucherThumb {
   filePath: string;
@@ -403,6 +412,9 @@ export const api = {
 
   listVouchers: (query: VoucherQuery) => invoke<VoucherListResult>("list_vouchers", { query }),
   getVoucher: (id: number) => invoke<VoucherDetail>("get_voucher", { id }),
+  /** v0.9 编辑动线：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用） */
+  getVoucherNeighbor: (id: number, query: VoucherQuery) =>
+    invoke<VoucherNeighbor>("get_voucher_neighbor", { id, query }),
   updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
   /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
   deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),

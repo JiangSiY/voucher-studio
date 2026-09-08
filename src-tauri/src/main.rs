@@ -231,6 +231,7 @@ fn main() {
             commands::delete_secret,
             commands::list_vouchers,
             commands::get_voucher,
+            commands::get_voucher_neighbor,
             commands::update_voucher,
             commands::delete_vouchers,
             commands::batch_update_status,

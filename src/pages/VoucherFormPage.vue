@@ -6,11 +6,12 @@
  * 拖放导入在 Rust 侧全局处理（App.vue 反馈）；本页新建模式监听完成事件跳转到新凭证。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
+import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherNeighbor, type VoucherSnapshot, type VoucherStatus } from "../api/client";
 import ImageViewerDialog from "../components/ImageViewerDialog.vue";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ConfidenceTag from "../components/ConfidenceTag.vue";
 import { OCR_META, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
@@ -66,13 +67,140 @@ function applyForm(v: Voucher) {
   note.value = v.note;
 }
 
+// ---------- v0.9 编辑动线：脏状态跟踪 + 未保存离开确认 ----------
+
+/** 表单当前值的序列化（与基线比对判断 dirty） */
+function formSnapshot(): string {
+  return JSON.stringify([
+    voucherDate.value, description.value, counterparty.value,
+    amountYuan.value, status.value, tagsInput.value, note.value,
+  ]);
+}
+
+/** 加载/保存成功时记录的基线（编号只读不入基线） */
+const baseline = ref("");
+const dirty = computed(() =>
+  editId.value != null && baseline.value !== "" && formSnapshot() !== baseline.value,
+);
+
+/** 统一离页口（翻张 / 返回 / 保存并下一张跳转）：脏数据先确认再走 */
+const leaveConfirmVisible = ref(false);
+const leaveConfirmText = "当前凭证有未保存的修改，离开将丢失这些改动。确定离开吗？";
+let pendingNavFn: (() => void) | null = null;
+/** 已确认离开：本次导航放行（含路由守卫放行标记） */
+let navArmed = false;
+
+function leaveTo(fn: () => void) {
+  if (!dirty.value || navArmed) {
+    fn();
+    return;
+  }
+  pendingNavFn = fn;
+  leaveConfirmVisible.value = true;
+}
+
+function confirmLeave() {
+  leaveConfirmVisible.value = false;
+  navArmed = true;
+  const fn = pendingNavFn;
+  pendingNavFn = null;
+  fn?.();
+}
+
+function cancelLeave() {
+  leaveConfirmVisible.value = false;
+  pendingNavFn = null;
+}
+
+// 侧栏等其他入口的路由离开（按钮触发的已走 leaveTo，不会到这里带 dirty）
+onBeforeRouteLeave((to, _from, next) => {
+  if (!dirty.value || navArmed) {
+    navArmed = false;
+    next();
+    return;
+  }
+  pendingNavFn = () => {
+    navArmed = true;
+    router.push(to.fullPath);
+  };
+  leaveConfirmVisible.value = true;
+  next(false);
+});
+
 /** 把凭证详情套用到表单（编辑加载 / OCR 自动填单后共用） */
 function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
   applyForm(detail.voucher);
   attachments.value = detail.attachments;
   snapshots.value = detail.snapshots;
+  baseline.value = formSnapshot(); // DB 侧状态 = 新基线（脏状态清零）
+  navArmed = false;
   // v0.7 S-2：识别文本就绪时拉取结构化提取预览（只读，不写库）
   loadExtracted(detail.attachments[0]);
+}
+
+// ---------- v0.9 编辑动线：上下文导航（同筛选下上一张/下一张） ----------
+
+/** 列表页带来的筛选上下文（query 参数；无上下文入口 → 按全量顺序导航） */
+const ctxStatus = computed<VoucherStatus | null>(() => {
+  const s = route.query.status;
+  return s === "draft" || s === "reviewed" || s === "exported" || s === "archived" ? s : null;
+});
+const ctxKeyword = computed(() => {
+  const k = route.query.keyword;
+  return typeof k === "string" ? k : "";
+});
+
+const neighbor = ref<VoucherNeighbor | null>(null);
+
+const positionLabel = computed(() => {
+  const n = neighbor.value;
+  if (!n) return "";
+  if (n.position > n.total) return "不在当前筛选内";
+  return `第 ${n.position} / ${n.total} 张`;
+});
+
+async function loadNeighbor() {
+  if (!editId.value) {
+    neighbor.value = null;
+    return;
+  }
+  try {
+    neighbor.value = await api.getVoucherNeighbor(editId.value, {
+      page: 1,
+      pageSize: 1,
+      status: ctxStatus.value,
+      keyword: ctxKeyword.value || null,
+    });
+  } catch {
+    neighbor.value = null; // 导航是辅助能力，失败静默隐藏
+  }
+}
+
+/** 跳到相邻凭证（保留筛选上下文；脏数据走确认） */
+function gotoVoucher(id: number) {
+  leaveTo(() => {
+    router.push({ path: `/vouchers/${id}`, query: { ...route.query } });
+  });
+}
+
+function goNeighbor(dir: "prev" | "next") {
+  const n = neighbor.value;
+  if (!n) return;
+  const target = dir === "prev" ? n.prevId : n.nextId;
+  if (target == null) {
+    toast.info(dir === "prev" ? "已是第一张" : "已是最后一张");
+    return;
+  }
+  gotoVoucher(target);
+}
+
+/** 返回列表（带筛选上下文回到来时的视图；脏数据走确认） */
+function goBack() {
+  leaveTo(() => {
+    const query: Record<string, string> = {};
+    if (ctxStatus.value) query.status = ctxStatus.value;
+    router.push({ path: "/vouchers", query });
+  });
 }
 
 // ---------- v0.7 S-2：OCR 识别结果卡片（提取预览 + 一键填入） ----------
@@ -142,6 +270,7 @@ async function loadDetail() {
   }
   try {
     applyDetail(await api.getVoucher(editId.value));
+    loadNeighbor();
   } catch (e) {
     toastError(e);
     router.replace("/vouchers");
@@ -199,8 +328,13 @@ async function replaceImage() {
 
 // ---------- 保存 ----------
 
-async function save() {
-  if (!editId.value) return;
+/** 校验并保存，返回保存后的凭证（失败 / 无改动返回 null） */
+async function save(): Promise<Voucher | null> {
+  if (!editId.value || saving.value) return null;
+  if (!dirty.value) {
+    toast.info("没有需要保存的修改");
+    return null;
+  }
   saving.value = true;
   try {
     // 金额严格校验：可选负号、最多两位小数（"12.34.56"/"1e3" 之类的宽松解析一律拒绝）
@@ -209,7 +343,7 @@ async function save() {
     if (amt !== "") {
       if (!/^-?\d+(\.\d{1,2})?$/.test(amt)) {
         toast.warning("金额格式不正确：应为数字，最多两位小数（如 123.45）");
-        return;
+        return null;
       }
       cents = Math.round(parseFloat(amt) * 100);
     }
@@ -227,6 +361,7 @@ async function save() {
       note: note.value,
     });
     applyForm(saved);
+    baseline.value = formSnapshot(); // 保存成功 = 新基线
     if (saved.voucherNo !== oldNo) {
       toast.success(`凭证已保存，档号按新日期重排：${oldNo} → ${saved.voucherNo}`);
     } else if (saved.voucherDate !== "" && oldNo.split("-").slice(0, 3).join("-") !== saved.voucherDate) {
@@ -234,12 +369,45 @@ async function save() {
     } else {
       toast.success("凭证已保存");
     }
-    loadDetail();
+    return saved;
   } catch (e) {
     toastError(e);
+    return null;
   } finally {
     saving.value = false;
   }
+}
+
+/** 保存（留在当前页，刷新详情与导航）——Ctrl+S */
+async function saveOnly() {
+  const saved = await save();
+  if (saved) await loadDetail();
+}
+
+/** 翻到下一张（已保存或无改动状态直接跳）。返回是否真的跳走了。 */
+async function jumpNext(): Promise<boolean> {
+  await loadNeighbor(); // 用最新键位取邻居（保存改日期后位置会变）
+  const next = neighbor.value?.nextId;
+  if (next == null) {
+    toast.info("当前筛选内没有更多凭证了");
+    return false;
+  }
+  navArmed = true;
+  await router.push({ path: `/vouchers/${next}`, query: { ...route.query } });
+  return true;
+}
+
+/** 保存并跳到下一张（连续核对主操作）——Ctrl+Enter。
+ * 无改动直接翻张（核对场景字段本来就对，也要能连续推进）。 */
+async function saveAndNext() {
+  if (!dirty.value) {
+    await jumpNext();
+    return;
+  }
+  const saved = await save();
+  if (!saved) return;
+  const jumped = await jumpNext();
+  if (!jumped) await loadDetail(); // 留在末张：刷新快照列表
 }
 
 // ---------- OCR（返回整份详情：字段可能被自动回填、附件可能被语义化重命名） ----------
@@ -273,8 +441,29 @@ let unlistenImportDone: UnlistenFn | null = null;
 // 时不重挂载，onMounted 只跑一次，必须显式监听 editId 变化）
 watch(editId, () => loadDetail());
 
+// ---------- v0.9 键盘动线：Ctrl+S 保存 / Ctrl+Enter 保存并下一张 / Alt+←→ 翻张 ----------
+
+function onKeydown(e: KeyboardEvent) {
+  if (!editId.value) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
+    e.preventDefault();
+    saveOnly();
+  } else if (mod && e.key === "Enter") {
+    e.preventDefault();
+    saveAndNext();
+  } else if (e.altKey && !mod && e.key === "ArrowLeft") {
+    e.preventDefault();
+    goNeighbor("prev");
+  } else if (e.altKey && !mod && e.key === "ArrowRight") {
+    e.preventDefault();
+    goNeighbor("next");
+  }
+}
+
 onMounted(async () => {
   loadDetail();
+  window.addEventListener("keydown", onKeydown);
   unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
     if (!editId.value && e.payload.vouchers.length) {
       router.replace(`/vouchers/${e.payload.vouchers[0].voucherId}`);
@@ -282,7 +471,10 @@ onMounted(async () => {
   });
 });
 
-onUnmounted(() => unlistenImportDone?.());
+onUnmounted(() => {
+  unlistenImportDone?.();
+  window.removeEventListener("keydown", onKeydown);
+});
 
 // ---------- 图片查看器（缩放/平移/旋转，核对 OCR 回填时看细节） ----------
 
@@ -401,6 +593,16 @@ function compareClipRight(a: Attachment): string {
       <div class="fluent-panel">
         <div class="fluent-panel-header">
           <h3>编辑凭证</h3>
+          <!-- v0.9 上下文导航：同筛选下的上一张/下一张（列表跳转携带筛选，无上下文则全量顺序） -->
+          <div class="vnav" v-if="neighbor">
+            <button class="btn btn-sm" :disabled="!neighbor.prevId" title="上一张（Alt+←）" @click="goNeighbor('prev')">
+              <FluentIcon name="chevronLeft" :size="13" />上一张
+            </button>
+            <span class="vnav-pos" :title="ctxKeyword ? `筛选：${ctxKeyword}` : '当前列表筛选'">{{ positionLabel }}</span>
+            <button class="btn btn-sm" :disabled="!neighbor.nextId" title="下一张（Alt+→）" @click="goNeighbor('next')">
+              下一张<FluentIcon name="chevronRight" :size="13" />
+            </button>
+          </div>
         </div>
         <div class="fluent-panel-body">
           <div class="field">
@@ -440,10 +642,14 @@ function compareClipRight(a: Attachment): string {
             <label>备注</label>
             <textarea v-model="note" class="input" rows="3"></textarea>
           </div>
-          <div style="display: flex; gap: 8px; justify-content: flex-end">
-            <button class="btn" @click="router.push('/vouchers')">返回</button>
-            <button class="btn btn-primary" :disabled="saving" @click="save">
+          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center">
+            <span v-if="dirty" class="dirty-hint" title="有未保存的修改">● 未保存</span>
+            <button class="btn" @click="goBack">返回</button>
+            <button class="btn" :disabled="saving" title="Ctrl+S" @click="saveOnly">
               {{ saving ? "保存中…" : "保存" }}
+            </button>
+            <button class="btn btn-primary" :disabled="saving" title="Ctrl+Enter" @click="saveAndNext">
+              {{ saving ? "保存中…" : "保存并下一张" }}
             </button>
           </div>
         </div>
@@ -603,9 +809,35 @@ function compareClipRight(a: Attachment): string {
 
   <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
     :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
+
+  <!-- v0.9：未保存离开确认（翻张 / 返回 / 侧栏路由统一走这里） -->
+  <ConfirmDialog :visible="leaveConfirmVisible" title="未保存的修改" :body="leaveConfirmText" confirm-text="离开"
+    @confirm="confirmLeave" @cancel="cancelLeave" />
 </template>
 
 <style scoped>
+/* v0.9 上下文导航条（面板头右侧：上一张 / 位置 / 下一张） */
+.vnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vnav-pos {
+  font-size: 12px;
+  color: var(--text-3);
+  min-width: 64px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* v0.9 脏状态提示（保存按钮左侧） */
+.dirty-hint {
+  font-size: 12px;
+  color: var(--warning);
+  white-space: nowrap;
+}
+
 /* v0.7 S-2：识别结果卡片行（label / value / 填入按钮三段式） */
 .ext-row {
   display: flex;

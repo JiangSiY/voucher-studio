@@ -4,7 +4,7 @@
 
 use rusqlite::Connection;
 
-use crate::db::repos::voucher_repo::{VoucherQuery, VoucherStats};
+use crate::db::repos::voucher_repo::{VoucherNeighbor, VoucherQuery, VoucherStats};
 use crate::db::repos::{attachment_repo, snapshot_repo, voucher_repo};
 use crate::models::{
     Attachment, NewVoucher, Voucher, VoucherSnapshot, VoucherStatus, VoucherUpdate,
@@ -213,6 +213,12 @@ pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
 
 pub fn list(ctx: &CoreContext, query: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> {
     ctx.db.with_conn(|conn| voucher_repo::list(conn, query))
+}
+
+/// 编辑页上下文导航：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用）
+pub fn neighbor(ctx: &CoreContext, id: i64, query: &VoucherQuery) -> Result<VoucherNeighbor> {
+    ctx.db
+        .with_conn(|conn| voucher_repo::neighbor(conn, id, query))
 }
 
 pub fn stats(ctx: &CoreContext) -> Result<VoucherStats> {
