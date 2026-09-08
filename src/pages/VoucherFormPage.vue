@@ -9,11 +9,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherNeighbor, type VoucherSnapshot, type VoucherStatus } from "../api/client";
+import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
 import ImageViewerDialog from "../components/ImageViewerDialog.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
-import ConfidenceTag from "../components/ConfidenceTag.vue";
+import OcrResultCard from "../components/OcrResultCard.vue";
 import { OCR_META, fmtDate } from "../composables/format";
+import { useDirtyGuard } from "../composables/dirtyGuard";
+import { parseNavContext, useNeighborNav } from "../composables/neighborNav";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
 
@@ -67,9 +69,9 @@ function applyForm(v: Voucher) {
   note.value = v.note;
 }
 
-// ---------- v0.9 编辑动线：脏状态跟踪 + 未保存离开确认 ----------
+// ---------- v0.9 编辑动线：脏数据守卫 + 上下文导航（组合式函数提取） ----------
 
-/** 表单当前值的序列化（与基线比对判断 dirty） */
+/** 表单当前值的序列化（与基线比对判断 dirty；编号只读不入基线） */
 function formSnapshot(): string {
   return JSON.stringify([
     voucherDate.value, description.value, counterparty.value,
@@ -77,54 +79,25 @@ function formSnapshot(): string {
   ]);
 }
 
-/** 加载/保存成功时记录的基线（编号只读不入基线） */
-const baseline = ref("");
-const dirty = computed(() =>
-  editId.value != null && baseline.value !== "" && formSnapshot() !== baseline.value,
-);
-
-/** 统一离页口（翻张 / 返回 / 保存并下一张跳转）：脏数据先确认再走 */
-const leaveConfirmVisible = ref(false);
-const leaveConfirmText = "当前凭证有未保存的修改，离开将丢失这些改动。确定离开吗？";
-let pendingNavFn: (() => void) | null = null;
-/** 已确认离开：本次导航放行（含路由守卫放行标记） */
-let navArmed = false;
-
-function leaveTo(fn: () => void) {
-  if (!dirty.value || navArmed) {
-    fn();
-    return;
-  }
-  pendingNavFn = fn;
-  leaveConfirmVisible.value = true;
-}
-
-function confirmLeave() {
-  leaveConfirmVisible.value = false;
-  navArmed = true;
-  const fn = pendingNavFn;
-  pendingNavFn = null;
-  fn?.();
-}
-
-function cancelLeave() {
-  leaveConfirmVisible.value = false;
-  pendingNavFn = null;
-}
+const guard = useDirtyGuard({
+  snapshot: formSnapshot,
+  enabled: () => editId.value != null,
+  navigate: (p) => router.push(p),
+});
+const { dirty, leaveConfirmVisible, leaveConfirmText } = guard;
+const { leaveTo, confirmLeave, cancelLeave } = guard;
 
 // 侧栏等其他入口的路由离开（按钮触发的已走 leaveTo，不会到这里带 dirty）
-onBeforeRouteLeave((to, _from, next) => {
-  if (!dirty.value || navArmed) {
-    navArmed = false;
-    next();
-    return;
-  }
-  pendingNavFn = () => {
-    navArmed = true;
-    router.push(to.fullPath);
-  };
-  leaveConfirmVisible.value = true;
-  next(false);
+onBeforeRouteLeave((to, _from, next) => next(guard.beforeRouteLeave(to)));
+
+/** 列表页带来的筛选上下文（query 参数；无上下文入口 → 按全量顺序导航） */
+const navCtx = computed(() => parseNavContext(route.query));
+const fromSearch = computed(() => navCtx.value.fromSearch);
+const ctxStatus = computed(() => navCtx.value.status);
+const ctxKeyword = computed(() => navCtx.value.keyword);
+const { neighbor, positionLabel, loadNeighbor } = useNeighborNav({
+  editId,
+  ctx: navCtx,
 });
 
 /** 把凭证详情套用到表单（编辑加载 / OCR 自动填单后共用） */
@@ -132,62 +105,9 @@ function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
   applyForm(detail.voucher);
   attachments.value = detail.attachments;
   snapshots.value = detail.snapshots;
-  baseline.value = formSnapshot(); // DB 侧状态 = 新基线（脏状态清零）
-  navArmed = false;
+  guard.markClean(); // DB 侧状态 = 新基线（脏状态清零）
   // v0.7 S-2：识别文本就绪时拉取结构化提取预览（只读，不写库）
   loadExtracted(detail.attachments[0]);
-}
-
-// ---------- v0.9 编辑动线：上下文导航（同筛选下上一张/下一张） ----------
-
-/** 来源标记：search = 从搜索页进入（返回回搜索页、翻张按搜索结果顺序） */
-const fromSearch = computed(() => route.query.from === "search");
-/** 列表页带来的筛选上下文（query 参数；无上下文入口 → 按全量顺序导航） */
-const ctxStatus = computed<VoucherStatus | null>(() => {
-  const s = route.query.status;
-  return s === "draft" || s === "reviewed" || s === "exported" || s === "archived" ? s : null;
-});
-const ctxKeyword = computed(() => {
-  const k = route.query.keyword;
-  return typeof k === "string" ? k : "";
-});
-const ctxDateFrom = computed(() => {
-  const d = route.query.dateFrom;
-  return typeof d === "string" && d ? d : null;
-});
-const ctxDateTo = computed(() => {
-  const d = route.query.dateTo;
-  return typeof d === "string" && d ? d : null;
-});
-
-const neighbor = ref<VoucherNeighbor | null>(null);
-
-const positionLabel = computed(() => {
-  const n = neighbor.value;
-  if (!n) return "";
-  if (n.position > n.total) return "不在当前筛选内";
-  return `第 ${n.position} / ${n.total} 张`;
-});
-
-async function loadNeighbor() {
-  if (!editId.value) {
-    neighbor.value = null;
-    return;
-  }
-  try {
-    neighbor.value = await api.getVoucherNeighbor(editId.value, {
-      page: 1,
-      pageSize: 1,
-      status: ctxStatus.value,
-      keyword: ctxKeyword.value || null,
-      dateFrom: ctxDateFrom.value,
-      dateTo: ctxDateTo.value,
-      // 搜索页进入：翻张与搜索结果同口径（含 OCR 命中），连续核对不跳张
-      includeOcr: fromSearch.value,
-    });
-  } catch {
-    neighbor.value = null; // 导航是辅助能力，失败静默隐藏
-  }
 }
 
 /** 跳到相邻凭证（保留筛选上下文；脏数据走确认） */
@@ -215,11 +135,12 @@ function goBack() {
       router.push({ path: "/search", query: ctxKeyword.value ? { keyword: ctxKeyword.value } : {} });
       return;
     }
+    const c = navCtx.value;
     const query: Record<string, string> = {};
-    if (ctxStatus.value) query.status = ctxStatus.value;
-    if (ctxKeyword.value) query.keyword = ctxKeyword.value;
-    if (ctxDateFrom.value) query.dateFrom = ctxDateFrom.value;
-    if (ctxDateTo.value) query.dateTo = ctxDateTo.value;
+    if (c.status) query.status = c.status;
+    if (c.keyword) query.keyword = c.keyword;
+    if (c.dateFrom) query.dateFrom = c.dateFrom;
+    if (c.dateTo) query.dateTo = c.dateTo;
     router.push({ path: "/vouchers", query });
   });
 }
@@ -242,12 +163,6 @@ async function loadExtracted(a: Attachment | undefined) {
     fieldsBusy.value = false;
   }
 }
-
-/** 提取字段是否可填入（至少一个字段非空才显示卡片） */
-const hasExtracted = computed(() => {
-  const f = extracted.value;
-  return !!f && (f.date != null || f.amountCents != null || !!f.counterparty || !!f.merchant);
-});
 
 /** 单字段填入：只改表单值，不落库（用户点「保存」才生效） */
 function applyExtractedField(field: "date" | "amount" | "counterparty" | "merchant") {
@@ -382,7 +297,7 @@ async function save(): Promise<Voucher | null> {
       note: note.value,
     });
     applyForm(saved);
-    baseline.value = formSnapshot(); // 保存成功 = 新基线
+    guard.markClean(); // 保存成功 = 新基线
     if (saved.voucherNo !== oldNo) {
       toast.success(`凭证已保存，档号按新日期重排：${oldNo} → ${saved.voucherNo}`);
     } else if (saved.voucherDate !== "" && oldNo.split("-").slice(0, 3).join("-") !== saved.voucherDate) {
@@ -413,7 +328,7 @@ async function jumpNext(): Promise<boolean> {
     toast.info("当前筛选内没有更多凭证了");
     return false;
   }
-  navArmed = true;
+  guard.armNav(); // 已保存或无改动，直接放行
   await router.push({ path: `/vouchers/${next}`, query: { ...route.query } });
   return true;
 }
@@ -778,53 +693,9 @@ function compareClipRight(a: Attachment): string {
         </div>
       </div>
 
-      <!-- v0.7 S-2：OCR 识别结果（结构化提取预览，一键填入表单） -->
-      <div class="fluent-panel" v-if="hasExtracted || fieldsBusy">
-        <div class="fluent-panel-header">
-          <h3>识别结果</h3>
-          <button class="btn btn-sm btn-primary" v-if="hasExtracted" @click="applyAllExtracted"><FluentIcon name="flash" :size="14" />全部填入</button>
-        </div>
-        <div class="fluent-panel-body">
-          <div v-if="fieldsBusy" style="font-size: 13px; color: var(--text-2)">正在提取字段…</div>
-          <template v-else-if="extracted">
-            <div class="ext-row">
-              <span class="ext-label">日期</span>
-              <span class="ext-value mono">
-                {{ extracted.date ?? "—" }}
-                <ConfidenceTag :level="extracted.confidence?.date ?? null" />
-              </span>
-              <button v-if="extracted.date" class="btn btn-sm" @click="applyExtractedField('date')">填入</button>
-            </div>
-            <div class="ext-row">
-              <span class="ext-label">金额</span>
-              <span class="ext-value mono">
-                {{ extracted.amountCents != null ? `¥${(extracted.amountCents / 100).toFixed(2)}` : "—" }}
-                <!-- 置信度：标签命中可信 / 全文唯一兜底低置信 -->
-                <span v-if="extracted.amountSource === 'labeled'" class="tag tag-success" title="命中「价税合计/合计」等标签">可信</span>
-                <span v-else-if="extracted.amountSource === 'uniqueonly'" class="tag tag-warning" title="全文唯一金额兜底，无标签佐证，请人工核对">低置信</span>
-              </span>
-              <button v-if="extracted.amountCents != null" class="btn btn-sm" @click="applyExtractedField('amount')">填入</button>
-            </div>
-            <div class="ext-row">
-              <span class="ext-label">对方账户</span>
-              <span class="ext-value">
-                {{ extracted.counterparty ?? "—" }}
-                <ConfidenceTag :level="extracted.confidence?.counterparty ?? null" />
-              </span>
-              <button v-if="extracted.counterparty" class="btn btn-sm" @click="applyExtractedField('counterparty')">填入</button>
-            </div>
-            <div class="ext-row">
-              <span class="ext-label">商家</span>
-              <span class="ext-value">
-                {{ extracted.merchant ?? "—" }}
-                <ConfidenceTag :level="extracted.confidence?.merchant ?? null" />
-              </span>
-              <button v-if="extracted.merchant" class="btn btn-sm" title="商家名作为摘要填入" @click="applyExtractedField('merchant')">填入摘要</button>
-            </div>
-            <div class="ext-tip">提取自 OCR 识别文本；「填入」只改表单值，点「保存」才落库。</div>
-          </template>
-        </div>
-      </div>
+      <!-- v0.7 S-2：OCR 识别结果（结构化提取预览，一键填入表单）；v0.9 提取为子组件 -->
+      <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
+        @apply-field="applyExtractedField" @apply-all="applyAllExtracted" />
     </div>
   </div>
 
@@ -857,48 +728,5 @@ function compareClipRight(a: Attachment): string {
   font-size: 12px;
   color: var(--warning);
   white-space: nowrap;
-}
-
-/* v0.7 S-2：识别结果卡片行（label / value / 填入按钮三段式） */
-.ext-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--stroke);
-}
-
-.ext-row:last-of-type {
-  border-bottom: none;
-}
-
-.ext-label {
-  flex: none;
-  width: 72px;
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.ext-value {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ext-value .tag {
-  flex: none;
-}
-
-.ext-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-4);
 }
 </style>

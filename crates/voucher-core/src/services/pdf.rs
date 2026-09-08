@@ -216,8 +216,109 @@ const C_ROWS_PER_PAGE: usize = 38;
 const C_BANNER_H: f32 = 22.0;
 /// 竖版票据每页张数（3×3）
 const C_PORTRAITS_PER_PAGE: usize = 9;
-/// 横版票据每页张数（2×2）
+/// 省纸：横图桶每页（2×2）
 const C_LANDSCAPES_PER_PAGE: usize = 4;
+
+// ---------- 日报共享渲染（档案/省纸两模板复用，参数化差异） ----------
+
+/// 图片页版式规格：网格行列 + caption 样式（档案 2×2/7pt，省纸 caption 6.5pt 更紧凑）
+struct ImageGridSpec {
+    cols: usize,
+    rows: usize,
+    caption_pt: f32,
+    caption_h: f32,
+    caption_dy: f32,
+}
+
+/// 档案模板图片规格（2×2/页，caption 7pt）
+const SPEC_ARCHIVE_GRID: ImageGridSpec = ImageGridSpec {
+    cols: IMG_COLS,
+    rows: IMG_ROWS,
+    caption_pt: 7.0,
+    caption_h: 5.0,
+    caption_dy: 0.5,
+};
+/// 省纸模板图片规格（caption 6.5pt 紧凑，行列由桶决定）
+const SPEC_COMPACT_CAPTION: (f32, f32, f32) = (6.5, 4.5, 0.4);
+
+/// 合计行（两模板共用）：分隔线 + 「合计 / N 张 / ￥金额」右对齐。
+/// `text_dy` 为文本基线相对分隔线的下沉量（按行高微调）。
+fn draw_total_line(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    top: f32,
+    count: usize,
+    total_cents: i64,
+    text_dy: f32,
+) {
+    layer.set_outline_thickness(0.8);
+    layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.add_line(Line {
+        points: vec![
+            (Point::new(Mm(MARGIN), y(top)), false),
+            (Point::new(Mm(PAGE_W - MARGIN), y(top)), false),
+        ],
+        is_closed: false,
+    });
+    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.use_text("合计", 9.0, Mm(MARGIN + 1.0), y(top + text_dy), font);
+    let cnt_label = format!("{count} 张");
+    layer.use_text(
+        &cnt_label,
+        9.0,
+        Mm(right_x(&cnt_label, 9.0, PAGE_W - MARGIN - 2.0)),
+        y(top + text_dy),
+        font,
+    );
+    let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
+    layer.use_text(
+        &amt_label,
+        9.0,
+        Mm(right_x(&amt_label, 9.0, PAGE_W - MARGIN)),
+        y(top + text_dy),
+        font,
+    );
+}
+
+/// 单页图片网格（两模板共用）：按 spec 行列排布一页内的槽位，
+/// 等比缩放放置图片 + 底部 caption（超出截断）。返回实际放置张数。
+fn draw_image_grid(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    imgs: &[&PdfImage],
+    page_idx: usize,
+    spec: &ImageGridSpec,
+) {
+    let per_page = spec.cols * spec.rows;
+    let usable_w = PAGE_W - MARGIN * 2.0;
+    let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
+    let cell_w = (usable_w - GAP) / spec.cols as f32;
+    let cell_h = (usable_h - GAP) / spec.rows as f32;
+    for slot in 0..per_page {
+        let idx = page_idx * per_page + slot;
+        if idx >= imgs.len() {
+            break;
+        }
+        let col = slot % spec.cols;
+        let row = slot / spec.cols;
+        let x = MARGIN + col as f32 * (cell_w + GAP);
+        let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
+        let img_area_h = cell_h - spec.caption_h - 1.0;
+        place_image(layer, imgs[idx], x, top, cell_w, img_area_h);
+        layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+        let caption = truncate_chars(
+            &imgs[idx].caption,
+            chars_for_width(&imgs[idx].caption, spec.caption_pt, cell_w - 2.0),
+        );
+        layer.use_text(
+            caption,
+            spec.caption_pt,
+            Mm(x + 1.0),
+            y(top + cell_h - spec.caption_dy),
+            font,
+        );
+    }
+}
 
 /// 生成「按天日报」PDF。v0.8 起按 `daily_template` 分版式：
 /// - compact（默认）：省纸——首页信息横幅 + 表格 38 行/页 + 竖票 3×3 / 横票 2×2
@@ -246,9 +347,6 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     let (doc, first_page, first_layer) =
         PdfDocument::new(&cover_title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
     let font = load_cjk_font(&doc)?;
-
-    let usable_w = PAGE_W - MARGIN * 2.0;
-    let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
 
     let count = day.cards.len();
     let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
@@ -302,66 +400,19 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         // 合计行（最后一页表格底部）
         if t == table_pages - 1 {
             let top = table_top + THEAD_H + (end - start) as f32 * TROW_H + 1.0;
-            layer.set_outline_thickness(0.8);
-            layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
-            layer.add_line(Line {
-                points: vec![
-                    (Point::new(Mm(MARGIN), y(top)), false),
-                    (Point::new(Mm(PAGE_W - MARGIN), y(top)), false),
-                ],
-                is_closed: false,
-            });
-            layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-            layer.use_text("合计", 9.0, Mm(MARGIN + 1.0), y(top + 4.8), &font);
-            let cnt_label = format!("{count} 张");
-            layer.use_text(
-                &cnt_label,
-                9.0,
-                Mm(right_x(&cnt_label, 9.0, PAGE_W - MARGIN - 2.0)),
-                y(top + 4.8),
-                &font,
-            );
-            let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
-            layer.use_text(
-                &amt_label,
-                9.0,
-                Mm(right_x(&amt_label, 9.0, PAGE_W - MARGIN)),
-                y(top + 4.8),
-                &font,
-            );
+            draw_total_line(&layer, &font, top, count, total_cents, 4.8);
         }
 
         draw_footer(&layer, &font, t + 2, total_pages);
     }
 
     // ===== 图片页（2×2/页，caption 对齐参照：附件N：摘要_对方_金额元（档号）） =====
+    let img_refs: Vec<&PdfImage> = day.images.iter().collect();
     for page_idx in 0..img_pages {
         let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
         let layer = doc.get_page(p).get_layer(l);
         draw_header(&layer, &font, &format!("附件 · {}", day.date));
-
-        let per_img_page = IMG_COLS * IMG_ROWS;
-        let cell_w = (usable_w - GAP) / IMG_COLS as f32;
-        let cell_h = (usable_h - GAP) / IMG_ROWS as f32;
-        for slot in 0..per_img_page {
-            let idx = page_idx * per_img_page + slot;
-            if idx >= day.images.len() {
-                break;
-            }
-            let col = slot % IMG_COLS;
-            let row = slot / IMG_ROWS;
-            let x = MARGIN + col as f32 * (cell_w + GAP);
-            let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
-            let caption_h = 5.0;
-            let img_area_h = cell_h - caption_h - 1.0;
-            place_image(&layer, &day.images[idx], x, top, cell_w, img_area_h);
-            layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-            let caption = truncate_chars(
-                &day.images[idx].caption,
-                chars_for_width(&day.images[idx].caption, 7.0, cell_w - 2.0),
-            );
-            layer.use_text(caption, 7.0, Mm(x + 1.0), y(top + cell_h - 0.5), &font);
-        }
+        draw_image_grid(&layer, &font, &img_refs, page_idx, &SPEC_ARCHIVE_GRID);
         draw_footer(&layer, &font, 1 + table_pages + page_idx + 1, total_pages);
     }
 
@@ -378,9 +429,6 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     let (doc, first_page, first_layer) =
         PdfDocument::new(&sum_title, Mm(PAGE_W), Mm(PAGE_H), "Summary");
     let font = load_cjk_font(&doc)?;
-
-    let usable_w = PAGE_W - MARGIN * 2.0;
-    let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
 
     let count = day.cards.len();
     let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
@@ -445,33 +493,7 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         // 合计行（末页表格底部）
         if t == table_pages - 1 {
             let top = table_top + THEAD_H + (end - start) as f32 * C_TROW_H + 1.0;
-            layer.set_outline_thickness(0.8);
-            layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
-            layer.add_line(Line {
-                points: vec![
-                    (Point::new(Mm(MARGIN), y(top)), false),
-                    (Point::new(Mm(PAGE_W - MARGIN), y(top)), false),
-                ],
-                is_closed: false,
-            });
-            layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-            layer.use_text("合计", 9.0, Mm(MARGIN + 1.0), y(top + 4.4), &font);
-            let cnt_label = format!("{count} 张");
-            layer.use_text(
-                &cnt_label,
-                9.0,
-                Mm(right_x(&cnt_label, 9.0, PAGE_W - MARGIN - 2.0)),
-                y(top + 4.4),
-                &font,
-            );
-            let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
-            layer.use_text(
-                &amt_label,
-                9.0,
-                Mm(right_x(&amt_label, 9.0, PAGE_W - MARGIN)),
-                y(top + 4.4),
-                &font,
-            );
+            draw_total_line(&layer, &font, top, count, total_cents, 4.4);
         }
 
         draw_footer(&layer, &font, t + 1, total_pages);
@@ -480,39 +502,39 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     // ===== 图片页：先竖票 3×3，后横票 2×2（caption 6.5pt 紧凑） =====
     if opts.include_images {
         let mut page_no = table_pages;
-        let buckets: [(Vec<&PdfImage>, usize, usize); 2] = [(portraits, 3, 3), (landscapes, 2, 2)];
-        for (imgs, cols, rows) in buckets {
+        let (pt, ch, dy) = SPEC_COMPACT_CAPTION;
+        let buckets: [(Vec<&PdfImage>, ImageGridSpec); 2] = [
+            (
+                portraits,
+                ImageGridSpec {
+                    cols: 3,
+                    rows: 3,
+                    caption_pt: pt,
+                    caption_h: ch,
+                    caption_dy: dy,
+                },
+            ),
+            (
+                landscapes,
+                ImageGridSpec {
+                    cols: 2,
+                    rows: 2,
+                    caption_pt: pt,
+                    caption_h: ch,
+                    caption_dy: dy,
+                },
+            ),
+        ];
+        for (imgs, spec) in buckets {
             if imgs.is_empty() {
                 continue;
             }
-            let per_page = cols * rows;
-            let pages = imgs.len().div_ceil(per_page);
+            let pages = imgs.len().div_ceil(spec.cols * spec.rows);
             for page_idx in 0..pages {
                 let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
                 let layer = doc.get_page(p).get_layer(l);
                 draw_header(&layer, &font, &format!("附件 · {}", day.date));
-
-                let cell_w = (usable_w - GAP) / cols as f32;
-                let cell_h = (usable_h - GAP) / rows as f32;
-                for slot in 0..per_page {
-                    let idx = page_idx * per_page + slot;
-                    if idx >= imgs.len() {
-                        break;
-                    }
-                    let col = slot % cols;
-                    let row = slot / cols;
-                    let x = MARGIN + col as f32 * (cell_w + GAP);
-                    let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
-                    let caption_h = 4.5;
-                    let img_area_h = cell_h - caption_h - 1.0;
-                    place_image(&layer, imgs[idx], x, top, cell_w, img_area_h);
-                    layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-                    let caption = truncate_chars(
-                        &imgs[idx].caption,
-                        chars_for_width(&imgs[idx].caption, 6.5, cell_w - 2.0),
-                    );
-                    layer.use_text(caption, 6.5, Mm(x + 1.0), y(top + cell_h - 0.4), &font);
-                }
+                draw_image_grid(&layer, &font, &imgs, page_idx, &spec);
                 page_no += 1;
                 draw_footer(&layer, &font, page_no, total_pages);
             }
