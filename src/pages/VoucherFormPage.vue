@@ -140,6 +140,8 @@ function applyDetail(detail: Awaited<ReturnType<typeof api.getVoucher>>) {
 
 // ---------- v0.9 编辑动线：上下文导航（同筛选下上一张/下一张） ----------
 
+/** 来源标记：search = 从搜索页进入（返回回搜索页、翻张按搜索结果顺序） */
+const fromSearch = computed(() => route.query.from === "search");
 /** 列表页带来的筛选上下文（query 参数；无上下文入口 → 按全量顺序导航） */
 const ctxStatus = computed<VoucherStatus | null>(() => {
   const s = route.query.status;
@@ -148,6 +150,14 @@ const ctxStatus = computed<VoucherStatus | null>(() => {
 const ctxKeyword = computed(() => {
   const k = route.query.keyword;
   return typeof k === "string" ? k : "";
+});
+const ctxDateFrom = computed(() => {
+  const d = route.query.dateFrom;
+  return typeof d === "string" && d ? d : null;
+});
+const ctxDateTo = computed(() => {
+  const d = route.query.dateTo;
+  return typeof d === "string" && d ? d : null;
 });
 
 const neighbor = ref<VoucherNeighbor | null>(null);
@@ -170,6 +180,10 @@ async function loadNeighbor() {
       pageSize: 1,
       status: ctxStatus.value,
       keyword: ctxKeyword.value || null,
+      dateFrom: ctxDateFrom.value,
+      dateTo: ctxDateTo.value,
+      // 搜索页进入：翻张与搜索结果同口径（含 OCR 命中），连续核对不跳张
+      includeOcr: fromSearch.value,
     });
   } catch {
     neighbor.value = null; // 导航是辅助能力，失败静默隐藏
@@ -194,11 +208,18 @@ function goNeighbor(dir: "prev" | "next") {
   gotoVoucher(target);
 }
 
-/** 返回列表（带筛选上下文回到来时的视图；脏数据走确认） */
+/** 返回（来源感知：搜索页进入回搜索页恢复关键词；否则回列表并还原完整筛选） */
 function goBack() {
   leaveTo(() => {
+    if (fromSearch.value) {
+      router.push({ path: "/search", query: ctxKeyword.value ? { keyword: ctxKeyword.value } : {} });
+      return;
+    }
     const query: Record<string, string> = {};
     if (ctxStatus.value) query.status = ctxStatus.value;
+    if (ctxKeyword.value) query.keyword = ctxKeyword.value;
+    if (ctxDateFrom.value) query.dateFrom = ctxDateFrom.value;
+    if (ctxDateTo.value) query.dateTo = ctxDateTo.value;
     router.push({ path: "/vouchers", query });
   });
 }

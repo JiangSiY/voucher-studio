@@ -1590,6 +1590,88 @@ fn neighbor_matches_list_order_and_filters() -> Result<()> {
     Ok(())
 }
 
+/// v0.9 搜索动线：include_ocr 口径——「下一张」与搜索结果（含 OCR 命中）同序
+#[test]
+fn neighbor_include_ocr_follows_search_scope() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    // 两张凭证：摘要不含关键词、OCR 文本含关键词；中间夹一张无关凭证
+    let a = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-01".into(),
+            description: "甲".into(),
+            ..Default::default()
+        },
+    )?;
+    let mid = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-02".into(),
+            description: "无关".into(),
+            ..Default::default()
+        },
+    )?;
+    let b = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-03".into(),
+            description: "乙".into(),
+            ..Default::default()
+        },
+    )?;
+    // 给 a / b 挂带 OCR 文本的附件（一图一凭证：导入即建卡）
+    for (v, shade) in [(a.id, 60u8), (b.id, 180u8)] {
+        let img = dir.path().join(format!("ocr-{v}.png"));
+        let pic = image::RgbImage::from_pixel(64, 48, image::Rgb([shade, 30, 200]));
+        pic.save(&img).expect("save png");
+        let s = ingestion::import_images(&ctx, std::slice::from_ref(&img), Some(v), false)?;
+        assert_eq!(s.vouchers.len(), 1);
+        ctx.db.with_conn(|conn| {
+            voucher_core::db::repos::attachment_repo::set_ocr(
+                conn,
+                s.vouchers[0].attachment.id,
+                OcrStatus::Done,
+                Some("出租车票 45.00 元"),
+            )
+        })?;
+    }
+
+    // 字段口径（列表页搜索）：关键词「出租车」零命中
+    let field_q = VoucherQuery {
+        keyword: Some("出租车".into()),
+        ..Default::default()
+    };
+    let (_, total) = voucher_mgr::list(&ctx, &field_q)?;
+    assert_eq!(total, 0);
+
+    // OCR 口径（搜索页）：a、b 命中（mid 无附件不命中）
+    let ocr_q = VoucherQuery {
+        keyword: Some("出租车".into()),
+        include_ocr: true,
+        ..Default::default()
+    };
+    let (items, total) = voucher_mgr::list(&ctx, &ocr_q)?;
+    assert_eq!(total, 2);
+    assert_eq!(items.len(), 2, "仅 OCR 命中的 a/b 可见");
+    // 列表序：b(08-03) 在 a(08-01) 前；无附件的 mid 不混入
+    let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
+    assert_eq!(ids, vec![b.id, a.id]);
+    assert!(!ids.contains(&mid.id), "无附件的 mid 不在 OCR 命中结果内");
+
+    // 从 a 的「上一张」应到 b（同口径），位置/总数与搜索结果一致
+    let n = voucher_mgr::neighbor(&ctx, a.id, &ocr_q)?;
+    assert_eq!(n.prev_id, Some(b.id), "OCR 口径下 a 的上一张是 b");
+    assert_eq!(n.next_id, None);
+    assert_eq!(n.position, 2);
+    assert_eq!(n.total, 2);
+
+    // 字段口径下同凭证：无邻居（零命中集合内无相邻）
+    let n2 = voucher_mgr::neighbor(&ctx, a.id, &field_q)?;
+    assert_eq!(n2.prev_id, None);
+    assert_eq!(n2.total, 0);
+    Ok(())
+}
+
 /// OCR 字段抽取：保守策略（日期/金额/对方账户；歧义金额放弃）
 #[test]
 fn ocr_fields_extract_conservative() {

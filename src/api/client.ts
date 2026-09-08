@@ -94,6 +94,8 @@ export interface VoucherQuery {
   keyword?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
+  /** 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后翻张与搜索结果同口径） */
+  includeOcr?: boolean;
   page: number;
   pageSize: number;
 }
@@ -455,6 +457,9 @@ export const api = {
 
   exportPdf: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch>("export_pdf", { voucherIds, options }),
+  /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */
+  exportBatchVouchers: (batchId: number) =>
+    invoke<Voucher[]>("export_batch_vouchers", { batchId }),
   /** 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态） */
   exportPdfDaily: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch[]>("export_pdf_daily", { voucherIds, options }),

@@ -166,6 +166,16 @@ pub fn list_batches(ctx: &CoreContext, limit: u32) -> Result<Vec<ExportBatch>> {
         .with_conn(|conn| export_repo::list_batches(conn, limit))
 }
 
+/// 批次包含的凭证（导出历史反查：批次 → 凭证明细）。按导出时的排序输出；
+/// 批次后凭证若已删除则跳过（不报错——历史批次允许凭证先于批次消亡）。
+pub fn batch_vouchers(ctx: &CoreContext, batch_id: i64) -> Result<Vec<Voucher>> {
+    ctx.db.with_conn(|conn| {
+        let items = export_repo::list_items(conn, batch_id)?;
+        let ids: Vec<i64> = items.iter().map(|i| i.voucher_id).collect();
+        voucher_repo::get_many(conn, &ids)
+    })
+}
+
 // ---------- 内部辅助 ----------
 
 /// 取凭证与附件（按日期+编号排序，保持打印顺序稳定）

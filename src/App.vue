@@ -82,7 +82,15 @@ onMounted(async () => {
     if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张图片，各建一张凭证`);
     if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
     if (s.failed.length) parts.push(`失败 ${s.failed.length} 张`);
-    if (parts.length) toast.success(parts.join(" · "));
+    if (parts.length) {
+      // 动线：导入完成即引导核对（跳到第一张新凭证，其余可用「下一张」连续翻）
+      toast.success(parts.join(" · "), {
+        label: "开始核对",
+        onClick: () => {
+          if (s.vouchers.length) router.push(`/vouchers/${s.vouchers[0].voucherId}`);
+        },
+      });
+    }
   });
   unlistenImportError = await listen<string>("import:error", (e) => {
     importing.value = false;

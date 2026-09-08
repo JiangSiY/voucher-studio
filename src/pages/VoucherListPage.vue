@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -33,6 +33,9 @@ const page = ref(1);
 const pageSize = 20;
 const filter = ref<Filter>("all");
 const keyword = ref("");
+// v0.9 动线：日期范围筛选（仪表盘月度下钻的落点；与打印中心筛选口径对齐）
+const dateFrom = ref("");
+const dateTo = ref("");
 const selected = ref<Set<number>>(new Set());
 const loading = ref(false);
 
@@ -42,7 +45,7 @@ type ListKey = string;
 const prefetched = ref<Map<ListKey, Map<number, VoucherListResult>>>(new Map());
 let nextPagePrefetchTimer: ReturnType<typeof setTimeout> | null = null;
 function listKey(): ListKey {
-  return `${filter.value}|${keyword.value}|${pageSize}`;
+  return `${filter.value}|${keyword.value}|${dateFrom.value}|${dateTo.value}|${pageSize}`;
 }
 function getPrefetched(p: number): VoucherListResult | null {
   return prefetched.value.get(listKey())?.get(p) ?? null;
@@ -86,6 +89,18 @@ const confirmVisible = ref(false);
 const confirmText = ref("");
 let pendingDelete: number[] = [];
 
+/** 列表查询条件（含日期范围；load 与预取共用同一口径） */
+function listQuery(p: number) {
+  return {
+    page: p,
+    pageSize,
+    status: filter.value === "all" ? null : filter.value,
+    keyword: keyword.value || null,
+    dateFrom: dateFrom.value || null,
+    dateTo: dateTo.value || null,
+  };
+}
+
 async function load() {
   // D-3：先查预取缓存（用户可能刚点过 › 但 UI 还没消费；或 hover 预取完就点了 ›）
   const cached = getPrefetched(page.value);
@@ -101,22 +116,12 @@ async function load() {
   }
   loading.value = true;
   try {
-    const result = await api.listVouchers({
-      page: page.value,
-      pageSize,
-      status: filter.value === "all" ? null : filter.value,
-      keyword: keyword.value || null,
-    });
+    const result = await api.listVouchers(listQuery(page.value));
     // 越界回弹：删除末页数据后页码可能超出总页数，回到最后一页重取
     const pages = Math.max(1, Math.ceil(result.total / pageSize));
     if (page.value > pages) {
       page.value = pages;
-      const retry = await api.listVouchers({
-        page: page.value,
-        pageSize,
-        status: filter.value === "all" ? null : filter.value,
-        keyword: keyword.value || null,
-      });
+      const retry = await api.listVouchers(listQuery(page.value));
       items.value = retry.items;
       total.value = retry.total;
       thumbs.value = retry.thumbs ?? {};
@@ -130,6 +135,7 @@ async function load() {
     toastError(e);
   } finally {
     loading.value = false;
+    activeIndex.value = null; // 数据变了，高亮重置
   }
 }
 
@@ -141,12 +147,7 @@ function prefetchNextPage() {
   nextPagePrefetchTimer = setTimeout(async () => {
     nextPagePrefetchTimer = null;
     try {
-      const data = await api.listVouchers({
-        page: page.value + 1,
-        pageSize,
-        status: filter.value === "all" ? null : filter.value,
-        keyword: keyword.value || null,
-      });
+      const data = await api.listVouchers(listQuery(page.value + 1));
       putPrefetched(page.value + 1, data);
     } catch {
       // 静默失败，不打扰用户
@@ -175,17 +176,51 @@ function search() {
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize));
 
-/** v0.9：编辑页上下文导航携带的筛选（行点击 / 编辑按钮共用） */
+/** 编辑页上下文导航携带的筛选（行点击 / 编辑按钮共用；编辑页返回时还原视图） */
 function editQuery(): Record<string, string> {
   const q: Record<string, string> = {};
   if (filter.value !== "all") q.status = filter.value;
   if (keyword.value.trim()) q.keyword = keyword.value.trim();
+  if (dateFrom.value) q.dateFrom = dateFrom.value;
+  if (dateTo.value) q.dateTo = dateTo.value;
   return q;
 }
 
 function openEdit(id: number) {
   router.push({ path: `/vouchers/${id}`, query: editQuery() });
 }
+
+// ---------- v0.9 键盘导航：↑↓ 移动高亮行、Enter 编辑、Space 勾选（桌面惯例） ----------
+
+const activeIndex = ref<number | null>(null);
+
+function onKeydown(e: KeyboardEvent) {
+  // 输入控件/按钮聚焦时不拦截（保持原生行为：打字、Enter 触发按钮）
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON")) return;
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (!items.value.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    activeIndex.value = e.key === "ArrowDown"
+      ? Math.min(items.value.length - 1, (activeIndex.value ?? -1) + 1)
+      : Math.max(0, (activeIndex.value ?? 0) - 1);
+    nextTick(() => {
+      document
+        .querySelector<HTMLTableRowElement>(`tr[data-row-index="${activeIndex.value}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  } else if (e.key === "Enter" && activeIndex.value != null) {
+    e.preventDefault();
+    openEdit(items.value[activeIndex.value].id);
+  } else if (e.key === " " && activeIndex.value != null) {
+    e.preventDefault(); // 阻止空格滚动页面
+    toggle(items.value[activeIndex.value].id);
+  }
+}
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 function toggle(id: number) {
   if (selected.value.has(id)) selected.value.delete(id);
@@ -210,7 +245,15 @@ async function importPicked() {
     if (summary.vouchers.length) parts.push(`已导入 ${summary.vouchers.length} 张图片，各建一张凭证`);
     if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
     if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
-    if (parts.length) toast.success(parts.join(" · "));
+    if (parts.length) {
+      // 动线：导入完成即引导核对（跳到第一张新凭证）
+      toast.success(parts.join(" · "), {
+        label: "开始核对",
+        onClick: () => {
+          if (summary.vouchers.length) router.push(`/vouchers/${summary.vouchers[0].voucherId}`);
+        },
+      });
+    }
     load();
   } catch (e) {
     toastError(e);
@@ -222,7 +265,11 @@ async function importPicked() {
 async function exportOne(v: Voucher) {
   try {
     const batch = await api.exportPdf([v.id]);
-    toast.success(`PDF 已生成：${batch.batchNo}`);
+    // 动线：导出即得——toast 内直接打开，不必绕道导出历史页
+    toast.success(`PDF 已生成：${batch.batchNo}`, {
+      label: "打开",
+      onClick: () => void api.openPath(batch.pdfPath),
+    });
   } catch (e) {
     toastError(e);
   }
@@ -233,7 +280,10 @@ async function exportSelected() {
   if (!ids.length) return;
   try {
     const batch = await api.exportPdf(ids);
-    toast.success(`已导出 ${batch.voucherCount} 张凭证 → ${batch.batchNo}`);
+    toast.success(`已导出 ${batch.voucherCount} 张凭证 → ${batch.batchNo}`, {
+      label: "打开",
+      onClick: () => void api.openPath(batch.pdfPath),
+    });
     load();
   } catch (e) {
     toastError(e);
@@ -351,9 +401,19 @@ let unlistenImportDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   // v0.7 R-2：从仪表盘状态卡片跳转进来时按 status 预筛选（非法值忽略）
-  const q = route.query.status;
-  if (typeof q === "string" && filters.some((f) => f.key === q)) {
-    filter.value = q as Filter;
+  // v0.9：编辑页返回/仪表盘下钻也带 keyword/dateFrom/dateTo，完整还原来时视图
+  const q = route.query;
+  if (typeof q.status === "string" && filters.some((f) => f.key === q.status)) {
+    filter.value = q.status as Filter;
+  }
+  if (typeof q.keyword === "string" && q.keyword.trim()) {
+    keyword.value = q.keyword.trim();
+  }
+  if (typeof q.dateFrom === "string" && q.dateFrom) {
+    dateFrom.value = q.dateFrom;
+  }
+  if (typeof q.dateTo === "string" && q.dateTo) {
+    dateTo.value = q.dateTo;
   }
   load();
   unlistenImportDone = await listen("import:done", () => {
@@ -383,13 +443,21 @@ onUnmounted(() => {
 
     <div style="display: flex; gap: 12px; padding: 12px; border-bottom: 1px solid var(--stroke); flex-wrap: wrap; align-items: center">
       <div class="search">
-        <input v-model="keyword" placeholder="搜索编号 / 摘要 / 备注…" @keyup.enter="search" />
+        <input v-model="keyword" placeholder="搜索编号 / 摘要 / 备注…（全文搜索请用搜索页）" @keyup.enter="search" />
       </div>
       <div class="filter-chips">
         <button v-for="f in filters" :key="f.key" class="fchip" :class="{ active: filter === f.key }"
           @click="switchFilter(f.key)">
           {{ f.label }}
         </button>
+      </div>
+      <!-- v0.9：日期范围筛选（仪表盘月度下钻落点；变更即查询） -->
+      <div style="display: flex; align-items: center; gap: 6px; margin-left: auto">
+        <input v-model="dateFrom" type="date" class="input" style="width: 130px" title="起始日期"
+          @change="search" />
+        <span style="color: var(--text-3); font-size: 12px">至</span>
+        <input v-model="dateTo" type="date" class="input" style="width: 130px" title="结束日期"
+          @change="search" />
       </div>
     </div>
 
@@ -449,7 +517,8 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <!-- 场景11：行点击进编辑页；复选框/操作按钮 stop 冒泡不触发跳转 -->
-            <tr v-for="v in items" :key="v.id" style="cursor: pointer" @click="openEdit(v.id)">
+            <tr v-for="(v, i) in items" :key="v.id" :data-row-index="i"
+              :class="{ 'row-active': activeIndex === i }" style="cursor: pointer" @click="openEdit(v.id)">
               <td @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
               <td>
                 <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
@@ -486,7 +555,10 @@ onUnmounted(() => {
       </div>
 
       <div class="tbl-foot" style="padding: 12px 16px">
-        <div class="info">共 {{ total }} 条记录</div>
+        <div class="info">
+          共 {{ total }} 条记录
+          <span style="color: var(--text-4); margin-left: 8px">↑↓ 选择 · Enter 编辑 · Space 勾选</span>
+        </div>
         <div class="pager">
           <button :disabled="page <= 1" @mouseenter="cancelPrefetchNextPage" @click="page--; load()"><FluentIcon name="chevronLeft" :size="13" /></button>
           <button class="active">{{ page }}</button>
@@ -501,6 +573,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* v0.9 键盘导航：高亮行 */
+tr.row-active td {
+  background: var(--accent-soft);
+}
+
 /* v0.7 B-1：批量状态选择器（工具栏内紧凑尺寸） */
 .batch-status-select {
   width: auto;

@@ -1,5 +1,7 @@
 //! 凭证仓储
 
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,9 @@ pub struct VoucherQuery {
     pub keyword: Option<String>,
     pub date_from: Option<String>,
     pub date_to: Option<String>,
+    /// 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后「上一张/下一张」
+    /// 与搜索结果同口径，连续核对不跳过仅 OCR 命中的凭证）
+    pub include_ocr: bool,
     /// 从 1 开始
     pub page: u32,
     pub page_size: u32,
@@ -204,6 +209,30 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
     Ok((items, total))
 }
 
+/// 按 id 集合批量取凭证（导出批次反查用；返回顺序与传入顺序一致，不存在的跳过）
+pub fn get_many(conn: &Connection, ids: &[i64]) -> Result<Vec<Voucher>> {
+    let mut out = Vec::with_capacity(ids.len());
+    // IN 参数分批（SQLite 变量数上限保守取 500）
+    for chunk in ids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+        let sql = format!("SELECT {COLS} FROM vouchers WHERE id IN ({placeholders})");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(chunk.iter()))?;
+        let mut found: HashMap<i64, Voucher> = HashMap::new();
+        while let Some(r) = rows.next()? {
+            let v = row_to_voucher(r)?;
+            found.insert(v.id, v);
+        }
+        // 保持传入顺序
+        for id in chunk {
+            if let Some(v) = found.remove(id) {
+                out.push(v);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// 构造筛选 WHERE 子句（list 与 neighbor 共用同一口径，保证编辑页导航与列表所见一致）。
 /// 返回 ("WHERE ..." 或空串, 绑定参数列表)。
 fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
@@ -222,9 +251,16 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
     {
         let kw = format!("%{}%", escape_like(k));
         let i = bind.len() + 1;
-        where_clauses.push(format!(
-            "(voucher_no LIKE ?{i} ESCAPE '\\' OR description LIKE ?{i} ESCAPE '\\' OR counterparty LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\' OR tags LIKE ?{i} ESCAPE '\\')"
-        ));
+        let mut cond = format!(
+            "(voucher_no LIKE ?{i} ESCAPE '\\' OR description LIKE ?{i} ESCAPE '\\' OR counterparty LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\' OR tags LIKE ?{i} ESCAPE '\\'"
+        );
+        if q.include_ocr {
+            cond.push_str(&format!(
+                " OR EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id AND a.ocr_text LIKE ?{i} ESCAPE '\\')"
+            ));
+        }
+        cond.push(')');
+        where_clauses.push(cond);
         bind.push(kw);
     }
     if let Some(d) = &q.date_from {

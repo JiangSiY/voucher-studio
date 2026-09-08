@@ -88,6 +88,34 @@ function statusOf(v: Voucher) {
   return STATUS_META[v.status];
 }
 
+// ---------- v0.9 动线：图表下钻（看数 → 看明细，不断链） ----------
+
+/** 月度趋势柱 → 列表页按当月日期范围筛选 */
+function gotoMonth(month: string) {
+  const [y, m] = month.split("-");
+  const lastDay = new Date(Number(y), Number(m), 0).getDate();
+  router.push({
+    path: "/vouchers",
+    query: { dateFrom: `${y}-${m}-01`, dateTo: `${y}-${m}-${lastDay}` },
+  });
+}
+
+/** Top 对方账户行 → 列表页按对方账户关键词筛选 */
+function gotoCounterparty(name: string) {
+  router.push({ path: "/vouchers", query: { keyword: name } });
+}
+
+/** 标签分类行 → 列表页按标签关键词筛选（「未分类」无法用关键词表达，不可点） */
+function gotoTag(tag: string) {
+  if (!tag) return;
+  router.push({ path: "/vouchers", query: { keyword: tag } });
+}
+
+/** 状态分布段 → 列表页按状态筛选 */
+function gotoStatus(k: string) {
+  router.push(`/vouchers?status=${k}`);
+}
+
 // ---------- 月度趋势柱状图（手写 SVG，无第三方图表库；功能深化 3：张数/金额双指标） ----------
 
 const CHART_W = 560;
@@ -237,7 +265,7 @@ onUnmounted(() => {
           preserveAspectRatio="xMidYMid meet"
         >
           <line class="axis" :x1="PAD_L" :y1="PAD_T + PLOT_H" :x2="CHART_W" :y2="PAD_T + PLOT_H" />
-          <g v-for="(m, i) in monthly" :key="m.month">
+          <g v-for="(m, i) in monthly" :key="m.month" style="cursor: pointer" @click="gotoMonth(m.month)">
             <rect
               class="bar"
               :class="{ zero: metricValue(m) === 0 }"
@@ -247,7 +275,7 @@ onUnmounted(() => {
               :height="barH(m)"
               rx="3"
             >
-              <title>{{ barTitle(m) }}</title>
+              <title>{{ barTitle(m) }}（点击查看当月明细）</title>
             </rect>
             <text v-if="metricValue(m) > 0" class="bar-val" :x="barMid(i)" :y="barY(m) - 5">
               {{ barValLabel(m) }}
@@ -269,18 +297,20 @@ onUnmounted(() => {
       </div>
       <div class="fluent-panel-body">
         <template v-if="dist.total">
-          <div class="dist-bar" role="img" aria-label="状态分布">
+          <div class="dist-bar" role="img" aria-label="状态分布（点击段查看对应凭证）">
             <div
               v-for="k in DIST_KEYS"
               :key="k"
-              class="seg"
+              class="seg seg-click"
               :class="`seg-${k}`"
               :style="{ width: pct(dist[k]) }"
-              :title="`${STATUS_META[k].label} ${dist[k]} 张（${pct(dist[k])}）`"
+              :title="`${STATUS_META[k].label} ${dist[k]} 张（${pct(dist[k])}）· 点击查看`"
+              @click="gotoStatus(k)"
             />
           </div>
           <div class="dist-legend">
-            <div v-for="k in DIST_KEYS" :key="k" class="legend-item">
+            <div v-for="k in DIST_KEYS" :key="k" class="legend-item legend-click"
+              style="cursor: pointer" :title="`点击查看「${STATUS_META[k].label}」凭证`" @click="gotoStatus(k)">
               <span class="dot" :class="`dot-${k}`" />
               <span>{{ STATUS_META[k].label }}</span>
               <span class="legend-num">{{ dist[k] }}</span>
@@ -304,7 +334,8 @@ onUnmounted(() => {
         <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
       </div>
       <div class="fluent-panel-body">
-        <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row">
+        <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row cp-click" style="cursor: pointer"
+          :title="`点击查看「${c.name}」的 ${c.count} 张凭证`" @click="gotoCounterparty(c.name)">
           <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 }">{{ i + 1 }}</span>
           <span class="cp-name" :title="c.name">{{ c.name }}</span>
           <div class="cp-bar-wrap">
@@ -324,7 +355,11 @@ onUnmounted(() => {
         <span class="dist-sum">共 {{ tagRows.length }} 类 · 含未分类</span>
       </div>
       <div class="fluent-panel-body">
-        <div v-for="(t, i) in tagRows" :key="t.tag || '__untagged__'" class="cp-row">
+        <div v-for="(t, i) in tagRows" :key="t.tag || '__untagged__'" class="cp-row"
+          :class="{ 'cp-click': t.tag }"
+          :style="t.tag ? 'cursor: pointer' : ''"
+          :title="t.tag ? `点击查看「${tagLabel(t)}」的 ${t.count} 张凭证` : '没有任何标签的凭证'"
+          @click="gotoTag(t.tag)">
           <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 && t.tag }">{{ t.tag ? i + 1 : "—" }}</span>
           <span class="cp-name" :class="{ 'cp-name-muted': !t.tag }" :title="t.tag ? t.tag : '没有任何标签的凭证'">
             {{ t.tag ? `# ${tagLabel(t)}` : tagLabel(t) }}
@@ -421,6 +456,21 @@ onUnmounted(() => {
 .bar {
   fill: var(--accent);
   transition: opacity 0.15s ease;
+  cursor: pointer;
+}
+
+/* v0.9 下钻：可点击行/段的 hover 反馈 */
+.cp-click:hover {
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+
+.seg-click {
+  cursor: pointer;
+}
+
+.legend-click:hover {
+  color: var(--accent);
 }
 
 .bar:hover {

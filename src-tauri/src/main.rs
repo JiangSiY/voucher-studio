@@ -252,6 +252,7 @@ fn main() {
             commands::export_pdf,
             commands::export_pdf_daily,
             commands::list_export_batches,
+            commands::export_batch_vouchers,
             commands::run_backup,
             commands::skip_closing_backup,
             commands::list_backups,

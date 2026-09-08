@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 全文搜索：编号/摘要/备注/标签/附件 OCR 文本 */
 import { onMounted, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type SearchHit } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
@@ -9,6 +9,7 @@ import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
 import { toastError } from "../stores/toast";
 
+const route = useRoute();
 const router = useRouter();
 const keyword = ref("");
 const hits = ref<SearchHit[]>([]);
@@ -29,10 +30,22 @@ async function search() {
   }
 }
 
+/** 结果行 → 编辑页（带搜索上下文：编辑页返回回搜索页、翻张按搜索结果顺序） */
+function openHit(id: number) {
+  const q: Record<string, string> = { keyword: keyword.value.trim(), from: "search" };
+  router.push({ path: `/vouchers/${id}`, query: q });
+}
+
 // 已出结果后发生拖放入库，自动重跑当前关键词，避免结果陈旧
 let unlistenImportDone: UnlistenFn | null = null;
 
 onMounted(async () => {
+  // 动线：从编辑页返回搜索页时带 keyword（恢复关键词并自动重搜，接续核对）
+  const q = route.query.keyword;
+  if (typeof q === "string" && q.trim()) {
+    keyword.value = q.trim();
+    search();
+  }
   unlistenImportDone = await listen("import:done", () => {
     if (searched.value && keyword.value.trim()) search();
   });
@@ -59,6 +72,7 @@ onUnmounted(() => {
   <div class="fluent-panel" v-if="searched">
     <div class="fluent-panel-header">
       <h3>搜索结果（{{ hits.length }}）</h3>
+      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击进入编辑，返回仍在搜索页</span>
     </div>
     <div class="fluent-panel-body" style="padding: 0">
       <div class="dtable-wrap" v-if="hits.length">
@@ -75,7 +89,7 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="h in hits" :key="h.voucher.id" style="cursor: pointer"
-              @click="router.push(`/vouchers/${h.voucher.id}`)">
+              @click="openHit(h.voucher.id)">
               <td><span class="mono">{{ h.voucher.voucherNo }}</span></td>
               <td>{{ h.voucher.voucherDate }}</td>
               <td>{{ h.voucher.description || "—" }}</td>

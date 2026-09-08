@@ -581,6 +581,15 @@ pub fn list_export_batches(
     err_string(export::list_batches(&ctx, limit.unwrap_or(50)))
 }
 
+/// v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过）
+#[tauri::command]
+pub fn export_batch_vouchers(
+    ctx: Ctx,
+    batch_id: i64,
+) -> std::result::Result<Vec<voucher_core::models::Voucher>, String> {
+    err_string(export::batch_vouchers(&ctx, batch_id))
+}
+
 // ---------- 备份与恢复 ----------
 
 #[tauri::command]

@@ -1511,6 +1511,14 @@ select.input {
   flex-shrink: 0;
 }
 
+/* 动线：toast 内嵌动作按钮（紧贴文本右侧，弱边框样式避免抢主按钮视觉） */
+.toast-item .toast-action {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
 .toast-item.success .t-icon {
   color: var(--success);
 }
