@@ -91,6 +91,16 @@ pub fn extract(text: &str) -> ExtractedFields {
     }
 }
 
+/// v0.12：抽取 + 后验校验（纯文本路径的出口；版面路径在 extract_with_layout 内调用）。
+/// 校验层只改写 confidence / 丢弃超窗日期，抽取逻辑本身不动。
+pub fn extract_validated(text: &str) -> ExtractedFields {
+    use chrono::Datelike;
+    let mut f = extract(text);
+    let now_year = chrono::Local::now().date_naive().year();
+    crate::services::ocr_validate::apply(text, &mut f, now_year);
+    f
+}
+
 /// 日期：支持 2026-08-20 / 2026.08.20 / 2026/8/20 / 2026年8月20日，取第一个合法日期
 /// （v5：pub(crate) 供 ocr_layout 按行解析候选日期）
 pub(crate) fn extract_date(text: &str) -> Option<String> {
@@ -395,7 +405,7 @@ pub fn apply_for_attachment(
         Some(lines) if !lines.is_empty() => {
             crate::services::ocr_layout::extract_with_layout(&lines)
         }
-        _ => extract(text),
+        _ => extract_validated(text),
     };
     apply_fields(ctx, voucher_id, &fields, mode)?;
     semantic_rename(ctx, voucher_id, &attachment)?;

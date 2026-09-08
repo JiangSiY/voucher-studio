@@ -1,6 +1,7 @@
 //! 服务层（对应 v4.3 的 `services/` + ocr/pdf/webdav_backup/scheduler 等顶层模块）
 
 pub mod backup;
+pub mod crop;
 pub mod dedup;
 pub mod export;
 pub mod imaging;
@@ -10,6 +11,7 @@ pub mod ocr;
 pub mod ocr_fields;
 pub mod ocr_layout;
 pub mod ocr_local;
+pub mod ocr_validate;
 pub mod pdf;
 pub mod period;
 pub mod recovery;

@@ -1715,3 +1715,95 @@ fn export_yearly_report_pdf_and_batch() -> Result<()> {
     assert!(export::export_yearly_report(&ctx, 2020).is_err());
     Ok(())
 }
+
+// ---------- v0.12：手动裁剪 / 旋转 ----------
+
+/// 手动裁剪：90° 旋转 + 裁剪覆盖写增强版（原图字节不变）、尺寸正确、期间锁拦截
+#[test]
+fn crop_attachment_rotates_and_overwrites_enhanced() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("crop-src.png");
+    make_png_variant(&img, 200);
+    let s = ingestion::import_images(&ctx, &[img], None, false)?;
+    assert_eq!(s.vouchers.len(), 1);
+    let att = s.vouchers[0].attachment.clone();
+    let orig_abs = ctx.paths.attachment_abs(&att.file_path);
+    let orig_bytes = std::fs::read(&orig_abs)?;
+
+    // 90° 旋转：64×48 → 48×64；裁剪 (8,16)-(32,24) → 24×8
+    let updated = voucher_core::services::crop::crop_attachment(
+        &ctx,
+        att.id,
+        voucher_core::services::crop::CropRect {
+            x: 8,
+            y: 16,
+            w: 24,
+            h: 8,
+        },
+        90,
+    )?;
+
+    // 增强版路径已设置且文件存在；尺寸 = 裁剪框
+    let enhanced = updated.enhanced_path.expect("enhanced_path 已设置");
+    let enhanced_abs = ctx.paths.attachment_abs(&enhanced);
+    assert!(enhanced_abs.exists(), "增强版落盘");
+    assert!(enhanced.ends_with(".enhanced.jpg"));
+    let out = image::open(&enhanced_abs).expect("可解码");
+    assert_eq!((out.width(), out.height()), (24, 8), "旋转后按框裁剪的尺寸");
+
+    // 原图字节不变（裁剪只写工作版本）
+    assert_eq!(std::fs::read(&orig_abs)?, orig_bytes, "原图不可变");
+
+    // 微调角度（非 90 倍数）：白底重采样路径不报错，尺寸 = 裁剪框
+    let updated2 = voucher_core::services::crop::crop_attachment(
+        &ctx,
+        att.id,
+        voucher_core::services::crop::CropRect {
+            x: 0,
+            y: 0,
+            w: 40,
+            h: 40,
+        },
+        10,
+    )?;
+    let out2 = image::open(
+        ctx.paths
+            .attachment_abs(updated2.enhanced_path.as_deref().unwrap_or(&enhanced)),
+    )
+    .expect("可解码");
+    assert_eq!((out2.width(), out2.height()), (40, 40));
+
+    // 空裁剪框报错
+    let err = voucher_core::services::crop::crop_attachment(
+        &ctx,
+        att.id,
+        voucher_core::services::crop::CropRect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        },
+        0,
+    );
+    assert!(matches!(err, Err(voucher_core::CoreError::Invalid(_))));
+
+    // 期间锁拦截（与换图同口径）
+    let today = voucher_core::utils::paths::today();
+    voucher_core::services::period::lock_period(&ctx, &today[..7])?;
+    let err2 = voucher_core::services::crop::crop_attachment(
+        &ctx,
+        att.id,
+        voucher_core::services::crop::CropRect {
+            x: 0,
+            y: 0,
+            w: 24,
+            h: 24,
+        },
+        0,
+    );
+    assert!(
+        matches!(err2, Err(voucher_core::CoreError::Invalid(ref e)) if e.contains("已封账")),
+        "封账月不可调整图片"
+    );
+    Ok(())
+}

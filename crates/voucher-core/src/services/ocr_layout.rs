@@ -143,6 +143,12 @@ pub fn extract_with_layout(lines: &[OcrLine]) -> ocr_fields::ExtractedFields {
     }
 
     base.confidence = conf;
+    // v0.12：后验校验层（年份窗口 / 金额多数互验 / 账号模式），改写 confidence
+    {
+        use chrono::Datelike;
+        let now_year = chrono::Local::now().date_naive().year();
+        crate::services::ocr_validate::apply(&text, &mut base, now_year);
+    }
     base
 }
 

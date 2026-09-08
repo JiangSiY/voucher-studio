@@ -504,6 +504,12 @@ export const api = {
     invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId }),
   /** 附件绝对路径（打开原图用） */
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
+  /** v0.12：手动裁剪/旋转（旋转→裁剪→覆盖写增强版；原图不动）。rect 为旋转后图像像素坐标 */
+  cropAttachment: (
+    attachmentId: number,
+    rect: { x: number; y: number; w: number; h: number },
+    rotationDeg: number,
+  ) => invoke<Attachment>("crop_attachment", { attachmentId, rect, rotationDeg }),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   /** v0.7 S-2：OCR 字段提取预览（只读） */

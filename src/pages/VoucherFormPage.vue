@@ -12,6 +12,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
 import ImageViewerDialog from "../components/ImageViewerDialog.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import CropDialog from "../components/CropDialog.vue";
 import OcrResultCard from "../components/OcrResultCard.vue";
 import { OCR_META, fmtDate } from "../composables/format";
 import { useDirtyGuard } from "../composables/dirtyGuard";
@@ -515,6 +516,56 @@ function openViewer(a: Attachment) {
   viewerVisible.value = true;
 }
 
+// ---------- v0.12：手动裁剪 / 旋转（自动矫正失败的人工补救） ----------
+
+const cropVisible = ref(false);
+const cropAttachmentId = ref<number | null>(null);
+const cropSrc = ref("");
+const cropFileName = ref("");
+const cropDialog = ref<InstanceType<typeof CropDialog> | null>(null);
+
+function openCrop(a: Attachment) {
+  // 基准 = 原图（手动裁剪替代自动增强，不叠加）
+  cropSrc.value = convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
+  cropFileName.value = a.fileName;
+  cropAttachmentId.value = a.id;
+  cropVisible.value = true;
+}
+
+async function onCropSave(
+  rect: { x: number; y: number; w: number; h: number },
+  rotationDeg: number,
+) {
+  if (!cropAttachmentId.value) return;
+  try {
+    await api.cropAttachment(cropAttachmentId.value, rect, rotationDeg);
+    cropVisible.value = false;
+    if (editId.value) await loadDetail();
+    toast.success("图片已调整（覆盖增强版；原图不变）", {
+      label: "重新识别",
+      onClick: () => void reRunOcrAfterCrop(),
+    });
+  } catch (e) {
+    toastError(e);
+    cropDialog.value?.done();
+  }
+}
+
+/** 裁剪后重跑 OCR（run_ocr 会读最新增强版；缓存按增强图内容区分） */
+async function reRunOcrAfterCrop() {
+  const a = attachments.value[0];
+  if (!a || !editId.value) return;
+  ocrBusy.value = true;
+  try {
+    applyDetail(await api.runOcr(a.id));
+    toast.success("已按调整后的图片重新识别并回填可识别的空字段");
+  } catch (e) {
+    toastError(e);
+  } finally {
+    ocrBusy.value = false;
+  }
+}
+
 // ---------- D-1：编辑页缩略图优先用增强版，支持「原图/增强」切换 ----------
 
 /** D-1：单图默认用增强版（如有）；查看器/查看大图也走同一规则 */
@@ -771,6 +822,12 @@ function compareClipRight(a: Attachment): string {
                   <button class="btn btn-sm" :disabled="replacing" @click="replaceImage">
                     {{ replacing ? "更换中…" : "更换图片" }}
                   </button>
+                  <!-- v0.12：手动裁剪/旋转（自动矫正失败的人工补救；覆盖增强版，原图不动） -->
+                  <button class="btn btn-sm" :disabled="!!lockedPeriod"
+                    :title="lockedPeriod ? '该月已封账，不可调整' : '手动裁剪 / 旋转（覆盖增强版，原图不变）'"
+                    @click="openCrop(a)">
+                    <FluentIcon name="edit" :size="14" />调整
+                  </button>
                   <!-- D-4：A/B 对比开关（无增强版不可用） -->
                   <button v-if="a.enhancedPath" class="btn btn-sm"
                     :class="{ 'btn-primary': isCompareOpen(a) }"
@@ -811,6 +868,11 @@ function compareClipRight(a: Attachment): string {
 
   <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
     :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
+
+  <!-- v0.12：手动裁剪 / 旋转对话框（保存 → crop_attachment → 刷新详情；可一键重新识别） -->
+  <CropDialog ref="cropDialog" :visible="cropVisible" :attachment-id="cropAttachmentId"
+    :src="cropSrc" :file-name="cropFileName"
+    @close="cropVisible = false" @save="onCropSave" />
 
   <!-- v0.9：未保存离开确认（翻张 / 返回 / 侧栏路由统一走这里） -->
   <ConfirmDialog :visible="leaveConfirmVisible" title="未保存的修改" :body="leaveConfirmText" confirm-text="离开"

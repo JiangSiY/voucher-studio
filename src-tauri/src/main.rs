@@ -251,6 +251,7 @@ fn main() {
             commands::pick_and_import,
             commands::pick_and_replace_image,
             commands::attachment_abs_path,
+            commands::crop_attachment,
             commands::run_ocr,
             commands::ocr_preview_fields,
             commands::run_ocr_pending,

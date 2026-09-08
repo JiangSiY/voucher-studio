@@ -108,6 +108,28 @@ pub fn attachment_abs_path(ctx: Ctx, id: i64) -> std::result::Result<String, Str
     }
 }
 
+/// v0.12：手动裁剪/旋转（自动矫正失败的人工补救）。旋转 → 裁剪 → 覆盖写增强版；
+/// 返回更新后的附件（enhanced_path 已指向手动版）。
+#[tauri::command]
+pub async fn crop_attachment(
+    ctx: Ctx<'_>,
+    attachment_id: i64,
+    rect: voucher_core::services::crop::CropRect,
+    rotation_deg: i32,
+) -> std::result::Result<voucher_core::models::Attachment, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(voucher_core::services::crop::crop_attachment(
+            &core,
+            attachment_id,
+            rect,
+            rotation_deg,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 识别附件并自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 /// 附件可能被语义化重命名，故返回整份凭证详情供前端刷新。
 #[tauri::command]
@@ -151,7 +173,9 @@ pub fn ocr_preview_fields(
                 Some(lines) if !lines.is_empty() => {
                     voucher_core::services::ocr_layout::extract_with_layout(&lines)
                 }
-                _ => voucher_core::services::ocr_fields::extract(text.as_deref().unwrap_or("")),
+                _ => voucher_core::services::ocr_fields::extract_validated(
+                    text.as_deref().unwrap_or(""),
+                ),
             })
         })
         .map_err(|e: voucher_core::CoreError| e.to_string())?;
