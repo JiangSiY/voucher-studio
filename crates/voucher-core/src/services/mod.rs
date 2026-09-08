@@ -14,6 +14,7 @@ pub mod ocr_local;
 pub mod ocr_validate;
 pub mod pdf;
 pub mod period;
+pub mod reconcile;
 pub mod recovery;
 pub mod reports;
 pub mod scheduler;

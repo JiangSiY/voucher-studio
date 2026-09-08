@@ -8,9 +8,23 @@ import { useConfigStore } from "./stores/config";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
 import FluentIcon from "./components/FluentIcon.vue";
+import CommandPalette from "./components/CommandPalette.vue";
 
 const configStore = useConfigStore();
 const router = useRouter();
+
+// v0.13：全局命令面板（Ctrl+K）
+const paletteVisible = ref(false);
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    paletteVisible.value = !paletteVisible.value;
+  }
+}
+
+onMounted(() => window.addEventListener("keydown", onGlobalKeydown));
+onUnmounted(() => window.removeEventListener("keydown", onGlobalKeydown));
 
 // 全局事件告警（任何页面都可见）
 let unlistenDone: UnlistenFn | null = null;
@@ -130,6 +144,9 @@ onUnmounted(() => {
 
 <template>
   <router-view />
+
+  <!-- v0.13：全局命令面板（Ctrl+K）：页面跳转 / 快速动作 / 凭证搜索 -->
+  <CommandPalette :visible="paletteVisible" @close="paletteVisible = false" />
 
   <!-- 拖放导入遮罩（Rust 侧 drag-enter/leave 事件驱动） -->
   <div v-if="draggingOver" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>

@@ -12,7 +12,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 pub use db::Database;
 pub use services::ocr_local::LocalOcr;
-pub use utils::config::{AppConfig, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD};
+pub use utils::config::{
+    AppConfig, SECRET_BACKUP_PASSWORD, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD,
+};
 pub use utils::crypto::SecretStore;
 pub use utils::paths::AppPaths;
 

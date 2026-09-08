@@ -223,6 +223,8 @@ fn date_time_of_name(name: &str) -> String {
 
 /// 合成 v2 全量 zip（下载恢复链路）：snapshot 的 db/config + 附件包的 attachments。
 /// 产物走现有 inspect/restore 流程，恢复逻辑零改动。
+/// v0.13：入参 snapshot/bundle 可能是加密 zip（本地/云端加密备份）——
+/// 读取走 crypto::open_entry（凭据管理器解密），产物保持明文（临时中间物）。
 pub(super) fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> Result<()> {
     let snap_manifest: Manifest = read_manifest(snapshot)
         .ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
@@ -235,12 +237,12 @@ pub(super) fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> R
         .compression_method(zip::CompressionMethod::Deflated);
 
     let mut merged = HashMap::new();
-    // db + config 来自 snapshot
+    // db + config 来自 snapshot（加密则经 open_entry 解密）
     {
         let file = std::fs::File::open(snapshot)?;
         let mut zip = zip::ZipArchive::new(file)?;
         for entry in [DB_ENTRY, CONFIG_ENTRY] {
-            if let Ok(mut e) = zip.by_name(entry) {
+            if let Ok(mut e) = super::crypto::open_entry(&mut zip, entry) {
                 let mut buf = Vec::new();
                 e.read_to_end(&mut buf)?;
                 merged.insert(entry.to_string(), sha256_hex(&buf));
@@ -249,20 +251,17 @@ pub(super) fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> R
             }
         }
     }
-    // attachments 来自 bundle
+    // attachments 来自 bundle（同上解密读取；名字枚举用 file_names——加密条目 by_index 会报「需要密码」）
     {
         let file = std::fs::File::open(bundle)?;
         let mut zip = zip::ZipArchive::new(file)?;
-        for i in 0..zip.len() {
-            let name = {
-                let e = zip.by_index(i)?;
-                e.name().to_string()
-            };
+        let names: Vec<String> = zip.file_names().map(|n| n.to_string()).collect();
+        for name in names {
             if !name.starts_with(ATTACHMENTS_PREFIX) || name.ends_with('/') {
                 continue;
             }
             let mut buf = Vec::new();
-            let mut e = zip.by_name(&name)?;
+            let mut e = super::crypto::open_entry(&mut zip, &name)?;
             e.read_to_end(&mut buf)?;
             merged.insert(name.clone(), sha256_hex(&buf));
             w.start_file(name.as_str(), opts)?;

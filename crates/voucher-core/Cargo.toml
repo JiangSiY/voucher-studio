@@ -24,8 +24,10 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png"]
 # +30MB 装包、首次编译 3-8 分钟。链接到系统 OpenCV 4.x（环境变量 OpenCV_DIR + OPENCV_LINK_*）。
 # 必须保留 default features（含 core/types），否则会报 GpuMat/UMat trait bound 错误。
 opencv = { version = "0.100", features = ["imgproc", "imgcodecs", "calib3d"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
 base64 = "0.22"
+# v0.13：账单 CSV 对账（支付宝导出常为 GBK 编码）
+encoding_rs = "0.8"
 # v0.10：Excel 导出（纯 Rust、无 C 依赖）
 rust_xlsxwriter = "0.79"
 # 本地 OCR（G1 Spike B 验证路线）：ort = ONNX Runtime 的 Rust 绑定

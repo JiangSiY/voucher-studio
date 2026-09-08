@@ -15,6 +15,7 @@
 //! - restore：校验/释放/演练（快照经 materialize 透明合成）
 //! - webdav：云端上传/清理/下载协议层
 
+mod crypto;
 mod format;
 mod local;
 mod restore;
@@ -104,7 +105,8 @@ pub(super) struct Manifest {
 pub(super) fn read_manifest(zip_path: &Path) -> Option<Manifest> {
     let file = std::fs::File::open(zip_path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
-    let mut entry = zip.by_name(MANIFEST_FILE).ok()?;
+    // v0.13：加密备份的 manifest 也是加密条目 → open_entry 走凭据管理器解密
+    let mut entry = crypto::open_entry(&mut zip, MANIFEST_FILE).ok()?;
     let mut buf = String::new();
     entry.read_to_string(&mut buf).ok()?;
     serde_json::from_str(&buf).ok()

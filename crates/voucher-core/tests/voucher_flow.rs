@@ -1807,3 +1807,58 @@ fn crop_attachment_rotates_and_overwrites_enhanced() -> Result<()> {
     );
     Ok(())
 }
+
+// ---------- v0.13：账单 CSV 对账 ----------
+
+/// 对账匹配三类结果：✅ 匹配 / 🔵 账单无凭证 / 🔴 凭证无账单；报告 CSV 落盘
+#[test]
+fn reconcile_matches_and_reports_gaps() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    // 凭证：一张能对上（8-20 · 123.45），一张对不上（8-21 同日不同金额 · 99.00）
+    voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-20".into(),
+            description: "办公耗材".into(),
+            amount_cents: Some(12345),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-21".into(),
+            description: "现金采购".into(),
+            amount_cents: Some(9900),
+            ..Default::default()
+        },
+    )?;
+
+    let csv = dir.path().join("bill.csv");
+    std::fs::write(
+        &csv,
+        "微信支付账单明细\n交易时间,交易类型,交易对方,商品,收/支,金额(元),支付方式\n\
+         2026-08-20 12:30:45,商户消费,文一店,办公耗材,支出,¥123.45,零钱\n\
+         2026-08-21 18:00:00,商户消费,美团,外卖,支出,¥35.50,零钱\n",
+    )?;
+
+    let report = voucher_core::services::reconcile::reconcile(&ctx, &csv)?;
+    assert_eq!(report.bill_count, 2);
+    assert_eq!(report.matched.len(), 1, "一条账单匹配到凭证");
+    assert_eq!(report.matched[0].bill.amount_cents, 12345);
+    assert_eq!(report.matched[0].voucher.amount_cents, Some(12345));
+    assert_eq!(report.bill_only.len(), 1, "一条账单无对应凭证（漏拍图）");
+    assert_eq!(report.bill_only[0].subject, "外卖");
+    assert_eq!(report.voucher_only.len(), 1, "一张凭证无对应账单");
+    assert_eq!(report.voucher_only[0].amount_cents, Some(9900));
+    assert_eq!(report.date_from, "2026-08-20");
+    assert_eq!(report.date_to, "2026-08-21");
+    // 报告 CSV 已落盘且可读
+    let path = report.report_path.expect("报告落盘");
+    assert!(PathBuf::from(&path).exists());
+    let text = String::from_utf8_lossy(&std::fs::read(&path)?).to_string();
+    assert!(text.contains("✅ 匹配"));
+    assert!(text.contains("🔵 账单无凭证"));
+    assert!(text.contains("🔴 凭证无账单"));
+    Ok(())
+}

@@ -15,6 +15,7 @@ use crate::{CoreError, Result};
 pub const KNOWN_ALIASES: &[(&str, &str)] = &[
     ("ocr_api_key", "云端 OCR API Key"),
     ("webdav_password", "WebDAV 密码"),
+    ("backup_password", "备份加密密码"),
 ];
 
 /// 系统凭据库包装

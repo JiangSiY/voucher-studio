@@ -245,6 +245,33 @@ export interface SearchFilters {
   amountTo?: number | null;
 }
 
+/** v0.13：账单记录（微信/支付宝 CSV 解析产物） */
+export interface BillRecord {
+  date: string;
+  amountCents: number;
+  direction: string;
+  counterparty: string;
+  subject: string;
+  lineNo: number;
+}
+
+/** v0.13：对账匹配（账单 ↔ 凭证） */
+export interface ReconcileMatch {
+  bill: BillRecord;
+  voucher: Voucher;
+}
+
+/** v0.13：对账报告（只读匹配；报告 CSV 自动落 exports/） */
+export interface ReconcileReport {
+  billCount: number;
+  matched: ReconcileMatch[];
+  billOnly: BillRecord[];
+  voucherOnly: Voucher[];
+  dateFrom: string;
+  dateTo: string;
+  reportPath: string | null;
+}
+
 export interface ExportOptions {
   title: string;
   cardStyle: "standard" | "clean" | "ledger";
@@ -264,6 +291,8 @@ export interface AppConfig {
     keepWeekly: number;
     keepMonthly: number;
     secondaryDir: string;
+    /** v0.13：备份 zip AES-256 加密（密码存凭据管理器；本地/异盘/云端全覆盖） */
+    encrypted: boolean;
     webdav: {
       enabled: boolean;
       url: string;
@@ -510,6 +539,9 @@ export const api = {
     rect: { x: number; y: number; w: number; h: number },
     rotationDeg: number,
   ) => invoke<Attachment>("crop_attachment", { attachmentId, rect, rotationDeg }),
+  /** v0.13：选账单 CSV → 对账（只读匹配；报告自动落 exports/）。null = 用户取消 */
+  pickAndReconcile: () =>
+    invoke<ReconcileReport | null>("pick_and_reconcile"),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   /** v0.7 S-2：OCR 字段提取预览（只读） */

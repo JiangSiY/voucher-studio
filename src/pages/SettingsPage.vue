@@ -40,6 +40,7 @@ function defaultConfig(): AppConfig {
       keepWeekly: 4,
       keepMonthly: 6,
       secondaryDir: "",
+      encrypted: false,
       webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10, onceDaily: false },
     },
     print: {
@@ -987,6 +988,22 @@ onUnmounted(() => {
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="cfg.backup.autoBackupOnClose" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- v0.13：备份加密（AES-256；密码存凭据管理器） -->
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px">
+        <div>
+          <div style="font-size: 13px; font-weight: 600">备份加密 <FluentIcon name="lock" :size="13" /></div>
+          <div style="font-size: 12px; color: var(--text-3)">
+            开启后备份 zip 以 AES-256 加密（本地 / 异盘 / WebDAV 云端全覆盖），恢复时自动解密。
+            密码在「密钥管理 → 备份加密密码」设置，<strong style="color: var(--warning)">忘记密码将无法恢复备份，请牢记</strong>。
+            旧明文备份仍可直接恢复。
+          </div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" v-model="cfg.backup.encrypted" />
           <span class="slider"></span>
         </label>
       </div>

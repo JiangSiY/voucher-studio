@@ -130,6 +130,39 @@ pub async fn crop_attachment(
     .map_err(|e| e.to_string())?
 }
 
+/// v0.13：系统对话框选账单 CSV → 对账（只读匹配，不写库）→ 报告落 exports/。
+/// 返回 None = 用户取消选择。
+#[tauri::command]
+pub async fn pick_and_reconcile(
+    app: AppHandle,
+    ctx: Ctx<'_>,
+) -> std::result::Result<Option<voucher_core::services::reconcile::ReconcileReport>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("账单 CSV", &["csv"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let path = match picked.and_then(|f| f.into_path().ok()) {
+        Some(p) => p,
+        None => {
+            log::info!("对账对话框：用户取消");
+            return Ok(None);
+        }
+    };
+    let core = ctx.inner().clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        err_string(voucher_core::services::reconcile::reconcile(&core, &path))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(Some(report))
+}
+
 /// 识别附件并自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 /// 附件可能被语义化重命名，故返回整份凭证详情供前端刷新。
 #[tauri::command]

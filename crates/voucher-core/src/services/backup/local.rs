@@ -63,6 +63,8 @@ fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
 /// 旧全量 voucher-backup-*.zip 兼容并存；恢复/演练经 materialize 合成，流程零改动。
 fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
     let _guard = ctx.backup_guard();
+    // v0.13：加密口令前置检查（开启加密但无密码 → 立即报错，不产生明文备份）
+    let enc_password = super::crypto::password_for_write(ctx)?;
     // 1. 数据库一致性快照
     let snap = ctx.paths.temp.join("backup-snapshot.db");
     if snap.exists() {
@@ -104,7 +106,13 @@ fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
     let has_attachments = !attachments.is_empty();
     let bundle_created = has_attachments && !bundle_path.exists();
     if bundle_created {
-        write_bundle_zip(ctx, &attachments, &bundle_path, &created_at)?;
+        write_bundle_zip(
+            ctx,
+            &attachments,
+            &bundle_path,
+            &created_at,
+            enc_password.as_deref(),
+        )?;
     }
 
     // 4. 快照：db + config + manifest（指向附件包名）。
@@ -124,6 +132,7 @@ fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
         &att_checksums,
         &snap_path,
         &created_at,
+        enc_password.as_deref(),
     )?;
     let _ = std::fs::remove_file(&snap);
 
@@ -177,11 +186,13 @@ fn attachments_from_snapshot_db(db: &Path) -> Result<Vec<(String, String)>> {
 
 /// 写附件包（temp + rename 原子落位）：全部附件原图 + 自带 manifest。
 /// 打包时逐文件读内容并算实际 hash（读了就算，manifest 与内容自洽可校验）。
+/// v0.13：`password` 非 None 时全部条目 AES-256 加密（本地/异盘/云端共用此文件）。
 fn write_bundle_zip(
     ctx: &CoreContext,
     attachments: &[(String, String)],
     dest: &Path,
     created_at: &str,
+    password: Option<&str>,
 ) -> Result<()> {
     let tmp = ctx.paths.temp.join(format!(
         "backup-bundle-{}",
@@ -190,8 +201,7 @@ fn write_bundle_zip(
     {
         let file = std::fs::File::create(&tmp)?;
         let mut w = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let opts = super::crypto::write_options(password);
         let mut checksums = HashMap::new();
         for (rel, _) in attachments {
             let bytes = std::fs::read(ctx.paths.attachments.join(rel))?;
@@ -219,6 +229,7 @@ fn write_bundle_zip(
 
 /// 写快照（temp + rename 原子落位）：db + config + manifest（指向附件包名）。
 /// checksums 只含自身条目（db/config），附件校验和在附件包 manifest 里。
+/// v0.13：`password` 非 None 时全部条目 AES-256 加密。
 fn write_snapshot_zip(
     ctx: &CoreContext,
     snap_db: &Path,
@@ -226,6 +237,7 @@ fn write_snapshot_zip(
     att_checksums: &HashMap<String, String>,
     dest: &Path,
     created_at: &str,
+    password: Option<&str>,
 ) -> Result<()> {
     let tmp = ctx.paths.temp.join(format!(
         "backup-snap-{}",
@@ -234,8 +246,7 @@ fn write_snapshot_zip(
     {
         let file = std::fs::File::create(&tmp)?;
         let mut w = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let opts = super::crypto::write_options(password);
         let mut checksums = HashMap::new();
 
         let db_bytes = std::fs::read(snap_db)?;

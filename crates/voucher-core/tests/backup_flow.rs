@@ -43,6 +43,110 @@ fn backup_and_restore_roundtrip() -> Result<()> {
     Ok(())
 }
 
+/// v0.13：备份加密全链路——开启加密后快照/附件包 AES-256 加密落盘、
+/// 无密码读取被拒、恢复（经凭据管理器解密 + materialize 合成）数据完整；
+/// 未设密码时备份拒绝执行（不静默降级明文）。
+#[test]
+fn encrypted_backup_roundtrip() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("enc.png");
+    make_png_variant(&img, 77);
+    ingestion::import_images(&ctx, &[img], None, false)?;
+    // 幂等：清掉上次运行（可能中途失败）留下的密码
+    let _ = ctx
+        .secrets
+        .delete(voucher_core::utils::config::SECRET_BACKUP_PASSWORD);
+
+    // 1. 开启加密但未设密码 → 备份拒绝（不产生明文备份）
+    {
+        let mut cfg = ctx.config();
+        cfg.backup.encrypted = true;
+        ctx.set_config(cfg)?;
+    }
+    let err = backup::run_backup(&ctx);
+    assert!(
+        matches!(err, Err(voucher_core::CoreError::Invalid(ref e)) if e.contains("未设置密码")),
+        "开启加密无密码应拒绝备份，实际：{err:?}"
+    );
+
+    // 2. 设置密码（凭据管理器；测试后清理）
+    ctx.secrets.set(
+        voucher_core::utils::config::SECRET_BACKUP_PASSWORD,
+        "test-enc-pwd",
+    )?;
+
+    let info = backup::run_backup(&ctx)?;
+    assert!(PathBuf::from(&info.path).exists());
+    assert!(info.attachment_count >= 1, "附件进加密包");
+
+    // 3. 快照条目确实被加密（加密标志 + 明文读取被拒）
+    let snapshot = PathBuf::from(&info.path);
+    {
+        let file = std::fs::File::open(&snapshot)?;
+        let mut zip = zip::ZipArchive::new(file)?;
+        for i in 0..zip.len() {
+            let encrypted = {
+                let e = zip.by_index_raw(i)?;
+                e.encrypted()
+            };
+            assert!(encrypted, "快照内全部条目应加密");
+        }
+        assert!(zip.by_name("manifest.json").is_err(), "明文读取被拒");
+    }
+    // 附件包同检（备份目录下按内容寻址命名）
+    let bundle = find_bundle(&snapshot)?;
+    {
+        let file = std::fs::File::open(&bundle)?;
+        let mut zip = zip::ZipArchive::new(file)?;
+        for i in 0..zip.len() {
+            let encrypted = {
+                let e = zip.by_index_raw(i)?;
+                e.encrypted()
+            };
+            assert!(encrypted, "附件包内全部条目应加密");
+        }
+    }
+
+    // 4. 恢复链路（read_manifest / compose 走凭据管理器解密）：数据完整
+    let target = dir.path().join("restored-enc");
+    let summary = backup::restore_backup(&ctx, &snapshot, &target)?;
+    assert!(summary.checksums_verified, "解密后 sha256 校验通过");
+    assert!(summary.attachment_count >= 1);
+    assert!(target.join("data").join("voucher.db").exists());
+    let conn = voucher_core::db::connection::open(&target.join("data").join("voucher.db"))?;
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))?;
+    assert_eq!(n, 1, "恢复出加密备份中的凭证");
+    // 附件树非空（attachments/<年>/<月>/ 深层结构，顶层是目录）
+    let mut atts = 0;
+    for e in std::fs::read_dir(target.join("attachments"))? {
+        atts += e?.path().is_dir() as i32;
+    }
+    assert!(atts >= 1, "附件从加密包中释放");
+
+    // 5. 演练同样通过
+    let report = backup::drill_backup(&ctx, None)?;
+    assert!(report.db_ok);
+
+    // 清理凭据（不污染其他测试 / 用户凭据库）
+    let _ = ctx
+        .secrets
+        .delete(voucher_core::utils::config::SECRET_BACKUP_PASSWORD);
+    Ok(())
+}
+
+/// 快照同目录下找附件包（备份目录按内容寻址前缀枚举）
+fn find_bundle(snapshot: &Path) -> Result<PathBuf> {
+    let dir = snapshot.parent().unwrap_or(Path::new("."));
+    for e in std::fs::read_dir(dir)? {
+        let p = e?.path();
+        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or_default();
+        if name.starts_with("voucher-attachments-") {
+            return Ok(p);
+        }
+    }
+    Err(voucher_core::CoreError::NotFound("附件包未找到".into()))
+}
+
 #[test]
 fn backup_includes_attachments_and_drill_passes() -> Result<()> {
     let (_dir, ctx) = test_ctx();

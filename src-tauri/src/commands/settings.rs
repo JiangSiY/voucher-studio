@@ -2,7 +2,9 @@
 
 use super::*;
 use voucher_core::services::naming;
-use voucher_core::utils::config::{AppConfig, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD};
+use voucher_core::utils::config::{
+    AppConfig, SECRET_BACKUP_PASSWORD, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD,
+};
 // ---------- 配置 ----------
 
 #[tauri::command]
@@ -46,7 +48,11 @@ pub fn list_secrets(ctx: Ctx) -> Vec<voucher_core::utils::crypto::SecretStatus> 
 
 #[tauri::command]
 pub fn set_secret(ctx: Ctx, alias: String, value: String) -> std::result::Result<(), String> {
-    let known = [SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD];
+    let known = [
+        SECRET_OCR_API_KEY,
+        SECRET_WEBDAV_PASSWORD,
+        SECRET_BACKUP_PASSWORD,
+    ];
     if !known.contains(&alias.as_str()) {
         return Err(format!("未知凭据别名: {alias}"));
     }
