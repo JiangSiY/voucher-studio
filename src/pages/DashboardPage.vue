@@ -20,6 +20,75 @@ const busy = ref(false);
 
 const REPORT_MONTHS = 6;
 
+// ---------- v0.11：趋势视图切换（近 6 月滚动 | 自然年度 12 月） ----------
+
+type TrendMode = "recent" | "yearly";
+const trendMode = ref<TrendMode>("recent");
+const trendYear = ref(new Date().getFullYear());
+/** 年份选项：今年起倒推 5 年（够用即可，更早年份通过导出历史查批次） */
+const yearOptions = computed(() =>
+  Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i),
+);
+
+/** 拉取当前视图的月度数据（滚动窗口或某年 12 个月） */
+async function loadTrend() {
+  if (trendMode.value === "recent") {
+    monthly.value = await api.monthlySummary(REPORT_MONTHS);
+  } else {
+    monthly.value = await api.yearlySummary(trendYear.value);
+  }
+}
+
+async function switchTrendMode(m: TrendMode) {
+  if (trendMode.value === m) return;
+  trendMode.value = m;
+  try {
+    await loadTrend();
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+async function switchTrendYear(y: number) {
+  if (trendYear.value === y) return;
+  trendYear.value = y;
+  try {
+    await loadTrend();
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+/** 季度汇总（年度视图卡片）：Q1–Q4 的张数与金额 */
+const quarters = computed(() => {
+  const out: { label: string; count: number; amountCents: number }[] = [];
+  for (let q = 0; q < 4; q++) {
+    const rows = monthly.value.slice(q * 3, q * 3 + 3);
+    out.push({
+      label: `Q${q + 1}`,
+      count: rows.reduce((s, m) => s + m.count, 0),
+      amountCents: rows.reduce((s, m) => s + m.amountCents, 0),
+    });
+  }
+  return out;
+});
+
+/** v0.11：导出年度报表 PDF（统计输出，不改凭证状态） */
+async function exportYearly() {
+  busy.value = true;
+  try {
+    const batch = await api.exportYearlyReport(trendYear.value);
+    toast.success(`年度报表已生成：${batch.batchNo}`, {
+      label: "打开 PDF",
+      onClick: () => void api.openPath(batch.pdfPath),
+    });
+  } catch (e) {
+    toastError(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 // ---------- v0.10：疑似重复扫描（同日期 + 同金额；仅提示，不阻断任何操作） ----------
 
 const duplicates = ref<DuplicateGroup[]>([]);
@@ -62,7 +131,7 @@ async function load() {
     const list = await api.listVouchers({ page: 1, pageSize: 6 });
     recent.value = list.items;
     backups.value = await api.listBackups();
-    monthly.value = await api.monthlySummary(REPORT_MONTHS);
+    await loadTrend();
     counterparties.value = await api.topCounterparties(0, CP_TOP);
     tagRows.value = await api.tagStats(0, TAG_TOP);
     // 疑似重复是辅助检查，失败静默（不影响仪表盘其他数据展示）
@@ -107,6 +176,21 @@ function gotoMonth(month: string) {
   router.push({
     path: "/vouchers",
     query: { dateFrom: `${y}-${m}-01`, dateTo: `${y}-${m}-${lastDay}` },
+  });
+}
+
+/** v0.11 季度卡 → 列表页按该季度日期范围筛选 */
+function gotoQuarter(q: number) {
+  const y = trendYear.value;
+  const fromM = (q - 1) * 3 + 1;
+  const toM = q * 3;
+  const lastDay = new Date(y, toM, 0).getDate();
+  router.push({
+    path: "/vouchers",
+    query: {
+      dateFrom: `${y}-${String(fromM).padStart(2, "0")}-01`,
+      dateTo: `${y}-${String(toM).padStart(2, "0")}-${lastDay}`,
+    },
   });
 }
 
@@ -270,22 +354,42 @@ onUnmounted(() => {
   <div class="report-grid" v-if="monthly.length">
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>月度趋势（近 {{ REPORT_MONTHS }} 月）</h3>
-        <!-- 功能深化 3：张数/金额双指标切换 -->
-        <div class="metric-toggle" role="tablist" aria-label="趋势指标切换">
-          <button
-            role="tab"
-            :class="{ active: trendMetric === 'count' }"
-            @click="trendMetric = 'count'"
-          >张数</button>
-          <button
-            role="tab"
-            :class="{ active: trendMetric === 'amount' }"
-            @click="trendMetric = 'amount'"
-          >金额</button>
+        <h3>{{ trendMode === "recent" ? `月度趋势（近 ${REPORT_MONTHS} 月）` : `年度趋势（${trendYear} 年）` }}</h3>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <!-- v0.11：滚动窗口 / 年度切换 + 年份选择 -->
+          <select v-if="trendMode === 'yearly'" v-model.number="trendYear" class="input" style="width: 92px; padding: 3px 6px; font-size: 12px" title="切换年份" @change="switchTrendYear(trendYear)">
+            <option v-for="y in yearOptions" :key="y" :value="y">{{ y }} 年</option>
+          </select>
+          <div class="metric-toggle" role="tablist" aria-label="趋势视图切换">
+            <button role="tab" :class="{ active: trendMode === 'recent' }" @click="switchTrendMode('recent')">近 {{ REPORT_MONTHS }} 月</button>
+            <button role="tab" :class="{ active: trendMode === 'yearly' }" @click="switchTrendMode('yearly')">年度</button>
+          </div>
+          <!-- 功能深化 3：张数/金额双指标切换 -->
+          <div class="metric-toggle" role="tablist" aria-label="趋势指标切换">
+            <button
+              role="tab"
+              :class="{ active: trendMetric === 'count' }"
+              @click="trendMetric = 'count'"
+            >张数</button>
+            <button
+              role="tab"
+              :class="{ active: trendMetric === 'amount' }"
+              @click="trendMetric = 'amount'"
+            >金额</button>
+          </div>
         </div>
       </div>
       <div class="fluent-panel-body">
+        <!-- v0.11：季度汇总（年度视图）——点击季度跳列表页该季度范围 -->
+        <div v-if="trendMode === 'yearly'" class="quarter-grid">
+          <button v-for="(q, qi) in quarters" :key="q.label" class="quarter-card" :disabled="!q.count"
+            :title="q.count ? `查看 ${trendYear} 年 ${q.label} 明细` : '该季度无凭证'"
+            @click="gotoQuarter(qi + 1)">
+            <span class="q-label">{{ q.label }}</span>
+            <span class="q-count">{{ q.count }} 张</span>
+            <span class="q-amount">¥{{ fmtAmount(q.amountCents) }}</span>
+          </button>
+        </div>
         <svg
           class="trend-svg"
           :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
@@ -314,12 +418,18 @@ onUnmounted(() => {
             </text>
           </g>
         </svg>
+        <!-- v0.11：年度报表导出（统计输出，不改凭证状态） -->
+        <div v-if="trendMode === 'yearly'" style="display: flex; justify-content: flex-end; margin-top: 4px">
+          <button class="btn btn-sm" :disabled="busy" @click="exportYearly">
+            <FluentIcon v-if="!busy" name="print" :size="13" />导出 {{ trendYear }} 年度报表 PDF
+          </button>
+        </div>
       </div>
     </div>
 
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>状态分布（近 {{ REPORT_MONTHS }} 月）</h3>
+        <h3>{{ trendMode === "recent" ? `状态分布（近 ${REPORT_MONTHS} 月）` : `状态分布（${trendYear} 年）` }}</h3>
         <span class="dist-sum" v-if="dist.total">
           合计 {{ dist.total }} 张 · ¥{{ fmtAmount(dist.amount) }}
         </span>
@@ -348,7 +458,7 @@ onUnmounted(() => {
         </template>
         <div v-else class="empty-state" style="padding: 32px">
           <div class="es-icon"><FluentIcon name="chart" :size="42" /></div>
-          <div class="es-title">近 {{ REPORT_MONTHS }} 月暂无凭证</div>
+          <div class="es-title">{{ trendMode === "recent" ? `近 ${REPORT_MONTHS} 月暂无凭证` : `${trendYear} 年暂无凭证` }}</div>
           <div class="es-desc">导入图片后这里会出现统计图表</div>
         </div>
       </div>
@@ -447,6 +557,55 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* v0.11 季度汇总卡（年度视图）：张数 + 金额，点击下钻该季度 */
+.quarter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.quarter-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.quarter-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.quarter-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.q-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.q-count {
+  font-size: 13px;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.q-amount {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* v0.10 疑似重复面板：组行 + 可点凭证号 */
 .dup-group {
   font-size: 13px;

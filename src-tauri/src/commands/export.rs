@@ -51,6 +51,20 @@ pub async fn export_table(
     .map_err(|e| e.to_string())?
 }
 
+/// v0.11：年度报表 PDF（12 个月汇总 + 季度小计 + 年合计；统计输出，不改凭证状态）
+#[tauri::command]
+pub async fn export_yearly_report(
+    ctx: Ctx<'_>,
+    year: i32,
+) -> std::result::Result<voucher_core::models::ExportBatch, String> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_string(export::export_yearly_report(&core, year))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn list_export_batches(
     ctx: Ctx,

@@ -11,6 +11,7 @@ pub mod ocr_fields;
 pub mod ocr_layout;
 pub mod ocr_local;
 pub mod pdf;
+pub mod period;
 pub mod recovery;
 pub mod reports;
 pub mod scheduler;

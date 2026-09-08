@@ -61,6 +61,13 @@ pub fn import_images(
                 "该凭证已有图片，请使用「更换图片」".into(),
             ));
         }
+        // v0.11 期间锁：已封账月份的凭证不可附加图片
+        ctx.db.with_conn(|conn| {
+            crate::services::period::ensure_dates_open(
+                conn,
+                &[detail.voucher.voucher_date.as_str()],
+            )
+        })?;
     }
 
     let year_month = crate::utils::paths::current_year_month();
@@ -357,6 +364,8 @@ pub fn replace_attachment(
     let new_attachment = ctx.db.with_tx(|tx| {
         let current = crate::db::repos::voucher_repo::get(tx, voucher_id)?
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {voucher_id} 不存在")))?;
+        // v0.11 期间锁：已封账月份的凭证不可换图
+        crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
         crate::db::repos::snapshot_repo::insert(
             tx,
             &crate::models::snapshot::NewSnapshot {

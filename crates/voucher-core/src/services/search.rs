@@ -1,6 +1,8 @@
 //! 搜索服务（语义对齐 v4.3 的 `services/search.py`：关键词命中凭证字段与附件 OCR 文本）
+//!
+//! v0.11：支持组合筛选（日期范围 + 金额范围），与关键词 AND 组合。
 
-use crate::db::repos::voucher_repo;
+use crate::db::repos::voucher_repo::{self, SearchFilters};
 use crate::models::Voucher;
 use crate::{CoreContext, Result};
 
@@ -13,14 +15,24 @@ pub struct SearchHit {
     pub matched_in: Vec<String>,
 }
 
-pub fn search_vouchers(ctx: &CoreContext, keyword: &str, limit: u32) -> Result<Vec<SearchHit>> {
+pub fn search_vouchers(
+    ctx: &CoreContext,
+    keyword: &str,
+    filters: &SearchFilters,
+    limit: u32,
+) -> Result<Vec<SearchHit>> {
     let limit = if limit == 0 { 50 } else { limit };
-    run(ctx, keyword, limit)
+    run(ctx, keyword, filters, limit)
 }
 
-fn run(ctx: &CoreContext, keyword: &str, limit: u32) -> Result<Vec<SearchHit>> {
+fn run(
+    ctx: &CoreContext,
+    keyword: &str,
+    filters: &SearchFilters,
+    limit: u32,
+) -> Result<Vec<SearchHit>> {
     ctx.db.with_conn(|conn| {
-        let vouchers = voucher_repo::search(conn, keyword, limit)?;
+        let vouchers = voucher_repo::search(conn, keyword, filters, limit)?;
         if vouchers.is_empty() {
             return Ok(Vec::new());
         }

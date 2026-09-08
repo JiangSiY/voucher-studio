@@ -309,3 +309,56 @@ pub fn frequent_descriptions(ctx: &CoreContext, limit: u32) -> Result<Vec<Descri
         Ok(rows)
     })
 }
+
+// ---------- v0.11：年度汇总（12 个月空月补零，供年度报表/图表） ----------
+
+/// 某一自然年的逐月汇总（1–12 月，空月补零；口径与 monthly_summary 一致）
+pub fn yearly_summary(ctx: &CoreContext, year: i32) -> Result<Vec<MonthlySummary>> {
+    let labels: Vec<String> = (1..=12).map(|m| format!("{year:04}-{m:02}")).collect();
+    let grouped: HashMap<String, [i64; 6]> = ctx.db.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT substr(voucher_date, 1, 7) AS m,
+                    COUNT(*) AS cnt,
+                    COALESCE(SUM(amount_cents), 0) AS amt,
+                    COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'reviewed' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'exported' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0)
+             FROM vouchers
+             WHERE substr(voucher_date, 1, 4) = ?1
+             GROUP BY m",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![format!("{year:04}")])?;
+        let mut map = HashMap::new();
+        while let Some(r) = rows.next()? {
+            map.insert(
+                r.get::<_, String>(0)?,
+                [
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ],
+            );
+        }
+        Ok(map)
+    })?;
+
+    Ok(labels
+        .into_iter()
+        .map(|m| {
+            let d = grouped.get(&m).copied().unwrap_or([0; 6]);
+            MonthlySummary {
+                month: m,
+                count: d[0],
+                amount_cents: d[1],
+                draft: d[2],
+                reviewed: d[3],
+                exported: d[4],
+                archived: d[5],
+            }
+        })
+        .collect())
+}

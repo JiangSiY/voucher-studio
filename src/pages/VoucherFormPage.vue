@@ -208,11 +208,31 @@ async function loadDetail() {
   try {
     applyDetail(await api.getVoucher(editId.value));
     loadNeighbor();
+    loadLockState(); // v0.11：期间锁定态（保存前提示）
   } catch (e) {
     toastError(e);
     router.replace("/vouchers");
   }
 }
+
+// ---------- v0.11：期间锁定态（封账月凭证只读提示） ----------
+
+const lockedPeriod = ref<string | null>(null);
+
+async function loadLockState() {
+  try {
+    const locks = await api.listPeriodLocks();
+    const period = voucherDate.value.slice(0, 7);
+    lockedPeriod.value = locks.some((l) => l.period === period) ? period : null;
+  } catch {
+    lockedPeriod.value = null; // 辅助态，失败不打扰
+  }
+}
+
+/** 表单内改日期 → 重估锁定态（改到封账月将无法保存，提前提示） */
+watch(voucherDate, () => {
+  if (editId.value) loadLockState();
+});
 
 // ---------- 新建：选图即建卡（一图一凭证，Rust 侧对话框） ----------
 
@@ -610,6 +630,14 @@ function compareClipRight(a: Attachment): string {
           </div>
         </div>
         <div class="fluent-panel-body">
+          <!-- v0.11：封账月锁定提示（保存被禁用；查看/导出不受限） -->
+          <div class="callout warning" v-if="lockedPeriod" style="margin: 0 0 16px">
+            <span class="ci"><FluentIcon name="lock" :size="18" /></span>
+            <div class="ct">
+              <strong>{{ lockedPeriod }} 已封账，该凭证不可修改。</strong>
+              如确需调整，请先到「设置 → 凭证参数 → 期间管理」解锁（解锁意味着该月数据可能需要重新导出）。
+            </div>
+          </div>
           <div class="field">
             <label>凭证编号</label>
             <input v-model="voucherNo" class="input mono" disabled />
@@ -660,12 +688,13 @@ function compareClipRight(a: Attachment): string {
             <textarea v-model="note" class="input" rows="3"></textarea>
           </div>
           <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center">
-            <span v-if="dirty" class="dirty-hint" title="有未保存的修改">● 未保存</span>
+            <span v-if="dirty && lockedPeriod" class="dirty-hint" title="该月已封账，无法保存">● 已封账</span>
+            <span v-else-if="dirty" class="dirty-hint" title="有未保存的修改">● 未保存</span>
             <button class="btn" @click="goBack">返回</button>
-            <button class="btn" :disabled="saving" title="Ctrl+S" @click="saveOnly">
+            <button class="btn" :disabled="saving || !!lockedPeriod" title="Ctrl+S" @click="saveOnly">
               {{ saving ? "保存中…" : "保存" }}
             </button>
-            <button class="btn btn-primary" :disabled="saving" title="Ctrl+Enter" @click="saveAndNext">
+            <button class="btn btn-primary" :disabled="saving || !!lockedPeriod" title="Ctrl+Enter" @click="saveAndNext">
               {{ saving ? "保存中…" : "保存并下一张" }}
             </button>
           </div>

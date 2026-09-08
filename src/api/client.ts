@@ -231,6 +231,20 @@ export interface DuplicateGroup {
   vouchers: Voucher[];
 }
 
+/** v0.11：会计期间锁（period = YYYY-MM） */
+export interface PeriodLock {
+  period: string;
+  lockedAt: string;
+}
+
+/** v0.11：搜索组合筛选（与关键词 AND 组合；金额单位：分） */
+export interface SearchFilters {
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  amountFrom?: number | null;
+  amountTo?: number | null;
+}
+
 export interface ExportOptions {
   title: string;
   cardStyle: "standard" | "clean" | "ledger";
@@ -463,6 +477,14 @@ export const api = {
   /** v0.10：全库疑似重复扫描（仪表盘面板；同日期同金额、组内 ≥2 张） */
   scanDuplicates: () => invoke<DuplicateGroup[]>("scan_duplicates"),
 
+  /** v0.11：会计期间锁（period = YYYY-MM；锁定月凭证禁止增删改） */
+  listPeriodLocks: () => invoke<PeriodLock[]>("list_period_locks"),
+  lockPeriod: (period: string) => invoke<void>("lock_period", { period }),
+  unlockPeriod: (period: string) => invoke<void>("unlock_period", { period }),
+
+  /** v0.11：年度汇总（该自然年 12 个月，空月补零） */
+  yearlySummary: (year: number) => invoke<MonthlySummary[]>("yearly_summary", { year }),
+
   /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10） */
   topCounterparties: (months?: number, limit?: number) =>
     invoke<CounterpartyRow[]>("top_counterparties", { months, limit }),
@@ -471,7 +493,8 @@ export const api = {
 
   getRecoveryReport: () => invoke<RecoveryReport>("get_recovery_report"),
 
-  searchVouchers: (keyword: string, limit?: number) => invoke<SearchHit[]>("search_vouchers", { keyword, limit }),
+  searchVouchers: (keyword: string, filters?: SearchFilters, limit?: number) =>
+    invoke<SearchHit[]>("search_vouchers", { keyword, filters: filters ?? null, limit }),
 
   /** Rust 侧对话框选图并直接导入（绕开 JS 对话框桥的竞态）。null = 用户取消 */
   pickAndImport: (runOcr: boolean) =>
@@ -497,6 +520,9 @@ export const api = {
   /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */
   exportBatchVouchers: (batchId: number) =>
     invoke<Voucher[]>("export_batch_vouchers", { batchId }),
+  /** v0.11：年度报表 PDF（统计输出，不改凭证状态） */
+  exportYearlyReport: (year: number) =>
+    invoke<ExportBatch>("export_yearly_report", { year }),
   /** 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态） */
   exportPdfDaily: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch[]>("export_pdf_daily", { voucherIds, options }),

@@ -195,13 +195,52 @@ pub fn scan_duplicates(
     err_string(ctx.db.with_conn(voucher_core::services::dedup::scan_groups))
 }
 
+// ---------- v0.11：会计期间锁定（按月封账） ----------
+
+/// 全部已锁期间（设置页期间管理 + 列表/编辑页锁定态判断）
+#[tauri::command]
+pub fn list_period_locks(
+    ctx: Ctx,
+) -> std::result::Result<Vec<voucher_core::db::repos::period_repo::PeriodLock>, String> {
+    err_string(voucher_core::services::period::list_periods(&ctx))
+}
+
+/// 锁定期间（YYYY-MM）：该月凭证禁止增删改
+#[tauri::command]
+pub fn lock_period(ctx: Ctx, period: String) -> std::result::Result<(), String> {
+    err_string(voucher_core::services::period::lock_period(&ctx, &period))
+}
+
+/// 解锁期间（设置页需二次确认后调用）
+#[tauri::command]
+pub fn unlock_period(ctx: Ctx, period: String) -> std::result::Result<(), String> {
+    err_string(voucher_core::services::period::unlock_period(&ctx, &period))
+}
+
+/// v0.11：年度汇总（该自然年 12 个月，空月补零）
+#[tauri::command]
+pub fn yearly_summary(
+    ctx: Ctx,
+    year: i32,
+) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
+    let y = year.clamp(1970, 9999);
+    err_string(voucher_core::services::reports::yearly_summary(&ctx, y))
+}
+
 // ---------- 搜索 ----------
 
 #[tauri::command]
 pub fn search_vouchers(
     ctx: Ctx,
     keyword: String,
+    filters: Option<voucher_core::db::repos::voucher_repo::SearchFilters>,
     limit: Option<u32>,
 ) -> std::result::Result<Vec<SearchHit>, String> {
-    err_string(search::search_vouchers(&ctx, &keyword, limit.unwrap_or(50)))
+    let f = filters.unwrap_or_default();
+    err_string(search::search_vouchers(
+        &ctx,
+        &keyword,
+        &f,
+        limit.unwrap_or(50),
+    ))
 }

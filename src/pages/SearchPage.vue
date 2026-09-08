@@ -1,13 +1,13 @@
 <script setup lang="ts">
-/** 全文搜索：编号/摘要/备注/标签/附件 OCR 文本 */
+/** 全文搜索：编号/摘要/备注/标签/附件 OCR 文本 + v0.11 组合筛选（日期/金额范围） */
 import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type SearchHit } from "../api/client";
+import { api, type SearchFilters, type SearchHit } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
-import { toastError } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 
 const route = useRoute();
 const router = useRouter();
@@ -16,12 +16,62 @@ const hits = ref<SearchHit[]>([]);
 const searched = ref(false);
 const busy = ref(false);
 
+// v0.11 组合筛选（金额单位：元，发送前转分）
+const filterDateFrom = ref("");
+const filterDateTo = ref("");
+const filterAmountFrom = ref("");
+const filterAmountTo = ref("");
+
+/** 元字符串 → 分；非法输入返回 false（提示后中止） */
+function yuanToCents(s: string, out: { cents?: number }): boolean {
+  const t = s.trim();
+  if (!t) return true; // 未填：不过滤
+  if (!/^-?\d+(\.\d{1,2})?$/.test(t)) {
+    toast.warning("金额范围格式不正确：应为数字，最多两位小数（如 100 或 123.45）");
+    return false;
+  }
+  out.cents = Math.round(parseFloat(t) * 100);
+  return true;
+}
+
+/** 当前筛选条件（金额元 → 分；空值不携带）。返回 null = 输入非法，中止搜索 */
+function buildFilters(): SearchFilters | null | undefined {
+  const from: { cents?: number } = {};
+  const to: { cents?: number } = {};
+  if (!yuanToCents(filterAmountFrom.value, from) || !yuanToCents(filterAmountTo.value, to)) {
+    return null;
+  }
+  const filters: SearchFilters = {};
+  if (filterDateFrom.value) filters.dateFrom = filterDateFrom.value;
+  if (filterDateTo.value) filters.dateTo = filterDateTo.value;
+  if (from.cents !== undefined) filters.amountFrom = from.cents;
+  if (to.cents !== undefined) filters.amountTo = to.cents;
+  return Object.keys(filters).length ? filters : undefined;
+}
+
+/** 有筛选条件（用于「清除筛选」按钮显隐与提示） */
+const hasFilters = () =>
+  Boolean(filterDateFrom.value || filterDateTo.value || filterAmountFrom.value || filterAmountTo.value);
+
+function clearFilters() {
+  filterDateFrom.value = "";
+  filterDateTo.value = "";
+  filterAmountFrom.value = "";
+  filterAmountTo.value = "";
+  if (searched.value && keyword.value.trim()) search();
+}
+
 async function search() {
   const kw = keyword.value.trim();
-  if (!kw) return;
+  if (!kw) {
+    toast.info("请输入关键词（可搭配日期 / 金额范围筛选）");
+    return;
+  }
+  const filters = buildFilters();
+  if (filters === null) return; // 金额输入非法
   busy.value = true;
   try {
-    hits.value = await api.searchVouchers(kw, 100);
+    hits.value = await api.searchVouchers(kw, filters, 100);
     searched.value = true;
   } catch (e) {
     toastError(e);
@@ -65,6 +115,22 @@ onUnmounted(() => {
             @keyup.enter="search" autofocus />
         </div>
         <button class="btn btn-primary" :disabled="busy" @click="search">{{ busy ? "搜索中…" : "搜索" }}</button>
+      </div>
+      <!-- v0.11 组合筛选：日期范围 + 金额范围（与关键词 AND 组合） -->
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px">
+        <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" @keyup.enter="search" />
+        <span style="color: var(--text-3); font-size: 12px">至</span>
+        <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" @keyup.enter="search" />
+        <span style="color: var(--text-3); font-size: 12px; margin-left: 4px">金额</span>
+        <input v-model="filterAmountFrom" class="input" style="width: 110px" inputmode="decimal"
+          placeholder="≥ 元" title="金额下限（元）" @keyup.enter="search" />
+        <span style="color: var(--text-3); font-size: 12px">—</span>
+        <input v-model="filterAmountTo" class="input" style="width: 110px" inputmode="decimal"
+          placeholder="≤ 元" title="金额上限（元）" @keyup.enter="search" />
+        <button v-if="hasFilters()" class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="clearFilters">清除筛选</button>
+      </div>
+      <div v-if="hasFilters()" style="font-size: 12px; color: var(--text-3); margin-top: 6px">
+        筛选条件与关键词同时生效（AND）；金额按凭证金额精确匹配，空金额凭证在设定金额范围时不出现
       </div>
     </div>
   </div>

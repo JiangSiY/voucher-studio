@@ -5,8 +5,9 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type RecentEnhancedRow, type SecretStatus } from "../api/client";
+import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatus, type EnhanceStatusV2, type HitTrend, type LocalOcrStatus, type PeriodLock, type RecentEnhancedRow, type SecretStatus } from "../api/client";
 import FluentIcon from "../components/FluentIcon.vue";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 
@@ -77,6 +78,61 @@ const descTemplatesText = computed({
   },
 });
 
+// ---------- v0.11：会计期间管理（按月封账） ----------
+
+const periodLocks = ref<PeriodLock[]>([]);
+/** 解锁确认（二次确认对话框：解锁意味着该月凭证可再被修改） */
+const unlockPending = ref<string | null>(null);
+
+async function loadPeriodLocks() {
+  try {
+    periodLocks.value = await api.listPeriodLocks();
+  } catch {
+    periodLocks.value = [];
+  }
+}
+
+/** 锁定某月（YYYY-MM）：该月凭证即刻禁止增删改 */
+async function lockPeriodAction(period: string) {
+  try {
+    await api.lockPeriod(period);
+    toast.success(`已锁定 ${period}：该月凭证不可增删改`);
+    await loadPeriodLocks();
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+/** 解锁（经二次确认） */
+async function unlockPeriodAction() {
+  const p = unlockPending.value;
+  if (!p) return;
+  try {
+    await api.unlockPeriod(p);
+    toast.success(`已解锁 ${p}：该月凭证可正常修改`);
+    unlockPending.value = null;
+    await loadPeriodLocks();
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+/** 生成期间选项：近 18 个月（当月起倒推，覆盖常见补录窗口） */
+const periodOptions = computed(() => {
+  const now = new Date();
+  const out: { period: string; label: string; locked: boolean }[] = [];
+  for (let i = 0; i < 18; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    out.push({
+      period,
+      label: `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`,
+      locked: periodLocks.value.some((l) => l.period === period),
+    });
+  }
+  return out;
+});
+
 const secrets = ref<SecretStatus[]>([]);
 const localOcr = ref<LocalOcrStatus | null>(null);
 const enhanceStat = ref<EnhanceStatus | null>(null);
@@ -108,6 +164,7 @@ async function load() {
     localOcr.value = await api.getLocalOcrStatus();
     enhanceStat.value = await api.enhanceStatus();
     await refreshEnhancePanel();
+    await loadPeriodLocks();
     validateTemplate();
   } catch (e) {
     toastError(e);
@@ -537,6 +594,30 @@ onUnmounted(() => {
           编辑凭证时聚焦「摘要」输入框，会联想这些模板（置顶）并合并历史高频摘要，点选即填，减少重复录入。
         </div>
       </div>
+
+      <!-- v0.11：期间管理（按月封账） -->
+      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px">
+        <label>期间管理（按月封账）</label>
+        <div class="period-grid">
+          <div v-for="p in periodOptions" :key="p.period" class="period-row" :class="{ locked: p.locked }">
+            <span class="period-label">
+              <FluentIcon v-if="p.locked" name="lock" :size="12" />
+              {{ p.label }}
+            </span>
+            <button v-if="!p.locked" class="btn btn-sm" @click="lockPeriodAction(p.period)">锁定</button>
+            <button v-else class="btn btn-sm btn-danger" @click="unlockPending = p.period">解锁</button>
+          </div>
+        </div>
+        <div class="desc">
+          锁定的月份内凭证禁止编辑 / 删除 / 批量操作 / 换图（防止封账后返工导致账实不符）。
+          OCR 自动填单不受限（仅填空字段）。解锁需确认。
+        </div>
+      </div>
+
+      <!-- 解锁二次确认 -->
+      <ConfirmDialog :visible="unlockPending != null" title="解锁期间"
+        :body="`确定解锁 ${unlockPending ?? ''} 吗？该月凭证将可再次修改，可能造成已导出报表与数据不一致。`"
+        confirm-text="解锁" danger @confirm="unlockPeriodAction" @cancel="unlockPending = null" />
     </div>
   </div>
 
@@ -996,6 +1077,43 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 4px;
 }
+
+/* v0.11 期间管理：近 18 个月锁定/解锁网格 */
+.period-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.period-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.period-row.locked {
+  border-color: var(--warning, #c88a17);
+  background: rgba(200, 138, 23, 0.06);
+}
+
+.period-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.period-row.locked .period-label {
+  color: var(--warning, #a06a00);
+  font-weight: 600;
+}
+
 .step-row {
   display: flex;
   align-items: center;

@@ -390,32 +390,78 @@ pub fn escape_like(s: &str) -> String {
 }
 
 /// 跨字段搜索：编号/摘要/备注/标签/附件 OCR 文本（对应 v4.3 的 `services/search.py`）
-pub fn search(conn: &Connection, keyword: &str, limit: u32) -> Result<Vec<Voucher>> {
+/// v0.11 支持组合筛选（日期范围 + 金额范围；None = 不过滤）
+pub fn search(
+    conn: &Connection,
+    keyword: &str,
+    filters: &SearchFilters,
+    limit: u32,
+) -> Result<Vec<Voucher>> {
     let kw = keyword.trim();
     if kw.is_empty() {
         return Ok(Vec::new());
     }
     let like = format!("%{}%", escape_like(kw));
+
+    // v0.11 组合筛选：动态拼接 AND 子句（参数从 ?2 起绑定）
+    let mut conds = Vec::new();
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(like)];
+    if let Some(d) = filters.date_from.as_deref() {
+        if !d.is_empty() {
+            conds.push(format!("v.voucher_date >= ?{}", binds.len() + 1));
+            binds.push(Box::new(d.to_string()));
+        }
+    }
+    if let Some(d) = filters.date_to.as_deref() {
+        if !d.is_empty() {
+            conds.push(format!("v.voucher_date <= ?{}", binds.len() + 1));
+            binds.push(Box::new(d.to_string()));
+        }
+    }
+    if let Some(a) = filters.amount_from {
+        conds.push(format!("v.amount_cents >= ?{}", binds.len() + 1));
+        binds.push(Box::new(a));
+    }
+    if let Some(a) = filters.amount_to {
+        conds.push(format!("v.amount_cents <= ?{}", binds.len() + 1));
+        binds.push(Box::new(a));
+    }
+    let filter_sql = if conds.is_empty() {
+        String::new()
+    } else {
+        format!(" AND ({})", conds.join(" AND "))
+    };
+
     let sql = format!(
         "SELECT DISTINCT v.id, v.voucher_no, v.voucher_date, v.description, v.counterparty, v.amount_cents, v.status, v.tags, v.note, v.created_at, v.updated_at
          FROM vouchers v
          LEFT JOIN attachments a ON a.voucher_id = v.id
-         WHERE v.voucher_no LIKE ?1 ESCAPE '\\'
+         WHERE (v.voucher_no LIKE ?1 ESCAPE '\\'
             OR v.description LIKE ?1 ESCAPE '\\'
             OR v.counterparty LIKE ?1 ESCAPE '\\'
             OR v.note LIKE ?1 ESCAPE '\\'
             OR v.tags LIKE ?1 ESCAPE '\\'
-            OR a.ocr_text LIKE ?1 ESCAPE '\\'
+            OR a.ocr_text LIKE ?1 ESCAPE '\\'){filter_sql}
          ORDER BY v.voucher_date DESC, v.id DESC
          LIMIT {limit}"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params![like])?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(binds.iter().map(|b| b.as_ref())))?;
     let mut out = Vec::new();
     while let Some(r) = rows.next()? {
         out.push(row_to_voucher(r)?);
     }
     Ok(out)
+}
+
+/// v0.11 搜索组合筛选（全部 None = 不过滤；金额单位：分）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SearchFilters {
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+    pub amount_from: Option<i64>,
+    pub amount_to: Option<i64>,
 }
 
 /// 前缀计数：命名服务用它算当日序号
@@ -426,6 +472,18 @@ pub fn count_with_prefix(conn: &Connection, prefix: &str) -> Result<i64> {
         params![like],
         |r| r.get(0),
     )?)
+}
+
+/// v0.11：某自然年全部凭证 id（按日期+编号升序，年度报表批次明细用）
+pub fn ids_of_year(conn: &Connection, year: i32) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM vouchers WHERE substr(voucher_date, 1, 4) = ?1
+         ORDER BY voucher_date, voucher_no",
+    )?;
+    let rows = stmt
+        .query_map(params![format!("{year:04}")], |r| r.get::<_, i64>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 pub fn stats(conn: &Connection) -> Result<VoucherStats> {

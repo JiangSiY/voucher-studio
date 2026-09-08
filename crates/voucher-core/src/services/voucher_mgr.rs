@@ -59,6 +59,12 @@ pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Resu
         if let Some(d) = &update.voucher_date {
             validate_date(d)?;
         }
+        // v0.11 期间锁：改出月 / 改入月都必须未封账
+        let new_date = update.voucher_date.as_deref();
+        crate::services::period::ensure_dates_open(
+            tx,
+            &[current.voucher_date.as_str(), new_date.unwrap_or("")],
+        )?;
         // 快照：修改前的完整状态
         snapshot_repo::insert(
             tx,
@@ -148,9 +154,11 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
         let mut deleted = 0u64;
         let mut rels: Vec<String> = Vec::new();
         for id in ids {
-            if voucher_repo::get(tx, *id)?.is_none() {
+            let Some(v) = voucher_repo::get(tx, *id)? else {
                 continue; // 不存在的 id 跳过（幂等）
-            }
+            };
+            // v0.11 期间锁：已封账月份的凭证不可删除
+            crate::services::period::ensure_dates_open(tx, &[v.voucher_date.as_str()])?;
             for a in attachment_repo::list_by_voucher(tx, *id)? {
                 rels.push(a.file_path);
                 if let Some(er) = a.enhanced_path {
@@ -230,6 +238,8 @@ pub fn set_status(ctx: &CoreContext, id: i64, status: VoucherStatus) -> Result<(
     ctx.db.with_tx(|tx| {
         let current = voucher_repo::get(tx, id)?
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+        // v0.11 期间锁
+        crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
         snapshot_repo::insert(
             tx,
             &crate::models::snapshot::NewSnapshot {
@@ -258,6 +268,8 @@ pub fn batch_set_status(ctx: &CoreContext, ids: &[i64], status: VoucherStatus) -
             if current.status == status {
                 continue; // 已是目标状态：幂等跳过，不产生无意义快照
             }
+            // v0.11 期间锁：已封账月份的凭证不可变更状态
+            crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
             snapshot_repo::insert(
                 tx,
                 &crate::models::snapshot::NewSnapshot {
@@ -315,6 +327,12 @@ pub fn batch_edit(ctx: &CoreContext, ids: &[i64], patch: &BatchEditPatch) -> Res
             let Some(current) = voucher_repo::get(tx, *id)? else {
                 continue; // 不存在/已删：跳过
             };
+            // v0.11 期间锁：当前月 / 补丁目标月（改日期）都必须未封账
+            let target_date = patch.voucher_date.as_deref().unwrap_or("");
+            crate::services::period::ensure_dates_open(
+                tx,
+                &[current.voucher_date.as_str(), target_date],
+            )?;
             let mut update = VoucherUpdate::default();
             let mut date_changed = false;
             if let Some(d) = &patch.voucher_date {

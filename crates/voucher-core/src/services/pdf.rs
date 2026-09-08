@@ -1027,6 +1027,272 @@ pub fn find_cjk_font() -> Option<PathBuf> {
     font_candidates().into_iter().find(|p| p.is_file())
 }
 
+// ---------- v0.11：年度报表（单页汇总，无图片附录） ----------
+
+/// 年度报表输入：某年 12 个月逐月汇总（空月补零）
+pub struct YearlyInput {
+    pub year: i32,
+    /// 1–12 月（reports::yearly_summary 输出）
+    pub months: Vec<crate::services::reports::MonthlySummary>,
+}
+
+/// 年度报表：单页 A4。12 个月行 + 4 个季度小计行 + 年合计行，
+/// 列：月份 / 张数 / 草稿 / 已复核 / 已导出 / 已归档 / 金额（右对齐）。
+/// 统计报表（非凭证归档导出）——省墨：仅横向细线、无底色。
+pub fn generate_yearly_report(path: &Path, input: &YearlyInput) -> Result<()> {
+    let title = format!("{} 年度凭证汇总表", input.year);
+    let (doc, page, layer_id) = PdfDocument::new(&title, Mm(PAGE_W), Mm(PAGE_H), "Report");
+    let font = load_cjk_font(&doc)?;
+    let layer = doc.get_page(page).get_layer(layer_id);
+
+    draw_header(&layer, &font, &title);
+
+    // 摘要行：全年张数 + 金额合计 + 已填金额口径说明
+    let total_count: i64 = input.months.iter().map(|m| m.count).sum();
+    let total_cents: i64 = input.months.iter().map(|m| m.amount_cents).sum();
+    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.use_text(
+        format!(
+            "全年共 {total_count} 张凭证 · 金额合计 ￥{}（按已填金额统计）",
+            crate::models::voucher::format_money(total_cents)
+        ),
+        9.5,
+        Mm(MARGIN),
+        y(MARGIN + HEADER_H + 4.5),
+        &font,
+    );
+
+    // 表头
+    let table_top = MARGIN + HEADER_H + TSUM_GAP;
+    let y_row_h = 6.0;
+    draw_yearly_head(&layer, &font, table_top);
+
+    // 12 个月 + 季度小计 + 年合计
+    let mut top = table_top + THEAD_H;
+    for (i, m) in input.months.iter().enumerate() {
+        draw_yearly_row(&layer, &font, &m.month[5..], m, top, y_row_h, false);
+        top += y_row_h;
+        // 季度小计行（3/6/9/12 月之后）
+        if (i + 1) % 3 == 0 {
+            let q = (i + 1) / 3;
+            let qm: Vec<_> = input.months[(q - 1) * 3..(q - 1) * 3 + 3].to_vec();
+            let agg = aggregate(&qm, format!("第 {q} 季度"));
+            draw_yearly_row(&layer, &font, &agg.0, &agg.1, top, y_row_h, true);
+            top += y_row_h;
+        }
+    }
+
+    // 年合计（分隔线加粗 + 主色标签）
+    let year_agg = aggregate(&input.months, format!("{} 年合计", input.year));
+    draw_yearly_total(&layer, &font, &year_agg.0, &year_agg.1, top, y_row_h);
+
+    doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
+    Ok(())
+}
+
+/// 多个月汇总为一行（月份标签 + 数值）
+fn aggregate(
+    months: &[crate::services::reports::MonthlySummary],
+    label: String,
+) -> (String, crate::services::reports::MonthlySummary) {
+    let mut m = crate::services::reports::MonthlySummary {
+        month: label,
+        count: 0,
+        amount_cents: 0,
+        draft: 0,
+        reviewed: 0,
+        exported: 0,
+        archived: 0,
+    };
+    for x in months {
+        m.count += x.count;
+        m.amount_cents += x.amount_cents;
+        m.draft += x.draft;
+        m.reviewed += x.reviewed;
+        m.exported += x.exported;
+        m.archived += x.archived;
+    }
+    (m.month.clone(), m)
+}
+
+/// 年度报表表头（月份 / 张数 / 草稿 / 已复核 / 已导出 / 已归档 / 金额）
+fn draw_yearly_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {
+    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+    let y0 = top + 4.0;
+    layer.use_text("月份", 8.0, Mm(MARGIN + 1.0), y(y0), font);
+    layer.use_text("张数", 8.0, Mm(MARGIN + 30.0), y(y0), font);
+    layer.use_text("草稿", 8.0, Mm(MARGIN + 50.0), y(y0), font);
+    layer.use_text("已复核", 8.0, Mm(MARGIN + 70.0), y(y0), font);
+    layer.use_text("已导出", 8.0, Mm(MARGIN + 92.0), y(y0), font);
+    layer.use_text("已归档", 8.0, Mm(MARGIN + 114.0), y(y0), font);
+    layer.use_text(
+        "金额",
+        8.0,
+        Mm(right_x("金额", 8.0, PAGE_W - MARGIN)),
+        y(y0),
+        font,
+    );
+    layer.set_outline_thickness(0.6);
+    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
+    layer.add_line(Line {
+        points: vec![
+            (Point::new(Mm(MARGIN), y(top + THEAD_H - 0.5)), false),
+            (
+                Point::new(Mm(PAGE_W - MARGIN), y(top + THEAD_H - 0.5)),
+                false,
+            ),
+        ],
+        is_closed: false,
+    });
+}
+
+/// 年度报表数据行（`subtotal = true` 时季度小计：标签主色加粗，无行底细线）
+fn draw_yearly_row(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    label: &str,
+    m: &crate::services::reports::MonthlySummary,
+    top: f32,
+    row_h: f32,
+    subtotal: bool,
+) {
+    let text_y = top + row_h - 1.9;
+    if subtotal {
+        layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+    } else {
+        layer.set_fill_color(rgb(BODY.0, BODY.1, BODY.2));
+    }
+    layer.use_text(label, 8.5, Mm(MARGIN + 1.0), y(text_y), font);
+    layer.use_text(
+        format!("{}", m.count),
+        8.5,
+        Mm(MARGIN + 30.0),
+        y(text_y),
+        font,
+    );
+    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+    layer.use_text(
+        format!("{}", m.draft),
+        8.5,
+        Mm(MARGIN + 50.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.reviewed),
+        8.5,
+        Mm(MARGIN + 70.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.exported),
+        8.5,
+        Mm(MARGIN + 92.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.archived),
+        8.5,
+        Mm(MARGIN + 114.0),
+        y(text_y),
+        font,
+    );
+    // 金额（右对齐；0 张月份留空，避免 0.00 噪音）
+    if m.count > 0 {
+        let amt = crate::models::voucher::format_money(m.amount_cents);
+        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+        layer.use_text(
+            &amt,
+            8.5,
+            Mm(right_x(&amt, 8.5, PAGE_W - MARGIN)),
+            y(text_y),
+            font,
+        );
+    }
+    // 行底分隔线（季度小计行留白作视觉分组，不画线）
+    if !subtotal {
+        layer.set_outline_thickness(0.25);
+        layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
+        layer.add_line(Line {
+            points: vec![
+                (Point::new(Mm(MARGIN), y(top + row_h - 0.3)), false),
+                (Point::new(Mm(PAGE_W - MARGIN), y(top + row_h - 0.3)), false),
+            ],
+            is_closed: false,
+        });
+    }
+}
+
+/// 年合计行：分隔线加粗 + 深色加粗标签 + 金额
+fn draw_yearly_total(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    label: &str,
+    m: &crate::services::reports::MonthlySummary,
+    top: f32,
+    row_h: f32,
+) {
+    let text_y = top + row_h - 1.9;
+    layer.set_outline_thickness(0.8);
+    layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.add_line(Line {
+        points: vec![
+            (Point::new(Mm(MARGIN), y(top + 0.5)), false),
+            (Point::new(Mm(PAGE_W - MARGIN), y(top + 0.5)), false),
+        ],
+        is_closed: false,
+    });
+    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.use_text(label, 9.0, Mm(MARGIN + 1.0), y(text_y), font);
+    layer.use_text(
+        format!("{}", m.count),
+        9.0,
+        Mm(MARGIN + 30.0),
+        y(text_y),
+        font,
+    );
+    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+    layer.use_text(
+        format!("{}", m.draft),
+        9.0,
+        Mm(MARGIN + 50.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.reviewed),
+        9.0,
+        Mm(MARGIN + 70.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.exported),
+        9.0,
+        Mm(MARGIN + 92.0),
+        y(text_y),
+        font,
+    );
+    layer.use_text(
+        format!("{}", m.archived),
+        9.0,
+        Mm(MARGIN + 114.0),
+        y(text_y),
+        font,
+    );
+    let amt = crate::models::voucher::format_money(m.amount_cents);
+    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
+    layer.use_text(
+        &amt,
+        9.0,
+        Mm(right_x(&amt, 9.0, PAGE_W - MARGIN)),
+        y(text_y),
+        font,
+    );
+}
+
 /// 逐个候选尝试加载（TTC 集合格式可能解析失败，自动降级到下一个）
 fn load_cjk_font(doc: &printpdf::PdfDocumentReference) -> Result<IndirectFontRef> {
     let mut candidates = font_candidates();

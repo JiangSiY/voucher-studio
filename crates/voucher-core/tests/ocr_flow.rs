@@ -39,7 +39,7 @@ fn import_images_dedups_and_ocr_text_searchable() -> Result<()> {
             Some("出租车票 45.00 元"),
         )
     })?;
-    let hits = search::search_vouchers(&ctx, "出租车", 10)?;
+    let hits = search::search_vouchers(&ctx, "出租车", &Default::default(), 10)?;
     assert_eq!(hits.len(), 1);
     assert!(hits[0].matched_in.iter().any(|m| m == "OCR"));
     Ok(())
@@ -155,7 +155,7 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     assert_eq!(cached_engine, "local");
 
     // 4. OCR 文本进入全文搜索
-    let hits = search::search_vouchers(&ctx, "报销", 10)?;
+    let hits = search::search_vouchers(&ctx, "报销", &Default::default(), 10)?;
     assert_eq!(hits.len(), 1, "OCR 文本应可被全文搜索命中");
     assert!(hits[0].matched_in.iter().any(|m| m == "OCR"));
 

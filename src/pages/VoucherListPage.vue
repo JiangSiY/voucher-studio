@@ -39,6 +39,22 @@ const dateTo = ref("");
 const selected = ref<Set<number>>(new Set());
 const loading = ref(false);
 
+// v0.11 期间锁定：已封账月份的凭证禁删（编辑页有锁定提示；导出不受限）
+const lockedPeriods = ref<Set<string>>(new Set());
+
+async function loadPeriodLocks() {
+  try {
+    const locks = await api.listPeriodLocks();
+    lockedPeriods.value = new Set(locks.map((l) => l.period));
+  } catch {
+    lockedPeriods.value = new Set();
+  }
+}
+
+function isLocked(v: Voucher): boolean {
+  return lockedPeriods.value.has(v.voucherDate.slice(0, 7));
+}
+
 // D-3 翻页预取缓存：key = `${filter}|${keyword}|${pageSize}`，value = page → VoucherListResult
 // hover › 200ms 时预取下一页；点击 › 时优先消费缓存，避免翻页闪烁
 type ListKey = string;
@@ -416,6 +432,7 @@ onMounted(async () => {
     dateTo.value = q.dateTo;
   }
   load();
+  loadPeriodLocks(); // v0.11：期间锁定态（返回本页时锁定可能已变化）
   unlistenImportDone = await listen("import:done", () => {
     // D-3：导入后总数变化 → 清预取缓存
     clearPrefetched();
@@ -528,8 +545,15 @@ onUnmounted(() => {
                 </div>
                 <div v-else class="list-thumb list-thumb-empty" title="无附件"><FluentIcon name="image" :size="18" /></div>
               </td>
-              <td><span class="mono">{{ v.voucherNo }}</span></td>
-              <td>{{ v.voucherDate }}</td>
+              <td>
+                <span class="mono">{{ v.voucherNo }}</span>
+              </td>
+              <td>
+                <span class="lock-badge" v-if="isLocked(v)"
+                  :title="`${v.voucherDate.slice(0, 7)} 已封账：凭证不可修改（导出/查看不受限）。解锁请到 设置 → 凭证参数 → 期间管理`">
+                  <FluentIcon name="lock" :size="11" />
+                </span>{{ v.voucherDate }}
+              </td>
               <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.description">{{ v.description || "—" }}</td>
               <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.counterparty">{{ v.counterparty || "—" }}</td>
               <td class="num">{{ fmtAmount(v.amountCents) }}</td>
@@ -540,9 +564,9 @@ onUnmounted(() => {
               <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
               <td @click.stop>
                 <div class="action-row">
-                  <button class="icon-btn" title="编辑" @click="openEdit(v.id)"><FluentIcon name="edit" :size="14" /></button>
+                  <button class="icon-btn" :title="isLocked(v) ? '该月已封账，仅可查看' : '编辑'" :disabled="isLocked(v)" @click="openEdit(v.id)"><FluentIcon name="edit" :size="14" /></button>
                   <button class="icon-btn" title="导出 PDF" @click="exportOne(v)"><FluentIcon name="print" :size="14" /></button>
-                  <button class="icon-btn danger" title="删除" @click="askDelete([v.id])"><FluentIcon name="delete" :size="14" /></button>
+                  <button class="icon-btn danger" :title="isLocked(v) ? '该月已封账，不可删除' : '删除'" :disabled="isLocked(v)" @click="askDelete([v.id])"><FluentIcon name="delete" :size="14" /></button>
                 </div>
               </td>
             </tr>
@@ -576,6 +600,15 @@ onUnmounted(() => {
 /* v0.9 键盘导航：高亮行 */
 tr.row-active td {
   background: var(--accent-soft);
+}
+
+/* v0.11 期间锁定：日期旁锁徽标（悬停提示封账说明） */
+.lock-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--warning, #a06a00);
+  vertical-align: -1px;
 }
 
 /* v0.7 B-1：批量状态选择器（工具栏内紧凑尺寸） */

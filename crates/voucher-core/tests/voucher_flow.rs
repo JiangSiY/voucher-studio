@@ -616,12 +616,12 @@ fn search_escapes_like_wildcards() -> Result<()> {
     )?;
 
     // '%' 应只命中字面含 % 的凭证，而非充当通配符匹配全部
-    let hits = search::search_vouchers(&ctx, "%", 10)?;
+    let hits = search::search_vouchers(&ctx, "%", &Default::default(), 10)?;
     assert_eq!(hits.len(), 1, "关键词 % 不应被当作通配符");
     assert_eq!(hits[0].voucher.description, "进度100%完成");
 
     // '_' 同理：无人含字面下划线 → 零命中
-    let hits2 = search::search_vouchers(&ctx, "_", 10)?;
+    let hits2 = search::search_vouchers(&ctx, "_", &Default::default(), 10)?;
     assert_eq!(hits2.len(), 0, "关键词 _ 不应匹配所有非空文本");
     Ok(())
 }
@@ -1445,5 +1445,273 @@ fn frequent_descriptions_orders_by_count() -> Result<()> {
     assert_eq!(rows[0].count, 3);
     assert_eq!(rows[1].description, "差旅住宿");
     assert_eq!(rows[2].description, "市内交通");
+    Ok(())
+}
+
+// ---------- v0.11：期间锁定 / 年度报表 / 搜索组合筛选 ----------
+
+/// 期间锁：锁定后增删改全部拦截（改出/改入月都算），解锁恢复；OCR 口径不受限由 apply 逻辑保证
+#[test]
+fn period_lock_blocks_writes_until_unlock() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let v = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-08-15".into(),
+            description: "八月凭证".into(),
+            amount_cents: Some(1000),
+            ..Default::default()
+        },
+    )?;
+    let w = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_date: "2026-09-10".into(),
+            description: "九月凭证".into(),
+            ..Default::default()
+        },
+    )?;
+
+    voucher_core::services::period::lock_period(&ctx, "2026-08")?;
+
+    // 更新（改摘要）被拦
+    let err = voucher_mgr::update_voucher(
+        &ctx,
+        v.id,
+        VoucherUpdate {
+            description: Some("试图修改".into()),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(err, Err(CoreError::Invalid(ref e)) if e.contains("2026-08 已封账")));
+
+    // 日期从九月改到八月（改入锁定月）被拦
+    let err2 = voucher_mgr::update_voucher(
+        &ctx,
+        w.id,
+        VoucherUpdate {
+            voucher_date: Some("2026-08-20".into()),
+            ..Default::default()
+        },
+    );
+    assert!(err2.is_err(), "改入锁定月应被拦截");
+
+    // 删除被拦（单张与批量）
+    assert!(voucher_mgr::delete_vouchers(&ctx, &[v.id]).is_err());
+
+    // 状态变更被拦（单张与批量）
+    assert!(voucher_mgr::set_status(&ctx, v.id, VoucherStatus::Reviewed).is_err());
+    assert!(voucher_mgr::batch_set_status(&ctx, &[v.id], VoucherStatus::Reviewed).is_err());
+
+    // 批量编辑被拦
+    assert!(voucher_mgr::batch_edit(
+        &ctx,
+        &[v.id],
+        &voucher_mgr::BatchEditPatch {
+            note: Some("批量备注".into()),
+            ..Default::default()
+        },
+    )
+    .is_err());
+
+    // 未锁月份凭证不受影响（九月凭证可正常更新）
+    voucher_mgr::update_voucher(
+        &ctx,
+        w.id,
+        VoucherUpdate {
+            description: Some("九月凭证（改）".into()),
+            ..Default::default()
+        },
+    )?;
+
+    // 解锁后恢复可写
+    voucher_core::services::period::unlock_period(&ctx, "2026-08")?;
+    voucher_mgr::update_voucher(
+        &ctx,
+        v.id,
+        VoucherUpdate {
+            description: Some("解锁后修改".into()),
+            ..Default::default()
+        },
+    )?;
+    Ok(())
+}
+
+/// 期间锁：换图被拦（附件域守卫）
+#[test]
+fn period_lock_blocks_replace_image() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    // 建卡 + 挂图（八月）
+    let img1 = dir.path().join("a.png");
+    let pic = image::RgbImage::from_pixel(64, 48, image::Rgb([60, 60, 200]));
+    pic.save(&img1).expect("save png");
+    let s = ingestion::import_images(&ctx, &[img1], None, false)?;
+    assert_eq!(s.vouchers.len(), 1);
+    let vid = s.vouchers[0].voucher_id;
+    let today = voucher_core::utils::paths::today();
+
+    // 锁定该凭证所在月（today 的月份）
+    let period = &today[..7];
+    voucher_core::services::period::lock_period(&ctx, period)?;
+
+    let img2 = dir.path().join("b.png");
+    let pic2 = image::RgbImage::from_pixel(64, 48, image::Rgb([120, 90, 30]));
+    pic2.save(&img2).expect("save png");
+    let err = ingestion::replace_attachment(&ctx, vid, &img2);
+    assert!(matches!(err, Err(CoreError::Invalid(ref e)) if e.contains("已封账")));
+    Ok(())
+}
+
+/// 年度汇总：12 个月空月补零、口径与月度汇总一致
+#[test]
+fn yearly_summary_zero_fills_twelve_months() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    // 2025 年 3 张（2 月 2 张 + 5 月 1 张），2026 年 1 张（当月默认日期）
+    for (d, amt) in [
+        ("2025-02-01", Some(1000)),
+        ("2025-02-15", Some(2500)),
+        ("2025-05-20", None),
+    ] {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                voucher_date: d.into(),
+                amount_cents: amt,
+                ..Default::default()
+            },
+        )?;
+    }
+    voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
+
+    let y2025 = reports::yearly_summary(&ctx, 2025)?;
+    assert_eq!(y2025.len(), 12, "12 个月补齐");
+    assert_eq!(y2025[0].month, "2025-01");
+    assert_eq!(y2025[11].month, "2025-12");
+    assert_eq!(y2025[1].count, 2, "2 月 2 张");
+    assert_eq!(y2025[1].amount_cents, 3500);
+    assert_eq!(y2025[4].count, 1, "5 月 1 张（空金额不计入金额合计）");
+    assert_eq!(y2025[4].amount_cents, 0);
+    assert_eq!(y2025.iter().map(|m| m.count).sum::<i64>(), 3, "全年 3 张");
+    // 2026 年仅当月 1 张
+    let y2026 = reports::yearly_summary(&ctx, 2026)?;
+    assert_eq!(y2026.iter().map(|m| m.count).sum::<i64>(), 1);
+    // 2024 年无凭证
+    let y2024 = reports::yearly_summary(&ctx, 2024)?;
+    assert!(y2024.iter().all(|m| m.count == 0));
+    Ok(())
+}
+
+/// 搜索组合筛选：日期范围 + 金额范围与关键词 AND 组合
+#[test]
+fn search_filters_combine_date_and_amount() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    for (d, amt, desc) in [
+        ("2026-08-01", Some(5000), "办公采购"),
+        ("2026-08-20", Some(15000), "办公采购"),
+        ("2026-09-05", Some(5000), "办公采购"),
+        ("2026-08-10", None, "办公采购空金额"),
+    ] {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                voucher_date: d.into(),
+                amount_cents: amt,
+                description: desc.into(),
+                ..Default::default()
+            },
+        )?;
+    }
+
+    use voucher_core::db::repos::voucher_repo::SearchFilters;
+    // 仅关键词：4 张全命中
+    let all = search::search_vouchers(&ctx, "办公", &SearchFilters::default(), 50)?;
+    assert_eq!(all.len(), 4);
+
+    // 日期范围：仅 8 月（3 张）
+    let by_date = search::search_vouchers(
+        &ctx,
+        "办公",
+        &SearchFilters {
+            date_from: Some("2026-08-01".into()),
+            date_to: Some("2026-08-31".into()),
+            ..Default::default()
+        },
+        50,
+    )?;
+    assert_eq!(by_date.len(), 3);
+    assert!(by_date
+        .iter()
+        .all(|h| h.voucher.voucher_date.starts_with("2026-08")));
+
+    // 金额下限：≥ 100 元（1 张：150 元；空金额与 50 元被排除）
+    let by_amount = search::search_vouchers(
+        &ctx,
+        "办公",
+        &SearchFilters {
+            amount_from: Some(10000),
+            ..Default::default()
+        },
+        50,
+    )?;
+    assert_eq!(by_amount.len(), 1);
+    assert_eq!(by_amount[0].voucher.amount_cents, Some(15000));
+
+    // 组合：8 月 + ≥100 元（1 张：150 元那张）
+    let combined = search::search_vouchers(
+        &ctx,
+        "办公",
+        &SearchFilters {
+            date_from: Some("2026-08-01".into()),
+            date_to: Some("2026-08-31".into()),
+            amount_from: Some(10000),
+            ..Default::default()
+        },
+        50,
+    )?;
+    assert_eq!(combined.len(), 1);
+    assert_eq!(combined[0].voucher.amount_cents, Some(15000));
+    Ok(())
+}
+
+/// 年度报表导出：PDF 落盘 + 批次记录（EXP-Y 前缀）+ 不改凭证状态（统计报表口径）
+#[test]
+fn export_yearly_report_pdf_and_batch() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    if voucher_core::services::pdf::find_cjk_font().is_none() {
+        eprintln!("跳过：系统无中文字体");
+        return Ok(());
+    }
+    for (d, amt) in [("2026-02-01", Some(1000)), ("2026-07-15", Some(2500))] {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                voucher_date: d.into(),
+                amount_cents: amt,
+                ..Default::default()
+            },
+        )?;
+    }
+
+    let batch = export::export_yearly_report(&ctx, 2026)?;
+    assert!(
+        batch.batch_no.starts_with("EXP-Y2026"),
+        "年度前缀: {}",
+        batch.batch_no
+    );
+    assert!(PathBuf::from(&batch.pdf_path).exists());
+    assert!(std::fs::metadata(&batch.pdf_path).unwrap().len() > 1000);
+    assert!(batch.voucher_count >= 2);
+
+    // 批次明细可反查（该年全部凭证）
+    let detail = export::batch_vouchers(&ctx, batch.id)?;
+    assert_eq!(detail.len(), 2);
+
+    // 状态不流转（区别于 PDF 归档导出）
+    for v in detail {
+        assert_eq!(v.status, VoucherStatus::Draft, "年度报表不改状态");
+    }
+
+    // 空年度报错
+    assert!(export::export_yearly_report(&ctx, 2020).is_err());
     Ok(())
 }
