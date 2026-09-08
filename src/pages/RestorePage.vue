@@ -107,6 +107,28 @@ async function uploadWebdav(b: BackupInfo) {
   }
 }
 
+// ---------- v0.9 导出完整备份（快照 + 附件包 → 单个全量 zip，便于拷走） ----------
+
+const exporting = ref("");
+
+async function exportFull(b: BackupInfo) {
+  if (exporting.value) return;
+  exporting.value = b.fileName;
+  try {
+    const path = await api.exportFullBackup(b.path);
+    const name = path.split(/[\\/]/).pop() ?? path;
+    toast.success(`已导出完整备份：${name}`, {
+      label: "打开目录",
+      onClick: () => void api.openPath(path.split(/[\\/]/).slice(0, -1).join("\\")),
+    });
+    await load();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    exporting.value = "";
+  }
+}
+
 // ---------- WebDAV 远端备份：列表 / 下载（下载后进入本地列表即可校验/恢复） ----------
 
 const remoteBackups = ref<WebdavBackupRow[]>([]);
@@ -222,7 +244,13 @@ onUnmounted(() => unlistenBackupDone?.());
           </thead>
           <tbody>
             <tr v-for="b in backups" :key="b.path">
-              <td><span class="mono" style="color: var(--text-2)">{{ b.fileName }}</span></td>
+              <td>
+                <span class="mono" style="color: var(--text-2)">{{ b.fileName }}</span>
+                <!-- v0.9：快照标记（附件在同目录附件包里，恢复/演练自动合成） -->
+                <span v-if="b.kind === 'snapshot'" class="tag tag-info" style="margin-left: 6px"
+                  title="增量快照：附件存于共享附件包，恢复时自动合成完整备份">快照</span>
+                <span v-else class="tag tag-muted" style="margin-left: 6px" title="单文件完整备份">全量</span>
+              </td>
               <td>{{ fmtDate(b.createdAt) || "—" }}</td>
               <td>{{ fmtSize(b.size) }}</td>
               <td>{{ b.attachmentCount || "—" }}</td>
@@ -230,6 +258,9 @@ onUnmounted(() => unlistenBackupDone?.());
                 <div class="action-row">
                   <button class="icon-btn" title="恢复此备份" @click="askRestore(b)"><FluentIcon name="undo" :size="15" /></button>
                   <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)"><FluentIcon name="cloudUp" :size="15" /></button>
+                  <!-- v0.9：快照可导出为单个完整 zip（拷走一份不依赖附件包） -->
+                  <button v-if="b.kind === 'snapshot'" class="icon-btn" :title="exporting === b.fileName ? '导出中…' : '导出完整备份 zip（合成单文件，便于拷走）'"
+                    :disabled="exporting === b.fileName" @click="exportFull(b)"><FluentIcon name="download" :size="15" /></button>
                 </div>
               </td>
             </tr>

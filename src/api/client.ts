@@ -365,6 +365,8 @@ export interface BackupInfo {
   attachmentCount: number;
   /** 非阻断性告警（异盘/WebDAV 副本失败，本地主备份不受影响） */
   warnings: string[];
+  /** v0.9：snapshot（快照，附件在共享附件包里）| full（全量单文件，含旧备份） */
+  kind?: "snapshot" | "full";
 }
 
 export interface RestoreSummary {
@@ -471,6 +473,8 @@ export const api = {
   reEnhanceAll: () => invoke<{ ok: number; failed: number }>("re_enhance_all"),
   listBackups: () => invoke<BackupInfo[]>("list_backups"),
   inspectBackup: (path: string) => invoke<RestoreSummary>("inspect_backup", { path }),
+  /** v0.9 导出完整备份：快照 + 附件包合成单个全量 zip 落入 backups/（供拷走），返回路径 */
+  exportFullBackup: (path: string) => invoke<string>("export_full_backup", { path }),
   restoreBackup: (path: string) => invoke<RestoreSummary>("restore_backup", { path }),
   drillBackup: (path?: string) =>
     invoke<DrillReport>("drill_backup", { path: path ?? null }),

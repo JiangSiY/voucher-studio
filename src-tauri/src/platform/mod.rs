@@ -94,7 +94,7 @@ pub fn stage_restore(
 ) -> Result<voucher_core::services::backup::RestoreSummary, String> {
     let staging = ctx.paths.temp.join("restore-staging");
     let _ = std::fs::remove_dir_all(&staging);
-    voucher_core::services::backup::restore_backup(zip_path, &staging)
+    voucher_core::services::backup::restore_backup(ctx, zip_path, &staging)
         .map_err(|e| e.to_string())?;
 
     let staged_db = staging.join("data").join("voucher.db");
@@ -116,5 +116,5 @@ pub fn stage_restore(
             .map_err(|e| format!("写入待恢复附件失败: {e}"))?;
     }
     let _ = std::fs::remove_dir_all(&staging);
-    voucher_core::services::backup::inspect_backup(zip_path).map_err(|e| e.to_string())
+    voucher_core::services::backup::inspect_backup(ctx, zip_path).map_err(|e| e.to_string())
 }

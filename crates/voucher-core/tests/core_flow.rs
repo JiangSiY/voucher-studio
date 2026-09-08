@@ -1,7 +1,7 @@
 //! 集成测试：新库核心闭环（阶段 2 退出标准 + G2 门的本地验证）
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use voucher_core::db::repos::attachment_repo;
@@ -302,11 +302,11 @@ fn backup_and_restore_roundtrip() -> Result<()> {
     // 校验非法备份被拒
     let fake = dir.path().join("fake.zip");
     std::fs::write(&fake, b"not a zip")?;
-    assert!(backup::inspect_backup(&fake).is_err());
+    assert!(backup::inspect_backup(&ctx, &fake).is_err());
 
     // 恢复到新目录并验证数据在
     let target = dir.path().join("restored");
-    let summary = backup::restore_backup(PathBuf::from(&info.path).as_path(), &target)?;
+    let summary = backup::restore_backup(&ctx, PathBuf::from(&info.path).as_path(), &target)?;
     assert!(!summary.restored_files.is_empty());
     assert!(target.join("data").join("voucher.db").exists());
 
@@ -328,7 +328,7 @@ fn backup_includes_attachments_and_drill_passes() -> Result<()> {
 
     // 附件在恢复产物中（3-2-1：附件原图不可再生，必须在包内）
     let target = _dir.path().join("restored");
-    let summary = backup::restore_backup(PathBuf::from(&info.path).as_path(), &target)?;
+    let summary = backup::restore_backup(&ctx, PathBuf::from(&info.path).as_path(), &target)?;
     assert!(summary.checksums_verified, "v2 备份应完成 sha256 校验");
     assert!(summary.attachment_count >= 1);
     assert!(
@@ -388,7 +388,7 @@ fn tampered_backup_rejected_by_checksum() -> Result<()> {
         w.finish()?;
     }
 
-    let err = backup::inspect_backup(&tampered);
+    let err = backup::inspect_backup(&ctx, &tampered);
     assert!(err.is_err(), "被篡改的备份必须被 sha256 校验拒绝");
     Ok(())
 }
@@ -406,6 +406,133 @@ fn secondary_dir_gets_copy_of_backup() -> Result<()> {
         secondary.join(&info.file_name).is_file(),
         "异盘目录应有备份副本"
     );
+    Ok(())
+}
+
+// ---------- v0.9 本地增量备份（快照 + 内容寻址附件包） ----------
+
+/// backups/ 目录内附件包（voucher-attachments-*.zip）数量
+fn count_bundles(ctx: &CoreContext) -> Result<usize> {
+    let mut n = 0;
+    for e in std::fs::read_dir(&ctx.paths.backups)? {
+        let e = e?;
+        if e.file_name()
+            .to_string_lossy()
+            .starts_with("voucher-attachments-")
+        {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// 附件未变 → 二次备份复用附件包（快照每次新增、bundle 不重建），快照可透明恢复
+#[test]
+fn local_incremental_reuses_bundle_when_attachments_unchanged() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("a.png");
+    make_png(&img);
+    let s = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    assert_eq!(s.vouchers.len(), 1);
+
+    let info1 = backup::run_backup(&ctx)?;
+    assert_eq!(info1.kind, "snapshot", "新备份产物是快照");
+    assert!(info1.file_name.starts_with("voucher-snapshot-"));
+    let bundles1 = count_bundles(&ctx)?;
+    assert_eq!(bundles1, 1, "首备份产生一个附件包");
+
+    // 附件未变（只改非附件数据：备注）→ 再备份
+    voucher_mgr::update_voucher(
+        &ctx,
+        s.vouchers[0].voucher_id,
+        VoucherUpdate {
+            note: Some("改备注再备份".into()),
+            ..Default::default()
+        },
+    )?;
+    let info2 = backup::run_backup(&ctx)?;
+    assert_ne!(info1.file_name, info2.file_name, "快照每次新增");
+    assert_eq!(
+        count_bundles(&ctx)?,
+        bundles1,
+        "附件未变：附件包不重建（本次 0 附件 I/O）"
+    );
+
+    // 快照透明恢复：合成全量 → 数据完整
+    let target = dir.path().join("restored");
+    let summary = backup::restore_backup(&ctx, PathBuf::from(&info2.path).as_path(), &target)?;
+    assert!(summary.attachment_count >= 1);
+    assert!(summary.checksums_verified);
+    let conn = voucher_core::db::connection::open(&target.join("data").join("voucher.db"))?;
+    let note: String = conn.query_row("SELECT note FROM vouchers LIMIT 1", [], |r| r.get(0))?;
+    assert_eq!(note, "改备注再备份", "恢复的是第二次备份的内容");
+    Ok(())
+}
+
+/// 附件集变化 → 新附件包；GFS 清理后无引用的旧附件包被回收
+#[test]
+fn local_incremental_gc_reclaims_orphan_bundles() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    // 附件集 A → 备份
+    let img1 = dir.path().join("a.png");
+    make_png_variant(&img1, 60);
+    let s1 = ingestion::import_images(&ctx, std::slice::from_ref(&img1), None, false)?;
+    backup::run_backup(&ctx)?;
+
+    // 附件集 B（删旧图 + 加新图）→ 再备份 → 两个附件包
+    voucher_mgr::delete_vouchers(&ctx, &[s1.vouchers[0].voucher_id])?;
+    let img2 = dir.path().join("b.png");
+    make_png_variant(&img2, 180);
+    ingestion::import_images(&ctx, std::slice::from_ref(&img2), None, false)?;
+    backup::run_backup(&ctx)?;
+    assert_eq!(count_bundles(&ctx)?, 2, "两个附件集 → 两个附件包");
+
+    // GFS 全删（keep=0）：快照清光 → 两个附件包均无引用 → 回收
+    let mut cfg = ctx.config();
+    cfg.backup.keep_daily = 0;
+    cfg.backup.keep_weekly = 0;
+    cfg.backup.keep_monthly = 0;
+    ctx.set_config(cfg)?;
+    backup::run_backup(&ctx)?; // 末尾 enforce_retention 触发清理
+    assert!(
+        backup::list_backups(&ctx)?.is_empty(),
+        "keep 全 0：本地不留备份"
+    );
+    assert_eq!(count_bundles(&ctx)?, 0, "无引用附件包应被回收");
+    Ok(())
+}
+
+/// 导出完整备份：快照 + 附件包合成单个全量 zip（可拷走、可恢复、进列表）
+#[test]
+fn export_full_backup_composes_single_zip() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("a.png");
+    make_png(&img);
+    ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let info = backup::run_backup(&ctx)?;
+
+    let exported = backup::export_full_backup(&ctx, Path::new(&info.path))?;
+    let name = PathBuf::from(&exported)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        name.starts_with("voucher-backup-"),
+        "导出物应是可恢复的全量命名：{name}"
+    );
+
+    // 导出的全量可直接恢复（不再依赖附件包）
+    let target = dir.path().join("restored");
+    backup::restore_backup(&ctx, Path::new(&exported), &target)?;
+    assert!(target.join("data").join("voucher.db").exists());
+
+    // 导出物进备份列表，类型 full
+    let rows = backup::list_backups(&ctx)?;
+    let row = rows.iter().find(|b| b.path == exported);
+    assert!(row.is_some(), "导出物应出现在备份列表");
+    assert_eq!(row.unwrap().kind, "full");
     Ok(())
 }
 

@@ -51,6 +51,9 @@ pub struct BackupInfo {
     /// 非阻断性告警（异盘/WebDAV 失败等；本地主备份不受影响，但 3-2-1 已不完整，需提醒用户）
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// v0.9：snapshot（快照，附件在共享附件包里）| full（全量单文件，含旧备份）
+    #[serde(default)]
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +113,14 @@ fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
 /// 备份实现：`local_only` = 跳过异盘双写和 WebDAV 上传。
 /// v0.8 起全程持 `backup_lock` 互斥——手动/定时/关闭前备份可能并发触发，
 /// VACUUM INTO 写同一固定 temp 路径 + zip 文件名秒级时间戳可碰撞，串行化避免互相破坏。
+///
+/// v0.9 本地增量（与云端同构）：产物为「快照 + 内容寻址附件包」两件套：
+/// - 快照（KB~MB）：db + config + manifest，每次新增
+/// - 附件包：附件集合未变 → 文件名相同 → 已存在即跳过，本次 0 附件 I/O
+///   （附件 hash 从快照库读，不重算、不读附件文件；只打包 DB 记录的原图，
+///   增强版是可重建缓存不入备份）
+///
+/// 旧全量 voucher-backup-*.zip 兼容并存；恢复/演练经 materialize 合成，流程零改动。
 fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
     let _guard = ctx.backup_guard();
     // 1. 数据库一致性快照
@@ -122,123 +133,198 @@ fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
         Ok(())
     })?;
 
-    // 2. 收集附件（相对 attachments/ 的路径，稳定排序保证 zip 可复现）
-    let attachments = collect_attachment_files(&ctx.paths.attachments)?;
-
-    // 3. 打包：manifest 校验和随写入逐文件计算
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let file_name = format!("voucher-backup-{stamp}.zip");
-    let zip_path = ctx.paths.backups.join(&file_name);
-    let tmp_zip = ctx.paths.temp.join(&file_name);
-
-    let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let mut checksums = HashMap::new();
-
-    {
-        let file = std::fs::File::create(&tmp_zip)?;
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-
-        // DB 快照
-        let db_bytes = std::fs::read(&snap)?;
-        checksums.insert(DB_ENTRY.into(), sha256_hex(&db_bytes));
-        zip.start_file(DB_ENTRY, opts)?;
-        zip.write_all(&db_bytes)?;
-
-        // 配置
-        if ctx.paths.config_file().exists() {
-            let cfg_bytes = std::fs::read(ctx.paths.config_file())?;
-            checksums.insert(CONFIG_ENTRY.into(), sha256_hex(&cfg_bytes));
-            zip.start_file(CONFIG_ENTRY, opts)?;
-            zip.write_all(&cfg_bytes)?;
+    // 2. 附件清单 + hash 从快照库读（= 备份时点 DB 状态，与 VACUUM 完全一致）
+    let attachments = attachments_from_snapshot_db(&snap)?;
+    // 附件是核心资产：文件缺失即中止（与旧全量行为一致，宁可不备份不备错的）
+    for (rel, _) in &attachments {
+        if !ctx.paths.attachments.join(rel).is_file() {
+            return Err(CoreError::NotFound(format!(
+                "附件文件缺失，备份中止：{rel}"
+            )));
         }
-
-        // 附件原图（凭证核心资产，不可再生）
-        for rel in &attachments {
-            let bytes = std::fs::read(ctx.paths.attachments.join(rel))?;
-            let entry = format!("{ATTACHMENTS_PREFIX}{rel}");
-            checksums.insert(entry.clone(), sha256_hex(&bytes));
-            zip.start_file(entry.as_str(), opts)?;
-            zip.write_all(&bytes)?;
-        }
-
-        let manifest = Manifest {
-            format: BACKUP_FORMAT.into(),
-            version: BACKUP_VERSION,
-            created_at: created_at.clone(),
-            files: checksums.keys().cloned().collect(),
-            checksums,
-            attachment_count: attachments.len() as u32,
-            attachments_bundle: None,
-        };
-        zip.start_file(MANIFEST_FILE, zip::write::SimpleFileOptions::default())?;
-        zip.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
-        zip.finish()?;
     }
-    std::fs::copy(&tmp_zip, &zip_path)?;
-    let _ = std::fs::remove_file(&tmp_zip);
+    let mut att_checksums: HashMap<String, String> = HashMap::new();
+    for (rel, h) in &attachments {
+        att_checksums.insert(format!("{ATTACHMENTS_PREFIX}{rel}"), h.clone());
+    }
+
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 3. 附件包：内容寻址，已存在即命中（0 附件 I/O——至此未读过任何附件文件）
+    let bundle_name = if attachments.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{BUNDLE_PREFIX}{}.zip",
+            &attachments_set_hash(&att_checksums)[..8]
+        )
+    };
+    let bundle_path = ctx.paths.backups.join(&bundle_name);
+    let has_attachments = !attachments.is_empty();
+    let bundle_created = has_attachments && !bundle_path.exists();
+    if bundle_created {
+        write_bundle_zip(ctx, &attachments, &bundle_path, &created_at)?;
+    }
+
+    // 4. 快照：db + config + manifest（指向附件包名）。
+    // 同秒再备份时加序号后缀（-2、-3…），避免覆盖既有快照——
+    // 覆盖会让被顶掉的快照失去附件包引用，触发 GC 误回收。
+    let mut snap_name = format!("{SNAPSHOT_PREFIX}{stamp}.zip");
+    let mut seq = 1u32;
+    while ctx.paths.backups.join(&snap_name).exists() {
+        seq += 1;
+        snap_name = format!("{SNAPSHOT_PREFIX}{stamp}-{seq}.zip");
+    }
+    let snap_path = ctx.paths.backups.join(&snap_name);
+    write_snapshot_zip(
+        ctx,
+        &snap,
+        &bundle_name,
+        &att_checksums,
+        &snap_path,
+        &created_at,
+    )?;
     let _ = std::fs::remove_file(&snap);
 
-    // 4. 异盘双写 + WebDAV（关闭快速备份跳过这两步）
+    // 5. 异盘双写 + WebDAV（关闭快速备份跳过这两步）
     let mut warnings = Vec::new();
     if !local_only {
-        if let Err(e) = copy_to_secondary(ctx, &zip_path) {
+        if let Err(e) =
+            sync_backup_set_to_secondary(ctx, &snap_path, has_attachments.then_some(&bundle_path))
+        {
             log::warn!("备用份目录写入失败: {e}");
             warnings.push(format!("异盘副本写入失败：{e}"));
         }
-        if let Err(e) = upload_backup_to_webdav(ctx, &zip_path) {
+        if let Err(e) = upload_backup_to_webdav(ctx, &snap_path) {
             log::warn!("WebDAV 上传失败（本地备份不受影响）: {e}");
             warnings.push(format!("WebDAV 异地副本上传失败：{e}"));
         }
     }
 
     let info = BackupInfo {
-        file_name: file_name.clone(),
-        path: zip_path.to_string_lossy().to_string(),
-        size: std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0),
-        created_at: created_at.clone(),
+        file_name: snap_name.clone(),
+        path: snap_path.to_string_lossy().to_string(),
+        size: std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0),
+        created_at,
         attachment_count: attachments.len() as u32,
         warnings,
+        kind: "snapshot".into(),
     };
 
-    // 5. 本地 GFS 分层保留
+    // 6. 本地 GFS 分层保留 + 孤儿附件包回收
     enforce_retention(ctx)?;
 
-    // 6. 记录状态
+    // 7. 记录状态
     ctx.db.with_conn(|conn| {
         config_repo::set(conn, KEY_LAST_BACKUP, &chrono::Utc::now().to_rfc3339())
     })?;
     Ok(info)
 }
 
-/// 递归收集 attachments/ 下全部文件的相对路径（正斜杠分隔，按路径排序）
-fn collect_attachment_files(root: &Path) -> Result<Vec<String>> {
+/// 从 VACUUM 快照库读附件清单：(相对路径, sha256)，按路径排序（保证集合 hash 稳定）
+fn attachments_from_snapshot_db(db: &Path) -> Result<Vec<(String, String)>> {
+    let conn = crate::db::connection::open(db)?;
+    let mut stmt =
+        conn.prepare("SELECT file_path, file_hash FROM attachments ORDER BY file_path")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
     let mut out = Vec::new();
-    if !root.is_dir() {
-        return Ok(out);
+    for r in rows {
+        out.push(r?);
     }
-    let mut stack = vec![PathBuf::new()];
-    while let Some(rel) = stack.pop() {
-        let dir = root.join(&rel);
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if path.is_dir() {
-                let mut sub = rel.clone();
-                sub.push(name.as_ref());
-                stack.push(sub);
-            } else {
-                let mut file = rel.clone();
-                file.push(name.as_ref());
-                out.push(file.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-    out.sort();
     Ok(out)
+}
+
+/// 写附件包（temp + rename 原子落位）：全部附件原图 + 自带 manifest。
+/// 打包时逐文件读内容并算实际 hash（读了就算，manifest 与内容自洽可校验）。
+fn write_bundle_zip(
+    ctx: &CoreContext,
+    attachments: &[(String, String)],
+    dest: &Path,
+    created_at: &str,
+) -> Result<()> {
+    let tmp = ctx.paths.temp.join(format!(
+        "backup-bundle-{}",
+        dest.file_name().and_then(|s| s.to_str()).unwrap_or("tmp")
+    ));
+    {
+        let file = std::fs::File::create(&tmp)?;
+        let mut w = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let mut checksums = HashMap::new();
+        for (rel, _) in attachments {
+            let bytes = std::fs::read(ctx.paths.attachments.join(rel))?;
+            let entry = format!("{ATTACHMENTS_PREFIX}{rel}");
+            checksums.insert(entry.clone(), sha256_hex(&bytes));
+            w.start_file(entry.as_str(), opts)?;
+            w.write_all(&bytes)?;
+        }
+        let manifest = Manifest {
+            format: BACKUP_FORMAT.into(),
+            version: BACKUP_VERSION,
+            created_at: created_at.into(),
+            files: checksums.keys().cloned().collect(),
+            checksums,
+            attachment_count: attachments.len() as u32,
+            attachments_bundle: None,
+        };
+        w.start_file(MANIFEST_FILE, opts)?;
+        w.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
+        w.finish()?;
+    }
+    std::fs::rename(&tmp, dest)?;
+    Ok(())
+}
+
+/// 写快照（temp + rename 原子落位）：db + config + manifest（指向附件包名）。
+/// checksums 只含自身条目（db/config），附件校验和在附件包 manifest 里。
+fn write_snapshot_zip(
+    ctx: &CoreContext,
+    snap_db: &Path,
+    bundle_name: &str,
+    att_checksums: &HashMap<String, String>,
+    dest: &Path,
+    created_at: &str,
+) -> Result<()> {
+    let tmp = ctx.paths.temp.join(format!(
+        "backup-snap-{}",
+        dest.file_name().and_then(|s| s.to_str()).unwrap_or("tmp")
+    ));
+    {
+        let file = std::fs::File::create(&tmp)?;
+        let mut w = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let mut checksums = HashMap::new();
+
+        let db_bytes = std::fs::read(snap_db)?;
+        checksums.insert(DB_ENTRY.into(), sha256_hex(&db_bytes));
+        w.start_file(DB_ENTRY, opts)?;
+        w.write_all(&db_bytes)?;
+
+        if ctx.paths.config_file().exists() {
+            let cfg_bytes = std::fs::read(ctx.paths.config_file())?;
+            checksums.insert(CONFIG_ENTRY.into(), sha256_hex(&cfg_bytes));
+            w.start_file(CONFIG_ENTRY, opts)?;
+            w.write_all(&cfg_bytes)?;
+        }
+
+        let manifest = Manifest {
+            format: BACKUP_FORMAT.into(),
+            version: BACKUP_VERSION,
+            created_at: created_at.into(),
+            files: checksums.keys().cloned().collect(),
+            checksums,
+            attachment_count: att_checksums.len() as u32,
+            attachments_bundle: (!bundle_name.is_empty()).then(|| bundle_name.to_string()),
+        };
+        w.start_file(MANIFEST_FILE, opts)?;
+        w.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
+        w.finish()?;
+    }
+    std::fs::rename(&tmp, dest)?;
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -314,7 +400,7 @@ fn gfs_keep(
 
 fn enforce_retention(ctx: &CoreContext) -> Result<()> {
     let cfg = ctx.config().backup;
-    let backups = list_backups(ctx)?; // 新→旧
+    let backups = list_backups(ctx)?; // 新→旧（快照+全量合并，bundle 已隐藏）
     let dates: Vec<Option<NaiveDate>> = backups
         .iter()
         .map(|b| date_of_file_name(&b.file_name))
@@ -343,11 +429,52 @@ fn enforce_retention(ctx: &CoreContext) -> Result<()> {
             }
         }
     }
+
+    // v0.9：孤儿附件包回收——被任一保留快照引用的留下，其余删除
+    // （GFS 删过期快照后引用集合缩小，正好在这里收割）
+    let kept: Vec<PathBuf> = keep_flags
+        .iter()
+        .enumerate()
+        .filter(|(_, keep)| **keep)
+        .map(|(pos, _)| {
+            let (idx, _) = dated[pos];
+            PathBuf::from(&backups[idx].path)
+        })
+        .collect();
+    gc_orphan_bundles(&ctx.paths.backups, &kept)?;
     Ok(())
 }
 
-/// 备份复制到备用份目录（异盘双写）+ 该目录同样应用 GFS 清理
-fn copy_to_secondary(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
+/// 回收孤儿附件包：`kept` 为保留的备份文件路径（快照读 manifest 引用，全量自含附件）。
+/// 目录内未被引用的 voucher-attachments-*.zip 一律删除。
+fn gc_orphan_bundles(dir: &Path, kept: &[PathBuf]) -> Result<()> {
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for p in kept {
+        if let Some(m) = read_manifest(p) {
+            if let Some(n) = m.attachments_bundle {
+                referenced.insert(n);
+            }
+        }
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if name.starts_with(BUNDLE_PREFIX) && name.ends_with(".zip") && !referenced.contains(name) {
+            let _ = std::fs::remove_file(&path);
+            log::info!("回收孤儿附件包：{name}");
+        }
+    }
+    Ok(())
+}
+
+/// v0.9 异盘双写：快照总是同步；附件包异盘缺失才同步（本盘命中但异盘被清空等场景）。
+/// 异盘目录同样应用 GFS（快照+全量合并序列）与孤儿附件包回收，保持可独立恢复的完整集合。
+fn sync_backup_set_to_secondary(
+    ctx: &CoreContext,
+    snap_path: &Path,
+    bundle_path: Option<&Path>,
+) -> Result<()> {
     let dir = ctx.config().backup.secondary_dir;
     let dir = dir.trim();
     if dir.is_empty() {
@@ -359,10 +486,12 @@ fn copy_to_secondary(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(&dir)?;
-    let dst = dir.join(zip_path.file_name().unwrap_or_default());
-    std::fs::copy(zip_path, dst)?;
+    copy_if_missing(snap_path, &dir)?;
+    if let Some(b) = bundle_path {
+        copy_if_missing(b, &dir)?;
+    }
 
-    // 次级目录同样 GFS 清理（仅清 voucher-backup-*.zip）
+    // 次级目录同样 GFS 清理（快照 + 全量合并；引用保持的附件包不清理）
     let cfg = ctx.config().backup;
     let mut names: Vec<(NaiveDate, PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(&dir)? {
@@ -370,7 +499,10 @@ fn copy_to_secondary(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
         let path = entry.path();
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if let Some(d) = date_of_file_name(name) {
-            if name.starts_with("voucher-backup-") && name.ends_with(".zip") {
+            let is_backup = (name.starts_with("voucher-backup-")
+                || name.starts_with(SNAPSHOT_PREFIX))
+                && name.ends_with(".zip");
+            if is_backup {
                 names.push((d, path));
             }
         }
@@ -382,11 +514,32 @@ fn copy_to_secondary(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
         cfg.keep_weekly,
         cfg.keep_monthly,
     );
+    let mut kept_paths: Vec<PathBuf> = Vec::new();
     for (i, keep_flag) in keep.iter().enumerate() {
-        if !keep_flag {
+        if *keep_flag {
+            kept_paths.push(names[i].1.clone());
+        } else {
             let _ = std::fs::remove_file(&names[i].1);
         }
     }
+    // 异盘孤儿附件包回收（引用集合 = 异盘保留的快照）
+    gc_orphan_bundles(&dir, &kept_paths)?;
+    Ok(())
+}
+
+/// 复制到目标目录（同名已存在则跳过——快照名唯一，附件包内容寻址幂等）
+fn copy_if_missing(src: &Path, dir: &Path) -> Result<()> {
+    let dst = dir.join(src.file_name().unwrap_or_default());
+    if dst.exists() {
+        return Ok(());
+    }
+    // 先写临时再改名：中断不留半截文件污染集合
+    let tmp = dir.join(format!(
+        ".writing-{}",
+        src.file_name().and_then(|s| s.to_str()).unwrap_or("tmp")
+    ));
+    std::fs::copy(src, &tmp)?;
+    std::fs::rename(&tmp, &dst)?;
     Ok(())
 }
 
@@ -400,13 +553,24 @@ pub fn list_backups(ctx: &CoreContext) -> Result<Vec<BackupInfo>> {
         if path.extension().and_then(|e| e.to_str()) != Some("zip") {
             continue;
         }
+        let file_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        // v0.9：附件包是内部对象（由快照引用），不进备份列表
+        if file_name.starts_with(BUNDLE_PREFIX) {
+            continue;
+        }
+        let kind = if file_name.starts_with(SNAPSHOT_PREFIX) {
+            "snapshot"
+        } else {
+            "full"
+        }
+        .to_string();
         let manifest = read_manifest(&path);
         out.push(BackupInfo {
-            file_name: path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string(),
+            file_name,
             path: path.to_string_lossy().to_string(),
             size: entry.metadata().map(|m| m.len()).unwrap_or(0),
             created_at: manifest
@@ -415,10 +579,29 @@ pub fn list_backups(ctx: &CoreContext) -> Result<Vec<BackupInfo>> {
                 .unwrap_or_default(),
             attachment_count: manifest.as_ref().map(|m| m.attachment_count).unwrap_or(0),
             warnings: Vec::new(),
+            kind,
         });
     }
-    out.sort_by(|a, b| b.file_name.cmp(&a.file_name));
+    // 新→旧：按文件名时间戳排序（快照与全量前缀不同，不能直接按文件名字典序）
+    out.sort_by_key(|b| std::cmp::Reverse(b.stamp_key()));
     Ok(out)
+}
+
+impl BackupInfo {
+    /// 排序键：文件名中的时间戳（提不出的排最后，保持稳定）
+    fn stamp_key(&self) -> String {
+        stamp_of_file_name(&self.file_name).unwrap_or_else(|| String::from("9999"))
+    }
+}
+
+/// 从备份文件名提取时间戳段（voucher-{backup,snapshot}-YYYYMMDD-HHMMSS.zip → YYYYMMDD-HHMMSS）
+fn stamp_of_file_name(name: &str) -> Option<String> {
+    let digits: String = name.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() >= 14 {
+        Some(format!("{}-{}", &digits[..8], &digits[8..14]))
+    } else {
+        None
+    }
 }
 
 fn read_manifest(zip_path: &Path) -> Option<Manifest> {
@@ -472,8 +655,61 @@ fn verify_checksums(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<(usize, 
     Ok((count, ok))
 }
 
-/// 校验备份 zip（格式/版本/完整性），返回清单信息
-pub fn inspect_backup(zip_path: &Path) -> Result<RestoreSummary> {
+// ---------- v0.9 materialize：快照 + 附件包 → 全量 zip（恢复/演练/校验透明复用） ----------
+
+/// 把备份物化为全量 zip 路径：全量原样返回；快照则与同目录附件包合成到 temp（调用方用完删除）。
+/// 附件包在 `path` 同目录查找（本地 backups/、异盘目录、外部拷入目录均成立）。
+fn materialize_full_zip(ctx: &CoreContext, path: &Path) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string();
+    if !name.starts_with(SNAPSHOT_PREFIX) {
+        return Ok(path.to_path_buf()); // 全量（含旧备份）：原样
+    }
+    let manifest =
+        read_manifest(path).ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
+    let bundle_name = match manifest.attachments_bundle {
+        Some(b) => b,
+        None => return Ok(path.to_path_buf()), // 无附件快照：自身即全量
+    };
+    let bundle_path = path.parent().unwrap_or(Path::new(".")).join(&bundle_name);
+    if !bundle_path.is_file() {
+        return Err(CoreError::Invalid(format!(
+            "快照引用的附件包 {bundle_name} 缺失（与快照放同一目录），恢复中止"
+        )));
+    }
+    let dest = ctx.paths.temp.join(format!(
+        "materialized-{}",
+        name.replacen(SNAPSHOT_PREFIX, "voucher-backup-", 1)
+    ));
+    compose_full_zip(path, &bundle_path, &dest)?;
+    Ok(dest)
+}
+
+/// materialize 后执行 `f`，用完删除合成产物（全量原样路径不删）
+fn with_materialized<T>(
+    ctx: &CoreContext,
+    path: &Path,
+    f: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let full = materialize_full_zip(ctx, path)?;
+    let result = f(&full);
+    if full != path {
+        let _ = std::fs::remove_file(&full);
+    }
+    result
+}
+
+/// 校验备份（格式/版本/完整性），返回清单信息。
+/// 快照会自动与附件包合成全量再校验（对调用方透明）。
+pub fn inspect_backup(ctx: &CoreContext, zip_path: &Path) -> Result<RestoreSummary> {
+    with_materialized(ctx, zip_path, inspect_backup_impl)
+}
+
+/// 校验全量 zip（格式/版本/完整性），返回清单信息（内部实现，入参必须是全量）
+fn inspect_backup_impl(zip_path: &Path) -> Result<RestoreSummary> {
     let file = std::fs::File::open(zip_path)?;
     let mut zip = zip::ZipArchive::new(file)?;
     let manifest = {
@@ -530,7 +766,7 @@ pub struct DrillReport {
     pub checksums_verified: bool,
 }
 
-/// 演练指定备份；path 为 None 时取最新一份
+/// 演练指定备份；path 为 None 时取最新一份。快照会自动合成全量（透明）。
 pub fn drill_backup(ctx: &CoreContext, zip_path: Option<&Path>) -> Result<DrillReport> {
     let path = match zip_path {
         Some(p) => p.to_path_buf(),
@@ -541,10 +777,10 @@ pub fn drill_backup(ctx: &CoreContext, zip_path: Option<&Path>) -> Result<DrillR
             .ok_or_else(|| CoreError::NotFound("还没有任何备份".into()))?,
     };
 
-    let summary = inspect_backup(&path)?;
+    let summary = with_materialized(ctx, &path, inspect_backup_impl)?;
     let drill_dir = ctx.paths.temp.join("backup-drill");
     let _ = std::fs::remove_dir_all(&drill_dir);
-    let restored = restore_backup(&path, &drill_dir)?;
+    let restored = with_materialized(ctx, &path, |full| restore_backup_impl(full, &drill_dir))?;
 
     // 演练目录里数据库必须可打开
     let db_ok = crate::db::connection::open(&drill_dir.join("data").join("voucher.db"))
@@ -573,8 +809,40 @@ pub fn drill_backup(ctx: &CoreContext, zip_path: Option<&Path>) -> Result<DrillR
 
 /// 把备份内容释放到 `target_dir`（data/ config/ attachments/ 由调用方安排重启后接管）。
 /// 释放过程逐文件 sha256 校验；恢复后校验数据库可打开。
-pub fn restore_backup(zip_path: &Path, target_dir: &Path) -> Result<RestoreSummary> {
-    let summary = inspect_backup(zip_path)?;
+/// 快照会自动与附件包合成全量（透明）。
+pub fn restore_backup(
+    ctx: &CoreContext,
+    zip_path: &Path,
+    target_dir: &Path,
+) -> Result<RestoreSummary> {
+    with_materialized(ctx, zip_path, |full| restore_backup_impl(full, target_dir))
+}
+
+/// v0.9 导出完整备份：把快照 + 附件包合成单个全量 zip 落入 backups/
+/// （供用户拷走单文件；全量入参原样拷贝重命名）。返回落盘路径。
+pub fn export_full_backup(ctx: &CoreContext, source: &Path) -> Result<PathBuf> {
+    let name = source
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let stamp = stamp_of_file_name(&name)
+        .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+    let dest = ctx
+        .paths
+        .backups
+        .join(format!("voucher-backup-export-{stamp}.zip"));
+    with_materialized(ctx, source, |full| {
+        std::fs::copy(full, &dest)?;
+        Ok(())
+    })?;
+    log::info!("导出完整备份：{} → {}", source.display(), dest.display());
+    Ok(dest)
+}
+
+/// 释放全量 zip（内部实现，入参必须是全量）
+fn restore_backup_impl(zip_path: &Path, target_dir: &Path) -> Result<RestoreSummary> {
+    let summary = inspect_backup_impl(zip_path)?;
 
     let file = std::fs::File::open(zip_path)?;
     let mut zip = zip::ZipArchive::new(file)?;
@@ -861,6 +1129,8 @@ fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> Result<()> {
 ///
 /// v0.8 增量：含附件的备份拆成 snapshot（KB 级，每次传）+ 附件包（内容寻址，
 /// 附件未变则远端命中跳过，0 流量）；无附件 / 旧格式备份原样整文件上传。
+/// v0.9 本地增量直连：入参已是快照时直接上传两件套，
+/// 不再「先合成全量再拆分」（run_backup 产物零中转）。
 pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()> {
     let cfg = ctx.config();
     let webdav = &cfg.backup.webdav;
@@ -901,23 +1171,29 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
 
-    // 增量分流：有附件 → snapshot + 附件包；否则整文件上传（无附件备份本身极小）
-    let incremental = read_manifest(zip_path)
-        .map(|m| m.attachment_count > 0)
-        .unwrap_or(false);
-    if incremental {
-        upload_incremental(ctx, &client, &base, &webdav.username, &password, zip_path)?;
+    // v0.9 分流：快照 → 直连上传（本地两件套已是云端结构）；
+    // 全量 → 拆分两件套上传（旧备份 / 手动补传路径）
+    if file_name.starts_with(SNAPSHOT_PREFIX) {
+        upload_snapshot_direct(&client, &base, &webdav.username, &password, zip_path)?;
     } else {
-        let bytes = std::fs::read(zip_path)?;
-        put_with_retry(
-            &client,
-            &format!("{base}/{file_name}"),
-            &base,
-            &webdav.username,
-            &password,
-            bytes,
-            file_name,
-        )?;
+        // 增量分流：有附件 → snapshot + 附件包；否则整文件上传（无附件备份本身极小）
+        let incremental = read_manifest(zip_path)
+            .map(|m| m.attachment_count > 0)
+            .unwrap_or(false);
+        if incremental {
+            upload_incremental(ctx, &client, &base, &webdav.username, &password, zip_path)?;
+        } else {
+            let bytes = std::fs::read(zip_path)?;
+            put_with_retry(
+                &client,
+                &format!("{base}/{file_name}"),
+                &base,
+                &webdav.username,
+                &password,
+                bytes,
+                file_name,
+            )?;
+        }
     }
 
     // 远端保留清理
@@ -932,6 +1208,66 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
             log::warn!("WebDAV 远端清理失败（不影响上传结果）: {e}");
         }
     }
+    Ok(())
+}
+
+/// v0.9 快照直连上传：本地快照 + 同目录附件包（远端命中跳过）→ PUT。
+/// 附件包本地缺失时报错跳过（避免上传出云端不可恢复的孤儿快照）。
+fn upload_snapshot_direct(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    user: &str,
+    password: &str,
+    snap_path: &Path,
+) -> Result<()> {
+    let snap_name = snap_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let manifest = read_manifest(snap_path)
+        .ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
+
+    if let Some(bundle_name) = manifest.attachments_bundle {
+        let bundle_path = snap_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(&bundle_name);
+        let existing = propfind_all_names(client, base, user, password)?;
+        if existing.contains(&bundle_name) {
+            log::info!("附件集合未变，云端命中附件包（0 附件流量）：{bundle_name}");
+        } else if bundle_path.is_file() {
+            let bytes = std::fs::read(&bundle_path)?;
+            let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
+            log::info!("上传附件包 {bundle_name}（{size_mb:.1} MB，附件集合已变化）");
+            put_with_retry(
+                client,
+                &format!("{base}/{}", url_escape(&bundle_name)),
+                base,
+                user,
+                password,
+                bytes,
+                &bundle_name,
+            )?;
+        } else {
+            return Err(CoreError::Invalid(format!(
+                "本地附件包 {bundle_name} 缺失，快照 {snap_name} 不完整，已跳过上传"
+            )));
+        }
+    }
+
+    // 快照：KB 级，每次都传
+    let bytes = std::fs::read(snap_path)?;
+    put_with_retry(
+        client,
+        &format!("{base}/{}", url_escape(&snap_name)),
+        base,
+        user,
+        password,
+        bytes,
+        &snap_name,
+    )?;
+    log::info!("云端快照直连上传完成：{snap_name}");
     Ok(())
 }
 
@@ -1732,7 +2068,7 @@ mod tests {
         compose_full_zip(&snap, bundle.as_ref().unwrap(), &composed).unwrap();
 
         // inspect 通过（校验和全对）+ 附件数 2
-        let summary = inspect_backup(&composed).unwrap();
+        let summary = inspect_backup_impl(&composed).unwrap();
         assert_eq!(summary.attachment_count, 2);
         assert!(summary.checksums_verified);
         // 条目集合 = db + config + 2 附件
@@ -1743,7 +2079,7 @@ mod tests {
 
         // 合成产物可恢复（restore_backup 走通 = 恢复链路等价）
         let restore_dir = dir.path().join("restore");
-        let restored = restore_backup(&composed, &restore_dir).unwrap();
+        let restored = restore_backup_impl(&composed, &restore_dir).unwrap();
         assert_eq!(restored.attachment_count, 2);
         assert!(restore_dir
             .join("attachments")

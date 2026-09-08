@@ -618,8 +618,21 @@ pub fn list_backups(ctx: Ctx) -> std::result::Result<Vec<backup::BackupInfo>, St
 }
 
 #[tauri::command]
-pub fn inspect_backup(path: String) -> std::result::Result<backup::RestoreSummary, String> {
-    err_string(backup::inspect_backup(Path::new(&path)))
+pub fn inspect_backup(
+    ctx: Ctx,
+    path: String,
+) -> std::result::Result<backup::RestoreSummary, String> {
+    // 快照会自动与附件包合成全量再校验（v0.9 本地增量透明兼容）
+    err_string(backup::inspect_backup(&ctx, Path::new(&path)))
+}
+
+/// v0.9 导出完整备份：快照 + 附件包合成单个全量 zip 落入 backups/（供拷走）
+#[tauri::command]
+pub fn export_full_backup(ctx: Ctx, path: String) -> std::result::Result<String, String> {
+    err_string(
+        backup::export_full_backup(&ctx, Path::new(&path))
+            .map(|p| p.to_string_lossy().into_owned()),
+    )
 }
 
 #[tauri::command]

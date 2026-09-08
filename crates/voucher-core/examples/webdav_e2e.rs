@@ -75,19 +75,15 @@ fn main() {
     };
 
     // ---- 步骤 3：增量上传（snapshot + 附件包）----
-    let local = std::fs::read_dir(ctx.paths.backups.clone())
-        .expect("read backups dir")
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("voucher-backup-")
-        })
-        .max_by_key(|e| e.file_name().to_string_lossy().to_string())
+    // v0.9 本地备份产物即快照（list_backups 首项 = 最新，快照/全量统一视图）
+    let latest = backup::list_backups(&ctx)
+        .expect("list backups")
+        .into_iter()
+        .next()
         .expect("至少要有一个本地备份");
-    let local_name = local.file_name().to_string_lossy().into_owned();
-    println!("[3] 增量上传本地备份 {local_name}（snapshot + 附件包）…");
-    match backup::upload_backup_to_webdav(&ctx, &local.path()) {
+    let local_name = latest.file_name.clone();
+    println!("[3] 增量上传本地备份 {local_name}（snapshot + 附件包直连）…");
+    match backup::upload_backup_to_webdav(&ctx, std::path::Path::new(&latest.path)) {
         Ok(()) => {
             println!("[3] 增量上传: PASS");
             pass += 1;
@@ -141,7 +137,7 @@ fn main() {
         .iter()
         .filter(|n| n.starts_with("voucher-attachments-"))
         .count();
-    match backup::upload_backup_to_webdav(&ctx, &local.path()) {
+    match backup::upload_backup_to_webdav(&ctx, std::path::Path::new(&latest.path)) {
         Ok(()) => {
             let after = propfind_names_remote(&ctx);
             let bundles_after = after
@@ -185,7 +181,7 @@ fn main() {
             false
         };
         match backup::download_webdav_backup(&ctx, &snap_name) {
-            Ok(path) => match backup::inspect_backup(std::path::Path::new(&path)) {
+            Ok(path) => match backup::inspect_backup(&ctx, std::path::Path::new(&path)) {
                 Ok(summary) if summary.checksums_verified => {
                     println!(
                         "[6] 快照下载合成 + 完整性校验: PASS（{} 附件，{} 条目）",

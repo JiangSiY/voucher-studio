@@ -257,6 +257,7 @@ fn main() {
             commands::skip_closing_backup,
             commands::list_backups,
             commands::inspect_backup,
+            commands::export_full_backup,
             commands::restore_backup,
             commands::drill_backup,
             commands::upload_backup,
