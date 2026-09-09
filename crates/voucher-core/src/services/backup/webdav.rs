@@ -34,7 +34,8 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| CoreError::Invalid("非法的备份文件名".into()))?;
-    let base = webdav.url.trim().trim_end_matches('/').to_string();
+    // 与 webdav_target 同一校验口径：远端强制 https（回环地址允许 http）
+    let base = validated_webdav_base(&webdav.url)?;
 
     // v0.8 流量保护：当日云端已有备份则跳过（坚果云等免费服务上传配额有限；
     // snapshot 与旧全量都算「今日已有」）
@@ -477,19 +478,17 @@ fn parse_manifest_bytes(bytes: &[u8]) -> Option<Manifest> {
 /// 从 PROPFIND 响应体解析备份文件名：提取所有 href，过滤 voucher-backup-*.zip
 /// （排除目录自身），URL 解码后去重返回（不排序，由调用方决定序）。
 fn parse_backup_hrefs(body: &str) -> Vec<String> {
-    let lower = body.to_lowercase();
     let mut names: Vec<String> = Vec::new();
     let mut pos = 0;
-    while let Some(start) = lower[pos..]
-        .find("<d:href")
-        .or_else(|| lower[pos..].find("<href"))
-    {
-        let abs = pos + start;
-        let Some(gt) = lower[abs..].find('>') else {
+    // 直接在原始 body 上做 ASCII 大小写不敏感搜索，不建 lowercase 副本再切原串——
+    // to_lowercase() 对部分 Unicode（如 İ、某些复合字符）会改变字符数，使 lower 与
+    // body 的字节索引错位，切到非字符边界即 panic。字节级扫描天然保证索引属于原串。
+    while let Some(start) = next_href_open(body, pos) {
+        let Some(gt) = body[start..].find('>') else {
             break;
         };
-        let content_start = abs + gt + 1;
-        let Some(end) = lower[content_start..].find("</") else {
+        let content_start = start + gt + 1;
+        let Some(end) = body[content_start..].find("</") else {
             break;
         };
         let content_end = content_start + end;
@@ -505,6 +504,37 @@ fn parse_backup_hrefs(body: &str) -> Vec<String> {
         pos = content_end;
     }
     names
+}
+
+/// 在 `body` 中从 `from` 起查找 `<d:href` 或 `<href`（ASCII 大小写不敏感），
+/// 返回两者中更靠前的起始字节偏移（语义与原实现一致）。
+fn next_href_open(body: &str, from: usize) -> Option<usize> {
+    let a = find_ascii_ci(body, "<d:href", from);
+    let b = find_ascii_ci(body, "<href", from);
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// 在 `hay` 中从 `from` 起查找 ASCII 大小写不敏感的子串 `needle`，返回起始字节偏移。
+/// needle 均为 ASCII（每字节 < 0x80），不可能匹配到多字节 UTF-8 的续字节，
+/// 因此命中位置必然是字符边界，调用方可用返回偏移安全切片原串。
+fn find_ascii_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
+    let h = hay.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() || from > h.len() {
+        return None;
+    }
+    let last = h.len().saturating_sub(n.len());
+    (from..=last).find(|&i| ascii_ieq(&h[i..i + n.len()], n))
+}
+
+fn ascii_ieq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
 }
 
 /// 远端备份文件名白名单（v0.8 增量适配）：三类 zip 且不含路径分隔符/..
@@ -536,6 +566,54 @@ struct WebdavTarget {
     password: String,
 }
 
+/// 校验 WebDAV 地址并返回规范化 base（去首尾空白与尾部 `/`）。
+///
+/// 安全约束：密码经 HTTP Basic Auth（`basic_auth`）以明文附在请求头上传输，
+/// 非本机回环的 `http` 地址会明文泄露密码，因此远端一律强制 `https`；
+/// 仅 localhost / 127.0.0.1 / [::1] 允许 `http`（便于本地 WebDAV 服务调试）。
+fn validated_webdav_base(raw: &str) -> Result<String> {
+    let base = raw.trim().trim_end_matches('/').to_string();
+    validate_webdav_url(&base)?;
+    Ok(base)
+}
+
+/// 校验 url 协议与主机：仅 http/https 且非回环 http 时报错。
+/// 导出为独立纯函数便于单测（不依赖 CoreContext/网络）。
+fn validate_webdav_url(url: &str) -> Result<()> {
+    let scheme_end = url.find("://").ok_or_else(|| {
+        CoreError::Invalid("WebDAV 地址缺少协议头，示例：https://dav.example.com/voucher/".into())
+    })?;
+    let scheme = &url[..scheme_end];
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return Err(CoreError::Invalid(format!(
+            "WebDAV 地址协议不支持：{scheme}（仅支持 https；本机调试可用 http://localhost）"
+        )));
+    }
+    if scheme.eq_ignore_ascii_case("http") && !is_loopback_host(url) {
+        return Err(CoreError::Invalid(
+            "WebDAV 地址必须使用 HTTPS：http 明文传输会泄露 WebDAV 密码（仅 localhost/127.0.0.1 本机调试允许 http）".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 判断 url 的主机是否本机回环（localhost / 127.0.0.1 / [::1]，可带端口）。
+fn is_loopback_host(url: &str) -> bool {
+    let Some(scheme_end) = url.find("://") else {
+        return false;
+    };
+    let host_and_port = url[scheme_end + 3..]
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    let host = if let Some(rest) = host_and_port.strip_prefix('[') {
+        rest.split(']').next().unwrap_or(rest) // [::1]:8080 → ::1
+    } else {
+        host_and_port.split(':').next().unwrap_or(host_and_port) // host:port → host
+    };
+    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1"
+}
+
 /// 校验配置并构造带认证的客户端；未启用/缺配置时返回 Invalid
 fn webdav_target(ctx: &CoreContext) -> Result<WebdavTarget> {
     let cfg = ctx.config();
@@ -549,12 +627,13 @@ fn webdav_target(ctx: &CoreContext) -> Result<WebdavTarget> {
         .secrets
         .get(SECRET_WEBDAV_PASSWORD)?
         .ok_or_else(|| CoreError::Invalid("WebDAV 密码未设置（密钥管理）".into()))?;
+    let base = validated_webdav_base(&webdav.url)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     Ok(WebdavTarget {
         client,
-        base: webdav.url.trim().trim_end_matches('/').to_string(),
+        base,
         username: webdav.username.clone(),
         password,
     })
@@ -776,5 +855,86 @@ mod tests {
         assert!(is_valid_remote_name("voucher-attachments-a1b2c3d4.zip"));
         assert!(!is_valid_remote_name("voucher-attachments-../evil.zip"));
         assert!(!is_valid_remote_name("voucher-snapshot-x.exe"));
+    }
+
+    /// 回归：含非 ASCII（İ/中文）的 PROPFIND 响应不得 panic，且解析结果正确。
+    /// 旧实现先 to_lowercase() 再拿 lower 的索引切原串——İ 小写后字符数变化会
+    /// 造成索引错位，可能切到非字符边界 panic 或解析出错误文件名。
+    #[test]
+    fn parse_backup_hrefs_non_ascii_no_panic() {
+        let body = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:displayname>İstanbul 收据备份</d:displayname></d:response>
+  <d:response><d:href>/remote.php/dav/files/user/İstanbul/收据/</d:href></d:response>
+  <d:response><d:href>/dav/voucher-backup-2026İ.zip</d:href></d:response>
+  <d:response><d:href>/dav/voucher-backup-20260817-120000.zip</d:href></d:response>
+</d:multistatus>"#;
+        let mut names = parse_backup_hrefs(body);
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "voucher-backup-20260817-120000.zip".to_string(),
+                "voucher-backup-2026İ.zip".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_backup_hrefs_matches_case_insensitive_tags() {
+        // 大小写不敏感仍需解析（有些 WebDAV 服务器返回大写 D:HREF）
+        let body = "<D:multistatus><D:response><D:HREF>/dav/voucher-backup-20260818-093000.zip</D:HREF></D:response></D:multistatus>";
+        let names = parse_backup_hrefs(body);
+        assert_eq!(
+            names,
+            vec!["voucher-backup-20260818-093000.zip".to_string()]
+        );
+    }
+
+    #[test]
+    fn webdav_url_rejects_plain_http_remote() {
+        // 非回环 http：明文泄露密码，必须拒绝
+        let err = validate_webdav_url("http://dav.example.com/voucher/").unwrap_err();
+        assert!(
+            err.to_string().contains("HTTPS"),
+            "错误应提示强制 https: {err}"
+        );
+    }
+
+    #[test]
+    fn webdav_url_allows_loopback_http_and_https() {
+        // 回环 http 放行（本地调试）
+        validate_webdav_url("http://localhost:8080/dav").unwrap();
+        validate_webdav_url("http://127.0.0.1/dav").unwrap();
+        validate_webdav_url("http://[::1]:8080/dav").unwrap();
+        // https 任意主机放行
+        validate_webdav_url("https://dav.example.com/voucher").unwrap();
+        // https 回环同样放行
+        validate_webdav_url("https://localhost/dav").unwrap();
+    }
+
+    #[test]
+    fn webdav_url_rejects_bad_scheme_and_missing_scheme() {
+        let err = validate_webdav_url("ftp://dav.example.com/voucher").unwrap_err();
+        assert!(
+            err.to_string().contains("协议不支持"),
+            "协议不支持应报错: {err}"
+        );
+        let err = validate_webdav_url("dav.example.com/voucher").unwrap_err();
+        assert!(err.to_string().contains("协议头"), "缺协议头应报错: {err}");
+        let err = validate_webdav_url("http://dav.example.com:8080/voucher").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn validated_webdav_base_trims_trailing_slash() {
+        assert_eq!(
+            validated_webdav_base("https://dav.example.com/voucher/").unwrap(),
+            "https://dav.example.com/voucher"
+        );
+        assert_eq!(
+            validated_webdav_base(" http://localhost:8080/dav/ ").unwrap(),
+            "http://localhost:8080/dav"
+        );
     }
 }
