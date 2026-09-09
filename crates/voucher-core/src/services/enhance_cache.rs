@@ -41,6 +41,19 @@ pub struct EnhanceStatusV2 {
     pub newest_enhanced_at: Option<String>,
 }
 
+/// v1 增强缓存摘要（历史命令 enhance_status 的返回形状；新 UI 走 status_v2）
+///
+/// B2 #11：原 DTO 定义在命令层 src-tauri/commands/enhance.rs，命令层直连仓储
+/// 统计后自组 DTO——现收敛到领域服务，命令层仅透传，JSON 契约不变。
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnhanceStatusV1 {
+    pub total: u32,
+    pub total_size: u64,
+    pub screenshot_count: u32,
+    pub scan_count: u32,
+}
+
 /// 释放策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearStrategy {
@@ -149,6 +162,58 @@ pub fn status_v2(ctx: &CoreContext) -> Result<EnhanceStatusV2> {
         oldest_enhanced_at: oldest,
         newest_enhanced_at: newest,
     })
+}
+
+/// v1 增强缓存摘要（历史命令 enhance_status 语义保持）：
+/// 仅统计增强版条数 / 占用字节 / 截图 / 扫描件；DB 不可读时返回空统计
+/// （与旧命令 `with_conn(...).unwrap_or_default()` 的吞错行为一致）。
+pub fn status_v1(ctx: &CoreContext) -> EnhanceStatusV1 {
+    let mut s = EnhanceStatusV1::default();
+    let atts = match ctx.db.with_conn(attachment_repo::list_enhanced) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("enhance_status(v1): 读取增强列表失败: {e}");
+            return s;
+        }
+    };
+    for a in &atts {
+        if let Some(rel) = &a.enhanced_path {
+            let abs = ctx.paths.attachment_abs(rel);
+            if let Ok(m) = std::fs::metadata(&abs) {
+                s.total_size += m.len();
+            }
+        }
+        match a.enhanced_source {
+            EnhanceSource::Screenshot => s.screenshot_count += 1,
+            _ => s.scan_count += 1,
+        }
+    }
+    s.total = atts.len() as u32;
+    s
+}
+
+/// v1 清除增强缓存（历史命令 clear_enhance_cache 语义保持）：
+/// DB 字段置 NULL + 物理文件删除。返回实际删除的文件数
+/// （可能 < DB 记录数：文件已被手动删除；逐条独立写、沿用历史无事务语义）。
+pub fn clear_v1(ctx: &CoreContext) -> Result<u32> {
+    let atts = ctx.db.with_conn(attachment_repo::list_enhanced)?;
+    let mut deleted = 0u32;
+    for a in &atts {
+        if let Some(rel) = &a.enhanced_path {
+            let abs = ctx.paths.attachment_abs(rel);
+            if ctx.paths.is_inside_attachments(&abs) {
+                if std::fs::remove_file(&abs).is_ok() {
+                    deleted += 1;
+                } else {
+                    // 文件已不在也视为清理（保留 DB 同步）
+                    deleted += 1;
+                }
+            }
+        }
+        ctx.db
+            .with_conn(|conn| attachment_repo::clear_enhanced(conn, a.id))?;
+    }
+    Ok(deleted)
 }
 
 /// D-10：趋势看板单日点（ocr / export / viewer 三类命中 + 合计）

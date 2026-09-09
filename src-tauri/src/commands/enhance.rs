@@ -1,73 +1,23 @@
 //! 增强缓存管理命令（v0.6 文档扫描矫正缓存 + v0.6.5 D-2 命中统计）。
+//!
+//! 越层约束（体检 #11）：命令层只经领域服务（enhance_cache / services::query）
+//! 中转，不直连仓储层或裸数据库连接（CI grep 门禁固化）。
 
 use super::*;
+use voucher_core::services::query as qsvc;
 // ---------- v0.6 文档扫描矫正（C 步：增强缓存） ----------
 
-/// 增强缓存统计（设置页显示「N 个增强版，共 X MB」）
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EnhanceStatus {
-    pub total: u32,
-    pub total_size: u64,
-    pub screenshot_count: u32,
-    pub scan_count: u32,
-}
-
+/// 增强缓存统计 v1（设置页「N 个增强版，共 X MB」；命中口径见 enhance_status_v2）
 #[tauri::command]
-pub fn enhance_status(ctx: Ctx) -> EnhanceStatus {
-    use voucher_core::db::repos::attachment_repo;
-    let atts = ctx
-        .db
-        .with_conn(attachment_repo::list_enhanced)
-        .unwrap_or_default();
-    let mut total_size: u64 = 0;
-    let mut screenshot_count: u32 = 0;
-    let mut scan_count: u32 = 0;
-    for a in &atts {
-        if let Some(rel) = &a.enhanced_path {
-            let abs = ctx.paths.attachment_abs(rel);
-            if let Ok(m) = std::fs::metadata(&abs) {
-                total_size += m.len();
-            }
-        }
-        match a.enhanced_source {
-            voucher_core::models::EnhanceSource::Screenshot => screenshot_count += 1,
-            _ => scan_count += 1,
-        }
-    }
-    EnhanceStatus {
-        total: atts.len() as u32,
-        total_size,
-        screenshot_count,
-        scan_count,
-    }
+pub fn enhance_status(ctx: Ctx) -> voucher_core::services::enhance_cache::EnhanceStatusV1 {
+    voucher_core::services::enhance_cache::status_v1(&ctx)
 }
 
-/// 清除所有增强版缓存（DB 字段置 NULL + 物理文件删除）。
+/// 清除所有增强版缓存 v1（DB 字段置 NULL + 物理文件删除）。
 /// 返回实际删除的文件数（可能 < DB 记录数：文件已被手动删除）
 #[tauri::command]
 pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, String> {
-    use voucher_core::db::repos::attachment_repo;
-    let atts = err_string(ctx.db.with_conn(attachment_repo::list_enhanced))?;
-    let mut deleted = 0u32;
-    for a in &atts {
-        if let Some(rel) = &a.enhanced_path {
-            let abs = ctx.paths.attachment_abs(rel);
-            if ctx.paths.is_inside_attachments(&abs) {
-                if std::fs::remove_file(&abs).is_ok() {
-                    deleted += 1;
-                } else {
-                    // 文件已不在也视为清理（保留 DB 同步）
-                    deleted += 1;
-                }
-            }
-        }
-        err_string(
-            ctx.db
-                .with_conn(|conn| attachment_repo::clear_enhanced(conn, a.id)),
-        )?;
-    }
-    Ok(deleted)
+    err_string(voucher_core::services::enhance_cache::clear_v1(&ctx))
 }
 
 // ---------- v0.6.5 D-2 增强缓存管理 UI 升级 ----------
@@ -123,7 +73,7 @@ pub fn record_viewer_hit(ctx: Ctx, attachment_id: i64) -> std::result::Result<()
     err_string(voucher_core::services::enhance_cache::record_hit(
         &ctx,
         attachment_id,
-        voucher_core::db::repos::enhance_hit_repo::HitSource::Viewer,
+        qsvc::HitSource::Viewer,
     ))
 }
 

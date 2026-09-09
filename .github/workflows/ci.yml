@@ -68,5 +68,14 @@ jobs:
       - name: Clippy
         run: cargo clippy -p voucher-core --all-targets -- -D warnings
 
+      # B2 #11：命令层越层门禁——GUI 壳不得直连仓储类型或裸连接，
+      # 查询经 services::query 门面、写路径经领域服务（UoW with_tx）
+      - name: Layering guard (no db::repos / raw connection in commands)
+        run: |
+          if grep -rnE 'db::repos|\.with_(conn|tx)\(' src-tauri/src; then
+            echo "错误：命令层不得直连 db::repos 仓储类型或裸 with_conn/with_tx（应经 services::query / 领域服务中转）"
+            exit 1
+          fi
+
       - name: Test
         run: cargo test -p voucher-core

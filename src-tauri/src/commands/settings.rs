@@ -1,7 +1,11 @@
 //! 设置域命令：配置 / 密钥（系统凭据库）/ 增强缓存管理。
+//!
+//! 越层约束（体检 #11）：编号预览经 `services::query` 门面取数，
+//! 命令层不直连仓储层或裸数据库连接（CI grep 门禁固化）。
 
 use super::*;
 use voucher_core::services::naming;
+use voucher_core::services::query as qsvc;
 use voucher_core::utils::config::{
     AppConfig, SECRET_BACKUP_PASSWORD, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD,
 };
@@ -30,13 +34,7 @@ pub fn validate_naming_template(template: String) -> std::result::Result<String,
 
 #[tauri::command]
 pub fn preview_voucher_no(ctx: Ctx, date: String) -> std::result::Result<String, String> {
-    let engine = naming::NamingEngine::new(&ctx.config().naming.template);
-    let d = if date.is_empty() {
-        voucher_core::utils::paths::today()
-    } else {
-        date
-    };
-    err_string(ctx.db.with_conn(|conn| engine.next_no(conn, &d)))
+    err_string(qsvc::next_voucher_no(&ctx, &date))
 }
 
 // ---------- 密钥管理（系统凭据库） ----------

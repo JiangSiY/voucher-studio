@@ -1,7 +1,10 @@
 //! 导入 / 附件 / OCR 命令（文件选择在 Rust 侧完成，绕开 WebView JS 事件桥的已知竞态）。
+//!
+//! 越层约束（体检 #11）：附件查询 / OCR 预览经 `services::query` 门面取数，
+//! 命令层不直连仓储层或裸数据库连接（CI grep 门禁固化）。
 
 use super::*;
-use voucher_core::db::repos::attachment_repo;
+use voucher_core::services::query as qsvc;
 use voucher_core::services::{ingestion, ocr, voucher_mgr};
 // ---------- 导入 / 附件 / OCR（文件选择在 Rust 侧完成，绕开 WebView JS 事件桥的已知竞态） ----------
 
@@ -94,10 +97,7 @@ pub async fn pick_and_replace_image(
 
 #[tauri::command]
 pub fn attachment_abs_path(ctx: Ctx, id: i64) -> std::result::Result<String, String> {
-    let att = err_string(
-        ctx.db
-            .with_conn(|conn| voucher_core::db::repos::attachment_repo::get(conn, id)),
-    )?;
+    let att = err_string(qsvc::attachment(&ctx, id))?;
     match att {
         Some(a) => Ok(ctx
             .paths
@@ -193,26 +193,7 @@ pub fn ocr_preview_fields(
     ctx: Ctx,
     attachment_id: i64,
 ) -> std::result::Result<voucher_core::services::ocr_fields::ExtractedFields, String> {
-    let fields = ctx
-        .db
-        .with_conn(|conn| {
-            let text = attachment_repo::get(conn, attachment_id)?
-                .map(|a| a.ocr_text)
-                .ok_or_else(|| {
-                    voucher_core::CoreError::NotFound(format!("附件 {attachment_id} 不存在"))
-                })?;
-            let layout = voucher_core::db::repos::ocr_layout_repo::get_layout(conn, attachment_id)?;
-            Ok(match layout {
-                Some(lines) if !lines.is_empty() => {
-                    voucher_core::services::ocr_layout::extract_with_layout(&lines)
-                }
-                _ => voucher_core::services::ocr_fields::extract_validated(
-                    text.as_deref().unwrap_or(""),
-                ),
-            })
-        })
-        .map_err(|e: voucher_core::CoreError| e.to_string())?;
-    Ok(fields)
+    err_string(qsvc::ocr_preview(&ctx, attachment_id))
 }
 
 #[tauri::command]

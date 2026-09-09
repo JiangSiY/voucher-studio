@@ -1,9 +1,12 @@
 //! 凭证域命令：列表 / 详情 / 相邻导航 / 更新 / 批量 / 统计 / 报表 / 搜索。
+//!
+//! 越层约束（体检 #11）：命令层只经 `services::query` 门面与领域服务取数，
+//! 不直连仓储层或裸数据库连接（CI grep 门禁固化）。
 
 use super::*;
-use voucher_core::db::repos::attachment_repo;
-use voucher_core::db::repos::voucher_repo::VoucherQuery;
 use voucher_core::models::VoucherUpdate;
+use voucher_core::services::query as qsvc;
+use voucher_core::services::query::VoucherQuery;
 use voucher_core::services::search;
 use voucher_core::services::search::SearchHit;
 use voucher_core::services::voucher_mgr;
@@ -16,26 +19,11 @@ pub fn list_vouchers(
 ) -> std::result::Result<VoucherListResult, String> {
     let (items, total) = err_string(voucher_mgr::list(&ctx, &query))?;
     // D-1：列表缩略图（每张凭证首附件，enhanced 优先）。空列表时跳过 SQL
-    let thumbs: HashMap<i64, VoucherThumb> = if items.is_empty() {
+    let thumbs: HashMap<i64, qsvc::VoucherThumb> = if items.is_empty() {
         HashMap::new()
     } else {
         let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
-        let rows = err_string(
-            ctx.db
-                .with_conn(|conn| attachment_repo::first_thumb_for_vouchers(conn, &ids)),
-        )?;
-        rows.into_iter()
-            .map(|(vid, fp, ep, src)| {
-                (
-                    vid,
-                    VoucherThumb {
-                        file_path: fp,
-                        enhanced_path: ep,
-                        enhanced_source: src,
-                    },
-                )
-            })
-            .collect()
+        err_string(qsvc::voucher_thumbs(&ctx, &ids))?
     };
     Ok(VoucherListResult {
         items,
@@ -44,22 +32,13 @@ pub fn list_vouchers(
     })
 }
 
-/// D-1 列表缩略图信息：相对附件根目录的路径，前端用 convertFileSrc 转换
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct VoucherThumb {
-    pub file_path: String,
-    pub enhanced_path: Option<String>,
-    pub enhanced_source: String,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoucherListResult {
     pub items: Vec<voucher_core::models::Voucher>,
     pub total: u64,
     /// D-1：当前页所有凭证的缩略图信息，key = voucher.id
-    pub thumbs: HashMap<i64, VoucherThumb>,
+    pub thumbs: HashMap<i64, qsvc::VoucherThumb>,
 }
 
 #[tauri::command]
@@ -73,7 +52,7 @@ pub fn get_voucher_neighbor(
     ctx: Ctx,
     id: i64,
     query: VoucherQuery,
-) -> std::result::Result<voucher_core::db::repos::voucher_repo::VoucherNeighbor, String> {
+) -> std::result::Result<qsvc::VoucherNeighbor, String> {
     err_string(voucher_mgr::neighbor(&ctx, id, &query))
 }
 
@@ -114,9 +93,7 @@ pub fn batch_edit(
 }
 
 #[tauri::command]
-pub fn voucher_stats(
-    ctx: Ctx,
-) -> std::result::Result<voucher_core::db::repos::voucher_repo::VoucherStats, String> {
+pub fn voucher_stats(ctx: Ctx) -> std::result::Result<qsvc::VoucherStats, String> {
     err_string(voucher_mgr::stats(&ctx))
 }
 
@@ -181,27 +158,20 @@ pub fn check_voucher_duplicates(
     ctx: Ctx,
     id: i64,
 ) -> std::result::Result<Vec<voucher_core::models::Voucher>, String> {
-    err_string(
-        ctx.db
-            .with_conn(|conn| voucher_core::services::dedup::suspected_by_id(conn, id)),
-    )
+    err_string(qsvc::suspected_duplicates(&ctx, id))
 }
 
 /// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张
 #[tauri::command]
-pub fn scan_duplicates(
-    ctx: Ctx,
-) -> std::result::Result<Vec<voucher_core::services::dedup::DuplicateGroup>, String> {
-    err_string(ctx.db.with_conn(voucher_core::services::dedup::scan_groups))
+pub fn scan_duplicates(ctx: Ctx) -> std::result::Result<Vec<qsvc::DuplicateGroup>, String> {
+    err_string(qsvc::duplicate_groups(&ctx))
 }
 
 // ---------- v0.11：会计期间锁定（按月封账） ----------
 
 /// 全部已锁期间（设置页期间管理 + 列表/编辑页锁定态判断）
 #[tauri::command]
-pub fn list_period_locks(
-    ctx: Ctx,
-) -> std::result::Result<Vec<voucher_core::db::repos::period_repo::PeriodLock>, String> {
+pub fn list_period_locks(ctx: Ctx) -> std::result::Result<Vec<qsvc::PeriodLock>, String> {
     err_string(voucher_core::services::period::list_periods(&ctx))
 }
 
@@ -233,7 +203,7 @@ pub fn yearly_summary(
 pub fn search_vouchers(
     ctx: Ctx,
     keyword: String,
-    filters: Option<voucher_core::db::repos::voucher_repo::SearchFilters>,
+    filters: Option<qsvc::SearchFilters>,
     limit: Option<u32>,
 ) -> std::result::Result<Vec<SearchHit>, String> {
     let f = filters.unwrap_or_default();
