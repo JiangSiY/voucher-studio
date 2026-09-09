@@ -9,5 +9,16 @@
       "suggestion": 3
     },
     "scope": "voucher-studio 全项目（voucher-core + src-tauri + Vue 前端）"
+  },
+  {
+    "date": "2026-09-09",
+    "mode": "Health Dashboard",
+    "score": 94,
+    "findings": {
+      "critical": 0,
+      "warning": 3,
+      "suggestion": 3
+    },
+    "scope": "voucher-studio 全项目（voucher-core + src-tauri + Vue 前端）— v0.13 发布后复审"
   }
 ]

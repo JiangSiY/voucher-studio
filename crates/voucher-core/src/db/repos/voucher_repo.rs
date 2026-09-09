@@ -57,10 +57,12 @@ pub struct VoucherStats {
     pub this_month: i64,
 }
 
-const COLS: &str =
+/// 全列清单（dedup / reconcile 等服务层查询共用，保证行映射口径唯一）
+pub(crate) const COLS: &str =
     "id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at";
 
-fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
+/// 行 → Voucher 唯一映射（vouchers 表结构变更只需改这一处）
+pub(crate) fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
     let tags_json: String = row.get(7)?;
     let status: String = row.get(6)?;
     Ok(Voucher {

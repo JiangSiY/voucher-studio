@@ -44,19 +44,23 @@ pub struct DuplicateGroup {
 
 /// 判定口径：同凭证日期 + 同金额（金额非空）。
 /// 对方账户不作为硬条件（OCR 回填不稳定，宁多报不漏报——对面在 UI 里供用户比对）。
-const DUP_SQL: &str = "SELECT id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at \
-     FROM vouchers WHERE voucher_date = ?1 AND amount_cents = ?2 AND id != ?3";
+fn dup_sql() -> String {
+    format!(
+        "SELECT {} FROM vouchers WHERE voucher_date = ?1 AND amount_cents = ?2 AND id != ?3",
+        voucher_repo::COLS
+    )
+}
 
 /// 单凭证的疑似重复：库中同日期同金额的其他凭证（金额为空返回空——空金额无判定意义）
 pub fn find_suspected(conn: &Connection, v: &Voucher) -> Result<Vec<Voucher>> {
     let Some(amount) = v.amount_cents else {
         return Ok(Vec::new());
     };
-    let mut stmt = conn.prepare(DUP_SQL)?;
+    let mut stmt = conn.prepare(&dup_sql())?;
     let mut rows = stmt.query(params![v.voucher_date, amount, v.id])?;
     let mut out = Vec::new();
     while let Some(row) = rows.next()? {
-        out.push(row_to_voucher(row)?);
+        out.push(voucher_repo::row_to_voucher(row)?);
     }
     Ok(out)
 }
@@ -80,14 +84,15 @@ pub fn scan_groups(conn: &Connection) -> Result<Vec<DuplicateGroup>> {
 
     let mut groups = Vec::new();
     for (date, amount) in keys {
-        let mut stmt = conn.prepare(
-            "SELECT id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at \
-             FROM vouchers WHERE voucher_date = ?1 AND amount_cents = ?2 ORDER BY voucher_no",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM vouchers WHERE voucher_date = ?1 AND amount_cents = ?2 ORDER BY voucher_no",
+            voucher_repo::COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(params![date, amount])?;
         let mut vouchers = Vec::new();
         while let Some(r) = rows.next()? {
-            vouchers.push(row_to_voucher(r)?);
+            vouchers.push(voucher_repo::row_to_voucher(r)?);
         }
         groups.push(DuplicateGroup {
             voucher_date: date,
@@ -96,26 +101,6 @@ pub fn scan_groups(conn: &Connection) -> Result<Vec<DuplicateGroup>> {
         });
     }
     Ok(groups)
-}
-
-/// 行 → Voucher（与 voucher_repo::row_to_voucher 同构；此处独立以避免跨模块私有依赖）
-fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
-    use crate::models::VoucherStatus;
-    let tags_json: String = row.get(7)?;
-    let status: String = row.get(6)?;
-    Ok(Voucher {
-        id: row.get(0)?,
-        voucher_no: row.get(1)?,
-        voucher_date: row.get(2)?,
-        description: row.get(3)?,
-        counterparty: row.get(4)?,
-        amount_cents: row.get(5)?,
-        status: VoucherStatus::parse(&status).unwrap_or(VoucherStatus::Draft),
-        tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-        note: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-    })
 }
 
 /// 按凭证 id 批量查疑似重复（导入/OCR 填单后前端提示用）：

@@ -14,6 +14,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::db::repos::voucher_repo;
 use crate::models::Voucher;
 use crate::{CoreContext, CoreError, Result};
 
@@ -86,17 +87,21 @@ pub fn reconcile(ctx: &CoreContext, csv_path: &Path) -> Result<ReconcileReport> 
         }
     }
 
-    // 范围内凭证（金额非空）
+    // 范围内凭证（金额非空）——行映射与列清单复用 voucher_repo 唯一口径
     let vouchers = ctx.db.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at
-             FROM vouchers
+        let sql = format!(
+            "SELECT {} FROM vouchers
              WHERE amount_cents IS NOT NULL
                AND voucher_date BETWEEN ?1 AND ?2
              ORDER BY voucher_date, voucher_no",
-        )?;
+            voucher_repo::COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(rusqlite::params![date_from, date_to], row_to_voucher)?
+            .query_map(
+                rusqlite::params![date_from, date_to],
+                voucher_repo::row_to_voucher,
+            )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     })?;
@@ -140,26 +145,6 @@ pub fn reconcile(ctx: &CoreContext, csv_path: &Path) -> Result<ReconcileReport> 
     Ok(report)
 }
 
-/// 行 → Voucher（同 dedup.rs 的映射逻辑，独立实现避免跨模块私有依赖）
-fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
-    use crate::models::VoucherStatus;
-    let tags_json: String = row.get(7)?;
-    let status: String = row.get(6)?;
-    Ok(Voucher {
-        id: row.get(0)?,
-        voucher_no: row.get(1)?,
-        voucher_date: row.get(2)?,
-        description: row.get(3)?,
-        counterparty: row.get(4)?,
-        amount_cents: row.get(5)?,
-        status: VoucherStatus::parse(&status).unwrap_or(VoucherStatus::Draft),
-        tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-        note: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-    })
-}
-
 /// 报告 CSV 落盘（exports/reconcile-<时间戳>.csv；UTF-8 BOM，Excel 可直接打开）
 fn write_report_csv(ctx: &CoreContext, r: &ReconcileReport) -> Result<String> {
     use std::io::Write;
@@ -167,9 +152,7 @@ fn write_report_csv(ctx: &CoreContext, r: &ReconcileReport) -> Result<String> {
     let path = ctx.paths.exports.join(format!("reconcile-{stamp}.csv"));
     let mut out = String::new();
     out.push('\u{FEFF}');
-    out.push_str(&format!(
-        "类型,日期,金额（元）,账单对方,商品,凭证号,凭证摘要\n"
-    ));
+    out.push_str("类型,日期,金额（元）,账单对方,商品,凭证号,凭证摘要\n");
     for m in &r.matched {
         push_row(
             &mut out,
