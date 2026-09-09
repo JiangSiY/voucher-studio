@@ -25,23 +25,30 @@ fn deg2rad(d: f64) -> f64 {
     d * std::f64::consts::PI / 180.0
 }
 
-/// 倾斜矫正：Hough 直线检测 → 取最强水平线倾角 → 旋转校正。
-pub fn deskew(src: &Mat) -> Result<Mat> {
-    if src.empty() {
-        return Err(CoreError::Invalid("deskew: 输入图像为空".into()));
-    }
-
-    let mut gray = Mat::default();
+/// BGR/BGRA → 灰度；已是单通道则浅克隆（体检 Q-17：三处复制收口，
+/// 统一 `try_clone` 语义——克隆失败上抛而非 panic）。
+fn to_gray(src: &Mat) -> Result<Mat> {
     if src.channels() == 3 || src.channels() == 4 {
+        let mut gray = Mat::default();
         cvt_color(
             src,
             &mut gray,
             ColorConversionCodes::COLOR_BGR2GRAY as i32,
             0,
         )?;
+        Ok(gray)
     } else {
-        gray = src.clone();
+        Ok(src.try_clone()?)
     }
+}
+
+/// 倾斜矫正：Hough 直线检测 → 取最强水平线倾角 → 旋转校正。
+pub fn deskew(src: &Mat) -> Result<Mat> {
+    if src.empty() {
+        return Err(CoreError::Invalid("deskew: 输入图像为空".into()));
+    }
+
+    let gray = to_gray(src)?;
 
     let mut edges = Mat::default();
     opencv::imgproc::canny(&gray, &mut edges, 80.0, 200.0, 3, false)?;
@@ -107,17 +114,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         return Err(CoreError::Invalid("dewarp: 输入图像为空".into()));
     }
 
-    let mut gray = Mat::default();
-    if src.channels() == 3 || src.channels() == 4 {
-        cvt_color(
-            src,
-            &mut gray,
-            ColorConversionCodes::COLOR_BGR2GRAY as i32,
-            0,
-        )?;
-    } else {
-        gray = src.clone();
-    }
+    let gray = to_gray(src)?;
 
     let mut binary = Mat::default();
     adaptive_threshold(
@@ -228,17 +225,7 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
         return Err(CoreError::Invalid("autocrop: 输入图像为空".into()));
     }
 
-    let mut gray = Mat::default();
-    if src.channels() == 3 || src.channels() == 4 {
-        cvt_color(
-            src,
-            &mut gray,
-            ColorConversionCodes::COLOR_BGR2GRAY as i32,
-            0,
-        )?;
-    } else {
-        gray = src.try_clone()?;
-    }
+    let gray = to_gray(src)?;
 
     // 高斯模糊抑制纸纹/噪点（否则细小噪声会连成大轮廓或碎轮廓）
     let mut blurred = Mat::default();

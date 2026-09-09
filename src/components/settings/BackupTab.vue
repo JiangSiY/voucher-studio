@@ -8,7 +8,7 @@ import { api, errMsg, type AppConfig } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useConfigStore } from "../../stores/config";
-import { refreshSecrets, secretDrafts } from "../../composables/secretDrafts";
+import { useSecretSave } from "../../composables/useSecretSave";
 
 const props = defineProps<{ cfg: AppConfig }>();
 const configStore = useConfigStore();
@@ -21,24 +21,13 @@ async function pickSecondaryDir() {
   }
 }
 
-// WebDAV 密码写入凭据库后同步 passwordSet 标记（草稿在「密钥管理」Tab 录入）
+// WebDAV 密码写入凭据库后同步 passwordSet 标记（草稿在「密钥管理」Tab 录入；
+// 体检 Q-15 收口到 useSecretSave，且仅成功时打标——避免「保存失败却显示已保存」）
 async function saveWebdavPassword() {
-  const alias = "webdav_password";
-  const value = secretDrafts[alias]?.trim();
-  if (!value) {
-    toast.warning("请先在「密钥管理」页输入 WebDAV 密码");
+  const saved = await useSecretSave("webdav_password");
+  if (saved) {
     props.cfg.backup.webdav.passwordSet = true;
-    return;
   }
-  try {
-    await api.setSecret(alias, value);
-    secretDrafts[alias] = "";
-    await refreshSecrets();
-    toast.success("已写入系统凭据库");
-  } catch (e) {
-    toastError(e);
-  }
-  props.cfg.backup.webdav.passwordSet = true;
 }
 
 // WebDAV 连接测试：先保存当前配置（后端读已落盘配置），再 PROPFIND 远端

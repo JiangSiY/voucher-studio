@@ -154,15 +154,7 @@ pub fn import_images(
         let enhanced_rel =
             if enhance_cfg.enabled && !(only_scans && source == enhance::SourceKind::Screenshot) {
                 // v0.6.1：逐项步骤开关映射进流水线（关闭的步骤记 off 并透传）
-                let opts = enhance::PipelineOptions {
-                    deskew: enhance_cfg.step_deskew,
-                    dewarp: enhance_cfg.step_dewarp,
-                    autocrop: enhance_cfg.step_autocrop,
-                    denoise: enhance_cfg.step_denoise,
-                    sharpen: enhance_cfg.step_sharpen,
-                    grayscale: enhance_cfg.step_grayscale,
-                    binarize: enhance_cfg.step_binarize,
-                };
+                let opts = enhance::PipelineOptions::from(enhance_cfg);
                 enhance::write_enhanced(&dest, &rel, &opts)
             } else {
                 None

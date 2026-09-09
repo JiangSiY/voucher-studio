@@ -64,6 +64,21 @@ impl Default for PipelineOptions {
     }
 }
 
+/// 配置 → 流水线开关的唯一映射（体检 Q-16：此前 ingestion / re_enhance_all 各抄一份）
+impl From<&crate::utils::config::EnhanceConfig> for PipelineOptions {
+    fn from(c: &crate::utils::config::EnhanceConfig) -> Self {
+        Self {
+            deskew: c.step_deskew,
+            dewarp: c.step_dewarp,
+            autocrop: c.step_autocrop,
+            denoise: c.step_denoise,
+            sharpen: c.step_sharpen,
+            grayscale: c.step_grayscale,
+            binarize: c.step_binarize,
+        }
+    }
+}
+
 /// 流水线入口：读图 → 走 7 步 → 返回双输出。
 ///
 /// 单步失败绝不抛错（决策 ④），而是用上一可用步的输出作为该步的输入继续。
@@ -293,16 +308,7 @@ pub fn re_enhance_all(
     let total = atts.len();
 
     // 步骤开关遵循当前设置（显式重增强不受总开关 enabled 限制——用户明确要求重算）
-    let enhance_cfg = ctx.config().enhance.clone();
-    let opts = PipelineOptions {
-        deskew: enhance_cfg.step_deskew,
-        dewarp: enhance_cfg.step_dewarp,
-        autocrop: enhance_cfg.step_autocrop,
-        denoise: enhance_cfg.step_denoise,
-        sharpen: enhance_cfg.step_sharpen,
-        grayscale: enhance_cfg.step_grayscale,
-        binarize: enhance_cfg.step_binarize,
-    };
+    let opts = PipelineOptions::from(&ctx.config().enhance);
 
     let mut ok = 0usize;
     let mut failed = 0usize;

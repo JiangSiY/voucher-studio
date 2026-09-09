@@ -35,13 +35,17 @@ pub fn monthly_summary(ctx: &CoreContext, months: u32) -> Result<Vec<MonthlySumm
     }
 
     let grouped: HashMap<String, [i64; 6]> = ctx.db.with_conn(query_grouped)?;
+    Ok(fill_months(&labels, &grouped))
+}
 
-    Ok(labels
-        .into_iter()
+/// 按标签月份展开 + 空月补零（体检 Q-12：monthly / yearly 共用同一映射）
+fn fill_months(labels: &[String], grouped: &HashMap<String, [i64; 6]>) -> Vec<MonthlySummary> {
+    labels
+        .iter()
         .map(|m| {
-            let d = grouped.get(&m).copied().unwrap_or([0; 6]);
+            let d = grouped.get(m).copied().unwrap_or([0; 6]);
             MonthlySummary {
-                month: m,
+                month: m.clone(),
                 count: d[0],
                 amount_cents: d[1],
                 draft: d[2],
@@ -50,7 +54,7 @@ pub fn monthly_summary(ctx: &CoreContext, months: u32) -> Result<Vec<MonthlySumm
                 archived: d[5],
             }
         })
-        .collect())
+        .collect()
 }
 
 /// 月份窗口（当月往前推 months-1 个月），升序
@@ -315,50 +319,8 @@ pub fn frequent_descriptions(ctx: &CoreContext, limit: u32) -> Result<Vec<Descri
 /// 某一自然年的逐月汇总（1–12 月，空月补零；口径与 monthly_summary 一致）
 pub fn yearly_summary(ctx: &CoreContext, year: i32) -> Result<Vec<MonthlySummary>> {
     let labels: Vec<String> = (1..=12).map(|m| format!("{year:04}-{m:02}")).collect();
-    let grouped: HashMap<String, [i64; 6]> = ctx.db.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT substr(voucher_date, 1, 7) AS m,
-                    COUNT(*) AS cnt,
-                    COALESCE(SUM(amount_cents), 0) AS amt,
-                    COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'reviewed' THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'exported' THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0)
-             FROM vouchers
-             WHERE substr(voucher_date, 1, 4) = ?1
-             GROUP BY m",
-        )?;
-        let mut rows = stmt.query(rusqlite::params![format!("{year:04}")])?;
-        let mut map = HashMap::new();
-        while let Some(r) = rows.next()? {
-            map.insert(
-                r.get::<_, String>(0)?,
-                [
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                    r.get(6)?,
-                ],
-            );
-        }
-        Ok(map)
-    })?;
-
-    Ok(labels
-        .into_iter()
-        .map(|m| {
-            let d = grouped.get(&m).copied().unwrap_or([0; 6]);
-            MonthlySummary {
-                month: m,
-                count: d[0],
-                amount_cents: d[1],
-                draft: d[2],
-                reviewed: d[3],
-                exported: d[4],
-                archived: d[5],
-            }
-        })
-        .collect())
+    // 全量分组后按标签取值：单用户数据量下全量 GROUP BY 成本可忽略，
+    // 与 monthly_summary 共用同一透视口径（体检 Q-12：内联副本收口）
+    let grouped: HashMap<String, [i64; 6]> = ctx.db.with_conn(query_grouped)?;
+    Ok(fill_months(&labels, &grouped))
 }

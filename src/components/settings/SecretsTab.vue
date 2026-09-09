@@ -8,22 +8,7 @@ import { api } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { refreshSecrets, secretDrafts, secrets } from "../../composables/secretDrafts";
-
-async function saveSecret(alias: string) {
-  const value = secretDrafts[alias]?.trim();
-  if (!value) {
-    toast.warning("请输入内容");
-    return;
-  }
-  try {
-    await api.setSecret(alias, value);
-    secretDrafts[alias] = "";
-    await refreshSecrets();
-    toast.success("已写入系统凭据库");
-  } catch (e) {
-    toastError(e);
-  }
-}
+import { useSecretSave } from "../../composables/useSecretSave";
 
 async function removeSecret(alias: string) {
   try {
@@ -61,7 +46,7 @@ onMounted(async () => {
         <div style="display: flex; gap: 8px">
           <input v-model="secretDrafts[s.alias]" class="input" type="password" autocomplete="new-password"
             :placeholder="s.exists ? '输入新值覆盖' : '输入密钥'" style="flex: 1" />
-          <button class="btn btn-primary" @click="saveSecret(s.alias)">保存</button>
+          <button class="btn btn-primary" @click="useSecretSave(s.alias)">保存</button>
           <button class="btn" :disabled="!s.exists" @click="removeSecret(s.alias)">删除</button>
         </div>
       </div>
