@@ -31,6 +31,9 @@ encoding_rs = "0.8"
 # v0.10：Excel 导出（纯 Rust、无 C 依赖）
 rust_xlsxwriter = "0.79"
 # 本地 OCR（G1 Spike B 验证路线）：ort = ONNX Runtime 的 Rust 绑定
+# 版本说明（2026-09 核验）：crates.io 无 2.x 正式版，最新即此 RC（官方推荐使用），
+# 故精确 pin；勿写成 "2"（cargo semver 不匹配 RC）。上游发布 2.0 stable 后再评估
+# 迁移（API 变更集中在 ocr_local.rs 的 builder/inputs/run/try_extract_tensor 约 6 处）。
 ort = "=2.0.0-rc.13"
 
 [dev-dependencies]
