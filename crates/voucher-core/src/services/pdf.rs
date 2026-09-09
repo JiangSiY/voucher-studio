@@ -205,6 +205,14 @@ const TCOL_NO: f32 = 45.0;
 const TCOL_DESC: f32 = 70.0;
 const TCOL_PARTY: f32 = 50.0;
 
+// ---------- 年度汇总报表数值列 x 偏移（相对左边距 MARGIN；属同一套列定义体系） ----------
+/// 年度表列偏移：月份 +1 / 张数 +30 / 草稿 +50 / 已复核 +70 / 已导出 +92 / 已归档 +114（金额右对齐至右页边）
+const YCOL_CNT: f32 = 30.0;
+const YCOL_DRAFT: f32 = 50.0;
+const YCOL_REVIEWED: f32 = 70.0;
+const YCOL_EXPORTED: f32 = 92.0;
+const YCOL_ARCHIVED: f32 = 114.0;
+
 // ---------- v0.8 省纸模板常量（compact） ----------
 /// 省纸表格行高（5.5mm）
 const C_TROW_H: f32 = 5.5;
@@ -706,36 +714,102 @@ fn draw_cover_page(
     }
 }
 
-fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {
+// ================= 表格引擎（v0.14：日报表 / 年度汇总表共用的列定义渲染） =================
+// 重构前 draw_table_head/draw_yearly_head 尾部 10 行与 draw_table_row/draw_yearly_row 的
+// 基线公式(top + row_h - 1.9)、行底分隔线(top + row_h - 0.3)、填色切换完全逐字重复；
+// 年度侧列偏移还是裸 magic number(30/50/70/92/114)。现收口为：列定义数据驱动表头 +
+// 统一 cell 文本/分隔线基元。列 x 值逐一保持重构前的数值（layout golden 测试锁定）。
+
+/// 表头单元格水平定位：左对齐固定 x，或右对齐至右页边
+#[derive(Clone, Copy)]
+enum HeadColX {
+    Left(f32),
+    Right,
+}
+
+/// 表头列定义：列名 + 定位
+struct HeadCol<'a> {
+    label: &'a str,
+    x: HeadColX,
+}
+
+/// 表头渲染：灰字列名（金额右对齐），底部 0.6mm 横线。日报/年度共用。
+fn draw_head_cells(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    top: f32,
+    cols: &[HeadCol<'_>],
+) {
     layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    layer.use_text("编号", 8.0, Mm(MARGIN + 1.0), y(top + 4.0), font);
-    layer.use_text("摘要", 8.0, Mm(MARGIN + TCOL_NO + 1.0), y(top + 4.0), font);
-    layer.use_text(
-        "对方账户",
-        8.0,
-        Mm(MARGIN + TCOL_NO + TCOL_DESC + 1.0),
-        y(top + 4.0),
-        font,
-    );
-    layer.use_text(
-        "金额",
-        8.0,
-        Mm(right_x("金额", 8.0, PAGE_W - MARGIN)),
-        y(top + 4.0),
-        font,
-    );
-    layer.set_outline_thickness(0.6);
-    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
+    let y0 = top + 4.0;
+    for c in cols {
+        let x = match c.x {
+            HeadColX::Left(x) => Mm(x),
+            HeadColX::Right => Mm(right_x(c.label, 8.0, PAGE_W - MARGIN)),
+        };
+        layer.use_text(c.label, 8.0, x, y(y0), font);
+    }
+    hline(layer, 0.6, top + THEAD_H - 0.5, STROKE);
+}
+
+/// 单元格文本：统一「填色 → 可选按宽度截断 → 落字」，表行/合计行共用。
+#[allow(clippy::too_many_arguments)]
+fn cell_text(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    s: &str,
+    font_pt: f32,
+    x: f32,
+    y_mm: f32,
+    cap_mm: Option<f32>,
+    fill: (f32, f32, f32),
+) {
+    layer.set_fill_color(rgb(fill.0, fill.1, fill.2));
+    let text = match cap_mm {
+        Some(w) => std::borrow::Cow::Owned(truncate_chars(s, chars_for_width(s, font_pt, w))),
+        None => std::borrow::Cow::Borrowed(s),
+    };
+    layer.use_text(&*text, font_pt, Mm(x), y(y_mm), font);
+}
+
+/// 横向分隔线（表头底 / 行底 / 年合计顶共用；颜色区分加粗线）
+fn hline(layer: &PdfLayerReference, thickness: f32, y_mm: f32, color: (f32, f32, f32)) {
+    layer.set_outline_thickness(thickness);
+    layer.set_outline_color(rgb(color.0, color.1, color.2));
     layer.add_line(Line {
         points: vec![
-            (Point::new(Mm(MARGIN), y(top + THEAD_H - 0.5)), false),
-            (
-                Point::new(Mm(PAGE_W - MARGIN), y(top + THEAD_H - 0.5)),
-                false,
-            ),
+            (Point::new(Mm(MARGIN), y(y_mm)), false),
+            (Point::new(Mm(PAGE_W - MARGIN), y(y_mm)), false),
         ],
         is_closed: false,
     });
+}
+
+/// 日报表头（列定义数据驱动；编号/摘要/对方账户 固定 x，金额右对齐）
+fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {
+    draw_head_cells(
+        layer,
+        font,
+        top,
+        &[
+            HeadCol {
+                label: "编号",
+                x: HeadColX::Left(MARGIN + 1.0),
+            },
+            HeadCol {
+                label: "摘要",
+                x: HeadColX::Left(MARGIN + TCOL_NO + 1.0),
+            },
+            HeadCol {
+                label: "对方账户",
+                x: HeadColX::Left(MARGIN + TCOL_NO + TCOL_DESC + 1.0),
+            },
+            HeadCol {
+                label: "金额",
+                x: HeadColX::Right,
+            },
+        ],
+    );
 }
 
 /// 行绘制（`row_h` 参数化：archive 6.2mm / compact 5.5mm 共用）
@@ -751,55 +825,65 @@ fn draw_table_row(
     let text_y = top + row_h - 1.9; // 文字基线：行内底部留 1.9mm
 
     // 编号（等宽感：主色）
-    layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    let no = truncate_chars(
+    cell_text(
+        layer,
+        font,
         &card.voucher_no,
-        chars_for_width(&card.voucher_no, 8.5, TCOL_NO - 2.0),
+        8.5,
+        MARGIN + 1.0,
+        text_y,
+        Some(TCOL_NO - 2.0),
+        ACCENT,
     );
-    layer.use_text(no, 8.5, Mm(MARGIN + 1.0), y(text_y), font);
-
     // 摘要（空则占位横线，保持行可读）
-    layer.set_fill_color(rgb(BODY.0, BODY.1, BODY.2));
     let desc = if card.description.is_empty() {
         "—"
     } else {
         &card.description
     };
-    let desc = truncate_chars(desc, chars_for_width(desc, 8.5, TCOL_DESC - 2.0));
-    layer.use_text(desc, 8.5, Mm(desc_x), y(text_y), font);
-
+    cell_text(
+        layer,
+        font,
+        desc,
+        8.5,
+        desc_x,
+        text_y,
+        Some(TCOL_DESC - 2.0),
+        BODY,
+    );
     // 对方账户（小灰字）
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
     let party = if card.counterparty.is_empty() {
         "—"
     } else {
         &card.counterparty
     };
-    let party = truncate_chars(party, chars_for_width(party, 8.5, TCOL_PARTY - 2.0));
-    layer.use_text(party, 8.5, Mm(party_x), y(text_y), font);
+    cell_text(
+        layer,
+        font,
+        party,
+        8.5,
+        party_x,
+        text_y,
+        Some(TCOL_PARTY - 2.0),
+        GREY,
+    );
 
     // 金额（右对齐，无金额留空）
     if !card.amount_label.is_empty() {
-        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-        layer.use_text(
+        cell_text(
+            layer,
+            font,
             &card.amount_label,
             9.0,
-            Mm(right_x(&card.amount_label, 9.0, PAGE_W - MARGIN)),
-            y(text_y),
-            font,
+            right_x(&card.amount_label, 9.0, PAGE_W - MARGIN),
+            text_y,
+            None,
+            DARK,
         );
     }
 
     // 行底分隔线（省墨：仅横向细线，无竖线、无底色）
-    layer.set_outline_thickness(0.25);
-    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(top + row_h - 0.3)), false),
-            (Point::new(Mm(PAGE_W - MARGIN), y(top + row_h - 0.3)), false),
-        ],
-        is_closed: false,
-    });
+    hline(layer, 0.25, top + row_h - 0.3, STROKE);
 }
 
 /// 右对齐 x 坐标：右边界 - 文本估算宽度
@@ -1117,33 +1201,41 @@ fn aggregate(
 
 /// 年度报表表头（月份 / 张数 / 草稿 / 已复核 / 已导出 / 已归档 / 金额）
 fn draw_yearly_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    let y0 = top + 4.0;
-    layer.use_text("月份", 8.0, Mm(MARGIN + 1.0), y(y0), font);
-    layer.use_text("张数", 8.0, Mm(MARGIN + 30.0), y(y0), font);
-    layer.use_text("草稿", 8.0, Mm(MARGIN + 50.0), y(y0), font);
-    layer.use_text("已复核", 8.0, Mm(MARGIN + 70.0), y(y0), font);
-    layer.use_text("已导出", 8.0, Mm(MARGIN + 92.0), y(y0), font);
-    layer.use_text("已归档", 8.0, Mm(MARGIN + 114.0), y(y0), font);
-    layer.use_text(
-        "金额",
-        8.0,
-        Mm(right_x("金额", 8.0, PAGE_W - MARGIN)),
-        y(y0),
+    draw_head_cells(
+        layer,
         font,
-    );
-    layer.set_outline_thickness(0.6);
-    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(top + THEAD_H - 0.5)), false),
-            (
-                Point::new(Mm(PAGE_W - MARGIN), y(top + THEAD_H - 0.5)),
-                false,
-            ),
+        top,
+        &[
+            HeadCol {
+                label: "月份",
+                x: HeadColX::Left(MARGIN + 1.0),
+            },
+            HeadCol {
+                label: "张数",
+                x: HeadColX::Left(MARGIN + YCOL_CNT),
+            },
+            HeadCol {
+                label: "草稿",
+                x: HeadColX::Left(MARGIN + YCOL_DRAFT),
+            },
+            HeadCol {
+                label: "已复核",
+                x: HeadColX::Left(MARGIN + YCOL_REVIEWED),
+            },
+            HeadCol {
+                label: "已导出",
+                x: HeadColX::Left(MARGIN + YCOL_EXPORTED),
+            },
+            HeadCol {
+                label: "已归档",
+                x: HeadColX::Left(MARGIN + YCOL_ARCHIVED),
+            },
+            HeadCol {
+                label: "金额",
+                x: HeadColX::Right,
+            },
         ],
-        is_closed: false,
-    });
+    );
 }
 
 /// 年度报表数据行（`subtotal = true` 时季度小计：标签主色加粗，无行底细线）
@@ -1157,71 +1249,76 @@ fn draw_yearly_row(
     subtotal: bool,
 ) {
     let text_y = top + row_h - 1.9;
-    if subtotal {
-        layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    } else {
-        layer.set_fill_color(rgb(BODY.0, BODY.1, BODY.2));
-    }
-    layer.use_text(label, 8.5, Mm(MARGIN + 1.0), y(text_y), font);
-    layer.use_text(
-        format!("{}", m.count),
-        8.5,
-        Mm(MARGIN + 30.0),
-        y(text_y),
+    let main = if subtotal { ACCENT } else { BODY };
+    cell_text(layer, font, label, 8.5, MARGIN + 1.0, text_y, None, main);
+    cell_text(
+        layer,
         font,
-    );
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    layer.use_text(
-        format!("{}", m.draft),
+        &m.count.to_string(),
         8.5,
-        Mm(MARGIN + 50.0),
-        y(text_y),
-        font,
+        MARGIN + YCOL_CNT,
+        text_y,
+        None,
+        main,
     );
-    layer.use_text(
-        format!("{}", m.reviewed),
+    cell_text(
+        layer,
+        font,
+        &m.draft.to_string(),
         8.5,
-        Mm(MARGIN + 70.0),
-        y(text_y),
-        font,
+        MARGIN + YCOL_DRAFT,
+        text_y,
+        None,
+        GREY,
     );
-    layer.use_text(
-        format!("{}", m.exported),
+    cell_text(
+        layer,
+        font,
+        &m.reviewed.to_string(),
         8.5,
-        Mm(MARGIN + 92.0),
-        y(text_y),
-        font,
+        MARGIN + YCOL_REVIEWED,
+        text_y,
+        None,
+        GREY,
     );
-    layer.use_text(
-        format!("{}", m.archived),
+    cell_text(
+        layer,
+        font,
+        &m.exported.to_string(),
         8.5,
-        Mm(MARGIN + 114.0),
-        y(text_y),
-        font,
+        MARGIN + YCOL_EXPORTED,
+        text_y,
+        None,
+        GREY,
     );
+    cell_text(
+        layer,
+        font,
+        &m.archived.to_string(),
+        8.5,
+        MARGIN + YCOL_ARCHIVED,
+        text_y,
+        None,
+        GREY,
+    );
+
     // 金额（右对齐；0 张月份留空，避免 0.00 噪音）
     if m.count > 0 {
         let amt = crate::models::voucher::format_money(m.amount_cents);
-        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-        layer.use_text(
+        cell_text(
+            layer,
+            font,
             &amt,
             8.5,
-            Mm(right_x(&amt, 8.5, PAGE_W - MARGIN)),
-            y(text_y),
-            font,
+            right_x(&amt, 8.5, PAGE_W - MARGIN),
+            text_y,
+            None,
+            DARK,
         );
     }
     // 行底分隔线（季度小计行留白作视觉分组，不画线）
     if !subtotal {
-        layer.set_outline_thickness(0.25);
-        layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-        layer.add_line(Line {
-            points: vec![
-                (Point::new(Mm(MARGIN), y(top + row_h - 0.3)), false),
-                (Point::new(Mm(PAGE_W - MARGIN), y(top + row_h - 0.3)), false),
-            ],
-            is_closed: false,
-        });
+        hline(layer, 0.25, top + row_h - 0.3, STROKE);
     }
 }
 
@@ -1235,61 +1332,68 @@ fn draw_yearly_total(
     row_h: f32,
 ) {
     let text_y = top + row_h - 1.9;
-    layer.set_outline_thickness(0.8);
-    layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(top + 0.5)), false),
-            (Point::new(Mm(PAGE_W - MARGIN), y(top + 0.5)), false),
-        ],
-        is_closed: false,
-    });
-    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.use_text(label, 9.0, Mm(MARGIN + 1.0), y(text_y), font);
-    layer.use_text(
-        format!("{}", m.count),
-        9.0,
-        Mm(MARGIN + 30.0),
-        y(text_y),
+    hline(layer, 0.8, top + 0.5, DARK);
+    cell_text(layer, font, label, 9.0, MARGIN + 1.0, text_y, None, DARK);
+    cell_text(
+        layer,
         font,
+        &m.count.to_string(),
+        9.0,
+        MARGIN + YCOL_CNT,
+        text_y,
+        None,
+        DARK,
     );
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    layer.use_text(
-        format!("{}", m.draft),
-        9.0,
-        Mm(MARGIN + 50.0),
-        y(text_y),
+    cell_text(
+        layer,
         font,
+        &m.draft.to_string(),
+        9.0,
+        MARGIN + YCOL_DRAFT,
+        text_y,
+        None,
+        GREY,
     );
-    layer.use_text(
-        format!("{}", m.reviewed),
-        9.0,
-        Mm(MARGIN + 70.0),
-        y(text_y),
+    cell_text(
+        layer,
         font,
+        &m.reviewed.to_string(),
+        9.0,
+        MARGIN + YCOL_REVIEWED,
+        text_y,
+        None,
+        GREY,
     );
-    layer.use_text(
-        format!("{}", m.exported),
-        9.0,
-        Mm(MARGIN + 92.0),
-        y(text_y),
+    cell_text(
+        layer,
         font,
+        &m.exported.to_string(),
+        9.0,
+        MARGIN + YCOL_EXPORTED,
+        text_y,
+        None,
+        GREY,
     );
-    layer.use_text(
-        format!("{}", m.archived),
-        9.0,
-        Mm(MARGIN + 114.0),
-        y(text_y),
+    cell_text(
+        layer,
         font,
+        &m.archived.to_string(),
+        9.0,
+        MARGIN + YCOL_ARCHIVED,
+        text_y,
+        None,
+        GREY,
     );
     let amt = crate::models::voucher::format_money(m.amount_cents);
-    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.use_text(
+    cell_text(
+        layer,
+        font,
         &amt,
         9.0,
-        Mm(right_x(&amt, 9.0, PAGE_W - MARGIN)),
-        y(text_y),
-        font,
+        right_x(&amt, 9.0, PAGE_W - MARGIN),
+        text_y,
+        None,
+        DARK,
     );
 }
 
@@ -1360,5 +1464,29 @@ mod tests {
     fn width_estimation() {
         assert_eq!(chars_for_width("12345", 8.0, 100.0), 5);
         assert!(chars_for_width("一二三四五", 8.0, 5.0) < 5);
+    }
+
+    #[test]
+    fn yearly_columns_layout_golden() {
+        // v0.14 表引擎抽离（magic number → YCOL_* 常量）：锁定各数值列 x 与重构前一致（MARGIN=10）
+        let xs = [
+            MARGIN + 1.0,
+            MARGIN + YCOL_CNT,
+            MARGIN + YCOL_DRAFT,
+            MARGIN + YCOL_REVIEWED,
+            MARGIN + YCOL_EXPORTED,
+            MARGIN + YCOL_ARCHIVED,
+        ];
+        assert_eq!(xs, [11.0, 40.0, 60.0, 80.0, 102.0, 124.0]);
+        // 列两两递增且互不重叠（相邻间距 ≥18mm，容纳 8.5pt 数字）
+        assert!(xs.windows(2).all(|w| w[1] - w[0] >= 18.0));
+    }
+
+    #[test]
+    fn daily_columns_layout_golden() {
+        // 日报表各列起点/截断宽度与重构前一致：编号 45 / 摘要 70 / 对方账户 50
+        assert_eq!(MARGIN + TCOL_NO, 55.0);
+        assert_eq!(MARGIN + TCOL_NO + TCOL_DESC, 125.0);
+        assert_eq!(MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY, 175.0);
     }
 }
