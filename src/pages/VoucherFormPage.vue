@@ -1,23 +1,23 @@
 <script setup lang="ts">
 /**
- * 凭证编辑页。
+ * 凭证编辑页（编排层）。
  * 一图一凭证：新建 = 先选一张图片（导入即建卡 + OCR 自动填单），编辑 = 单图 + 更换图片（换图不换卡）。
  * 表单字段：编号/日期/摘要/对方账户/金额/状态/标签/备注 + 快照历史。
- * 拖放导入在 Rust 侧全局处理（App.vue 反馈）；本页新建模式监听完成事件跳转到新凭证。
+ * 图片区 / 摘要联想 / 导航条 / 快照面板已拆为子组件；本页负责数据流、脏守卫与保存/OCR 编排。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Attachment, type ExtractedFields, type ImportSummary, type Voucher, type VoucherSnapshot } from "../api/client";
-import ImageViewerDialog from "../components/ImageViewerDialog.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
-import CropDialog from "../components/CropDialog.vue";
 import OcrResultCard from "../components/OcrResultCard.vue";
-import { OCR_META, fmtDate } from "../composables/format";
+import AttachmentPanel from "../components/voucher/AttachmentPanel.vue";
+import DescriptionInput from "../components/voucher/DescriptionInput.vue";
+import SnapshotPanel from "../components/voucher/SnapshotPanel.vue";
+import VoucherNavBar from "../components/voucher/VoucherNavBar.vue";
+import FluentIcon from "../components/FluentIcon.vue";
 import { useDirtyGuard } from "../composables/dirtyGuard";
 import { parseNavContext, useNeighborNav } from "../composables/neighborNav";
-import { useDescriptionSuggest } from "../composables/descriptionSuggest";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
 
@@ -47,9 +47,6 @@ const ocrBusy = ref(false);
 const replacing = ref(false);
 
 const noPreview = ref("");
-const attachmentsDir = computed(() =>
-  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
-);
 
 async function refreshNoPreview() {
   try {
@@ -283,56 +280,11 @@ async function replaceImage() {
   }
 }
 
-// ---------- v0.10：摘要快速录入（模板 + 历史高频联想） ----------
+// ---------- v0.10：摘要快速录入（模板 + 历史高频联想，已拆为子组件） ----------
 
 const descTemplates = computed<string[]>(
   () => configStore.config?.voucher?.descriptionTemplates ?? [],
 );
-const { load: loadDescHistory, suggest: suggestDesc } = useDescriptionSuggest({
-  templates: descTemplates,
-});
-const descFocused = ref(false);
-const descHighlight = ref(-1);
-
-/** 联想列表：聚焦时展示；键盘 ↑↓ 移动高亮（Enter 选中，Esc 关闭） */
-const descSuggestions = computed(() => suggestDesc(description.value));
-
-function onDescFocus() {
-  descFocused.value = true;
-  loadDescHistory();
-}
-
-function onDescBlur() {
-  // 延迟收起：点击下拉项时 mousedown 先于 blur 触发，直接关会吃掉点击
-  setTimeout(() => {
-    descFocused.value = false;
-    descHighlight.value = -1;
-  }, 150);
-}
-
-function pickDescription(text: string) {
-  description.value = text;
-  descFocused.value = false;
-  descHighlight.value = -1;
-}
-
-function onDescKeydown(e: KeyboardEvent) {
-  if (!descFocused.value || !descSuggestions.value.length) return;
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    descHighlight.value = (descHighlight.value + 1) % descSuggestions.value.length;
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    descHighlight.value =
-      descHighlight.value <= 0 ? descSuggestions.value.length - 1 : descHighlight.value - 1;
-  } else if (e.key === "Enter" && descHighlight.value >= 0) {
-    e.preventDefault();
-    pickDescription(descSuggestions.value[descHighlight.value].description);
-  } else if (e.key === "Escape") {
-    descFocused.value = false;
-    descHighlight.value = -1;
-  }
-}
 
 // ---------- 保存 ----------
 
@@ -449,15 +401,29 @@ async function runOcr(a: Attachment) {
   }
 }
 
-const SNAPSHOT_LABELS: Record<string, string> = {
-  update: "修改前快照",
-  status: "状态变更前快照",
-  export: "导出前快照",
-  delete: "删除前快照",
-  ocr_fill: "OCR 填单前快照",
-  replace_image: "换图前快照",
-  renumber: "档号重排前快照",
-};
+/** 裁剪后重跑 OCR（run_ocr 会读最新增强版；缓存按增强图内容区分） */
+async function reRunOcrAfterCrop() {
+  const a = attachments.value[0];
+  if (!a || !editId.value) return;
+  ocrBusy.value = true;
+  try {
+    applyDetail(await api.runOcr(a.id));
+    toast.success("已按调整后的图片重新识别并回填可识别的空字段");
+  } catch (e) {
+    toastError(e);
+  } finally {
+    ocrBusy.value = false;
+  }
+}
+
+/** 裁剪落库后：刷新详情 + 展示「重新识别」提示（供用户对调整后的图重跑 OCR） */
+async function onCropSaved() {
+  if (editId.value) await loadDetail();
+  toast.success("图片已调整（覆盖增强版；原图不变）", {
+    label: "重新识别",
+    onClick: () => void reRunOcrAfterCrop(),
+  });
+}
 
 // 拖放导入（Rust 侧全局处理）：新建模式下完成后跳到第一张新凭证
 let unlistenImportDone: UnlistenFn | null = null;
@@ -500,122 +466,6 @@ onUnmounted(() => {
   unlistenImportDone?.();
   window.removeEventListener("keydown", onKeydown);
 });
-
-// ---------- 图片查看器（缩放/平移/旋转，核对 OCR 回填时看细节） ----------
-
-const viewerVisible = ref(false);
-const viewerSrc = ref("");
-const viewerName = ref("");
-const viewerAttachmentId = ref<number | null>(null);
-
-function openViewer(a: Attachment) {
-  viewerSrc.value = attSrc(a);
-  viewerName.value = a.fileName;
-  viewerAttachmentId.value = a.id;
-  viewerVisible.value = true;
-}
-
-// ---------- v0.12：手动裁剪 / 旋转（自动矫正失败的人工补救） ----------
-
-const cropVisible = ref(false);
-const cropAttachmentId = ref<number | null>(null);
-const cropSrc = ref("");
-const cropFileName = ref("");
-const cropDialog = ref<InstanceType<typeof CropDialog> | null>(null);
-
-function openCrop(a: Attachment) {
-  // 基准 = 原图（手动裁剪替代自动增强，不叠加）
-  cropSrc.value = convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
-  cropFileName.value = a.fileName;
-  cropAttachmentId.value = a.id;
-  cropVisible.value = true;
-}
-
-async function onCropSave(
-  rect: { x: number; y: number; w: number; h: number },
-  rotationDeg: number,
-) {
-  if (!cropAttachmentId.value) return;
-  try {
-    await api.cropAttachment(cropAttachmentId.value, rect, rotationDeg);
-    cropVisible.value = false;
-    if (editId.value) await loadDetail();
-    toast.success("图片已调整（覆盖增强版；原图不变）", {
-      label: "重新识别",
-      onClick: () => void reRunOcrAfterCrop(),
-    });
-  } catch (e) {
-    toastError(e);
-    cropDialog.value?.done();
-  }
-}
-
-/** 裁剪后重跑 OCR（run_ocr 会读最新增强版；缓存按增强图内容区分） */
-async function reRunOcrAfterCrop() {
-  const a = attachments.value[0];
-  if (!a || !editId.value) return;
-  ocrBusy.value = true;
-  try {
-    applyDetail(await api.runOcr(a.id));
-    toast.success("已按调整后的图片重新识别并回填可识别的空字段");
-  } catch (e) {
-    toastError(e);
-  } finally {
-    ocrBusy.value = false;
-  }
-}
-
-// ---------- D-1：编辑页缩略图优先用增强版，支持「原图/增强」切换 ----------
-
-/** D-1：单图默认用增强版（如有）；查看器/查看大图也走同一规则 */
-function attSrc(a: Attachment): string {
-  // enhancedPath 始终指向 5 步矫正后的 JPEG；缺失时回退原图
-  const rel = a.enhancedPath ?? a.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
-}
-
-/** 切换该附件当前显示的图（编辑页用，per-attachment 状态） */
-const useEnhanced = ref<Record<number, boolean>>({});
-function thumbSrc(a: Attachment): string {
-  // 默认 true（优先增强版），用户切换时改 map
-  const preferEnhanced = useEnhanced.value[a.id] ?? true;
-  const rel = preferEnhanced && a.enhancedPath ? a.enhancedPath : a.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
-}
-function toggleThumbSource(a: Attachment) {
-  useEnhanced.value[a.id] = !(useEnhanced.value[a.id] ?? true);
-}
-
-// ---------- D-4：增强版 vs 原图 A/B 对比滑块 ----------
-// 用 `clip-path: inset(0 (1-x)*100% 0 0)` 把"已显示"区裁出来
-// slider=0.5 → 增强版占左半、原图层占右半（用户能直接看到差异）
-// 仅当 a.enhancedPath 存在时启用
-const compareOpen = ref<Record<number, boolean>>({});
-const compareSplit = ref<Record<number, number>>({}); // 0..1，0.5 = 中线
-function isCompareOpen(a: Attachment): boolean {
-  return compareOpen.value[a.id] ?? false;
-}
-function openCompare(a: Attachment) {
-  compareOpen.value[a.id] = true;
-  if (compareSplit.value[a.id] === undefined) {
-    compareSplit.value[a.id] = 0.5; // 默认中线
-  }
-}
-function closeCompare(a: Attachment) {
-  compareOpen.value[a.id] = false;
-}
-function setSplit(a: Attachment, v: number) {
-  compareSplit.value[a.id] = Math.max(0, Math.min(1, v));
-}
-function compareOriginalSrc(a: Attachment): string {
-  // 原图层 = always 原图（不受 useEnhanced 切换影响）
-  return convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
-}
-function compareClipRight(a: Attachment): string {
-  // 增强版（thumbSrc）只显示左侧，比例 = compareSplit
-  const p = (compareSplit.value[a.id] ?? 0.5) * 100;
-  return `inset(0 ${100 - p}% 0 0)`;
-}
 </script>
 
 <template>
@@ -669,15 +519,9 @@ function compareClipRight(a: Attachment): string {
         <div class="fluent-panel-header">
           <h3>编辑凭证</h3>
           <!-- v0.9 上下文导航：同筛选下的上一张/下一张（列表跳转携带筛选，无上下文则全量顺序） -->
-          <div class="vnav" v-if="neighbor">
-            <button class="btn btn-sm" :disabled="!neighbor.prevId" title="上一张（Alt+←）" @click="goNeighbor('prev')">
-              <FluentIcon name="chevronLeft" :size="13" />上一张
-            </button>
-            <span class="vnav-pos" :title="ctxKeyword ? `筛选：${ctxKeyword}` : '当前列表筛选'">{{ positionLabel }}</span>
-            <button class="btn btn-sm" :disabled="!neighbor.nextId" title="下一张（Alt+→）" @click="goNeighbor('next')">
-              下一张<FluentIcon name="chevronRight" :size="13" />
-            </button>
-          </div>
+          <VoucherNavBar v-if="neighbor" :prev-id="neighbor.prevId" :next-id="neighbor.nextId"
+            :position-label="positionLabel" :ctx-keyword="ctxKeyword"
+            @prev="goNeighbor('prev')" @next="goNeighbor('next')" />
         </div>
         <div class="fluent-panel-body">
           <!-- v0.11：封账月锁定提示（保存被禁用；查看/导出不受限） -->
@@ -696,22 +540,7 @@ function compareClipRight(a: Attachment): string {
             <label>凭证日期</label>
             <input v-model="voucherDate" type="date" class="input" />
           </div>
-          <div class="field desc-suggest">
-            <label>摘要</label>
-            <input v-model="description" class="input" placeholder="如：八月办公用品采购（聚焦可联想常用摘要）"
-              @focus="onDescFocus" @blur="onDescBlur" @keydown="onDescKeydown" />
-            <!-- v0.10 摘要联想：模板（置顶标 pin）+ 历史高频（带次数） -->
-            <div v-if="descFocused && descSuggestions.length" class="desc-dropdown">
-              <button v-for="(s, i) in descSuggestions" :key="s.description" type="button"
-                class="desc-option" :class="{ active: i === descHighlight }"
-                @mousedown.prevent="pickDescription(s.description)"
-                @mousemove="descHighlight = i">
-                <FluentIcon v-if="s.pinned" name="pin" :size="11" />
-                <span class="desc-text">{{ s.description }}</span>
-                <span v-if="s.count != null" class="desc-count">{{ s.count }} 次</span>
-              </button>
-            </div>
-          </div>
+          <DescriptionInput v-model="description" :templates="descTemplates" />
           <div class="field">
             <label>对方账户</label>
             <input v-model="counterparty" class="input" placeholder="如：文一办公用品店（OCR 可自动识别）" />
@@ -751,113 +580,13 @@ function compareClipRight(a: Attachment): string {
         </div>
       </div>
 
-      <div class="fluent-panel" v-if="snapshots.length">
-        <div class="fluent-panel-header"><h3>修改历史（快照）</h3></div>
-        <div class="fluent-panel-body">
-          <div v-for="s in snapshots" :key="s.id" class="snapshot-item">
-            <div class="sn-meta">
-              <span>{{ SNAPSHOT_LABELS[s.reason] ?? s.reason }}</span>
-              <span>{{ fmtDate(s.createdAt) }}</span>
-            </div>
-            <div style="color: var(--text-2)">
-              {{ (s.payload as Record<string, unknown>).description || "（无摘要）" }}
-            </div>
-          </div>
-        </div>
-      </div>
+      <SnapshotPanel :snapshots="snapshots" />
     </div>
 
     <div>
-      <div class="fluent-panel">
-        <div class="fluent-panel-header">
-          <h3>凭证图片（{{ attachments.length }}/1）</h3>
-        </div>
-        <div class="fluent-panel-body">
-          <div v-if="attachments.length" class="att-grid">
-            <div v-for="a in attachments" :key="a.id" class="att-card">
-              <div class="att-img" :class="{ 'is-compare': isCompareOpen(a) }"
-                title="点击查看大图（滚轮缩放 / 拖动平移）" @click="!isCompareOpen(a) && openViewer(a)">
-                <!-- D-4：对比模式 - 底层原图（始终原图，不受 useEnhanced 影响） + 上层增强版用 clip-path 裁剪 -->
-                <template v-if="isCompareOpen(a) && a.enhancedPath">
-                  <img class="att-img-compare-base" :src="compareOriginalSrc(a)" :alt="a.fileName + ' (原图)'" />
-                  <img class="att-img-compare-top" :src="thumbSrc(a)" :alt="a.fileName + ' (增强版)'"
-                    :style="{ clipPath: compareClipRight(a) }" />
-                  <!-- 中线 -->
-                  <div class="att-compare-divider" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }"></div>
-                  <!-- 滑块手柄 -->
-                  <div class="att-compare-handle" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }">
-                    <FluentIcon name="compare" :size="13" />
-                  </div>
-                  <!-- 角标：左=增强 右=原图 -->
-                  <span class="att-compare-tag att-compare-tag-left"><FluentIcon name="sparkle" :size="10" /> 增强</span>
-                  <span class="att-compare-tag att-compare-tag-right">原图</span>
-                </template>
-                <!-- 非对比模式：单图（thumbSrc 受 useEnhanced 切换） -->
-                <template v-else>
-                  <img :src="thumbSrc(a)" :alt="a.fileName" loading="lazy" />
-                </template>
-                <!-- v0.6 增强状态角标 -->
-                <span v-if="a.enhancedPath && !isCompareOpen(a)" class="att-enhanced-badge" title="已通过 5 步算法矫正（用于 OCR / 查看器）">
-                  <FluentIcon name="sparkle" :size="10" /> 已增强
-                </span>
-                <!-- D-1：原图/增强版切换器（无增强版时隐藏；对比模式下隐藏避免双控制） -->
-                <button v-if="a.enhancedPath && !isCompareOpen(a)" class="att-thumb-toggle"
-                  :title="(useEnhanced[a.id] ?? true) ? '点击查看原图' : '点击查看增强版'"
-                  @click.stop="toggleThumbSource(a)">
-                  {{ (useEnhanced[a.id] ?? true) ? "增强" : "原图" }}
-                </button>
-              </div>
-              <div class="att-meta">
-                <div class="att-name" :title="a.fileName">{{ a.fileName }}</div>
-                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
-                  <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{ OCR_META[a.ocrStatus].label }}</span>
-                  <span v-if="a.enhancedSource === 'screenshot'" class="tag tag-muted" title="截图（增强收益小）">截图</span>
-                  <span v-else-if="a.enhancedSource === 'scan'" class="tag tag-info" title="扫描件 / 拍照">扫描件</span>
-                </div>
-                <div class="att-ops">
-                  <button class="btn btn-sm" :disabled="ocrBusy" @click="runOcr(a)">
-                    {{ ocrBusy ? "识别中…" : "重新识别" }}
-                  </button>
-                  <button class="btn btn-sm" :disabled="replacing" @click="replaceImage">
-                    {{ replacing ? "更换中…" : "更换图片" }}
-                  </button>
-                  <!-- v0.12：手动裁剪/旋转（自动矫正失败的人工补救；覆盖增强版，原图不动） -->
-                  <button class="btn btn-sm" :disabled="!!lockedPeriod"
-                    :title="lockedPeriod ? '该月已封账，不可调整' : '手动裁剪 / 旋转（覆盖增强版，原图不变）'"
-                    @click="openCrop(a)">
-                    <FluentIcon name="edit" :size="14" />调整
-                  </button>
-                  <!-- D-4：A/B 对比开关（无增强版不可用） -->
-                  <button v-if="a.enhancedPath" class="btn btn-sm"
-                    :class="{ 'btn-primary': isCompareOpen(a) }"
-                    :title="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'"
-                    @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)">
-                    <FluentIcon :name="isCompareOpen(a) ? 'close' : 'compare'" :size="14" />
-                    {{ isCompareOpen(a) ? "关闭对比" : "A/B 对比" }}
-                  </button>
-                </div>
-                <!-- D-4：对比模式滑块行（仅打开时显示） -->
-                <div v-if="isCompareOpen(a) && a.enhancedPath" class="att-compare-row">
-                  <span class="att-compare-label"><FluentIcon name="sparkle" :size="10" /> 增强</span>
-                  <input type="range" min="0" max="100" step="1"
-                    class="att-compare-slider"
-                    :value="Math.round((compareSplit[a.id] ?? 0.5) * 100)"
-                    @input="setSplit(a, +($event.target as HTMLInputElement).value / 100)"
-                    title="拖动调整：左=增强 / 右=原图" />
-                  <span class="att-compare-label">原图</span>
-                  <span class="att-compare-pct">{{ Math.round((compareSplit[a.id] ?? 0.5) * 100) }}%</span>
-                </div>
-                <div v-if="a.ocrText" class="ocr-text">{{ a.ocrText }}</div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="dropzone" @click="replaceImage">
-            <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
-            <div style="font-weight: 600">点击选择图片补挂到这张凭证</div>
-            <div style="font-size: 12px; margin-top: 4px">一图一凭证：每张凭证只关联一张图片</div>
-          </div>
-        </div>
-      </div>
+      <AttachmentPanel :attachments="attachments" :ocr-busy="ocrBusy" :replacing="replacing"
+        :locked-period="lockedPeriod"
+        @run-ocr="runOcr" @replace-image="replaceImage" @crop-saved="onCropSaved" />
 
       <!-- v0.7 S-2：OCR 识别结果（结构化提取预览，一键填入表单）；v0.9 提取为子组件 -->
       <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
@@ -865,92 +594,16 @@ function compareClipRight(a: Attachment): string {
     </div>
   </div>
 
-  <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
-    :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
-
-  <!-- v0.12：手动裁剪 / 旋转对话框（保存 → crop_attachment → 刷新详情；可一键重新识别） -->
-  <CropDialog ref="cropDialog" :visible="cropVisible" :attachment-id="cropAttachmentId"
-    :src="cropSrc" :file-name="cropFileName"
-    @close="cropVisible = false" @save="onCropSave" />
-
   <!-- v0.9：未保存离开确认（翻张 / 返回 / 侧栏路由统一走这里） -->
   <ConfirmDialog :visible="leaveConfirmVisible" title="未保存的修改" :body="leaveConfirmText" confirm-text="离开"
     @confirm="confirmLeave" @cancel="cancelLeave" />
 </template>
 
 <style scoped>
-/* v0.9 上下文导航条（面板头右侧：上一张 / 位置 / 下一张） */
-.vnav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.vnav-pos {
-  font-size: 12px;
-  color: var(--text-3);
-  min-width: 64px;
-  text-align: center;
-  white-space: nowrap;
-}
-
 /* v0.9 脏状态提示（保存按钮左侧） */
 .dirty-hint {
   font-size: 12px;
   color: var(--warning);
   white-space: nowrap;
-}
-
-/* v0.10 摘要联想下拉（模板置顶 + 历史高频） */
-.desc-suggest {
-  position: relative;
-}
-
-.desc-dropdown {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  z-index: 30;
-  margin-top: 4px;
-  background: var(--bg-1, #fff);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 4px;
-}
-
-.desc-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  text-align: left;
-  color: var(--text-1);
-}
-
-.desc-option.active {
-  background: var(--bg-3, rgba(0, 0, 0, 0.06));
-}
-
-.desc-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.desc-count {
-  font-size: 11px;
-  color: var(--text-3);
-  flex-shrink: 0;
 }
 </style>
