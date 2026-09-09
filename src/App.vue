@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import { useRouter } from "vue-router";
 import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
 import { fmtDate } from "./composables/format";
@@ -44,6 +44,22 @@ const closingBackup = ref(false);
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
 
+/**
+ * Q-22：单条监听注册失败不影响其余——此前 8 个串行 await 裸奔在 try 之外，
+ * 任一 reject 会导致后续监听全部不注册。
+ */
+async function safeListen<T>(
+  event: string,
+  handler: (e: Event<T>) => void,
+): Promise<UnlistenFn | null> {
+  try {
+    return await listen<T>(event, handler);
+  } catch (e) {
+    console.warn(`事件监听注册失败（${event}）`, e);
+    return null;
+  }
+}
+
 onMounted(async () => {
   // 纯浏览器打开 dev URL：跳过所有 Tauri 相关初始化，避免裸 JS 错误刷屏
   if (!isTauri) {
@@ -63,33 +79,33 @@ onMounted(async () => {
   }
 
   // 自动备份：失败必报；副本告警提示 3-2-1 不完整
-  unlistenDone = await listen<BackupInfo>("backup:done", (e) => {
+  unlistenDone = await safeListen<BackupInfo>("backup:done", (e) => {
     if (e.payload.warnings?.length) {
       toast.warning(`自动备份完成，但副本存在问题：${e.payload.warnings.join("；")}`);
     }
   });
-  unlistenFailed = await listen<string>("backup:failed", (e) => {
+  unlistenFailed = await safeListen<string>("backup:failed", (e) => {
     toast.danger(`自动备份失败：${e.payload}`);
   });
 
   // 关闭前自动备份：Rust 拦截关闭请求 → 遮罩提示 + 可跳过
-  unlistenClosing = await listen("backup:closing", () => {
+  unlistenClosing = await safeListen("backup:closing", () => {
     closingBackup.value = true;
   });
 
   // 拖放导入（Rust 侧处理）：进入/离开遮罩 → 开始提示 → 结果反馈
-  unlistenDragEnter = await listen("import:drag-enter", () => {
+  unlistenDragEnter = await safeListen("import:drag-enter", () => {
     draggingOver.value = true;
   });
-  unlistenDragLeave = await listen("import:drag-leave", () => {
+  unlistenDragLeave = await safeListen("import:drag-leave", () => {
     draggingOver.value = false;
   });
-  unlistenImportStarted = await listen<number>("import:started", (e) => {
+  unlistenImportStarted = await safeListen<number>("import:started", (e) => {
     importing.value = true;
     draggingOver.value = false;
     toast.info?.(`正在导入 ${e.payload} 张图片…`);
   });
-  unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
+  unlistenImportDone = await safeListen<ImportSummary>("import:done", (e) => {
     importing.value = false;
     const s = e.payload;
     const parts: string[] = [];
@@ -106,7 +122,7 @@ onMounted(async () => {
       });
     }
   });
-  unlistenImportError = await listen<string>("import:error", (e) => {
+  unlistenImportError = await safeListen<string>("import:error", (e) => {
     importing.value = false;
     toast.danger(`导入失败：${e.payload}`);
   });

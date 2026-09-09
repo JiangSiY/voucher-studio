@@ -95,7 +95,6 @@ onBeforeRouteLeave((to, _from, next) => next(guard.beforeRouteLeave(to)));
 /** 列表页带来的筛选上下文（query 参数；无上下文入口 → 按全量顺序导航） */
 const navCtx = computed(() => parseNavContext(route.query));
 const fromSearch = computed(() => navCtx.value.fromSearch);
-const ctxStatus = computed(() => navCtx.value.status);
 const ctxKeyword = computed(() => navCtx.value.keyword);
 const { neighbor, positionLabel, loadNeighbor } = useNeighborNav({
   editId,

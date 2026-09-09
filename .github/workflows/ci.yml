@@ -29,6 +29,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # Q-11：ESLint 静态检查（flat/essential 防错误子集，与 vue-tsc 互补）
+      - name: Lint
+        run: npm run lint
+
       - name: Unit tests
         run: npm run test
 
@@ -43,7 +47,8 @@ jobs:
 
       # opencv-rust 0.100 通过 pkg-config 探测系统 OpenCV 4.x；
       # clang/libclang 供 bindgen 生成绑定；libssl-dev 供 reqwest 默认 TLS；
-      # fonts-noto-cjk 供 PDF 导出测试的中文字体需求
+      # fonts-noto-cjk 供 PDF 导出测试的中文字体需求；
+      # webkit2gtk/appindicator/librsvg 系 Tauri 2 壳（src-tauri）在 Linux 的编译依赖
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -54,7 +59,15 @@ jobs:
             libssl-dev \
             pkg-config \
             fonts-noto-cjk \
-            fonts-droid-fallback
+            fonts-droid-fallback \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -65,8 +78,9 @@ jobs:
       - name: Format check
         run: cargo fmt --all --check
 
+      # Q-28：clippy 覆盖全 workspace（含 src-tauri 命令层）
       - name: Clippy
-        run: cargo clippy -p voucher-core --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # B2 #11：命令层越层门禁——GUI 壳不得直连仓储类型或裸连接，
       # 查询经 services::query 门面、写路径经领域服务（UoW with_tx）
@@ -77,5 +91,6 @@ jobs:
             exit 1
           fi
 
+      # --include-ignored：CI 环境模型/字体齐备，全量真跑（#[ignore] 仅为本地精简环境显式计数）
       - name: Test
-        run: cargo test -p voucher-core
+        run: cargo test --workspace -- --include-ignored

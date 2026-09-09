@@ -194,6 +194,7 @@ fn duplicate_voucher_no_rejected() -> Result<()> {
 }
 
 #[test]
+#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
 fn export_pdf_and_batch_recorded() -> Result<()> {
     let (_dir, ctx) = test_ctx();
     if voucher_core::services::pdf::find_cjk_font().is_none() {
@@ -1031,6 +1032,7 @@ fn replace_attachment_swaps_image() -> Result<()> {
 
 /// 按天分组导出：不同日期的凭证各生成一份日报 PDF + 各自批次记录
 #[test]
+#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
 fn export_daily_groups_by_date() -> Result<()> {
     let (_dir, ctx) = test_ctx();
     if voucher_core::services::pdf::find_cjk_font().is_none() {
@@ -1675,6 +1677,7 @@ fn search_filters_combine_date_and_amount() -> Result<()> {
 
 /// 年度报表导出：PDF 落盘 + 批次记录（EXP-Y 前缀）+ 不改凭证状态（统计报表口径）
 #[test]
+#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
 fn export_yearly_report_pdf_and_batch() -> Result<()> {
     let (_dir, ctx) = test_ctx();
     if voucher_core::services::pdf::find_cjk_font().is_none() {

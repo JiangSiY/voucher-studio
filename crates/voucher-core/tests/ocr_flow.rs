@@ -59,6 +59,7 @@ fn ocr_cache_hits_without_network() -> Result<()> {
 }
 
 #[test]
+#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
 fn local_ocr_end_to_end() -> Result<()> {
     // 模型位于项目 assets/ocr-models（仓库自带）；缺失时跳过（如 CI 未含大文件）
     let models = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
@@ -101,6 +102,7 @@ fn local_ocr_end_to_end() -> Result<()> {
 /// G2 标准②直接证据：图片导入 → 本地 OCR 真实识别 → 全文搜索 → PDF 导出 全链路闭环。
 /// 与分段测试的区别：OCR 文本由本地引擎识别落库（非手工写 DB），导出走真实 PDF 生成。
 #[test]
+#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
 fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     // 前置素材缺失时跳过（模型/样张不随 git 走的环境，如精简 CI）
     let models = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");

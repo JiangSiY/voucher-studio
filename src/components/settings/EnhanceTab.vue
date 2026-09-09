@@ -9,7 +9,7 @@ import { api, type AppConfig, type ClearStrategy, type ClearSummary, type Enhanc
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 
-const props = defineProps<{ cfg: AppConfig }>();
+defineProps<{ cfg: AppConfig }>();
 
 // 7 步流水线（v0.6.1 起去噪/锐化实装，全部可逐项开关）
 const enhanceActiveSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
