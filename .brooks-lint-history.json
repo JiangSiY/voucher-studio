@@ -20,5 +20,16 @@
       "suggestion": 3
     },
     "scope": "voucher-studio 全项目（voucher-core + src-tauri + Vue 前端）— v0.13 发布后复审"
+  },
+  {
+    "date": "2026-09-09",
+    "mode": "Health Dashboard",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 3
+    },
+    "scope": "voucher-studio 全项目 — 三项 Warning 修复后复核（R3 行映射收口 / T6 CI 门禁 / R1 设置页拆分，已随 v0.13.1 发布）"
   }
 ]
