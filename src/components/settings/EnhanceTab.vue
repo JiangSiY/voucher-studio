@@ -2,14 +2,18 @@
 /**
  * 设置 → 扫描矫正：7 步流水线开关、存量重新增强、增强缓存管理
  * （D-2 摘要/命中率/释放策略/最近列表、D-8 来源分列、D-10 命中趋势）。
+ * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
+ * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { onMounted, onUnmounted, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatusV2, type HitTrend, type RecentEnhancedRow } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
+import { useSettingsDraft } from "../../stores/settingsDraft";
 
-defineProps<{ cfg: AppConfig }>();
+const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 
 // 7 步流水线（v0.6.1 起去噪/锐化实装，全部可逐项开关）
 const enhanceActiveSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
@@ -188,7 +192,7 @@ onUnmounted(() => {
           <div style="font-size: 12px; color: var(--text-3)">关闭后导入图片保留原图，不再生成增强版</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.enhance.enabled" />
+          <input type="checkbox" v-model="draftCfg.enhance.enabled" />
           <span class="slider"></span>
         </label>
       </div>
@@ -198,7 +202,7 @@ onUnmounted(() => {
           <div style="font-size: 12px; color: var(--text-3)">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.enhance.onlyScans" :disabled="!cfg.enhance.enabled" />
+          <input type="checkbox" v-model="draftCfg.enhance.onlyScans" :disabled="!draftCfg.enhance.enabled" />
           <span class="slider"></span>
         </label>
       </div>
@@ -206,9 +210,9 @@ onUnmounted(() => {
       <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
         <label>7 步流水线（按顺序执行，单步失败跳过）</label>
         <div class="step-list">
-          <div v-for="s in enhanceActiveSteps" :key="s.key" class="step-row" :class="{ disabled: !cfg.enhance.enabled }">
+          <div v-for="s in enhanceActiveSteps" :key="s.key" class="step-row" :class="{ disabled: !draftCfg.enhance.enabled }">
             <label class="toggle">
-              <input type="checkbox" v-model="cfg.enhance[s.key]" :disabled="!cfg.enhance.enabled" />
+              <input type="checkbox" v-model="draftCfg.enhance[s.key]" :disabled="!draftCfg.enhance.enabled" />
               <span class="slider"></span>
             </label>
             <div class="step-info">

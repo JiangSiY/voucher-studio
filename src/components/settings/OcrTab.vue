@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /**
  * 设置 → OCR：引擎选择（本地/云端）、本地模型状态、批量识别待处理附件。
+ * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
+ * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type AppConfig, type LocalOcrStatus } from "../../api/client";
+import { api, type LocalOcrStatus } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
+import { useSettingsDraft } from "../../stores/settingsDraft";
 
-defineProps<{ cfg: AppConfig }>();
+const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 
 const localOcr = ref<LocalOcrStatus | null>(null);
 
@@ -69,13 +73,13 @@ onUnmounted(() => {
           <div style="font-size: 12px; color: var(--text-3)">关闭后导入图片不再自动识别文字</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.ocr.enabled" />
+          <input type="checkbox" v-model="draftCfg.ocr.enabled" />
           <span class="slider"></span>
         </label>
       </div>
       <div class="field">
         <label>识别引擎</label>
-        <select v-model="cfg.ocr.engine" class="input" style="max-width: 280px">
+        <select v-model="draftCfg.ocr.engine" class="input" style="max-width: 280px">
           <option value="local" :disabled="!localOcr?.installed">本地（离线 · 推荐）</option>
           <option value="cloud">云端（HTTP API）</option>
         </select>
@@ -96,15 +100,15 @@ onUnmounted(() => {
           <code>{{ localOcr?.modelsDir || "数据目录/models" }}</code> 后重启应用即可启用。
         </div>
       </div>
-      <template v-if="cfg.ocr.engine === 'cloud'">
+      <template v-if="draftCfg.ocr.engine === 'cloud'">
         <div class="field">
           <label>API 地址</label>
-          <input v-model="cfg.ocr.apiUrl" class="input mono" placeholder="https://api.example.com/ocr" />
+          <input v-model="draftCfg.ocr.apiUrl" class="input mono" placeholder="https://api.example.com/ocr" />
           <div class="desc">POST JSON：{image_base64, model}，返回 {text}；API Key 在「密钥管理」页设置。</div>
         </div>
         <div class="field">
           <label>模型名（可选）</label>
-          <input v-model="cfg.ocr.model" class="input" placeholder="如：voucher-ocr-v1" />
+          <input v-model="draftCfg.ocr.model" class="input" placeholder="如：voucher-ocr-v1" />
         </div>
       </template>
       <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">

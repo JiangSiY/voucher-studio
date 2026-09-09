@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /**
  * 设置 → 凭证参数：编号模板（实时校验预览）、常用摘要模板、期间管理（按月封账）。
+ * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
+ * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { computed, onMounted, ref } from "vue";
-import { api, errMsg, type AppConfig, type PeriodLock } from "../../api/client";
+import { storeToRefs } from "pinia";
+import { api, errMsg, type PeriodLock } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import ConfirmDialog from "../ConfirmDialog.vue";
 import { toast, toastError } from "../../stores/toast";
+import { useSettingsDraft } from "../../stores/settingsDraft";
 
-const props = defineProps<{ cfg: AppConfig }>();
+const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 
 // ---------- 编号模板校验与预览 ----------
 
@@ -20,7 +24,7 @@ async function validateTemplate() {
   try {
     // 后端返回归一化模板；预览用今日日期本地渲染全部令牌
     // （preview_voucher_no 基于已保存配置，编辑中的模板尚未保存）
-    const normalized = await api.validateNamingTemplate(props.cfg.naming.template);
+    const normalized = await api.validateNamingTemplate(draftCfg.value.naming.template);
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, "0");
@@ -40,10 +44,10 @@ async function validateTemplate() {
 
 /** 每行一条 ↔ 数组互转；空行/首尾空白自动清理 */
 const descTemplatesText = computed({
-  get: () => (props.cfg.voucher?.descriptionTemplates ?? []).join("\n"),
+  get: () => (draftCfg.value.voucher?.descriptionTemplates ?? []).join("\n"),
   set: (v: string) => {
-    if (!props.cfg.voucher) props.cfg.voucher = { descriptionTemplates: [] };
-    props.cfg.voucher.descriptionTemplates = v
+    if (!draftCfg.value.voucher) draftCfg.value.voucher = { descriptionTemplates: [] };
+    draftCfg.value.voucher.descriptionTemplates = v
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
@@ -116,7 +120,7 @@ onMounted(() => {
     <div class="fluent-panel-body">
       <div class="field">
         <label>凭证编号模板</label>
-        <input v-model="cfg.naming.template" class="input mono" @input="validateTemplate" />
+        <input v-model="draftCfg.naming.template" class="input mono" @input="validateTemplate" />
         <div class="desc">
           可用令牌：<code>{date}</code>（20260819）、<code>{date-}</code>（2026-08-19）、<code>{seq}</code>（001 起）、<code>{n}</code>（01 起）。
           默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01 的编号。

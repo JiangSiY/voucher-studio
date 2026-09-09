@@ -2,22 +2,26 @@
 /**
  * 设置 → 备份与同步：自动备份、异盘双写、关闭前备份、备份加密（v0.13）、
  * 分层保留 GFS、WebDAV 云备份与连接测试。
+ * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
+ * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { ref } from "vue";
-import { api, errMsg, type AppConfig } from "../../api/client";
+import { storeToRefs } from "pinia";
+import { api, errMsg } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useConfigStore } from "../../stores/config";
 import { useSecretSave } from "../../composables/useSecretSave";
+import { useSettingsDraft } from "../../stores/settingsDraft";
 
-const props = defineProps<{ cfg: AppConfig }>();
+const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 const configStore = useConfigStore();
 
 async function pickSecondaryDir() {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const dir = await open({ directory: true });
   if (typeof dir === "string") {
-    props.cfg.backup.secondaryDir = dir;
+    draftCfg.value.backup.secondaryDir = dir;
   }
 }
 
@@ -26,7 +30,7 @@ async function pickSecondaryDir() {
 async function saveWebdavPassword() {
   const saved = await useSecretSave("webdav_password");
   if (saved) {
-    props.cfg.backup.webdav.passwordSet = true;
+    draftCfg.value.backup.webdav.passwordSet = true;
   }
 }
 
@@ -39,7 +43,8 @@ async function testWebdavConnection() {
   webdavTesting.value = true;
   webdavTestResult.value = null;
   try {
-    await configStore.save(JSON.parse(JSON.stringify(props.cfg)));
+    // 共享缓冲含全部 Tab 尚未提交的修改（与原 props 共享 buffer 语义一致）
+    await configStore.save(draftCfg.value);
     const count = await api.testWebdav();
     webdavTestResult.value = { ok: true, text: `连接成功，远端已有 ${count} 份备份` };
     toast.success(`WebDAV 连接成功，远端已有 ${count} 份备份`);
@@ -61,20 +66,20 @@ async function testWebdavConnection() {
           <div style="font-size: 12px; color: var(--text-3)">应用运行期间按间隔自动打包数据库、配置与全部附件原图</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.backup.autoEnabled" />
+          <input type="checkbox" v-model="draftCfg.backup.autoEnabled" />
           <span class="slider"></span>
         </label>
       </div>
       <div class="form-grid">
         <div class="field">
           <label>备份间隔（小时）</label>
-          <input v-model.number="cfg.backup.intervalHours" type="number" min="1" class="input" />
+          <input v-model.number="draftCfg.backup.intervalHours" type="number" min="1" class="input" />
           <div class="desc">每份备份含 sha256 完整性清单，恢复前自动校验。</div>
         </div>
         <div class="field">
           <label>备用份目录（异盘双写）</label>
           <div style="display: flex; gap: 8px">
-            <input v-model="cfg.backup.secondaryDir" class="input mono" placeholder="如 D:\VoucherBackups（留空不启用）" />
+            <input v-model="draftCfg.backup.secondaryDir" class="input mono" placeholder="如 D:\VoucherBackups（留空不启用）" />
             <button class="btn" @click="pickSecondaryDir">选择…</button>
           </div>
           <div class="desc">建议指向另一块物理盘或移动硬盘：本盘故障时备份仍在。该目录同样应用下方保留策略。</div>
@@ -86,7 +91,7 @@ async function testWebdavConnection() {
           <div style="font-size: 12px; color: var(--text-3)">每次退出应用前执行一次本地快速备份（跳过 WebDAV/异盘双写，避免关闭卡顿）；60 分钟内已备份则跳过</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.backup.autoBackupOnClose" />
+          <input type="checkbox" v-model="draftCfg.backup.autoBackupOnClose" />
           <span class="slider"></span>
         </label>
       </div>
@@ -102,21 +107,21 @@ async function testWebdavConnection() {
           </div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.backup.encrypted" />
+          <input type="checkbox" v-model="draftCfg.backup.encrypted" />
           <span class="slider"></span>
         </label>
       </div>
       <div class="field">
         <label>分层保留（日 / 周 / 月）</label>
         <div style="display: flex; gap: 8px">
-          <input v-model.number="cfg.backup.keepDaily" type="number" min="0" class="input" style="max-width: 110px" />
+          <input v-model.number="draftCfg.backup.keepDaily" type="number" min="0" class="input" style="max-width: 110px" />
           <span style="align-self: center; color: var(--text-3)">天每日备</span>
-          <input v-model.number="cfg.backup.keepWeekly" type="number" min="0" class="input" style="max-width: 110px" />
+          <input v-model.number="draftCfg.backup.keepWeekly" type="number" min="0" class="input" style="max-width: 110px" />
           <span style="align-self: center; color: var(--text-3)">周每周备</span>
-          <input v-model.number="cfg.backup.keepMonthly" type="number" min="0" class="input" style="max-width: 110px" />
+          <input v-model.number="draftCfg.backup.keepMonthly" type="number" min="0" class="input" style="max-width: 110px" />
           <span style="align-self: center; color: var(--text-3)">月每月备</span>
         </div>
-        <div class="desc">祖父-父-子（GFS）策略：近 {{ cfg.backup.keepDaily }} 天全保留，再留 {{ cfg.backup.keepWeekly }} 周的每周最新一份、{{ cfg.backup.keepMonthly }} 月的每月最新一份。</div>
+        <div class="desc">祖父-父-子（GFS）策略：近 {{ draftCfg.backup.keepDaily }} 天全保留，再留 {{ draftCfg.backup.keepWeekly }} 周的每周最新一份、{{ draftCfg.backup.keepMonthly }} 月的每月最新一份。</div>
       </div>
 
       <div style="border-top: 1px solid var(--stroke); margin: 8px 0 16px"></div>
@@ -127,33 +132,33 @@ async function testWebdavConnection() {
           <div style="font-size: 12px; color: var(--text-3)">每次备份（含手动）自动上传，失败自动重试</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.backup.webdav.enabled" />
+          <input type="checkbox" v-model="draftCfg.backup.webdav.enabled" />
           <span class="slider"></span>
         </label>
       </div>
       <div class="form-grid">
         <div class="field">
           <label>服务器地址</label>
-          <input v-model="cfg.backup.webdav.url" class="input mono" placeholder="https://dav.example.com/voucher/" />
+          <input v-model="draftCfg.backup.webdav.url" class="input mono" placeholder="https://dav.example.com/voucher/" />
         </div>
         <div class="field">
           <label>用户名</label>
-          <input v-model="cfg.backup.webdav.username" class="input" autocomplete="off" />
+          <input v-model="draftCfg.backup.webdav.username" class="input" autocomplete="off" />
         </div>
       </div>
       <div class="form-grid">
         <div class="field">
           <label>密码</label>
           <div style="display: flex; gap: 8px">
-            <input :value="cfg.backup.webdav.passwordSet ? '••••••••（已保存在系统凭据库）' : ''" class="input" disabled
+            <input :value="draftCfg.backup.webdav.passwordSet ? '••••••••（已保存在系统凭据库）' : ''" class="input" disabled
               style="flex: 1" />
-            <button class="btn" @click="saveWebdavPassword">{{ cfg.backup.webdav.passwordSet ? "修改" : "设置" }}密码</button>
+            <button class="btn" @click="saveWebdavPassword">{{ draftCfg.backup.webdav.passwordSet ? "修改" : "设置" }}密码</button>
           </div>
           <div class="desc">密码只存系统凭据库：在「密钥管理」页输入 WebDAV 密码后点这里落库。</div>
         </div>
         <div class="field">
           <label>远端保留份数</label>
-          <input v-model.number="cfg.backup.webdav.remoteRetention" type="number" min="0" class="input"
+          <input v-model.number="draftCfg.backup.webdav.remoteRetention" type="number" min="0" class="input"
             style="max-width: 110px" />
           <div class="desc">超出删远端最旧（0 = 不清理）。备份文件名含时间戳，按名排序即按时间。</div>
         </div>
@@ -164,7 +169,7 @@ async function testWebdavConnection() {
           <div style="font-size: 12px; color: var(--text-3)">坚果云等免费服务有上传流量配额；开启后当日云端已有备份则跳过上传（本地备份不受影响）</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="cfg.backup.webdav.onceDaily" />
+          <input type="checkbox" v-model="draftCfg.backup.webdav.onceDaily" />
           <span class="slider"></span>
         </label>
       </div>

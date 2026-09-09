@@ -1,16 +1,18 @@
 <script setup lang="ts">
 /**
  * 设置 → 通用：界面主题、数据目录、打印默认值。
- * cfg 为父页持有的编辑缓冲（保存时整体提交），属性直接双向绑定。
+ * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
+ * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { computed } from "vue";
-import { api, type AppConfig } from "../../api/client";
+import { storeToRefs } from "pinia";
+import { api } from "../../api/client";
 import { toastError } from "../../stores/toast";
 import { useConfigStore } from "../../stores/config";
-
-defineProps<{ cfg: AppConfig }>();
+import { useSettingsDraft } from "../../stores/settingsDraft";
 
 const configStore = useConfigStore();
+const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 const dataDir = computed(() => configStore.appInfo?.dataDir ?? "");
 
 async function openDataDir() {
@@ -27,7 +29,7 @@ async function openDataDir() {
     <div class="fluent-panel-body">
       <div class="field">
         <label>界面主题</label>
-        <select v-model="cfg.appearance.theme" class="input" style="max-width: 240px">
+        <select v-model="draftCfg.appearance.theme" class="input" style="max-width: 240px">
           <option value="system">跟随系统</option>
           <option value="light">浅色</option>
           <option value="dark">深色</option>
@@ -46,12 +48,12 @@ async function openDataDir() {
         <label>打印默认值</label>
         <div class="form-grid">
           <div class="field">
-            <label>{{ cfg.print.groupByDay ? "日报标题" : "整理单标题" }}</label>
-            <input v-model="cfg.print.title" class="input" placeholder="如：凭证日报" />
+            <label>{{ draftCfg.print.groupByDay ? "日报标题" : "整理单标题" }}</label>
+            <input v-model="draftCfg.print.title" class="input" placeholder="如：凭证日报" />
           </div>
           <div class="field">
             <label>每行列数（合并单份）</label>
-            <select v-model.number="cfg.print.columns" class="input">
+            <select v-model.number="draftCfg.print.columns" class="input">
               <option :value="3">3 列 · 21 张/页</option>
               <option :value="2">2 列 · 14 张/页</option>
               <option :value="1">1 列 · 7 张/页</option>
@@ -61,7 +63,7 @@ async function openDataDir() {
         <div class="form-grid" style="margin-top: 8px">
           <div class="field">
             <label>卡片风格（合并单份）</label>
-            <select v-model="cfg.print.cardStyle" class="input">
+            <select v-model="draftCfg.print.cardStyle" class="input">
               <option value="standard">标准式</option>
               <option value="clean">简洁式</option>
               <option value="ledger">账簿式</option>
@@ -71,11 +73,11 @@ async function openDataDir() {
             <label>导出方式</label>
             <div style="display: flex; gap: 8px; align-items: center; padding-top: 6px">
               <label class="toggle">
-                <input type="checkbox" v-model="cfg.print.groupByDay" />
+                <input type="checkbox" v-model="draftCfg.print.groupByDay" />
                 <span class="slider"></span>
               </label>
               <span style="font-size: 12px; color: var(--text-3)">
-                {{ cfg.print.groupByDay ? "按天分组，每天一份「凭证日报」" : "全部合并为一份整理单" }}
+                {{ draftCfg.print.groupByDay ? "按天分组，每天一份「凭证日报」" : "全部合并为一份整理单" }}
               </span>
             </div>
           </div>
@@ -83,7 +85,7 @@ async function openDataDir() {
         <div class="form-grid" style="margin-top: 8px">
           <div class="field">
             <label>日报模板（v0.8）</label>
-            <select v-model="cfg.print.dailyTemplate" class="input">
+            <select v-model="draftCfg.print.dailyTemplate" class="input">
               <option value="compact">省纸紧凑 · 横幅+表格 38 行/页 + 竖票 3×3（推荐）</option>
               <option value="archive">档案装订 · 独立封面 + 表格 34 行/页 + 图片 2×2</option>
             </select>
@@ -93,7 +95,7 @@ async function openDataDir() {
             <label>打印优先增强版图片</label>
             <div style="display: flex; gap: 8px; align-items: center; padding-top: 6px">
               <label class="toggle">
-                <input type="checkbox" v-model="cfg.print.preferEnhancedImages" />
+                <input type="checkbox" v-model="draftCfg.print.preferEnhancedImages" />
                 <span class="slider"></span>
               </label>
               <span style="font-size: 12px; color: var(--text-3)">扫描件用矫正后增强版；关闭则始终用原图</span>
@@ -102,7 +104,7 @@ async function openDataDir() {
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
           <label class="toggle">
-            <input type="checkbox" v-model="cfg.print.includeImages" />
+            <input type="checkbox" v-model="draftCfg.print.includeImages" />
             <span class="slider"></span>
           </label>
           <span style="font-size: 12px; color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>

@@ -1,14 +1,16 @@
 <script setup lang="ts">
 /**
  * 设置页骨架（Tab 分区 + 统一保存）：
- * 各分区逻辑在 components/settings/*Tab.vue，cfg 为共享编辑缓冲（保存时整体提交）。
+ * 各分区逻辑在 components/settings/*Tab.vue；编辑缓冲为独立 store
+ * `settingsDraft.cfg`（体检 #22 单向流改造：不再把可变 cfg 作为 prop 下发，
+ * Tab 直接读写共享 store 状态），保存时整体提交。
  * Tab 用 v-show 保持挂载：与拆分前一致——进页即加载各分区数据，切换不丢状态。
  */
-import { onMounted, reactive, ref } from "vue";
-import { api, type AppConfig } from "../api/client";
+import { onMounted, ref } from "vue";
+import { api } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
-import { defaultConfig } from "../config-defaults";
+import { useSettingsDraft } from "../stores/settingsDraft";
 import GeneralTab from "../components/settings/GeneralTab.vue";
 import NamingTab from "../components/settings/NamingTab.vue";
 import OcrTab from "../components/settings/OcrTab.vue";
@@ -17,6 +19,7 @@ import SecretsTab from "../components/settings/SecretsTab.vue";
 import BackupTab from "../components/settings/BackupTab.vue";
 
 const configStore = useConfigStore();
+const draft = useSettingsDraft();
 
 const tabs = [
   { key: "general", label: "通用" },
@@ -29,18 +32,12 @@ const tabs = [
 type TabKey = (typeof tabs)[number]["key"];
 const tab = ref<TabKey>("general");
 
-// 编辑中的配置副本（保存时整体提交）。默认值单一真源见 src/config-defaults.ts
-//（须与 Rust config.rs 的 AppConfig::default() 保持同步；load 成功后会被后端值覆盖）
-const cfg = reactive<AppConfig>(JSON.parse(JSON.stringify(defaultConfig())));
-
 const saving = ref(false);
 
 async function load() {
   try {
     const c = await api.getConfig();
-    Object.assign(cfg, c);
-    // v0.10 兜底：极旧配置文件可能无 voucher 段（后端 serde default 已保证，此处双保险）
-    if (!cfg.voucher) cfg.voucher = { descriptionTemplates: [] };
+    draft.replace(c);
   } catch (e) {
     toastError(e);
   }
@@ -49,7 +46,8 @@ async function load() {
 async function save() {
   saving.value = true;
   try {
-    await configStore.save(JSON.parse(JSON.stringify(cfg)));
+    // 直接把共享编辑缓冲交给后端（reactive 代理会在 invoke 序列化时拍快照）
+    await configStore.save(draft.cfg);
     toast.success("设置已保存");
   } catch (e) {
     toastError(e);
@@ -68,12 +66,12 @@ onMounted(load);
     </button>
   </div>
 
-  <GeneralTab v-show="tab === 'general'" :cfg="cfg" />
-  <NamingTab v-show="tab === 'naming'" :cfg="cfg" />
-  <OcrTab v-show="tab === 'ocr'" :cfg="cfg" />
-  <EnhanceTab v-show="tab === 'enhance'" :cfg="cfg" />
+  <GeneralTab v-show="tab === 'general'" />
+  <NamingTab v-show="tab === 'naming'" />
+  <OcrTab v-show="tab === 'ocr'" />
+  <EnhanceTab v-show="tab === 'enhance'" />
   <SecretsTab v-show="tab === 'secrets'" />
-  <BackupTab v-show="tab === 'backup'" :cfg="cfg" />
+  <BackupTab v-show="tab === 'backup'" />
 
   <div style="display: flex; justify-content: flex-end; margin-top: 8px">
     <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? "保存中…" : "保存设置" }}</button>
