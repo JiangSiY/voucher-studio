@@ -3,7 +3,7 @@
  * 设置 → 凭证参数：编号模板（实时校验预览）、常用摘要模板、期间管理（按月封账）。
  */
 import { computed, onMounted, ref } from "vue";
-import { api, type AppConfig, type PeriodLock } from "../../api/client";
+import { api, errMsg, type AppConfig, type PeriodLock } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import ConfirmDialog from "../ConfirmDialog.vue";
 import { toast, toastError } from "../../stores/toast";
@@ -31,7 +31,7 @@ async function validateTemplate() {
       .replace(/\{seq\}/g, "001")
       .replace(/\{n\}/g, "01");
   } catch (e) {
-    templateError.value = typeof e === "string" ? e : String(e);
+    templateError.value = errMsg(e);
     templatePreview.value = "";
   }
 }

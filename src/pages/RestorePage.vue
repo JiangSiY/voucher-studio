@@ -2,7 +2,7 @@
 /** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传与下载 */
 import { onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
+import { api, errMsg, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -86,7 +86,7 @@ async function runDrill() {
     toast.success("演练通过：备份可完整恢复");
   } catch (e) {
     // G3-4：后端术语翻译成用户语言（原样弹「IO 错误: Invalid checksum」不友好）
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errMsg(e);
     if (/checksum|校验/i.test(msg)) {
       toast.danger("演练失败：备份文件校验不一致（可能已损坏），请换用其他备份或重新备份");
     } else {
@@ -143,7 +143,7 @@ async function loadRemote() {
     remoteBackups.value = await api.listWebdavBackups();
   } catch (e) {
     // 未启用/未配置是正常态：内联提示而不是弹错误
-    remoteError.value = e instanceof Error ? e.message : String(e);
+    remoteError.value = errMsg(e);
     remoteBackups.value = [];
   } finally {
     remoteLoading.value = false;

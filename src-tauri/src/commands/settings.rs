@@ -17,24 +17,24 @@ pub fn get_config(ctx: Ctx) -> AppConfig {
 }
 
 #[tauri::command]
-pub fn save_config(ctx: Ctx, config: AppConfig) -> std::result::Result<AppConfig, String> {
+pub fn save_config(ctx: Ctx, config: AppConfig) -> std::result::Result<AppConfig, ApiError> {
     // 命名模板先校验再落盘
     let validated =
-        naming::NamingEngine::validate(&config.naming.template).map_err(|e| e.to_string())?;
+        naming::NamingEngine::validate(&config.naming.template).map_err(ApiError::from_core)?;
     let mut config = config;
     config.naming.template = validated;
-    err_string(ctx.set_config(config))?;
+    err_api(ctx.set_config(config))?;
     Ok(ctx.config())
 }
 
 #[tauri::command]
-pub fn validate_naming_template(template: String) -> std::result::Result<String, String> {
-    naming::NamingEngine::validate(&template).map_err(|e| e.to_string())
+pub fn validate_naming_template(template: String) -> std::result::Result<String, ApiError> {
+    naming::NamingEngine::validate(&template).map_err(ApiError::from_core)
 }
 
 #[tauri::command]
-pub fn preview_voucher_no(ctx: Ctx, date: String) -> std::result::Result<String, String> {
-    err_string(qsvc::next_voucher_no(&ctx, &date))
+pub fn preview_voucher_no(ctx: Ctx, date: String) -> std::result::Result<String, ApiError> {
+    err_api(qsvc::next_voucher_no(&ctx, &date))
 }
 
 // ---------- 密钥管理（系统凭据库） ----------
@@ -45,19 +45,19 @@ pub fn list_secrets(ctx: Ctx) -> Vec<voucher_core::utils::crypto::SecretStatus> 
 }
 
 #[tauri::command]
-pub fn set_secret(ctx: Ctx, alias: String, value: String) -> std::result::Result<(), String> {
+pub fn set_secret(ctx: Ctx, alias: String, value: String) -> std::result::Result<(), ApiError> {
     let known = [
         SECRET_OCR_API_KEY,
         SECRET_WEBDAV_PASSWORD,
         SECRET_BACKUP_PASSWORD,
     ];
     if !known.contains(&alias.as_str()) {
-        return Err(format!("未知凭据别名: {alias}"));
+        return Err(ApiError::plain("invalid", format!("未知凭据别名: {alias}")));
     }
-    err_string(ctx.secrets.set(&alias, &value))
+    err_api(ctx.secrets.set(&alias, &value))
 }
 
 #[tauri::command]
-pub fn delete_secret(ctx: Ctx, alias: String) -> std::result::Result<bool, String> {
-    err_string(ctx.secrets.delete(&alias))
+pub fn delete_secret(ctx: Ctx, alias: String) -> std::result::Result<bool, ApiError> {
+    err_api(ctx.secrets.delete(&alias))
 }

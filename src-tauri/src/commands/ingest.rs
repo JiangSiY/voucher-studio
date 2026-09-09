@@ -16,7 +16,7 @@ pub async fn pick_and_import(
     app: AppHandle,
     ctx: Ctx<'_>,
     run_ocr: Option<bool>,
-) -> std::result::Result<Option<ingestion::ImportSummary>, String> {
+) -> std::result::Result<Option<ingestion::ImportSummary>, ApiError> {
     // 模态对话框必须 blocking 打开，放进专用线程以免挂起 async runtime
     let picked = tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_dialog::DialogExt;
@@ -26,7 +26,7 @@ pub async fn pick_and_import(
             .blocking_pick_files()
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let files: Vec<PathBuf> = picked
         .unwrap_or_default()
@@ -41,7 +41,7 @@ pub async fn pick_and_import(
     let core = ctx.inner().clone();
     let started = std::time::Instant::now();
     let summary = tauri::async_runtime::spawn_blocking(move || {
-        err_string(ingestion::import_images(
+        err_api(ingestion::import_images(
             &core,
             &files,
             None,
@@ -49,7 +49,7 @@ pub async fn pick_and_import(
         ))
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| ApiError::internal(e.to_string()))??;
     log::info!(
         "点击导入完成：新建 {} 张，跳过重复 {}，失败 {}，耗时 {:?}",
         summary.vouchers.len(),
@@ -66,7 +66,7 @@ pub async fn pick_and_replace_image(
     app: AppHandle,
     ctx: Ctx<'_>,
     voucher_id: i64,
-) -> std::result::Result<Option<voucher_mgr::VoucherDetail>, String> {
+) -> std::result::Result<Option<voucher_mgr::VoucherDetail>, ApiError> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_dialog::DialogExt;
         app.dialog()
@@ -75,7 +75,7 @@ pub async fn pick_and_replace_image(
             .blocking_pick_file()
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let path = match picked.and_then(|f| f.into_path().ok()) {
         Some(p) => p,
@@ -87,24 +87,24 @@ pub async fn pick_and_replace_image(
     log::info!("更换图片：凭证 {voucher_id} ← {}", path.display());
     let core = ctx.inner().clone();
     let detail = tauri::async_runtime::spawn_blocking(move || {
-        err_string(ingestion::replace_attachment(&core, voucher_id, &path))?;
-        err_string(voucher_mgr::get_detail(&core, voucher_id))
+        err_api(ingestion::replace_attachment(&core, voucher_id, &path))?;
+        err_api(voucher_mgr::get_detail(&core, voucher_id))
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| ApiError::internal(e.to_string()))??;
     Ok(Some(detail))
 }
 
 #[tauri::command]
-pub fn attachment_abs_path(ctx: Ctx, id: i64) -> std::result::Result<String, String> {
-    let att = err_string(qsvc::attachment(&ctx, id))?;
+pub fn attachment_abs_path(ctx: Ctx, id: i64) -> std::result::Result<String, ApiError> {
+    let att = err_api(qsvc::attachment(&ctx, id))?;
     match att {
         Some(a) => Ok(ctx
             .paths
             .attachment_abs(&a.file_path)
             .to_string_lossy()
             .to_string()),
-        None => Err(format!("附件 {id} 不存在")),
+        None => Err(ApiError::plain("not_found", format!("附件 {id} 不存在"))),
     }
 }
 
@@ -116,10 +116,10 @@ pub async fn crop_attachment(
     attachment_id: i64,
     rect: voucher_core::services::crop::CropRect,
     rotation_deg: i32,
-) -> std::result::Result<voucher_core::models::Attachment, String> {
+) -> std::result::Result<voucher_core::models::Attachment, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        err_string(voucher_core::services::crop::crop_attachment(
+        err_api(voucher_core::services::crop::crop_attachment(
             &core,
             attachment_id,
             rect,
@@ -127,7 +127,7 @@ pub async fn crop_attachment(
         ))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// v0.13：系统对话框选账单 CSV → 对账（只读匹配，不写库）→ 报告落 exports/。
@@ -136,7 +136,7 @@ pub async fn crop_attachment(
 pub async fn pick_and_reconcile(
     app: AppHandle,
     ctx: Ctx<'_>,
-) -> std::result::Result<Option<voucher_core::services::reconcile::ReconcileReport>, String> {
+) -> std::result::Result<Option<voucher_core::services::reconcile::ReconcileReport>, ApiError> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_dialog::DialogExt;
         app.dialog()
@@ -145,7 +145,7 @@ pub async fn pick_and_reconcile(
             .blocking_pick_file()
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let path = match picked.and_then(|f| f.into_path().ok()) {
         Some(p) => p,
@@ -156,10 +156,10 @@ pub async fn pick_and_reconcile(
     };
     let core = ctx.inner().clone();
     let report = tauri::async_runtime::spawn_blocking(move || {
-        err_string(voucher_core::services::reconcile::reconcile(&core, &path))
+        err_api(voucher_core::services::reconcile::reconcile(&core, &path))
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| ApiError::internal(e.to_string()))??;
     Ok(Some(report))
 }
 
@@ -169,20 +169,20 @@ pub async fn pick_and_reconcile(
 pub async fn run_ocr(
     ctx: Ctx<'_>,
     attachment_id: i64,
-) -> std::result::Result<voucher_mgr::VoucherDetail, String> {
+) -> std::result::Result<voucher_mgr::VoucherDetail, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let att = err_string(ocr::run_for_attachment(&core, attachment_id))?;
-        err_string(voucher_core::services::ocr_fields::apply_for_attachment(
+        let att = err_api(ocr::run_for_attachment(&core, attachment_id))?;
+        err_api(voucher_core::services::ocr_fields::apply_for_attachment(
             &core,
             att.voucher_id,
             att.id,
             voucher_core::services::ocr_fields::FillMode::Manual,
         ))?;
-        err_string(voucher_mgr::get_detail(&core, att.voucher_id))
+        err_api(voucher_mgr::get_detail(&core, att.voucher_id))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// OCR 字段提取预览（只读）：从附件已识别文本抽取结构化字段，不写库。
@@ -192,8 +192,8 @@ pub async fn run_ocr(
 pub fn ocr_preview_fields(
     ctx: Ctx,
     attachment_id: i64,
-) -> std::result::Result<voucher_core::services::ocr_fields::ExtractedFields, String> {
-    err_string(qsvc::ocr_preview(&ctx, attachment_id))
+) -> std::result::Result<voucher_core::services::ocr_fields::ExtractedFields, ApiError> {
+    err_api(qsvc::ocr_preview(&ctx, attachment_id))
 }
 
 #[tauri::command]
@@ -201,11 +201,11 @@ pub async fn run_ocr_pending(
     ctx: Ctx<'_>,
     app: AppHandle,
     limit: Option<u32>,
-) -> std::result::Result<usize, String> {
+) -> std::result::Result<usize, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // 逐张推送进度事件（ocr:progress {done, total}），积压量大时前端显示进度条
-        err_string(ocr::run_pending(
+        err_api(ocr::run_pending(
             &core,
             limit.unwrap_or(50),
             &|done, total| {
@@ -218,7 +218,7 @@ pub async fn run_ocr_pending(
         ))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// v0.8：批量重新增强存量附件（autocrop 修复后按新算法重算增强版）。
@@ -227,10 +227,10 @@ pub async fn run_ocr_pending(
 pub async fn re_enhance_all(
     ctx: Ctx<'_>,
     app: AppHandle,
-) -> std::result::Result<serde_json::Value, String> {
+) -> std::result::Result<serde_json::Value, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (ok, failed) = err_string(voucher_core::services::enhance::re_enhance_all(
+        let (ok, failed) = err_api(voucher_core::services::enhance::re_enhance_all(
             &core,
             &|done, total| {
                 use tauri::Emitter;
@@ -243,7 +243,7 @@ pub async fn re_enhance_all(
         Ok(serde_json::json!({ "ok": ok, "failed": failed }))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 // ---------- 本地 OCR 状态 ----------

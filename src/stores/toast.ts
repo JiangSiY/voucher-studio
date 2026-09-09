@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { errMsg } from "../api/errors";
 
 export type ToastKind = "info" | "success" | "warning" | "danger";
 
@@ -53,8 +54,7 @@ export const toast = {
     useToastStore().push("danger", t, durationFor(8000, action), action),
 };
 
-/** 统一错误提示（后端返回的错误字符串 → toast） */
+/** 统一错误提示：{code,message} 对象取 message、字符串原样、Error 取 message */
 export function toastError(e: unknown) {
-  const msg = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-  toast.danger(msg);
+  toast.danger(errMsg(e));
 }

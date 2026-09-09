@@ -3,6 +3,9 @@
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
+// 错误归一工具（结构化 ApiError{code,message} 解析）；独立纯模块便于 node 环境测试
+export { asApiError, errMsg, type ApiErrorPayload } from "./errors";
+
 /** 是否运行在 Tauri 桌面壳内（纯浏览器打开 dev URL 时为 false） */
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

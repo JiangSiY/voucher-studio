@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useRouter } from "vue-router";
-import { api, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
+import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { toast } from "./stores/toast";
@@ -121,7 +121,7 @@ async function skipClosingBackup() {
   try {
     await api.skipClosingBackup();
   } catch (e) {
-    toast.danger(`退出失败：${e}`);
+    toast.danger(`退出失败：${errMsg(e)}`);
   }
 }
 

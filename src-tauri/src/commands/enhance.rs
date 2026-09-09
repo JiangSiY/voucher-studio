@@ -16,8 +16,8 @@ pub fn enhance_status(ctx: Ctx) -> voucher_core::services::enhance_cache::Enhanc
 /// 清除所有增强版缓存 v1（DB 字段置 NULL + 物理文件删除）。
 /// 返回实际删除的文件数（可能 < DB 记录数：文件已被手动删除）
 #[tauri::command]
-pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, String> {
-    err_string(voucher_core::services::enhance_cache::clear_v1(&ctx))
+pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, ApiError> {
+    err_api(voucher_core::services::enhance_cache::clear_v1(&ctx))
 }
 
 // ---------- v0.6.5 D-2 增强缓存管理 UI 升级 ----------
@@ -26,8 +26,8 @@ pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, String> {
 #[tauri::command]
 pub fn enhance_status_v2(
     ctx: Ctx,
-) -> std::result::Result<voucher_core::services::enhance_cache::EnhanceStatusV2, String> {
-    err_string(voucher_core::services::enhance_cache::status_v2(&ctx))
+) -> std::result::Result<voucher_core::services::enhance_cache::EnhanceStatusV2, ApiError> {
+    err_api(voucher_core::services::enhance_cache::status_v2(&ctx))
 }
 
 /// 按策略释放增强缓存
@@ -38,18 +38,18 @@ pub fn clear_enhance_cache_v2(
     ctx: Ctx,
     strategy: String,
     threshold: u32,
-) -> std::result::Result<voucher_core::services::enhance_cache::ClearSummary, String> {
+) -> std::result::Result<voucher_core::services::enhance_cache::ClearSummary, ApiError> {
     let s = voucher_core::services::enhance_cache::ClearStrategy::parse(&strategy)
-        .ok_or_else(|| format!("未知释放策略: {strategy}"))?;
-    err_string(voucher_core::services::enhance_cache::clear_v2(
+        .ok_or_else(|| ApiError::plain("invalid", format!("未知释放策略: {strategy}")))?;
+    err_api(voucher_core::services::enhance_cache::clear_v2(
         &ctx, s, threshold,
     ))
 }
 
 /// 单条释放某张附件的增强版
 #[tauri::command]
-pub fn delete_enhanced_one(ctx: Ctx, attachment_id: i64) -> std::result::Result<u32, String> {
-    err_string(voucher_core::services::enhance_cache::delete_one(
+pub fn delete_enhanced_one(ctx: Ctx, attachment_id: i64) -> std::result::Result<u32, ApiError> {
+    err_api(voucher_core::services::enhance_cache::delete_one(
         &ctx,
         attachment_id,
     ))
@@ -60,8 +60,8 @@ pub fn delete_enhanced_one(ctx: Ctx, attachment_id: i64) -> std::result::Result<
 pub fn recent_enhanced(
     ctx: Ctx,
     limit: u32,
-) -> std::result::Result<Vec<voucher_core::services::enhance_cache::RecentEnhancedRow>, String> {
-    err_string(voucher_core::services::enhance_cache::recent_enhanced(
+) -> std::result::Result<Vec<voucher_core::services::enhance_cache::RecentEnhancedRow>, ApiError> {
+    err_api(voucher_core::services::enhance_cache::recent_enhanced(
         &ctx, limit,
     ))
 }
@@ -69,8 +69,8 @@ pub fn recent_enhanced(
 /// D-7：查看器打开了某附件的增强版 → 记一条 viewer 命中。
 /// 附件无增强版时返回错误（前端静默忽略，不影响查看）。
 #[tauri::command]
-pub fn record_viewer_hit(ctx: Ctx, attachment_id: i64) -> std::result::Result<(), String> {
-    err_string(voucher_core::services::enhance_cache::record_hit(
+pub fn record_viewer_hit(ctx: Ctx, attachment_id: i64) -> std::result::Result<(), ApiError> {
+    err_api(voucher_core::services::enhance_cache::record_hit(
         &ctx,
         attachment_id,
         qsvc::HitSource::Viewer,
@@ -82,6 +82,6 @@ pub fn record_viewer_hit(ctx: Ctx, attachment_id: i64) -> std::result::Result<()
 pub fn enhance_hit_trend(
     ctx: Ctx,
     days: u32,
-) -> std::result::Result<voucher_core::services::enhance_cache::HitTrend, String> {
-    err_string(voucher_core::services::enhance_cache::hit_trend(&ctx, days))
+) -> std::result::Result<voucher_core::services::enhance_cache::HitTrend, ApiError> {
+    err_api(voucher_core::services::enhance_cache::hit_trend(&ctx, days))
 }

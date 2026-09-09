@@ -117,3 +117,53 @@ pub fn next_voucher_no(ctx: &CoreContext, date: &str) -> Result<String> {
     };
     ctx.db.with_conn(|conn| engine.next_no(conn, &d))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CoreError;
+
+    /// 建临时数据目录 + 完整 CoreContext（schema 就绪、配置落默认值）。
+    fn temp_ctx() -> (tempfile::TempDir, CoreContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = CoreContext::init(Some(dir.path().to_path_buf())).unwrap();
+        (dir, ctx)
+    }
+
+    #[test]
+    fn voucher_thumbs_empty_ids_returns_empty_map() {
+        let (_dir, ctx) = temp_ctx();
+        let thumbs = voucher_thumbs(&ctx, &[]).unwrap();
+        assert!(thumbs.is_empty(), "空 id 列表应跳过 SQL 直接返回空 map");
+    }
+
+    #[test]
+    fn attachment_missing_returns_ok_none() {
+        let (_dir, ctx) = temp_ctx();
+        assert!(
+            matches!(attachment(&ctx, 42_101), Ok(None)),
+            "不存在的附件应返回 Ok(None)，由调用方决定文案"
+        );
+    }
+
+    #[test]
+    fn ocr_preview_missing_attachment_returns_not_found() {
+        let (_dir, ctx) = temp_ctx();
+        let err = ocr_preview(&ctx, 42_102).expect_err("不存在的附件应返回错误");
+        let is_expected = match err {
+            CoreError::NotFound(ref msg) => msg.contains("42102"),
+            _ => false,
+        };
+        assert!(
+            is_expected,
+            "不存在的附件应返回 NotFound 且带附件 id，实际 {err:?}"
+        );
+    }
+
+    #[test]
+    fn suspected_duplicates_missing_voucher_returns_empty() {
+        let (_dir, ctx) = temp_ctx();
+        let out = suspected_duplicates(&ctx, 42_103).unwrap();
+        assert!(out.is_empty(), "凭证不存在时疑似重复应为空");
+    }
+}

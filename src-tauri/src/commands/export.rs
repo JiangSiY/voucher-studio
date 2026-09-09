@@ -10,14 +10,14 @@ pub async fn export_pdf(
     ctx: Ctx<'_>,
     voucher_ids: Vec<i64>,
     options: Option<ExportOptions>,
-) -> std::result::Result<voucher_core::models::ExportBatch, String> {
+) -> std::result::Result<voucher_core::models::ExportBatch, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match options {
-        Some(o) => err_string(export::export_vouchers_pdf(&core, &voucher_ids, &o)),
-        None => err_string(export::export_with_defaults(&core, &voucher_ids)),
+        Some(o) => err_api(export::export_vouchers_pdf(&core, &voucher_ids, &o)),
+        None => err_api(export::export_with_defaults(&core, &voucher_ids)),
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态）
@@ -26,14 +26,14 @@ pub async fn export_pdf_daily(
     ctx: Ctx<'_>,
     voucher_ids: Vec<i64>,
     options: Option<ExportOptions>,
-) -> std::result::Result<Vec<voucher_core::models::ExportBatch>, String> {
+) -> std::result::Result<Vec<voucher_core::models::ExportBatch>, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match options {
-        Some(o) => err_string(export::export_vouchers_daily(&core, &voucher_ids, &o)),
-        None => err_string(export::export_daily_with_defaults(&core, &voucher_ids)),
+        Some(o) => err_api(export::export_vouchers_daily(&core, &voucher_ids, &o)),
+        None => err_api(export::export_daily_with_defaults(&core, &voucher_ids)),
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// v0.10：表格式导出（Excel / CSV；format: xlsx | csv）
@@ -42,13 +42,13 @@ pub async fn export_table(
     ctx: Ctx<'_>,
     voucher_ids: Vec<i64>,
     format: voucher_core::models::ExportFormat,
-) -> std::result::Result<voucher_core::models::ExportBatch, String> {
+) -> std::result::Result<voucher_core::models::ExportBatch, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        err_string(export::export_vouchers_table(&core, &voucher_ids, format))
+        err_api(export::export_vouchers_table(&core, &voucher_ids, format))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// v0.11：年度报表 PDF（12 个月汇总 + 季度小计 + 年合计；统计输出，不改凭证状态）
@@ -56,21 +56,19 @@ pub async fn export_table(
 pub async fn export_yearly_report(
     ctx: Ctx<'_>,
     year: i32,
-) -> std::result::Result<voucher_core::models::ExportBatch, String> {
+) -> std::result::Result<voucher_core::models::ExportBatch, ApiError> {
     let core = ctx.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        err_string(export::export_yearly_report(&core, year))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || err_api(export::export_yearly_report(&core, year)))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 #[tauri::command]
 pub fn list_export_batches(
     ctx: Ctx,
     limit: Option<u32>,
-) -> std::result::Result<Vec<voucher_core::models::ExportBatch>, String> {
-    err_string(export::list_batches(&ctx, limit.unwrap_or(50)))
+) -> std::result::Result<Vec<voucher_core::models::ExportBatch>, ApiError> {
+    err_api(export::list_batches(&ctx, limit.unwrap_or(50)))
 }
 
 /// v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过）
@@ -78,6 +76,6 @@ pub fn list_export_batches(
 pub fn export_batch_vouchers(
     ctx: Ctx,
     batch_id: i64,
-) -> std::result::Result<Vec<voucher_core::models::Voucher>, String> {
-    err_string(export::batch_vouchers(&ctx, batch_id))
+) -> std::result::Result<Vec<voucher_core::models::Voucher>, ApiError> {
+    err_api(export::batch_vouchers(&ctx, batch_id))
 }

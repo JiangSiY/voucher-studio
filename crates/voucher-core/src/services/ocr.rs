@@ -213,7 +213,12 @@ fn validate_api_url(api_url: &str) -> Result<()> {
     match url.scheme() {
         "https" => Ok(()),
         "http" => {
-            let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+            // IPv6 的 host_str() 带方括号（如 "[::1]"），比较前统一剥掉
+            let host = url
+                .host_str()
+                .unwrap_or("")
+                .trim_matches(|c| c == '[' || c == ']')
+                .to_ascii_lowercase();
             let is_loopback = host == "localhost" || host == "127.0.0.1" || host == "::1";
             if is_loopback {
                 Ok(())

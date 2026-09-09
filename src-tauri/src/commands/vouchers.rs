@@ -16,14 +16,14 @@ use voucher_core::services::voucher_mgr;
 pub fn list_vouchers(
     ctx: Ctx,
     query: VoucherQuery,
-) -> std::result::Result<VoucherListResult, String> {
-    let (items, total) = err_string(voucher_mgr::list(&ctx, &query))?;
+) -> std::result::Result<VoucherListResult, ApiError> {
+    let (items, total) = err_api(voucher_mgr::list(&ctx, &query))?;
     // D-1：列表缩略图（每张凭证首附件，enhanced 优先）。空列表时跳过 SQL
     let thumbs: HashMap<i64, qsvc::VoucherThumb> = if items.is_empty() {
         HashMap::new()
     } else {
         let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
-        err_string(qsvc::voucher_thumbs(&ctx, &ids))?
+        err_api(qsvc::voucher_thumbs(&ctx, &ids))?
     };
     Ok(VoucherListResult {
         items,
@@ -42,8 +42,8 @@ pub struct VoucherListResult {
 }
 
 #[tauri::command]
-pub fn get_voucher(ctx: Ctx, id: i64) -> std::result::Result<voucher_mgr::VoucherDetail, String> {
-    err_string(voucher_mgr::get_detail(&ctx, id))
+pub fn get_voucher(ctx: Ctx, id: i64) -> std::result::Result<voucher_mgr::VoucherDetail, ApiError> {
+    err_api(voucher_mgr::get_detail(&ctx, id))
 }
 
 /// 编辑页上下文导航：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用）
@@ -52,8 +52,8 @@ pub fn get_voucher_neighbor(
     ctx: Ctx,
     id: i64,
     query: VoucherQuery,
-) -> std::result::Result<qsvc::VoucherNeighbor, String> {
-    err_string(voucher_mgr::neighbor(&ctx, id, &query))
+) -> std::result::Result<qsvc::VoucherNeighbor, ApiError> {
+    err_api(voucher_mgr::neighbor(&ctx, id, &query))
 }
 
 #[tauri::command]
@@ -61,14 +61,14 @@ pub fn update_voucher(
     ctx: Ctx,
     id: i64,
     update: VoucherUpdate,
-) -> std::result::Result<voucher_core::models::Voucher, String> {
-    err_string(voucher_mgr::update_voucher(&ctx, id, update))
+) -> std::result::Result<voucher_core::models::Voucher, ApiError> {
+    err_api(voucher_mgr::update_voucher(&ctx, id, update))
 }
 
 /// 批量删除（单事务 + 附件文件清理），返回实际删除数
 #[tauri::command]
-pub fn delete_vouchers(ctx: Ctx, ids: Vec<i64>) -> std::result::Result<u64, String> {
-    err_string(voucher_mgr::delete_vouchers(&ctx, &ids))
+pub fn delete_vouchers(ctx: Ctx, ids: Vec<i64>) -> std::result::Result<u64, ApiError> {
+    err_api(voucher_mgr::delete_vouchers(&ctx, &ids))
 }
 
 /// 批量变更状态（单事务逐张快照，reason=batch_status），返回实际变更数
@@ -78,8 +78,8 @@ pub fn batch_update_status(
     ctx: Ctx,
     ids: Vec<i64>,
     status: voucher_core::models::VoucherStatus,
-) -> std::result::Result<usize, String> {
-    err_string(voucher_mgr::batch_set_status(&ctx, &ids, status))
+) -> std::result::Result<usize, ApiError> {
+    err_api(voucher_mgr::batch_set_status(&ctx, &ids, status))
 }
 
 /// 批量编辑（单事务逐张快照，reason=batch_edit）：日期/备注/标签，返回实际变更数
@@ -88,13 +88,13 @@ pub fn batch_edit(
     ctx: Ctx,
     ids: Vec<i64>,
     patch: voucher_mgr::BatchEditPatch,
-) -> std::result::Result<usize, String> {
-    err_string(voucher_mgr::batch_edit(&ctx, &ids, &patch))
+) -> std::result::Result<usize, ApiError> {
+    err_api(voucher_mgr::batch_edit(&ctx, &ids, &patch))
 }
 
 #[tauri::command]
-pub fn voucher_stats(ctx: Ctx) -> std::result::Result<qsvc::VoucherStats, String> {
-    err_string(voucher_mgr::stats(&ctx))
+pub fn voucher_stats(ctx: Ctx) -> std::result::Result<qsvc::VoucherStats, ApiError> {
+    err_api(voucher_mgr::stats(&ctx))
 }
 
 // ---------- 报表 ----------
@@ -104,9 +104,9 @@ pub fn voucher_stats(ctx: Ctx) -> std::result::Result<qsvc::VoucherStats, String
 pub fn monthly_summary(
     ctx: Ctx,
     months: Option<u32>,
-) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
+) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, ApiError> {
     let n = months.unwrap_or(6).clamp(1, 24);
-    err_string(voucher_core::services::reports::monthly_summary(&ctx, n))
+    err_api(voucher_core::services::reports::monthly_summary(&ctx, n))
 }
 
 /// Top 对方账户排行（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50）
@@ -115,8 +115,8 @@ pub fn top_counterparties(
     ctx: Ctx,
     months: Option<u32>,
     limit: Option<u32>,
-) -> std::result::Result<Vec<voucher_core::services::reports::CounterpartyRow>, String> {
-    err_string(voucher_core::services::reports::top_counterparties(
+) -> std::result::Result<Vec<voucher_core::services::reports::CounterpartyRow>, ApiError> {
+    err_api(voucher_core::services::reports::top_counterparties(
         &ctx,
         months.unwrap_or(0),
         limit.unwrap_or(10),
@@ -130,8 +130,8 @@ pub fn tag_stats(
     ctx: Ctx,
     months: Option<u32>,
     limit: Option<u32>,
-) -> std::result::Result<Vec<voucher_core::services::reports::TagRow>, String> {
-    err_string(voucher_core::services::reports::tag_stats(
+) -> std::result::Result<Vec<voucher_core::services::reports::TagRow>, ApiError> {
+    err_api(voucher_core::services::reports::tag_stats(
         &ctx,
         months.unwrap_or(0),
         limit.unwrap_or(10),
@@ -143,8 +143,8 @@ pub fn tag_stats(
 pub fn frequent_descriptions(
     ctx: Ctx,
     limit: Option<u32>,
-) -> std::result::Result<Vec<voucher_core::services::reports::DescriptionRow>, String> {
-    err_string(voucher_core::services::reports::frequent_descriptions(
+) -> std::result::Result<Vec<voucher_core::services::reports::DescriptionRow>, ApiError> {
+    err_api(voucher_core::services::reports::frequent_descriptions(
         &ctx,
         limit.unwrap_or(8),
     ))
@@ -157,34 +157,34 @@ pub fn frequent_descriptions(
 pub fn check_voucher_duplicates(
     ctx: Ctx,
     id: i64,
-) -> std::result::Result<Vec<voucher_core::models::Voucher>, String> {
-    err_string(qsvc::suspected_duplicates(&ctx, id))
+) -> std::result::Result<Vec<voucher_core::models::Voucher>, ApiError> {
+    err_api(qsvc::suspected_duplicates(&ctx, id))
 }
 
 /// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张
 #[tauri::command]
-pub fn scan_duplicates(ctx: Ctx) -> std::result::Result<Vec<qsvc::DuplicateGroup>, String> {
-    err_string(qsvc::duplicate_groups(&ctx))
+pub fn scan_duplicates(ctx: Ctx) -> std::result::Result<Vec<qsvc::DuplicateGroup>, ApiError> {
+    err_api(qsvc::duplicate_groups(&ctx))
 }
 
 // ---------- v0.11：会计期间锁定（按月封账） ----------
 
 /// 全部已锁期间（设置页期间管理 + 列表/编辑页锁定态判断）
 #[tauri::command]
-pub fn list_period_locks(ctx: Ctx) -> std::result::Result<Vec<qsvc::PeriodLock>, String> {
-    err_string(voucher_core::services::period::list_periods(&ctx))
+pub fn list_period_locks(ctx: Ctx) -> std::result::Result<Vec<qsvc::PeriodLock>, ApiError> {
+    err_api(voucher_core::services::period::list_periods(&ctx))
 }
 
 /// 锁定期间（YYYY-MM）：该月凭证禁止增删改
 #[tauri::command]
-pub fn lock_period(ctx: Ctx, period: String) -> std::result::Result<(), String> {
-    err_string(voucher_core::services::period::lock_period(&ctx, &period))
+pub fn lock_period(ctx: Ctx, period: String) -> std::result::Result<(), ApiError> {
+    err_api(voucher_core::services::period::lock_period(&ctx, &period))
 }
 
 /// 解锁期间（设置页需二次确认后调用）
 #[tauri::command]
-pub fn unlock_period(ctx: Ctx, period: String) -> std::result::Result<(), String> {
-    err_string(voucher_core::services::period::unlock_period(&ctx, &period))
+pub fn unlock_period(ctx: Ctx, period: String) -> std::result::Result<(), ApiError> {
+    err_api(voucher_core::services::period::unlock_period(&ctx, &period))
 }
 
 /// v0.11：年度汇总（该自然年 12 个月，空月补零）
@@ -192,9 +192,9 @@ pub fn unlock_period(ctx: Ctx, period: String) -> std::result::Result<(), String
 pub fn yearly_summary(
     ctx: Ctx,
     year: i32,
-) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, String> {
+) -> std::result::Result<Vec<voucher_core::services::reports::MonthlySummary>, ApiError> {
     let y = year.clamp(1970, 9999);
-    err_string(voucher_core::services::reports::yearly_summary(&ctx, y))
+    err_api(voucher_core::services::reports::yearly_summary(&ctx, y))
 }
 
 // ---------- 搜索 ----------
@@ -205,9 +205,9 @@ pub fn search_vouchers(
     keyword: String,
     filters: Option<qsvc::SearchFilters>,
     limit: Option<u32>,
-) -> std::result::Result<Vec<SearchHit>, String> {
+) -> std::result::Result<Vec<SearchHit>, ApiError> {
     let f = filters.unwrap_or_default();
-    err_string(search::search_vouchers(
+    err_api(search::search_vouchers(
         &ctx,
         &keyword,
         &f,

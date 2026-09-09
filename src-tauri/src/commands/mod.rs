@@ -31,12 +31,76 @@ pub(super) use std::sync::Arc;
 pub(super) use serde::Serialize;
 pub(super) use tauri::{AppHandle, State};
 
-pub(super) use voucher_core::{CoreContext, Result};
+pub(super) use voucher_core::{CoreContext, CoreError};
 
 pub(super) type Ctx<'a> = State<'a, Arc<CoreContext>>;
 
-pub(super) fn err_string<T>(r: Result<T>) -> std::result::Result<T, String> {
-    r.map_err(|e| e.to_string())
+// ---------- 结构化错误（体检 #10 / A-4） ----------
+
+/// 命令层结构化错误：{ code, message } 序列化给前端。
+///
+/// - `message`：保持与旧 `err_string` 一致的原文（中文可读文案），
+///   前端直接展示不改味；
+/// - `code`：CoreError 变体的稳定 kebab-code，前端可按类型差异化处理
+///   （如 `lock_held` → 引导用户解锁/检查多实例，`db`/`io` → 提示重试）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ApiError {
+    /// CoreError 变体 → 稳定 code；message 沿用 Display（与旧 err_string 完全一致）。
+    pub(crate) fn from_core(e: CoreError) -> Self {
+        let code = match &e {
+            CoreError::Io(_) => "io",
+            CoreError::Db(_) => "db",
+            CoreError::Json(_) => "json",
+            CoreError::Keyring(_) => "keyring",
+            CoreError::Http(_) => "http",
+            CoreError::Pdf(_) => "pdf",
+            CoreError::Zip(_) => "zip",
+            CoreError::Xlsx(_) => "xlsx",
+            CoreError::NotImplemented(_) => "not_implemented",
+            CoreError::LocalOcr(_) => "local_ocr",
+            CoreError::Cv(_) => "cv",
+            CoreError::NotFound(_) => "not_found",
+            CoreError::Invalid(_) => "invalid",
+            CoreError::LockHeld => "lock_held",
+        };
+        Self {
+            code,
+            message: e.to_string(),
+        }
+    }
+
+    /// 手工业务错误：显式给稳定 code；message 原样透传（不加前缀）。
+    pub(crate) fn plain(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// 非 CoreError（join 异常 / 窗口操作失败 / 字符串业务校验等）：统一归 `internal`。
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
+        Self {
+            code: "internal",
+            message: message.into(),
+        }
+    }
+}
+
+impl From<CoreError> for ApiError {
+    fn from(e: CoreError) -> Self {
+        ApiError::from_core(e)
+    }
+}
+
+/// 把 voucher-core Result（CoreError）转换为命令层 Result（ApiError）。
+pub(super) fn err_api<T>(r: voucher_core::Result<T>) -> std::result::Result<T, ApiError> {
+    r.map_err(ApiError::from_core)
 }
 // ---------- 应用信息 ----------
 
@@ -66,8 +130,8 @@ pub fn get_app_info(ctx: Ctx) -> AppInfo {
 }
 
 #[tauri::command]
-pub fn open_path(app: AppHandle, path: String) -> std::result::Result<(), String> {
-    crate::platform::open_path(&app, &path)
+pub fn open_path(app: AppHandle, path: String) -> std::result::Result<(), ApiError> {
+    crate::platform::open_path(&app, &path).map_err(ApiError::internal)
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@
  * 分层保留 GFS、WebDAV 云备份与连接测试。
  */
 import { ref } from "vue";
-import { api, type AppConfig } from "../../api/client";
+import { api, errMsg, type AppConfig } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useConfigStore } from "../../stores/config";
@@ -55,7 +55,7 @@ async function testWebdavConnection() {
     webdavTestResult.value = { ok: true, text: `连接成功，远端已有 ${count} 份备份` };
     toast.success(`WebDAV 连接成功，远端已有 ${count} 份备份`);
   } catch (e) {
-    webdavTestResult.value = { ok: false, text: String(e) };
+    webdavTestResult.value = { ok: false, text: errMsg(e) };
     toastError(e);
   } finally {
     webdavTesting.value = false;
