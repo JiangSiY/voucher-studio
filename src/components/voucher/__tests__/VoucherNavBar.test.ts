@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-import VoucherNavBar from "../voucher/VoucherNavBar.vue";
+import VoucherNavBar from "../VoucherNavBar.vue";
 
 function mountNav(overrides: Partial<{
   prevId: number | null;
