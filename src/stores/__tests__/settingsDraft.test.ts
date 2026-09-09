@@ -27,7 +27,8 @@ describe("useSettingsDraft", () => {
     const draft = useSettingsDraft();
 
     // 模拟极旧配置：无 voucher 段
-    const { voucher: _omitted, ...noVoucher } = defaultConfig();
+    const noVoucher: Partial<AppConfig> = { ...defaultConfig() };
+    delete noVoucher.voucher;
     draft.replace(noVoucher as unknown as AppConfig);
     expect(draft.cfg.voucher).toEqual({ descriptionTemplates: [] });
 
