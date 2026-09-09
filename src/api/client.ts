@@ -294,7 +294,7 @@ export interface AppConfig {
     keepWeekly: number;
     keepMonthly: number;
     secondaryDir: string;
-    /** v0.13：备份 zip AES-256 加密（密码存凭据管理器；本地/异盘/云端全覆盖） */
+    /** v0.13 引入；v0.14-A 起备份文件以 age 信封整文件密封（ChaCha20-Poly1305 AEAD；密码存凭据管理器；本地/异盘/云端全覆盖） */
     encrypted: boolean;
     webdav: {
       enabled: boolean;

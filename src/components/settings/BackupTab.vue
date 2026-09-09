@@ -96,14 +96,14 @@ async function testWebdavConnection() {
         </label>
       </div>
 
-      <!-- v0.13：备份加密（AES-256；密码存凭据管理器） -->
+      <!-- v0.14-A：备份加密（age 信封 AEAD 整文件密封；密码存凭据管理器） -->
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px">
         <div>
           <div style="font-size: 13px; font-weight: 600">备份加密 <FluentIcon name="lock" :size="13" /></div>
           <div style="font-size: 12px; color: var(--text-3)">
-            开启后备份 zip 以 AES-256 加密（本地 / 异盘 / WebDAV 云端全覆盖），恢复时自动解密。
+            开启后备份文件以 age 加密（ChaCha20-Poly1305 AEAD）整文件密封保护（本地 / 异盘 / WebDAV 云端全覆盖），恢复时自动解密。
             密码在「密钥管理 → 备份加密密码」设置，<strong style="color: var(--warning)">忘记密码将无法恢复备份，请牢记</strong>。
-            旧明文备份仍可直接恢复。
+            旧版备份（含 v0.13 AES 加密备份）仍可兼容恢复。
           </div>
         </div>
         <label class="toggle">
