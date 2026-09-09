@@ -5,11 +5,19 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 当前基线：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。
 
+> ⚠️ **修订注记（2026-09-09，项目综合分析报告第七章）**：本文档固化于 G1 门，测试全集此后持续增长。
+> 截至 v0.13.1（HEAD 525e828）：`voucher-core` 测试约 **204 个**（src 内联 113 + tests/ 集成 91，含
+> backup_flow 10 / db_resilience 4 / enhance_e2e 24 / ocr_flow 5 / spike_a_print 5 / voucher_flow 39 /
+> webdav_mock 4）；前端 vitest 7 文件 37 用例。下表逐条映射以 G1 时点为准，未随版本滚动更新；
+> **H 节「微信监听」对应功能已于 v0.7 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
+> 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
+> `core_flow` 测试文件已改组为 `voucher_flow.rs`。新增域（对账/期间锁/裁剪/WebDAV mock/DB 容错）见对应验收文档与 README。
+
 ## A. 数据库与仓储（v4.3 `db/`）
 
 | # | 测试 | 断言语义（v4.3 对应） | 状态 |
 |---|------|----------------------|------|
-| 1 | `schema_creates_seven_tables` | 建库产出 7 张表 + user_version=1（schema.py 建表语义） | ✅ |
+| 1 | `schema_creates_eight_tables` | 建库产出 8 张表 + user_version（schema.py 建表语义；G1 时 7 表，后演进为 8） | ✅ |
 | 2 | `voucher_crud_roundtrip` | 凭证增查改删闭环 + 字段往返无损（voucher CRUD） | ✅ |
 | 3 | `duplicate_voucher_no_rejected` | 凭证编号唯一约束：重复编号被拒（UNIQUE 语义） | ✅ |
 | 4 | `update_creates_snapshot` | 修改前落快照（快照审计约定：数据是生命线） | ✅ |
@@ -73,14 +81,17 @@
 | 32 | `file_lock::lock_acquire_and_conflict` | 文件锁获取与冲突检测 | ✅ |
 | 33 | `file_lock_prevents_second_instance` | 第二实例启动被拒（并发写保护，数据是生命线） | ✅ |
 
-## H. 微信监听（v4.3 `wechat.py`，升级为递归 + 热重载）
+## H. 微信监听（v4.3 `wechat.py`）——⚠️ 功能已移除（v0.7，提交 50d2adb）
 
-| # | 测试 | 断言语义 | 状态 |
-|---|------|---------|------|
-| 34 | `wechat::settle_requires_quiet_then_two_equal_samples` | 写入稳定判定：静默期 + 尺寸双采样 | ✅ |
-| 35 | `wechat::new_event_resets_sampling` | 新事件重置计时与采样（持续写入不误判） | ✅ |
-| 36 | `wechat::stuck_or_missing_files_expire` | 消失文件超时放弃（防 pending 泄漏） | ✅ |
-| 37 | `wechat::empty_file_never_settles_but_expires` | 零字节占位不误报稳定 | ✅ |
+> 本功能（微信收件夹目录监听自动入库）已随 v0.7 移除，对应测试 #34–37 已删除，不再列为验收项。
+> 现存「微信」相关能力仅为**账单 CSV 对账**（reconcile，见 `reconcile_matches_and_reports_gaps`）。
+
+| # | 测试 | 断言语义（v4.3 对应） | 状态 |
+|---|------|----------------------|------|
+| 34 | `wechat::settle_requires_quiet_then_two_equal_samples` | 写入稳定判定：静默期 + 尺寸双采样 | 🗑️ 已移除 |
+| 35 | `wechat::new_event_resets_sampling` | 新事件重置计时与采样（持续写入不误判） | 🗑️ 已移除 |
+| 36 | `wechat::stuck_or_missing_files_expire` | 消失文件超时放弃（防 pending 泄漏） | 🗑️ 已移除 |
+| 37 | `wechat::empty_file_never_settles_but_expires` | 零字节占位不误报稳定 | 🗑️ 已移除 |
 
 ## I. 凭据（v4.3 `crypto.py` → keyring）
 
