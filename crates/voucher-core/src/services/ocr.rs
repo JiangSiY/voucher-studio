@@ -150,7 +150,13 @@ fn local_recognize(
         .and_then(|r| r.decode().map_err(|e| e.to_string()));
     let img = decoded
         .map_err(|e| CoreError::LocalOcr(format!("读取图片失败 {}. {e}", image_path.display())))?;
-    let lines = engine.lock().unwrap().recognize_image(&img)?;
+    let lines = engine
+        .lock()
+        .unwrap_or_else(|poisoned| {
+            log::error!("本地 OCR 引擎锁中毒：上一持锁线程 panic，已恢复继续使用");
+            poisoned.into_inner()
+        })
+        .recognize_image(&img)?;
     let text = lines
         .iter()
         .map(|l| l.text.as_str())
@@ -168,6 +174,8 @@ fn cloud_recognize(ctx: &CoreContext, image_path: &Path) -> Result<String> {
             "云端 OCR API 地址未配置（设置 → OCR）".into(),
         ));
     }
+    // 体检 Q-3：强制 https，报错发生在携带 Bearer Key / 发出任何请求之前。
+    validate_api_url(&api_url)?;
 
     let bytes = std::fs::read(image_path)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -189,6 +197,37 @@ fn cloud_recognize(ctx: &CoreContext, image_path: &Path) -> Result<String> {
     let resp: serde_json::Value = req.send()?.error_for_status()?.json()?;
     extract_text(&resp)
         .ok_or_else(|| CoreError::Invalid("OCR 服务返回格式无法解析（缺少 text 字段）".into()))
+}
+
+/// 校验云端 OCR API 地址（体检 Q-3）：协议必须 `https`。
+///
+/// `http` 仅在回环地址（localhost / 127.0.0.1 / ::1）放行——用于本地调试服务；
+/// 其它主机用 `http` 会以明文传输 API Key（`Authorization: Bearer`），直接拒绝。
+/// 其余协议（ftp 等）一律拒绝。
+fn validate_api_url(api_url: &str) -> Result<()> {
+    let url = reqwest::Url::parse(api_url).map_err(|e| {
+        CoreError::Invalid(format!(
+            "云端 OCR API 地址无法解析（需形如 https://host/path）: {e}"
+        ))
+    })?;
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+            let is_loopback = host == "localhost" || host == "127.0.0.1" || host == "::1";
+            if is_loopback {
+                Ok(())
+            } else {
+                Err(CoreError::Invalid(format!(
+                    "云端 OCR API 地址必须使用 https（当前为 http://{host}）。\
+                     为避免 API Key 明文传输，仅 localhost/127.0.0.1/::1 允许 http"
+                )))
+            }
+        }
+        other => Err(CoreError::Invalid(format!(
+            "云端 OCR API 地址协议不支持: {other}（需 https）"
+        ))),
+    }
 }
 
 /// 常见返回格式逐层取文本（某条路径不存在时继续尝试下一条，而非提前退出）
@@ -222,5 +261,20 @@ mod tests {
 
         let d = serde_json::json!({"foo": 1});
         assert!(extract_text(&d).is_none());
+    }
+
+    /// 云端 API 地址：https 放行；http 仅回环地址放行，其余拒绝。
+    #[test]
+    fn cloud_api_url_requires_https_except_loopback() {
+        assert!(validate_api_url("https://ocr.example.com/v1/recognize").is_ok());
+        assert!(validate_api_url("http://127.0.0.1:8000/v1").is_ok());
+        assert!(validate_api_url("http://localhost:8000/v1").is_ok());
+        assert!(validate_api_url("http://[::1]:8000/v1").is_ok());
+
+        let err = validate_api_url("http://ocr.example.com/v1").unwrap_err();
+        assert!(err.to_string().contains("https"));
+
+        assert!(validate_api_url("ftp://ocr.example.com/v1").is_err());
+        assert!(validate_api_url("not a url").is_err());
     }
 }

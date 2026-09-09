@@ -86,15 +86,22 @@ impl CoreContext {
         })
     }
 
-    /// 读取当前配置（克隆）
+    /// 读取当前配置（克隆）。
+    ///
+    /// # 注意
+    /// 锁中毒会自动恢复（对齐 [`CoreContext::backup_guard`] 的写法）；std `RwLock` 写锁非重入，
+    /// 持锁期间不得回调会再次取同一把锁的逻辑。
     pub fn config(&self) -> AppConfig {
-        self.config.read().unwrap().clone()
+        self.read_config().clone()
     }
 
-    /// 保存配置（写盘 + 更新内存）
+    /// 保存配置（写盘 + 更新内存）。
+    ///
+    /// # 注意
+    /// 持写锁期间不得回调会再次取 `config` 锁的逻辑。
     pub fn set_config(&self, cfg: AppConfig) -> Result<()> {
         cfg.save(&self.paths.config_file())?;
-        *self.config.write().unwrap() = cfg;
+        *self.write_config() = cfg;
         Ok(())
     }
 
@@ -104,8 +111,9 @@ impl CoreContext {
     }
 
     /// 本地 OCR 引擎（懒加载 + 共享）。模型未安装时报错并提示处理方式。
+    /// 锁中毒自动恢复；`RwLock` 写锁非重入，持锁期间不得回调会再次取同一把锁的逻辑。
     pub fn local_ocr(&self) -> Result<Arc<Mutex<LocalOcr>>> {
-        if let Some(e) = self.local_ocr.read().unwrap().clone() {
+        if let Some(e) = self.read_local_ocr().clone() {
             return Ok(e);
         }
         if !LocalOcr::is_installed(&self.paths.models) {
@@ -115,12 +123,42 @@ impl CoreContext {
             )));
         }
         let engine = Arc::new(Mutex::new(LocalOcr::load(&self.paths.models)?));
-        *self.local_ocr.write().unwrap() = Some(engine.clone());
+        *self.write_local_ocr() = Some(engine.clone());
         Ok(engine)
     }
 
     /// 本地 OCR 是否可用（模型已安装）
     pub fn local_ocr_ready(&self) -> bool {
         LocalOcr::is_installed(&self.paths.models)
+    }
+
+    // ---------- 锁中毒恢复辅助（体检 Q-2：中毒=上一持锁线程 panic 过，不静默恢复） ----------
+
+    fn read_config(&self) -> std::sync::RwLockReadGuard<'_, AppConfig> {
+        self.config.read().unwrap_or_else(|poisoned| {
+            log::error!("配置读锁中毒：上一持锁线程 panic，已恢复继续使用（配置可能不完整）");
+            poisoned.into_inner()
+        })
+    }
+
+    fn write_config(&self) -> std::sync::RwLockWriteGuard<'_, AppConfig> {
+        self.config.write().unwrap_or_else(|poisoned| {
+            log::error!("配置写锁中毒：上一持锁线程 panic，已恢复继续使用（配置可能不完整）");
+            poisoned.into_inner()
+        })
+    }
+
+    fn read_local_ocr(&self) -> std::sync::RwLockReadGuard<'_, Option<Arc<Mutex<LocalOcr>>>> {
+        self.local_ocr.read().unwrap_or_else(|poisoned| {
+            log::error!("本地 OCR 锁中毒：上一持锁线程 panic，已恢复继续使用");
+            poisoned.into_inner()
+        })
+    }
+
+    fn write_local_ocr(&self) -> std::sync::RwLockWriteGuard<'_, Option<Arc<Mutex<LocalOcr>>>> {
+        self.local_ocr.write().unwrap_or_else(|poisoned| {
+            log::error!("本地 OCR 锁中毒：上一持锁线程 panic，已恢复继续使用");
+            poisoned.into_inner()
+        })
     }
 }
