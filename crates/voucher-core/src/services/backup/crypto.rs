@@ -16,6 +16,7 @@
 //! 2. zip 加密条目（旧 v0.13 WinZip AES）→ 保留 `open_entry` 旧分支，存量加密
 //!    备份仍可恢复（密码同样取凭据管理器）；
 //! 3. 明文 zip → 原逻辑，零改动。
+//!
 //! 合成产物（materialize → 全量 zip）与「导出完整备份」保持明文：前者是临时中间物，
 //! 后者是用户主动拷走的文件（自行决定去留）。
 
@@ -168,6 +169,7 @@ pub(super) fn unseal_bytes(sealed: &[u8]) -> Result<Vec<u8>> {
 /// 以「可读取的明文 zip 路径」执行 `f`（所有备份读取入口的统一分派点）：
 /// - age 信封（v4）→ 先解密到系统临时目录，回调后自动删除；
 /// - 其它（明文 zip / v0.13 加密 zip）→ 原路径直接回调。
+///
 /// v0.13 加密 zip 的条目级解密仍由回调内的 `open_entry` 负责。
 pub(super) fn with_readable_zip<T>(path: &Path, f: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
     if !is_age_envelope(path) {
