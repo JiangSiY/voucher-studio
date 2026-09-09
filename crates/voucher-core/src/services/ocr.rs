@@ -26,7 +26,7 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         return Err(CoreError::Invalid("仅支持识别图片附件".into()));
     }
 
-    let abs = ctx.paths.attachment_abs(&attachment.file_path);
+    let abs = ctx.paths.attachment_abs_checked(&attachment.file_path)?;
     if !abs.exists() {
         return Err(CoreError::NotFound(format!(
             "附件文件缺失: {}",
@@ -38,7 +38,7 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
     // 增强版不存在（未增强 / 失败）时回退原图。
     // v0.6.5 D-2：使用增强版时记一条 enhance_hits 命中（OCR 来源），给设置页命中率统计。
     let ocr_target = if let Some(ep) = &attachment.enhanced_path {
-        let enhanced_abs = ctx.paths.attachment_abs(ep);
+        let enhanced_abs = ctx.paths.attachment_abs_checked(ep)?;
         if enhanced_abs.exists() {
             if let Err(e) = ctx.db.with_conn(|conn| {
                 enhance_hit_repo::record(conn, attachment.id, enhance_hit_repo::HitSource::Ocr)
@@ -128,14 +128,68 @@ fn recognize_with_cache(
         return Err(CoreError::Invalid("OCR 未启用（设置 → OCR）".into()));
     }
 
-    let (text, lines) = match cfg.ocr.engine.as_str() {
-        "cloud" => (cloud_recognize(ctx, abs)?, None),
-        "local" => local_recognize(ctx, abs)?,
-        other => return Err(CoreError::Invalid(format!("未知 OCR 引擎: {other}"))),
-    };
+    let engine = engine_for(&cfg.ocr.engine)?;
+    let (text, lines) = engine.recognize(ctx, abs)?;
 
-    ocr_cache_repo::upsert(conn, &attachment.file_hash, &cfg.ocr.engine, &text)?;
+    ocr_cache_repo::upsert(conn, &attachment.file_hash, engine.name(), &text)?;
     Ok((text, lines))
+}
+
+// ---------- 引擎抽象（体检 A-2 / 第四批 19 项） ----------
+
+/// OCR 引擎统一接口：换引擎 / 加引擎实现此 trait 即可，
+/// `recognize_with_cache` 经 [`engine_for`] 工厂分发，不再感知具体种类。
+trait OcrEngine {
+    /// 引擎标识（写 ocr_cache.engine 溯源，与配置串一致）
+    fn name(&self) -> &'static str;
+    /// 识别：返回 (纯文本, 版面数据)。无版面的引擎返回 None
+    /// （字段抽取回退纯文本模式，见 ocr_fields）。
+    fn recognize(
+        &self,
+        ctx: &CoreContext,
+        image_path: &Path,
+    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)>;
+}
+
+struct LocalEngine;
+
+impl OcrEngine for LocalEngine {
+    fn name(&self) -> &'static str {
+        "local"
+    }
+
+    fn recognize(
+        &self,
+        ctx: &CoreContext,
+        image_path: &Path,
+    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
+        local_recognize(ctx, image_path)
+    }
+}
+
+struct CloudEngine;
+
+impl OcrEngine for CloudEngine {
+    fn name(&self) -> &'static str {
+        "cloud"
+    }
+
+    fn recognize(
+        &self,
+        ctx: &CoreContext,
+        image_path: &Path,
+    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
+        Ok((cloud_recognize(ctx, image_path)?, None))
+    }
+}
+
+/// 引擎配置名 → 引擎实例（未知配置在此收口报错）
+fn engine_for(engine: &str) -> Result<Box<dyn OcrEngine>> {
+    match engine {
+        "local" => Ok(Box::new(LocalEngine)),
+        "cloud" => Ok(Box::new(CloudEngine)),
+        other => Err(CoreError::Invalid(format!("未知 OCR 引擎: {other}"))),
+    }
 }
 
 /// 本地识别（G1 Spike B 验证路线：ort + RapidOCR PP-OCRv4，完全离线）

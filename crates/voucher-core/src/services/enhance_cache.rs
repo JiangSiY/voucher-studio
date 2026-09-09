@@ -118,9 +118,10 @@ pub fn status_v2(ctx: &CoreContext) -> Result<EnhanceStatusV2> {
     let mut scan_count: u32 = 0;
     for a in &atts {
         if let Some(rel) = &a.enhanced_path {
-            let abs = ctx.paths.attachment_abs(rel);
-            if let Ok(m) = std::fs::metadata(&abs) {
-                total_size += m.len();
+            if let Ok(abs) = ctx.paths.attachment_abs_checked(rel) {
+                if let Ok(m) = std::fs::metadata(&abs) {
+                    total_size += m.len();
+                }
             }
         }
         match a.enhanced_source {
@@ -178,9 +179,10 @@ pub fn status_v1(ctx: &CoreContext) -> EnhanceStatusV1 {
     };
     for a in &atts {
         if let Some(rel) = &a.enhanced_path {
-            let abs = ctx.paths.attachment_abs(rel);
-            if let Ok(m) = std::fs::metadata(&abs) {
-                s.total_size += m.len();
+            if let Ok(abs) = ctx.paths.attachment_abs_checked(rel) {
+                if let Ok(m) = std::fs::metadata(&abs) {
+                    s.total_size += m.len();
+                }
             }
         }
         match a.enhanced_source {
@@ -381,7 +383,8 @@ pub fn clear_v2(
         candidates.sort_by_key(|a| {
             a.enhanced_path
                 .as_ref()
-                .and_then(|rel| std::fs::metadata(ctx.paths.attachment_abs(rel)).ok())
+                .and_then(|rel| ctx.paths.attachment_abs_checked(rel).ok())
+                .and_then(|abs| std::fs::metadata(abs).ok())
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
@@ -459,8 +462,12 @@ pub fn recent_enhanced(ctx: &CoreContext, limit: u32) -> Result<Vec<RecentEnhanc
 
 fn enhanced_size_bytes(a: &Attachment, ctx: &CoreContext) -> u64 {
     if let Some(rel) = &a.enhanced_path {
-        let abs = ctx.paths.attachment_abs(rel);
-        std::fs::metadata(&abs).map(|m| m.len()).unwrap_or(0)
+        ctx.paths
+            .attachment_abs_checked(rel)
+            .ok()
+            .and_then(|abs| std::fs::metadata(abs).ok())
+            .map(|m| m.len())
+            .unwrap_or(0)
     } else {
         0
     }
@@ -468,7 +475,7 @@ fn enhanced_size_bytes(a: &Attachment, ctx: &CoreContext) -> u64 {
 
 fn enhanced_mtime_iso(ctx: &CoreContext, a: &Attachment) -> Option<String> {
     let rel = a.enhanced_path.as_ref()?;
-    let abs = ctx.paths.attachment_abs(rel);
+    let abs = ctx.paths.attachment_abs_checked(rel).ok()?;
     let m = std::fs::metadata(&abs).ok()?;
     let mtime = m.modified().ok()?;
     let dt: chrono::DateTime<chrono::Utc> = mtime.into();
@@ -479,7 +486,9 @@ fn ctx_for_mtime_filter(a: &Attachment, ctx: &CoreContext, since_ts_secs: i64) -
     let Some(rel) = &a.enhanced_path else {
         return false;
     };
-    let abs = ctx.paths.attachment_abs(rel);
+    let Ok(abs) = ctx.paths.attachment_abs_checked(rel) else {
+        return false;
+    };
     let Ok(m) = std::fs::metadata(&abs) else {
         return false;
     };

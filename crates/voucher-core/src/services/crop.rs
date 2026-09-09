@@ -50,7 +50,7 @@ pub fn crop_attachment(
     })?;
 
     // 基准 = 原图（手动裁剪是对自动增强结果的替代，不是叠加）
-    let src_abs = ctx.paths.attachment_abs(&attachment.file_path);
+    let src_abs = ctx.paths.attachment_abs_checked(&attachment.file_path)?;
     let img =
         image::open(&src_abs).map_err(|e| CoreError::Invalid(format!("读取图片失败: {e}")))?;
 

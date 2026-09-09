@@ -142,7 +142,13 @@ fn check_attachments(ctx: &CoreContext) -> Result<(i64, usize, Vec<String>)> {
     let total = rows.len() as i64;
     let missing_rows: Vec<&String> = rows
         .iter()
-        .filter(|(rel, _)| !ctx.paths.attachment_abs(rel).is_file())
+        // DB 来源 rel 词法校验（Q-20）：非法路径直接计为缺失
+        .filter(|(rel, _)| {
+            !ctx.paths
+                .attachment_abs_checked(rel)
+                .map(|p| p.is_file())
+                .unwrap_or(false)
+        })
         .map(|(_, name)| name)
         .collect();
     let missing_count = missing_rows.len();

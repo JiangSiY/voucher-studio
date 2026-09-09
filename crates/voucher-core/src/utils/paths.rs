@@ -83,8 +83,45 @@ impl AppPaths {
     }
 
     /// 附件的磁盘绝对路径
+    ///
+    /// # 契约
+    /// `rel` 必须是本程序生成的可信相对路径（`attachment_rel_path` 产物，
+    /// 形如 `2026/09/<md5>.jpg`）。**DB / 外部数据来源的 rel 必须走
+    /// [`attachment_abs_checked`](Self::attachment_abs_checked)**
+    /// （体检 Q-20：DB 被篡改 / 恢复出损坏数据时，rel 可能携带穿越片段）。
     pub fn attachment_abs(&self, rel: &str) -> PathBuf {
         self.attachments.join(rel)
+    }
+
+    /// 附件相对路径的词法安全校验：拒绝绝对路径 / `..` / 反斜杠 / 盘符。
+    /// 纯词法判定（不依赖文件存在——canonicalize 对缺失文件失效，
+    /// 而「文件不存在」恰是多个读路径的正常态）。
+    pub fn is_safe_rel(rel: &str) -> bool {
+        if rel.is_empty() || rel.contains('\\') || rel.contains(':') {
+            return false;
+        }
+        let p = std::path::Path::new(rel);
+        if p.is_absolute() {
+            return false;
+        }
+        p.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    }
+
+    /// DB / 外部数据来源的 rel → 绝对路径（带穿越防御，体检 Q-20 收口）。
+    /// 非法 rel 报错而非拼出附件目录外的路径。
+    pub fn attachment_abs_checked(&self, rel: &str) -> Result<PathBuf> {
+        if Self::is_safe_rel(rel) {
+            Ok(self.attachments.join(rel))
+        } else {
+            Err(CoreError::Invalid(format!(
+                "非法的附件相对路径（疑似路径穿越）：{rel:?}"
+            )))
+        }
     }
 
     /// 把一张图片复制进附件目录（按 yyyy/mm + 内容哈希命名），返回相对路径
@@ -133,4 +170,36 @@ pub fn now_iso() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Q-20：词法校验——程序生成的正常 rel 通过，穿越/绝对/盘符/反斜杠全拒
+    #[test]
+    fn is_safe_rel_accepts_generated_and_rejects_traversal() {
+        // 程序生成形态（attachment_rel_path 产物）
+        assert!(AppPaths::is_safe_rel("2026/09/abc123.jpg"));
+        assert!(AppPaths::is_safe_rel("2026/09/abc123.enhanced.jpg"));
+        // 穿越与异常形态
+        assert!(!AppPaths::is_safe_rel("../outside.txt"));
+        assert!(!AppPaths::is_safe_rel("2026/../../outside.jpg"));
+        assert!(!AppPaths::is_safe_rel("/etc/passwd"));
+        assert!(!AppPaths::is_safe_rel("C:\\Windows\\evil.jpg"));
+        assert!(!AppPaths::is_safe_rel("C:/Windows/evil.jpg"));
+        assert!(!AppPaths::is_safe_rel("a\\b.jpg"), "反斜杠拒绝");
+        assert!(!AppPaths::is_safe_rel(""));
+    }
+
+    #[test]
+    fn attachment_abs_checked_rejects_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::resolve(Some(dir.path().to_path_buf())).unwrap();
+        assert!(paths.attachment_abs_checked("2026/09/a.jpg").is_ok());
+        let err = paths
+            .attachment_abs_checked("../secrets.txt")
+            .expect_err("穿越 rel 应报错");
+        assert!(err.to_string().contains("路径穿越"));
+    }
 }

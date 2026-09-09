@@ -313,7 +313,15 @@ pub fn re_enhance_all(
     let mut ok = 0usize;
     let mut failed = 0usize;
     for (i, a) in atts.into_iter().enumerate() {
-        let src_abs = ctx.paths.attachment_abs(&a.file_path);
+        let src_abs = match ctx.paths.attachment_abs_checked(&a.file_path) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("重新增强跳过（{}）", e);
+                failed += 1;
+                on_progress(i + 1, total);
+                continue;
+            }
+        };
         if !src_abs.exists() {
             log::warn!("重新增强跳过（原图缺失）: {}", src_abs.display());
             failed += 1;

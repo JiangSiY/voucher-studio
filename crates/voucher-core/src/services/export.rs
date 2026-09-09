@@ -25,11 +25,13 @@ use crate::{CoreContext, CoreError, Result};
 pub fn pdf_image_abs(ctx: &CoreContext, a: &Attachment) -> std::path::PathBuf {
     if ctx.config().print.prefer_enhanced_images && a.enhanced_source == EnhanceSource::Scan {
         if let Some(ep) = &a.enhanced_path {
-            let abs = ctx.paths.attachment_abs(ep);
-            if abs.exists() {
-                return abs;
+            // DB 来源 rel 走词法校验（Q-20）；非法路径视同增强版缺失回退原图
+            if let Ok(abs) = ctx.paths.attachment_abs_checked(ep) {
+                if abs.exists() {
+                    return abs;
+                }
+                log::warn!("增强版文件缺失，PDF 回退原图: {}", abs.display());
             }
-            log::warn!("增强版文件缺失，PDF 回退原图: {}", abs.display());
         }
     }
     ctx.paths.attachment_abs(&a.file_path)
@@ -41,7 +43,8 @@ pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
         && a.enhanced_source == EnhanceSource::Scan
         && a.enhanced_path
             .as_ref()
-            .map(|ep| ctx.paths.attachment_abs(ep).exists())
+            .and_then(|ep| ctx.paths.attachment_abs_checked(ep).ok())
+            .map(|abs| abs.is_file())
             .unwrap_or(false)
 }
 
