@@ -2,6 +2,9 @@
 //!
 //! B 步实装：基于 OpenCV 4.8（opencv-rust 0.100 API）。
 //! 任何步骤异常由 `enhance::run_pipeline` 单步失败跳过兜底。
+//!
+//! 错误处理约定（体检 #9）：OpenCV 返回的错误通过 `CoreError::Cv(#[from])` 自动 `?` 转换，
+//! 不再逐处 `map_err(|e| CoreError::Invalid(...))` 样板；空输入等业务校验仍返回 `Invalid`。
 
 use opencv::{
     core::{Mat, Point, Point2f, Scalar, Size, Vector},
@@ -35,15 +38,13 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
             &mut gray,
             ColorConversionCodes::COLOR_BGR2GRAY as i32,
             0,
-        )
-        .map_err(|e| CoreError::Invalid(format!("deskew: 灰度化失败: {e}")))?;
+        )?;
     } else {
         gray = src.clone();
     }
 
     let mut edges = Mat::default();
-    opencv::imgproc::canny(&gray, &mut edges, 80.0, 200.0, 3, false)
-        .map_err(|e| CoreError::Invalid(format!("deskew: Canny 失败: {e}")))?;
+    opencv::imgproc::canny(&gray, &mut edges, 80.0, 200.0, 3, false)?;
 
     let mut lines = Vector::<opencv::core::Vec2f>::new();
     hough_lines(
@@ -56,13 +57,10 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
         10.0,
         0.0,
         std::f64::consts::PI,
-    )
-    .map_err(|e| CoreError::Invalid(format!("deskew: Hough 失败: {e}")))?;
+    )?;
 
     if lines.is_empty() {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
 
     // Vec2f[1] = theta，0.100 是 f32，统一转 f64
@@ -78,23 +76,18 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
         angles.push(angle);
     }
     if angles.is_empty() {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
     angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median_angle = angles[angles.len() / 2].to_degrees();
 
     if median_angle.abs() < 0.5 {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
 
     let (w, h) = (src.cols(), src.rows());
     let center = Point2f::new(w as f32 / 2.0, h as f32 / 2.0);
-    let rot = get_rotation_matrix_2d(center, median_angle, 1.0)
-        .map_err(|e| CoreError::Invalid(format!("deskew: 旋转矩阵失败: {e}")))?;
+    let rot = get_rotation_matrix_2d(center, median_angle, 1.0)?;
     let mut dst = Mat::default();
     warp_affine(
         src,
@@ -104,8 +97,7 @@ pub fn deskew(src: &Mat) -> Result<Mat> {
         InterpolationFlags::INTER_LINEAR as i32,
         opencv::core::BorderTypes::BORDER_REPLICATE as i32,
         Scalar::default(),
-    )
-    .map_err(|e| CoreError::Invalid(format!("deskew: warp_affine 失败: {e}")))?;
+    )?;
     Ok(dst)
 }
 
@@ -122,8 +114,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
             &mut gray,
             ColorConversionCodes::COLOR_BGR2GRAY as i32,
             0,
-        )
-        .map_err(|e| CoreError::Invalid(format!("dewarp: 灰度化失败: {e}")))?;
+        )?;
     } else {
         gray = src.clone();
     }
@@ -137,8 +128,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         ThresholdTypes::THRESH_BINARY as i32,
         31,
         10.0,
-    )
-    .map_err(|e| CoreError::Invalid(format!("dewarp: 自适应阈值失败: {e}")))?;
+    )?;
 
     let mut contours: Vector<opencv::core::Vector<Point>> = Vector::new();
     find_contours(
@@ -147,26 +137,21 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         RetrievalModes::RETR_EXTERNAL as i32,
         ContourApproximationModes::CHAIN_APPROX_SIMPLE as i32,
         Point::new(0, 0),
-    )
-    .map_err(|e| CoreError::Invalid(format!("dewarp: find_contours 失败: {e}")))?;
+    )?;
 
     if contours.is_empty() {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
 
     let mut best_quad: Option<[Point; 4]> = None;
     let mut best_area = 0.0_f64;
     for contour in contours.iter() {
-        let perim = opencv::imgproc::contour_area(&contour, false)
-            .map_err(|e| CoreError::Invalid(format!("dewarp: contour_area 失败: {e}")))?;
+        let perim = opencv::imgproc::contour_area(&contour, false)?;
         if perim < 1000.0 {
             continue;
         }
         let mut approx = opencv::core::Vector::<Point>::new();
-        approx_poly_dp(&contour, &mut approx, 0.02 * perim, true)
-            .map_err(|e| CoreError::Invalid(format!("dewarp: approx_poly_dp 失败: {e}")))?;
+        approx_poly_dp(&contour, &mut approx, 0.02 * perim, true)?;
         if approx.len() == 4 {
             let area = opencv::imgproc::contour_area(&approx, false).unwrap_or(0.0);
             if area > best_area {
@@ -181,11 +166,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
 
     let quad = match best_quad {
         Some(q) => q,
-        None => {
-            return src
-                .try_clone()
-                .map_err(|e| CoreError::Invalid(e.to_string()))
-        }
+        None => return Ok(src.try_clone()?),
     };
 
     let mut pts = quad.to_vec();
@@ -220,8 +201,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         Point2f::new(0.0, (max_h - 1) as f32),
     ]);
 
-    let m = get_perspective_transform(&src_pts, &dst_pts, opencv::core::DECOMP_LU)
-        .map_err(|e| CoreError::Invalid(format!("dewarp: 透视矩阵失败: {e}")))?;
+    let m = get_perspective_transform(&src_pts, &dst_pts, opencv::core::DECOMP_LU)?;
     let mut dst = Mat::default();
     warp_perspective(
         src,
@@ -231,8 +211,7 @@ pub fn dewarp(src: &Mat) -> Result<Mat> {
         InterpolationFlags::INTER_LINEAR as i32,
         opencv::core::BorderTypes::BORDER_CONSTANT as i32,
         Scalar::default(),
-    )
-    .map_err(|e| CoreError::Invalid(format!("dewarp: warp_perspective 失败: {e}")))?;
+    )?;
     Ok(dst)
 }
 
@@ -256,12 +235,9 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
             &mut gray,
             ColorConversionCodes::COLOR_BGR2GRAY as i32,
             0,
-        )
-        .map_err(|e| CoreError::Invalid(format!("autocrop: 灰度化失败: {e}")))?;
+        )?;
     } else {
-        gray = src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()))?;
+        gray = src.try_clone()?;
     }
 
     // 高斯模糊抑制纸纹/噪点（否则细小噪声会连成大轮廓或碎轮廓）
@@ -273,15 +249,13 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
         0.0,
         0.0,
         opencv::core::BORDER_DEFAULT,
-    )
-    .map_err(|e| CoreError::Invalid(format!("autocrop: 模糊失败: {e}")))?;
+    )?;
 
     // Otsu 自动阈值：亮背景暗内容的自适应分界（替代固定 240，抗阴影/曝光差异）
     let mut binary = Mat::default();
     let otsu_inv =
         (ThresholdTypes::THRESH_BINARY_INV as i32) | (ThresholdTypes::THRESH_OTSU as i32);
-    opencv::imgproc::threshold(&blurred, &mut binary, 0.0, 255.0, otsu_inv)
-        .map_err(|e| CoreError::Invalid(format!("autocrop: threshold 失败: {e}")))?;
+    opencv::imgproc::threshold(&blurred, &mut binary, 0.0, 255.0, otsu_inv)?;
 
     let mut contours: Vector<opencv::core::Vector<Point>> = Vector::new();
     find_contours(
@@ -290,21 +264,17 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
         RetrievalModes::RETR_EXTERNAL as i32,
         ContourApproximationModes::CHAIN_APPROX_SIMPLE as i32,
         Point::new(0, 0),
-    )
-    .map_err(|e| CoreError::Invalid(format!("autocrop: find_contours 失败: {e}")))?;
+    )?;
 
     if contours.is_empty() {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
 
     // 最大面积轮廓的 bbox（脏点/杂物不参与边界，原实现取全轮廓并集会被噪声撑大）
     let mut best: Option<opencv::core::Rect> = None;
     let mut best_area: f64 = 0.0;
     for c in contours.iter() {
-        let r = bounding_rect(&c)
-            .map_err(|e| CoreError::Invalid(format!("autocrop: bbox 失败: {e}")))?;
+        let r = bounding_rect(&c)?;
         let area = (r.width as f64) * (r.height as f64);
         if area > best_area {
             best_area = area;
@@ -312,18 +282,14 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
         }
     }
     let Some(r) = best else {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     };
 
     // 合理性校验：裁剪结果面积占比（太小=误检碎块；接近全图=背景脏/阴影导致 bbox 全开）
     let src_area = (src.cols() as f64) * (src.rows() as f64);
     let ratio = best_area / src_area;
     if !(0.10..=0.97).contains(&ratio) {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
 
     // 外扩 2% 安全边（方向与原实现相反：向内容外侧留白，不切内容），clamp 到图像边界
@@ -336,17 +302,12 @@ pub fn autocrop(src: &Mat) -> Result<Mat> {
     let w = (x2 - x).max(1);
     let h = (y2 - y).max(1);
     if w >= src.cols() && h >= src.rows() {
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
     let roi = opencv::core::Rect::new(x, y, w, h);
-    let cropped =
-        Mat::roi(src, roi).map_err(|e| CoreError::Invalid(format!("autocrop: roi 失败: {e}")))?;
+    let cropped = Mat::roi(src, roi)?;
     let mut dst = Mat::default();
-    cropped
-        .copy_to(&mut dst)
-        .map_err(|e| CoreError::Invalid(e.to_string()))?;
+    cropped.copy_to(&mut dst)?;
     Ok(dst)
 }
 

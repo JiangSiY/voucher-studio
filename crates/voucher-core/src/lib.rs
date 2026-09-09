@@ -41,6 +41,8 @@ pub enum CoreError {
     NotImplemented(&'static str),
     #[error("本地 OCR: {0}")]
     LocalOcr(String),
+    #[error("OpenCV 错误: {0}")]
+    Cv(#[from] opencv::Error),
     #[error("数据未找到: {0}")]
     NotFound(String),
     #[error("无效操作: {0}")]

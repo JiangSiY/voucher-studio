@@ -2,6 +2,9 @@
 //!
 //! B 步实装：imageproc 0.25 没有 Sauvola，二值化改走 OpenCV 自适应阈值（与灰度化协同）。
 //! v0.6.1 实装：去噪（中值 3×3）与锐化（Unsharp Mask）插在裁边后、灰度化前。
+//!
+//! 错误处理约定（体检 #9）：OpenCV 错误经 `CoreError::Cv(#[from])` 自动 `?` 转换；
+//! 空输入 / 尺寸过小等业务校验仍返回 `Invalid`。
 
 use opencv::{
     core::Mat,
@@ -24,17 +27,14 @@ pub fn to_grayscale(src: &Mat) -> Result<Mat> {
     let mut gray = Mat::default();
     if src.channels() == 1 {
         // 已是灰度图，克隆返回
-        return src
-            .try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()));
+        return Ok(src.try_clone()?);
     }
     cvt_color(
         src,
         &mut gray,
         ColorConversionCodes::COLOR_BGR2GRAY as i32,
         0,
-    )
-    .map_err(|e| CoreError::Invalid(format!("grayscale: cvt_color 失败: {e}")))?;
+    )?;
     Ok(gray)
 }
 
@@ -51,8 +51,7 @@ pub fn binarize_sauvola(src: &Mat) -> Result<Mat> {
     }
     // 若输入是彩色图，先灰度化
     let gray = if src.channels() == 1 {
-        src.try_clone()
-            .map_err(|e| CoreError::Invalid(e.to_string()))?
+        src.try_clone()?
     } else {
         to_grayscale(src)?
     };
@@ -65,8 +64,7 @@ pub fn binarize_sauvola(src: &Mat) -> Result<Mat> {
         ThresholdTypes::THRESH_BINARY as i32,
         31,
         10.0,
-    )
-    .map_err(|e| CoreError::Invalid(format!("binarize: adaptive_threshold 失败: {e}")))?;
+    )?;
     Ok(dst)
 }
 
@@ -79,8 +77,7 @@ pub fn denoise_median(src: &Mat) -> Result<Mat> {
         return Err(CoreError::Invalid("denoise: 输入图像为空".into()));
     }
     let mut dst = Mat::default();
-    median_blur(src, &mut dst, 3)
-        .map_err(|e| CoreError::Invalid(format!("denoise: median_blur 失败: {e}")))?;
+    median_blur(src, &mut dst, 3)?;
     Ok(dst)
 }
 
@@ -101,11 +98,9 @@ pub fn unsharp_mask(src: &Mat) -> Result<Mat> {
         1.5,
         0.0,
         opencv::core::BORDER_DEFAULT,
-    )
-    .map_err(|e| CoreError::Invalid(format!("sharpen: gaussian_blur 失败: {e}")))?;
+    )?;
     let mut dst = Mat::default();
-    opencv::core::add_weighted(src, 1.5, &blurred, -0.5, 0.0, &mut dst, -1)
-        .map_err(|e| CoreError::Invalid(format!("sharpen: add_weighted 失败: {e}")))?;
+    opencv::core::add_weighted(src, 1.5, &blurred, -0.5, 0.0, &mut dst, -1)?;
     Ok(dst)
 }
 
