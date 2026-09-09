@@ -43,8 +43,8 @@ fn backup_and_restore_roundtrip() -> Result<()> {
     Ok(())
 }
 
-/// v0.13：备份加密全链路——开启加密后快照/附件包 AES-256 加密落盘、
-/// 无密码读取被拒、恢复（经凭据管理器解密 + materialize 合成）数据完整；
+/// v0.14-A：备份加密全链路——开启加密后快照/附件包以 age passphrase 信封
+///（格式 v4，AEAD 整文件密封）落盘、恢复（materialize 解密 + 合成）数据完整；
 /// 未设密码时备份拒绝执行（不静默降级明文）。
 #[test]
 fn encrypted_backup_roundtrip() -> Result<()> {
@@ -79,32 +79,27 @@ fn encrypted_backup_roundtrip() -> Result<()> {
     assert!(PathBuf::from(&info.path).exists());
     assert!(info.attachment_count >= 1, "附件进加密包");
 
-    // 3. 快照条目确实被加密（加密标志 + 明文读取被拒）
+    // 3. 落盘的是 age 信封（格式 v4 整文件密封），zip 打开直接失败（需先解密）
     let snapshot = PathBuf::from(&info.path);
     {
-        let file = std::fs::File::open(&snapshot)?;
-        let mut zip = zip::ZipArchive::new(file)?;
-        for i in 0..zip.len() {
-            let encrypted = {
-                let e = zip.by_index_raw(i)?;
-                e.encrypted()
-            };
-            assert!(encrypted, "快照内全部条目应加密");
-        }
-        assert!(zip.by_name("manifest.json").is_err(), "明文读取被拒");
+        let head = std::fs::read(&snapshot)?;
+        assert!(
+            head.starts_with(b"age-encryption.org/v1"),
+            "v4 加密快照应为 age 信封头"
+        );
+        assert!(
+            zip::ZipArchive::new(std::io::Cursor::new(head.as_slice())).is_err(),
+            "age 信封不是 zip：需解密后才能读取"
+        );
     }
     // 附件包同检（备份目录下按内容寻址命名）
     let bundle = find_bundle(&snapshot)?;
     {
-        let file = std::fs::File::open(&bundle)?;
-        let mut zip = zip::ZipArchive::new(file)?;
-        for i in 0..zip.len() {
-            let encrypted = {
-                let e = zip.by_index_raw(i)?;
-                e.encrypted()
-            };
-            assert!(encrypted, "附件包内全部条目应加密");
-        }
+        let head = std::fs::read(&bundle)?;
+        assert!(
+            head.starts_with(b"age-encryption.org/v1"),
+            "v4 附件包应为 age 信封头"
+        );
     }
 
     // 4. 恢复链路（read_manifest / compose 走凭据管理器解密）：数据完整

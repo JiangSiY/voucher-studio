@@ -39,7 +39,9 @@ use sha2::{Digest, Sha256};
 
 pub(super) const BACKUP_FORMAT: &str = "voucher-studio-backup";
 /// v3：云端增量结构（snapshot + 内容寻址附件包；v2 及以下为全量单文件，均可恢复）
-pub(super) const BACKUP_VERSION: u32 = 3;
+/// v4（v0.14-A）：开启加密的备份改为 age passphrase 信封整文件密封（AEAD）；
+/// 版本号仍只描述 zip 内部结构语义，读侧按文件头三态兼容（age / zip-AES / 明文）。
+pub(super) const BACKUP_VERSION: u32 = 4;
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const DB_ENTRY: &str = "voucher.db";
 pub const CONFIG_ENTRY: &str = "app.json";
@@ -103,6 +105,15 @@ pub(super) struct Manifest {
 }
 
 pub(super) fn read_manifest(zip_path: &Path) -> Option<Manifest> {
+    // 统一读取分派（v0.14-A 三态兼容）：age 信封先解密到临时 zip 再读；
+    // v0.13 加密 zip（加密条目）与明文 zip 原样进入，条目解密由 open_entry 负责。
+    crypto::with_readable_zip(zip_path, |plain| Ok(read_manifest_plain(plain)))
+        .ok()
+        .flatten()
+}
+
+/// 从明文/条目级解密 zip 路径读 manifest（假定入参已可被 zip 打开）。
+fn read_manifest_plain(zip_path: &Path) -> Option<Manifest> {
     let file = std::fs::File::open(zip_path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     // v0.13：加密备份的 manifest 也是加密条目 → open_entry 走凭据管理器解密

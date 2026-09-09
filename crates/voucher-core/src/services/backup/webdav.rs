@@ -465,11 +465,18 @@ fn propfind_all_names(
     Ok(parse_backup_hrefs(&body))
 }
 
-/// 从 zip 字节流解析 manifest（远端快照引用读取用）
+/// 从备份字节流解析 manifest（远端快照引用读取用）。
+/// v0.14-A：远端备份可能是 age 信封（v4 整文件加密）→ 先解密成明文 zip 字节；
+/// 条目级加密（旧 v0.13）与明文统一走 crypto::open_entry（凭据管理器解密）。
 fn parse_manifest_bytes(bytes: &[u8]) -> Option<Manifest> {
-    let cursor = std::io::Cursor::new(bytes);
+    let plain: Vec<u8> = if super::crypto::is_age_envelope_bytes(bytes) {
+        super::crypto::unseal_bytes(bytes).ok()?
+    } else {
+        bytes.to_vec()
+    };
+    let cursor = std::io::Cursor::new(plain.as_slice());
     let mut zip = zip::ZipArchive::new(cursor).ok()?;
-    let mut entry = zip.by_name(MANIFEST_FILE).ok()?;
+    let mut entry = super::crypto::open_entry(&mut zip, MANIFEST_FILE).ok()?;
     let mut buf = String::new();
     entry.read_to_string(&mut buf).ok()?;
     serde_json::from_str(&buf).ok()

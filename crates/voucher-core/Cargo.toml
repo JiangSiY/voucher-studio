@@ -25,6 +25,10 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png"]
 # 必须保留 default features（含 core/types），否则会报 GpuMat/UMat trait bound 错误。
 opencv = { version = "0.100", features = ["imgproc", "imgcodecs", "calib3d"] }
 zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
+# v0.14-A：备份加密改 age passphrase 信封（格式 v4）——zip 内仍是明文结构，
+# 写盘前用 age 的流式 AEAD（ChaCha20-Poly1305）密封整个文件；不再做条目级 zip 加密。
+# 旧 v0.13 条目级 AES（zip aes-crypto feature）仅保留读兼容。
+age = "0.11"
 base64 = "0.22"
 # v0.13：账单 CSV 对账（支付宝导出常为 GBK 编码）
 encoding_rs = "0.8"

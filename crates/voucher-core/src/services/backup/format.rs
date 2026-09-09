@@ -17,16 +17,34 @@ fn materialize_full_zip(ctx: &CoreContext, path: &Path) -> Result<PathBuf> {
         .unwrap_or_default()
         .to_string();
     if !name.starts_with(SNAPSHOT_PREFIX) {
-        return Ok(path.to_path_buf()); // 全量（含旧备份）：原样
+        return Ok(path.to_path_buf()); // 全量（含旧备份）：原样（age 密封由 with_materialized 兜底）
     }
-    let manifest =
-        read_manifest(path).ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
+    // v0.14-A：快照可能是 age 信封（v4）→ 先解密到 ctx temp，后续 zip 读取针对
+    // 明文 zip；v0.13 加密 zip（条目级 AES）不是信封，由 open_entry 兼容解密。
+    let sealed = super::crypto::is_age_envelope(path);
+    let snap_plain = if sealed {
+        super::crypto::unseal_to_temp_dir(path, &ctx.paths.temp)?
+    } else {
+        path.to_path_buf()
+    };
+    let manifest = match read_manifest(&snap_plain) {
+        Some(m) => m,
+        None => {
+            if sealed {
+                let _ = std::fs::remove_file(&snap_plain);
+            }
+            return Err(CoreError::Invalid("快照损坏：缺 manifest".into()));
+        }
+    };
     let bundle_name = match manifest.attachments_bundle {
         Some(b) => b,
-        None => return Ok(path.to_path_buf()), // 无附件快照：自身即全量
+        None => return Ok(snap_plain), // 无附件快照：自身即全量（age 已解密到 temp，调用方清理）
     };
     let bundle_path = path.parent().unwrap_or(Path::new(".")).join(&bundle_name);
     if !bundle_path.is_file() {
+        if sealed {
+            let _ = std::fs::remove_file(&snap_plain);
+        }
         return Err(CoreError::Invalid(format!(
             "快照引用的附件包 {bundle_name} 缺失（与快照放同一目录），恢复中止"
         )));
@@ -35,18 +53,38 @@ fn materialize_full_zip(ctx: &CoreContext, path: &Path) -> Result<PathBuf> {
         "materialized-{}",
         name.replacen(SNAPSHOT_PREFIX, "voucher-backup-", 1)
     ));
-    compose_full_zip(path, &bundle_path, &dest)?;
+    let res = compose_full_zip(&snap_plain, &bundle_path, &dest);
+    if sealed {
+        let _ = std::fs::remove_file(&snap_plain);
+    }
+    res?;
     Ok(dest)
 }
 
-/// materialize 后执行 `f`，用完删除合成产物（全量原样路径不删）
+/// materialize 后执行 `f`，用完删除合成产物（全量原样路径不删）。
+/// v0.14-A 兜底：非快照名的备份文件若本身是 age 信封（v4 全量），先解密到 temp
+/// 再执行 `f`，用后连同解密临时文件一起清理。
 pub(super) fn with_materialized<T>(
     ctx: &CoreContext,
     path: &Path,
     f: impl FnOnce(&Path) -> Result<T>,
 ) -> Result<T> {
     let full = materialize_full_zip(ctx, path)?;
-    let result = f(&full);
+    let result = (|| {
+        let plain = if super::crypto::is_age_envelope(&full) {
+            Some(super::crypto::unseal_to_temp_dir(&full, &ctx.paths.temp)?)
+        } else {
+            None
+        };
+        let r = match &plain {
+            Some(p) => f(p),
+            None => f(&full),
+        };
+        if let Some(p) = &plain {
+            let _ = std::fs::remove_file(p);
+        }
+        r
+    })();
     if full != path {
         let _ = std::fs::remove_file(&full);
     }
@@ -223,9 +261,20 @@ fn date_time_of_name(name: &str) -> String {
 
 /// 合成 v2 全量 zip（下载恢复链路）：snapshot 的 db/config + 附件包的 attachments。
 /// 产物走现有 inspect/restore 流程，恢复逻辑零改动。
-/// v0.13：入参 snapshot/bundle 可能是加密 zip（本地/云端加密备份）——
-/// 读取走 crypto::open_entry（凭据管理器解密），产物保持明文（临时中间物）。
+/// v0.14-A：入参可能是 age 信封（v4 整文件加密）或旧 v0.13 加密 zip（条目级 AES）——
+/// age 信封先解密到临时明文 zip 再合成（用后清理）；条目级 AES 由 crypto::open_entry
+/// 解密；产物保持明文（临时中间物）。
 pub(super) fn compose_full_zip(snapshot: &Path, bundle: &Path, dest: &Path) -> Result<()> {
+    super::crypto::with_readable_zip(snapshot, |snap_plain| {
+        super::crypto::with_readable_zip(bundle, |bundle_plain| {
+            compose_from_plain(snap_plain, bundle_plain, dest)
+        })
+    })
+}
+
+/// 在「已是明文 zip（或旧条目级 AES zip）」的 snapshot/bundle 路径上执行合成。
+/// snapshot/bundle 的 manifest 读取与条目解密统一走 crypto::open_entry。
+fn compose_from_plain(snapshot: &Path, bundle: &Path, dest: &Path) -> Result<()> {
     let snap_manifest: Manifest = read_manifest(snapshot)
         .ok_or_else(|| CoreError::Invalid("快照损坏：缺 manifest".into()))?;
     let bundle_manifest: Manifest = read_manifest(bundle)

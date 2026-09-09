@@ -63,7 +63,7 @@ fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
 /// 旧全量 voucher-backup-*.zip 兼容并存；恢复/演练经 materialize 合成，流程零改动。
 fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
     let _guard = ctx.backup_guard();
-    // v0.13：加密口令前置检查（开启加密但无密码 → 立即报错，不产生明文备份）
+    // v0.14-A：加密口令前置检查（开启加密但无密码 → 立即报错，不产生明文备份）
     let enc_password = super::crypto::password_for_write(ctx)?;
     // 1. 数据库一致性快照
     let snap = ctx.paths.temp.join("backup-snapshot.db");
@@ -186,7 +186,8 @@ fn attachments_from_snapshot_db(db: &Path) -> Result<Vec<(String, String)>> {
 
 /// 写附件包（temp + rename 原子落位）：全部附件原图 + 自带 manifest。
 /// 打包时逐文件读内容并算实际 hash（读了就算，manifest 与内容自洽可校验）。
-/// v0.13：`password` 非 None 时全部条目 AES-256 加密（本地/异盘/云端共用此文件）。
+/// v0.14-A：zip 内始终明文结构；`password` 非 None 时整文件再用 age 密封落盘
+///（本地/异盘/云端共用此文件）。
 fn write_bundle_zip(
     ctx: &CoreContext,
     attachments: &[(String, String)],
@@ -201,7 +202,8 @@ fn write_bundle_zip(
     {
         let file = std::fs::File::create(&tmp)?;
         let mut w = zip::ZipWriter::new(file);
-        let opts = super::crypto::write_options(password);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let mut checksums = HashMap::new();
         for (rel, _) in attachments {
             let bytes = std::fs::read(ctx.paths.attachments.join(rel))?;
@@ -223,13 +225,20 @@ fn write_bundle_zip(
         w.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
         w.finish()?;
     }
-    std::fs::rename(&tmp, dest)?;
+    match password {
+        // 加密：整文件 age 密封到 dest（salt 随机，每次密文不同）
+        Some(p) => {
+            super::crypto::seal_file(&tmp, dest, p)?;
+            let _ = std::fs::remove_file(&tmp);
+        }
+        None => std::fs::rename(&tmp, dest)?,
+    }
     Ok(())
 }
 
 /// 写快照（temp + rename 原子落位）：db + config + manifest（指向附件包名）。
 /// checksums 只含自身条目（db/config），附件校验和在附件包 manifest 里。
-/// v0.13：`password` 非 None 时全部条目 AES-256 加密。
+/// v0.14-A：zip 内始终明文结构；`password` 非 None 时整文件再用 age 密封落盘。
 fn write_snapshot_zip(
     ctx: &CoreContext,
     snap_db: &Path,
@@ -246,7 +255,8 @@ fn write_snapshot_zip(
     {
         let file = std::fs::File::create(&tmp)?;
         let mut w = zip::ZipWriter::new(file);
-        let opts = super::crypto::write_options(password);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let mut checksums = HashMap::new();
 
         let db_bytes = std::fs::read(snap_db)?;
@@ -274,7 +284,13 @@ fn write_snapshot_zip(
         w.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
         w.finish()?;
     }
-    std::fs::rename(&tmp, dest)?;
+    match password {
+        Some(p) => {
+            super::crypto::seal_file(&tmp, dest, p)?;
+            let _ = std::fs::remove_file(&tmp);
+        }
+        None => std::fs::rename(&tmp, dest)?,
+    }
     Ok(())
 }
 

@@ -10,7 +10,8 @@ use crate::Result;
 /// 密钥在系统凭据库中的账号名（密钥不明文落盘）
 pub const SECRET_OCR_API_KEY: &str = "ocr_api_key";
 pub const SECRET_WEBDAV_PASSWORD: &str = "webdav_password";
-/// v0.13：备份加密密码（backup.encrypted 启用时备份 zip 用 AES-256 加密）
+/// v0.14-A：备份加密密码（backup.encrypted 启用时备份文件用 age passphrase 信封密封，
+/// 密码存凭据管理器 SECRET_BACKUP_PASSWORD）
 pub const SECRET_BACKUP_PASSWORD: &str = "backup_password";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,8 +107,8 @@ pub struct BackupConfig {
     pub keep_monthly: u32,
     /// 备用份目录（异盘双写；空 = 不启用；须指向另一物理盘/移动硬盘才有意义）
     pub secondary_dir: String,
-    /// v0.13：备份 zip 加密（AES-256；密码存凭据管理器 SECRET_BACKUP_PASSWORD，
-    /// 开启后本地/异盘/云端备份全部加密，恢复时自动解密）
+    /// v0.14-A：备份加密（age passphrase 信封整文件密封，AEAD 防篡改；密码存凭据
+    /// 管理器 SECRET_BACKUP_PASSWORD，开启后本地/异盘/云端备份全部加密，恢复时自动解密）
     pub encrypted: bool,
     pub webdav: WebdavConfig,
 }
