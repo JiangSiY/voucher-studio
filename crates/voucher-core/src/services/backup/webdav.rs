@@ -531,10 +531,7 @@ fn find_ascii_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
 }
 
 fn ascii_ieq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len()
-        && a.iter()
-            .zip(b)
-            .all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
 /// 远端备份文件名白名单（v0.8 增量适配）：三类 zip 且不含路径分隔符/..

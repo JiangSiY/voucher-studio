@@ -252,6 +252,7 @@ fn extract_verified<R: Read + std::io::Seek>(
 /// - 空路径
 /// - 绝对路径：以 `/` 或 `\` 开头、UNC（`\\`、`//`）、Windows 盘符（`C:` 开头）
 /// - 任一路径段为 `..`（路径穿越）
+///
 /// 命中任一即拒绝整份恢复（返回错误），不静默跳过——损坏/恶意备份应显式暴露。
 fn ensure_safe_rel_entry(full_name: &str, rel: &str) -> Result<()> {
     let is_absolute = rel.starts_with('/')
