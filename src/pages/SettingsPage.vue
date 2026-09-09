@@ -8,6 +8,7 @@ import { onMounted, reactive, ref } from "vue";
 import { api, type AppConfig } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
+import { defaultConfig } from "../config-defaults";
 import GeneralTab from "../components/settings/GeneralTab.vue";
 import NamingTab from "../components/settings/NamingTab.vue";
 import OcrTab from "../components/settings/OcrTab.vue";
@@ -28,48 +29,9 @@ const tabs = [
 type TabKey = (typeof tabs)[number]["key"];
 const tab = ref<TabKey>("general");
 
-// 编辑中的配置副本（保存时整体提交）
+// 编辑中的配置副本（保存时整体提交）。默认值单一真源见 src/config-defaults.ts
+//（须与 Rust config.rs 的 AppConfig::default() 保持同步；load 成功后会被后端值覆盖）
 const cfg = reactive<AppConfig>(JSON.parse(JSON.stringify(defaultConfig())));
-
-function defaultConfig(): AppConfig {
-  return {
-    appearance: { theme: "system" },
-    naming: { template: "{date}-{seq}" },
-    ocr: { engine: "local", enabled: true, apiUrl: "", model: "" },
-    backup: {
-      autoEnabled: true,
-      intervalHours: 24,
-      autoBackupOnClose: false,
-      keepDaily: 7,
-      keepWeekly: 4,
-      keepMonthly: 6,
-      secondaryDir: "",
-      encrypted: false,
-      webdav: { enabled: false, url: "", username: "", passwordSet: false, remoteRetention: 10, onceDaily: false },
-    },
-    print: {
-      title: "凭证日报",
-      cardStyle: "standard",
-      columns: 3,
-      includeImages: true,
-      groupByDay: true,
-      dailyTemplate: "compact",
-      preferEnhancedImages: true,
-    },
-    enhance: {
-      enabled: true,
-      onlyScans: false,
-      stepDeskew: true,
-      stepDewarp: true,
-      stepAutocrop: true,
-      stepGrayscale: true,
-      stepBinarize: true,
-      stepSharpen: false,
-      stepDenoise: false,
-    },
-    voucher: { descriptionTemplates: [] },
-  };
-}
 
 const saving = ref(false);
 

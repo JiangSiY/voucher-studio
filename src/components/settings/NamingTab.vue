@@ -118,8 +118,8 @@ onMounted(() => {
         <label>凭证编号模板</label>
         <input v-model="cfg.naming.template" class="input mono" @input="validateTemplate" />
         <div class="desc">
-          可用令牌：<code>{date}</code> 当天日期（如 20260819）、<code>{seq}</code> 当日序号（001 起）。
-          默认 <code>{date}-{seq}</code> 生成形如 20260819-001 的编号。
+          可用令牌：<code>{date}</code>（20260819）、<code>{date-}</code>（2026-08-19）、<code>{seq}</code>（001 起）、<code>{n}</code>（01 起）。
+          默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01 的编号。
         </div>
         <div v-if="templateError" class="desc" style="color: var(--danger); display: flex; align-items: center; gap: 4px">
           <FluentIcon name="warning" :size="13" />{{ templateError }}
