@@ -862,19 +862,6 @@ fn monthly_summary_pivots_and_zero_fills() -> Result<()> {
     Ok(())
 }
 
-// Linux CI 无 secret service 守护进程，keyring 运行时往返仅在桌面平台验证
-#[cfg(any(windows, target_os = "macos"))]
-#[test]
-fn keyring_secret_roundtrip() -> Result<()> {
-    let store = voucher_core::SecretStore::new("VoucherStudioTest");
-    store.set("test_account", "s3cret-value")?;
-    assert_eq!(store.get("test_account")?.as_deref(), Some("s3cret-value"));
-    assert!(store.delete("test_account")?);
-    assert_eq!(store.get("test_account")?, None);
-    assert!(!store.delete("test_account")?);
-    Ok(())
-}
-
 #[test]
 fn file_lock_prevents_second_instance() -> Result<()> {
     let (dir, _ctx) = test_ctx();

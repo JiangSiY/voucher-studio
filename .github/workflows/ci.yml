@@ -92,5 +92,7 @@ jobs:
           fi
 
       # --include-ignored：CI 环境模型/字体齐备，全量真跑（#[ignore] 仅为本地精简环境显式计数）
+      # --no-fail-fast：单个测试目标失败不中止其余目标。cargo test 默认遇错即停，
+      # 会让排在失败目标之后的测试目标根本不执行——加此参数一次跑出完整失败清单
       - name: Test
-        run: cargo test --workspace -- --include-ignored
+        run: cargo test --workspace --no-fail-fast -- --include-ignored
