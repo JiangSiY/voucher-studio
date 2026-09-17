@@ -2,7 +2,7 @@
 /**
  * assetProtocol scope 与真实附件目录的一致性守卫。
  *
- * 背景（2026-09-18 发现）：scope 曾为 `$DATA/VoucherStudio/attachments/` 下的深层通配（少了 `data` 一层）。
+ * 背景（2026-09-17 发现）：scope 曾为 `$DATA/VoucherStudio/attachments/` 下的深层通配（少了 `data` 一层）。
  * 真实附件目录由 `paths.rs` 的 `ProjectDirs::from("", "", "VoucherStudio").data_dir()` 决定
  * （Windows = `%APPDATA%\VoucherStudio\data`），而 `$DATA` 在 Windows 解析为 `%APPDATA%`，
  * 于是该 scope 匹配不到任何附件 → 所有 `convertFileSrc` 请求被 asset protocol 拒绝，

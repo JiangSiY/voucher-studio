@@ -10,7 +10,7 @@
 > ① 远端 `main` 比本地多一笔 `ddab498`（2026-09-16「CI 修复——测试注入共享内存凭据后端」），本地与远端为 `ahead 2, behind 1`，故「8 天零改动」仅对本地 clone 成立；
 > ② 远端**一直有 `v0.14.0` tag**，本地缺它只是没 fetch——已 `git fetch --tags` 补齐，P1-4 就此结案；
 > ③ CI 并非「未验证」：**9/9 的 6 次运行全部红**（含 v0.14.0 发布所在提交），根因 `backup_flow::encrypted_backup_roundtrip` 在无凭据后端的 CI 上失败；**9/16 `ddab498` 修复后转绿**。详见 3.1 节与 P1-5。
-> ④ **本报告漏检一处（2026-09-18 补正）**：3.1 节把 assetProtocol 判为 ✅「已是收窄后的值」——**值确实收窄了，但路径层级写错**：scope 为 `$DATA/VoucherStudio/attachments/` 下的通配，少了 `data` 一层（真实目录是 `%APPDATA%\VoucherStudio\data\attachments`），导致**所有附件/缩略图的 asset 请求被拒**（单次启动 20 条 `asset protocol not configured to allow the path` 日志，表现为图片空白）。本报告只核了"值是否收窄"，未核"能否解析到真实路径"，故列为漏检。该缺陷已于 2026-09-18 修复（补 `data` 层）并加契约守卫 `src/__tests__/assetScopeContract.test.ts`。
+> ④ **本报告漏检一处（2026-09-17 补正）**：3.1 节把 assetProtocol 判为 ✅「已是收窄后的值」——**值确实收窄了，但路径层级写错**：scope 为 `$DATA/VoucherStudio/attachments/` 下的通配，少了 `data` 一层（真实目录是 `%APPDATA%\VoucherStudio\data\attachments`），导致**所有附件/缩略图的 asset 请求被拒**（单次启动 20 条 `asset protocol not configured to allow the path` 日志，表现为图片空白）。本报告只核了"值是否收窄"，未核"能否解析到真实路径"，故列为漏检。该缺陷已于 2026-09-17 修复（补 `data` 层）并加契约守卫 `src/__tests__/assetScopeContract.test.ts`。
 
 ---
 
@@ -167,7 +167,7 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 |---|---|---|---|---|
 | P0-1 | WebDAV 回环判定 userinfo 绕过 → Basic 凭据明文外发 | `services/backup/webdav.rs:605`（修前） | ✅ 已修：改走 `Url::parse().host_str()`；`http://127.0.0.1:9999@evil.com/dav` 等 5 类反例已拒绝，合法回环（含 userinfo）仍放行 | 回归测试 5 反例 + 2 正例通过；真实服务器验证时（挂账 B-1）复测一次 |
 
-| P0-2 | assetProtocol scope 路径层级错误 → 附件/缩略图 asset 请求全部被拒（图片空白） | `src-tauri/tauri.conf.json`（`e9a9d1c` 收窄时引入） | ✅ 2026-09-18 修复：scope 补上缺失的 `data` 层（`$DATA/VoucherStudio/data/attachments/**/*`）；修复后同实例报错 20 → **0**、`[ERROR]` 0；新增契约守卫 `src/__tests__/assetScopeContract.test.ts`；用户手动测试通过 | 见 校正记录 ④（本报告原判 ✅，属漏检） |
+| P0-2 | assetProtocol scope 路径层级错误 → 附件/缩略图 asset 请求全部被拒（图片空白） | `src-tauri/tauri.conf.json`（`e9a9d1c` 收窄时引入） | ✅ 2026-09-17 修复：scope 补上缺失的 `data` 层（`$DATA/VoucherStudio/data/attachments/**/*`）；修复后同实例报错 20 → **0**、`[ERROR]` 0；新增契约守卫 `src/__tests__/assetScopeContract.test.ts`；用户手动测试通过 | 见 校正记录 ④（本报告原判 ✅，属漏检） |
 
 > 放大链已核实：`backup/restore.rs:192` 会从备份包恢复 `config` 段，即 `backup.webdav.url` 可由备份包注入——攻击者若能提供备份包并诱导恢复后上传，即可端到端利用。修复后该链闭合。
 
