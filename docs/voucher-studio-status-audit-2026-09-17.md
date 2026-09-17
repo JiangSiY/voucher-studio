@@ -6,6 +6,11 @@
 > 对照对象：`docs/voucher-studio-health-check-2026-09.md`、`docs/voucher-studio-project-analysis-2026-09-09.md`、`docs/voucher-studio-fix-status-vs-analysis-2026-09-09.md`、`docs/开发方案.md`、`docs/验收基线/清单1~3`
 > 取证日志：`F:\开发\.audit-2026-09-17\`（仓库外，未入库）
 
+> **校正记录（同日，接上 GitHub 远端后）**：本报告基于**本地 clone** 取证，接入远端后发现三处需要校正——
+> ① 远端 `main` 比本地多一笔 `ddab498`（2026-09-16「CI 修复——测试注入共享内存凭据后端」），本地与远端为 `ahead 2, behind 1`，故「8 天零改动」仅对本地 clone 成立；
+> ② 远端**一直有 `v0.14.0` tag**，本地缺它只是没 fetch——已 `git fetch --tags` 补齐，P1-4 就此结案；
+> ③ CI 并非「未验证」：**9/9 的 6 次运行全部红**（含 v0.14.0 发布所在提交），根因 `backup_flow::encrypted_backup_roundtrip` 在无凭据后端的 CI 上失败；**9/16 `ddab498` 修复后转绿**。详见 3.1 节与 P1-5。
+
 ---
 
 ## 〇、结论先行（TL;DR）
@@ -15,7 +20,7 @@
 | 维度 | 结论 | 关键证据 |
 |---|---|---|
 | 版本与同步 | ✅ v0.14.0 三处版本号一致；HEAD 已推送；审计前工作区干净 | `package.json:4` / `Cargo.toml:7` / `tauri.conf.json:4`；`.git/logs/refs/remotes/origin/main` 末行 `update by push` |
-| 门禁实测 | ✅ 前端 11 文件 59 用例 + typecheck/lint/build 全绿；Rust **212 用例 0 失败 0 忽略**；fmt/clippy 0 告警 | 本次实测；日志见附录 A |
+| 门禁实测 | ✅ 前端 11 文件 59 用例 + typecheck/lint/build 全绿；Rust **212 用例 0 失败 0 忽略**；fmt/clippy 0 告警；CI 9/9 六连败 → 9/16 `ddab498` 转绿 | 本次实测；日志见附录 A，CI 历史见 3.1 节 |
 | 安全 | 🔴→✅ 1 处真缺陷：WebDAV 回环判定 userinfo 绕过（可致凭据明文外发）**本次已修 + 回归测试** | `services/backup/webdav.rs:605`；对照 `services/ocr.rs:261-277` 的正确口径 |
 | 契约与分层 | ✅ IPC 65==65 逐名相等；命令层越层 0；配置默认值单一真源成立 | `src/api/client.ts` 65 调用点 ↔ `#[tauri::command]` 65；`ci.yml:87-92` guard |
 | 文档一致性 | 🟠 5 处失真（1 处已修，2 处待回写，2 处为历史快照过期） | 见 3.2 节 |
@@ -50,7 +55,9 @@
 | 版本 | 0.14.0（`package.json:4`、`Cargo.toml:7`、`tauri.conf.json:4` 三处一致；运行时 `env!("CARGO_PKG_VERSION")` 渲染同值） |
 | HEAD | `14ea9fe`（`docs: 修复状态与基线对照评估报告入库`，2026-09-09 22:26:27 +0800） |
 | 远端同步 | 已推送（`origin/main` 跟踪引用更新至 `14ea9fe`，2026-09-09 22:41 +0800） |
-| 本地 tag | 止于 `v0.13.1`——**无 `v0.14.0` tag** |
+| 本地 tag | 审计时止于 `v0.13.1`；**已 `git fetch --tags` 补齐 `v0.14.0`**（远端本就存在） |
+| 远端 | `origin/main` = `ddab498`（2026-09-16 10:25 +0800，CI 修复）；本地 `ahead 2, behind 1`（2 = 本次审计提交） |
+| 远端权限 | 已认证 `JiangSiY`，对该库 `admin/push/maintain` 全通过（gh CLI，私有库） |
 | 工作区 | 审计前干净（`git status --porcelain` 空，`ls-files` 267 个文件） |
 | Rust 用例 | **212**（单元 121 + 集成 91）；`--include-ignored` 下 5 个原 `#[ignore]` 用例全部真跑并通过 |
 | 前端用例 | 11 文件 **59** 用例（vitest 2.36s） |
@@ -94,6 +101,10 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 | assetProtocol scope | `src-tauri/tauri.conf.json` | `["$DATA/VoucherStudio/attachments/**/*"]`——已是收窄后的值 |
 
 **CI 门禁（2 job / ubuntu-latest）**：fmt ✅、clippy(-D warnings, --workspace --all-targets) ✅、test(--include-ignored) ✅、layering guard ✅、typecheck ✅、ESLint ✅、vitest ✅、vite build ✅。
+
+**CI 历史（接入远端后补测）**：9/9 的 **6 次运行全部 failure**，其中包括 v0.14.0 发布所在提交 `14ea9fe`（发布时刻 22:39 晚于该次 CI 失败 22:27）。失败根因单一且明确：`tests/backup_flow.rs::encrypted_backup_roundtrip` 在 CI 上报
+`Error: Invalid("已启用备份加密但未设置密码…")`——**ubuntu runner 无 OS 凭据存储**，测试写入的备份密码无处存放（本地 Windows 有真实凭据库，故本次实测全绿——这正是「本地绿≠CI 绿」的典型形态）。9/16 `ddab498`「测试注入共享内存凭据后端 + Test 步骤 `--no-fail-fast`」后 **CI 转绿**（run 35047933383，15m23s）。该修复目前**只在远端**，本地 clone 未包含。
+
 **缺失**：依赖漏洞扫描（cargo-audit / npm audit）、覆盖率门禁、双平台矩阵（无 Windows/macOS runner，而产品是桌面应用）、`--locked` 可复现构建、action 未按 SHA 固定、无 `tauri build` 打包验证。
 
 ### 3.2 文档与代码一致性
@@ -163,7 +174,8 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 | P1-1 | G3 走查对 v0.14.0 重跑 | `开发方案.md:147`、`清单2:97` | 停在 v0.6.5，落后 65 提交 | 按清单2（45 项）+ 清单3（32 场景）在 `target/release/bundle` 的 v0.14.0 安装包上重跑，逐项记录 ✅/⚠️/⏳ |
 | P1-2 | 清单2/清单3 失真项回写 | `清单2:11,12,13,23`、`清单3:82` | 5 项失效（微信监听 ×2、体积、版本号、数据目录路径） | 删除或改写为 v0.14.0 实况 |
 | P1-3 | 独立《G3 走查记录表》+ 证据链归档 | `开发方案.md:407` | 无独立文件；9 处截图链接指向已删除的 `.archive-g3-step/` | 新建记录表；把 `F:\开发\.archive-g3-debug`、`F:\开发\G3测试` 归档为带日期压缩包并纳入版本控制（`.gitignore` 现排除 `/.archive-*/`，需同步调整） |
-| P1-4 | 补 `v0.14.0` tag | 本地 `git tag` | 止于 v0.13.1；`开发方案.md:378`「每阶段结束打 tag」未落实 | `git tag v0.14.0 14ea9fe` 并推送（或先 `git fetch --tags` 确认远端是否已存在） |
+| P1-4 | ~~补 `v0.14.0` tag~~ | 本地 `git tag` | ✅ **结案**：远端一直有该 tag，本地缺失仅因未 fetch；本次已 `git fetch --tags` 补齐（同时补到 `origin/main` = `ddab498`） | — |
+| P1-5 | 发布门未校验 CI 状态 | CI run 34363763521（`14ea9fe`） | v0.14.0 在 CI 红的状态下发布（22:27 红 → 22:39 发）；红因属环境依赖（凭据后端），但发布链路未拦截 | 发布脚本/清单里加一步「确认本次提交 CI 绿，或书面记录已知红及其原因」 |
 
 ### P2 — 技术债（6 项）
 
@@ -230,6 +242,19 @@ cargo test --workspace -- --include-ignored             exit=0   → rust-test-a
 ```
 
 对照：审计基线（HEAD `14ea9fe`，未含 F1）实测 211 passed / 0 failed / 0 ignored，与静态计数 120 + 91 = 211 一致。
+
+### GitHub 远端取证（gh CLI 2.100.0，账号 `JiangSiY`，私有库）
+
+```
+gh repo view JiangSiY/voucher-studio        → PRIVATE，默认分支 main，权限 admin/maintain/push/triage/pull 全通过
+gh api repos/…/commits?per_page=3          → ddab498(09-16 10:25) / 14ea9fe(09-09 22:26) / dbbd9c4
+gh api repos/…/commits/ddab498             → parents = [14ea9fe]（确认是线性后继，非分叉）
+gh run list -R JiangSiY/voucher-studio     → 09-16 success；09-09 六次 failure（含 14ea9fe）
+gh release list                            → v0.14.0「Latest」2026-09-09T14:39:39Z
+gh api repos/…/tags                        → 远端 tag 含 v0.14.0（本地原先缺失）
+git fetch --tags origin                    → 04538fe..ddab498 main → origin/main；[new tag] v0.14.0
+git status -sb                             → main...origin/main [ahead 2, behind 1]
+```
 
 ## 附录 B：本次改动（2 文件）
 
