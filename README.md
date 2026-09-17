@@ -48,7 +48,7 @@ npm run tauri dev  # 启动开发模式（自动编译 Rust + 前端热更新）
 ```bash
 npm run typecheck          # 前端类型检查
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：118 单元 + 91 集成，共 209 用例）
+cargo test --workspace     # 后端测试（voucher-core：121 单元 + 91 集成，共 212 用例；静态计数）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
 ```
