@@ -8,7 +8,7 @@
 > ⚠️ **修订注记（2026-09-09 初版；2026-09-18 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
 > 截至 **2026-09-18**：`voucher-core` 测试 **214 个**（src 内联 **121** + tests/ 集成 **93**，含
 > backup_flow 10 / db_resilience 4 / enhance_e2e 24 / **keyring_native 1** / ocr_flow 5 / spike_a_print 5 / **voucher_flow 40** /
-> webdav_mock 4）；前端 vitest **15 文件 76 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
+> webdav_mock 4）；前端 vitest **16 文件 78 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
 > `core_flow` 测试文件已改组为 `voucher_flow.rs`；本表 I 节 #38 `keyring_secret_roundtrip` **测试名不变**，
