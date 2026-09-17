@@ -56,7 +56,7 @@
 | HEAD | `14ea9fe`（`docs: 修复状态与基线对照评估报告入库`，2026-09-09 22:26:27 +0800） |
 | 远端同步 | 已推送（`origin/main` 跟踪引用更新至 `14ea9fe`，2026-09-09 22:41 +0800） |
 | 本地 tag | 审计时止于 `v0.13.1`；**已 `git fetch --tags` 补齐 `v0.14.0`**（远端本就存在） |
-| 远端 | `origin/main` = `ddab498`（2026-09-16 10:25 +0800，CI 修复）；本地 `ahead 2, behind 1`（2 = 本次审计提交） |
+| 远端 | 变基后本地 == `origin/main` == `364ef33`（含 `ddab498` CI 修复；本地审计 3 笔已推送） |
 | 远端权限 | 已认证 `JiangSiY`，对该库 `admin/push/maintain` 全通过（gh CLI，私有库） |
 | 工作区 | 审计前干净（`git status --porcelain` 空，`ls-files` 267 个文件） |
 | Rust 用例 | **212**（单元 121 + 集成 91）；`--include-ignored` 下 5 个原 `#[ignore]` 用例全部真跑并通过 |
@@ -74,6 +74,7 @@
 ### 3.1 代码与测试实况
 
 **测试分布（Top）**：`tests/voucher_flow.rs` 39、`tests/enhance_e2e.rs` 24、`services/ocr_fields.rs` 21、`services/backup/webdav.rs` 12（含本次新增 1）、`tests/backup_flow.rs` 10、`services/ocr_layout.rs` 9、`services/ocr_validate.rs` 8、`services/backup/crypto.rs` 7。
+（变基至 `364ef33` 后分布变化：`voucher_flow` 38 + 新增 `tests/keyring_native.rs` 1——`ddab498` 把原生凭据往返用例迁出独立文件，进程级单例语义所需；总数仍 212。）
 
 **生产路径 `unwrap`/`expect`：7 处（逐条可判安全）**——全仓原始 395 次中，369 次落在 `tests/`、`examples/`、`spikes/` 与注释里。
 
@@ -103,7 +104,7 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 **CI 门禁（2 job / ubuntu-latest）**：fmt ✅、clippy(-D warnings, --workspace --all-targets) ✅、test(--include-ignored) ✅、layering guard ✅、typecheck ✅、ESLint ✅、vitest ✅、vite build ✅。
 
 **CI 历史（接入远端后补测）**：9/9 的 **6 次运行全部 failure**，其中包括 v0.14.0 发布所在提交 `14ea9fe`（发布时刻 22:39 晚于该次 CI 失败 22:27）。失败根因单一且明确：`tests/backup_flow.rs::encrypted_backup_roundtrip` 在 CI 上报
-`Error: Invalid("已启用备份加密但未设置密码…")`——**ubuntu runner 无 OS 凭据存储**，测试写入的备份密码无处存放（本地 Windows 有真实凭据库，故本次实测全绿——这正是「本地绿≠CI 绿」的典型形态）。9/16 `ddab498`「测试注入共享内存凭据后端 + Test 步骤 `--no-fail-fast`」后 **CI 转绿**（run 35047933383，15m23s）。该修复目前**只在远端**，本地 clone 未包含。
+`Error: Invalid("已启用备份加密但未设置密码…")`——**ubuntu runner 无 OS 凭据存储**，测试写入的备份密码无处存放（本地 Windows 有真实凭据库，故本次实测全绿——这正是「本地绿≠CI 绿」的典型形态）。9/16 `ddab498`「测试注入共享内存凭据后端 + Test 步骤 `--no-fail-fast`」后 **CI 转绿**（run 35047933383，15m23s）。该修复已随变基并入本地并推送（本地历史 `ddab498 → fe98099 → 6a418ae → 364ef33`）；同一命令在本地 Windows 上复跑仍全绿。
 
 **缺失**：依赖漏洞扫描（cargo-audit / npm audit）、覆盖率门禁、双平台矩阵（无 Windows/macOS runner，而产品是桌面应用）、`--locked` 可复现构建、action 未按 SHA 固定、无 `tauri build` 打包验证。
 
@@ -131,7 +132,7 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 - G3 最后走查为 **v0.6.5（2026-08-22）**，结论「通过（可用范围）40 ✅ / 1 ⚠️ / 4 ⏳」，挂账 #13/#15（云端账号）、#35（WebDAV）、#45（macOS）。⚠️ 为 #6 拖放 OLE 手势（超出自动化能力，待人工一次确认）。
 - 该判定与当前 HEAD 的差距：**65 笔提交 / 151 文件 / +23,672 −5,438 行**。v0.14.0 引入的 AEAD 信封、ApiError 全量迁移、assetProtocol 收窄、路径穿越防御、v-model 单向流**均未经真机复验**。
 - `清单2` 5 项失真：#8 微信监听（功能 v0.7 已移除仍列 ✅）、#1 体积「≈23MB」（实为 NSIS 38MB）、#2 控制面板版本「0.2.0」（实为 0.14.0）、#3 路径 `%APPDATA%\com.voucherstudio.desktop`（实为 `%APPDATA%\VoucherStudio\data\`，明细段已自行更正而表格未回写）、`清单3` #32 微信监听开关（同源失效）。
-- `开发方案.md:407` 称「G3 门走查记录表随附」——`docs/验收基线/` 下**无此文件**，记录实际内嵌于清单2/清单3 表格；且两份清单中 **9 处 `file:///.../.archive-g3-step/...` 截图链接指向的目录已不存在**（全盘无该目录），证据链断裂。存活的相关资产在仓库外：`F:\开发\.archive-g3-debug`（20M）、`F:\开发\G3测试`（11M，含 UIA 脚本与 24 张**合成**凭证图），均未入版本控制。
+- `开发方案.md:407` 称「G3 门走查记录表随附」——`docs/验收基线/` 下**无此文件**，记录实际内嵌于清单2/清单3 表格；且两份清单中 **9 行内共 16 处 `file:///.../.archive-g3-step/...` 引用指向的目录已不存在**（全盘无该目录；`.archive-c-step`/`.archive-d1-step`/`.archive-d2-step`/`.archive-d345-step`/`.archive-v7`/`.archive-wd-step` 6 组同类目录的链接同样失效），证据链断裂。存活的相关资产在仓库外：`F:\开发\.archive-g3-debug`（20M）、`F:\开发\G3测试`（11M，含 UIA 脚本与 24 张**合成**凭证图），均未入版本控制。
 
 **B. 挂账（需设备或外部条件）**
 | 项 | 来源 | 阻塞原因 |
@@ -173,7 +174,7 @@ CI 的 guard（`ci.yml:87-92`）为内联 grep，有 4 个已知盲区：① 不
 |---|---|---|---|---|
 | P1-1 | G3 走查对 v0.14.0 重跑 | `开发方案.md:147`、`清单2:97` | 停在 v0.6.5，落后 65 提交 | 按清单2（45 项）+ 清单3（32 场景）在 `target/release/bundle` 的 v0.14.0 安装包上重跑，逐项记录 ✅/⚠️/⏳ |
 | P1-2 | 清单2/清单3 失真项回写 | `清单2:11,12,13,23`、`清单3:82` | 5 项失效（微信监听 ×2、体积、版本号、数据目录路径） | 删除或改写为 v0.14.0 实况 |
-| P1-3 | 独立《G3 走查记录表》+ 证据链归档 | `开发方案.md:407` | 无独立文件；9 处截图链接指向已删除的 `.archive-g3-step/` | 新建记录表；把 `F:\开发\.archive-g3-debug`、`F:\开发\G3测试` 归档为带日期压缩包并纳入版本控制（`.gitignore` 现排除 `/.archive-*/`，需同步调整） |
+| P1-3 | 独立《G3 走查记录表》+ 证据链归档 | `开发方案.md:407` | 无独立文件；`清单2`/`清单3` 的 9 行内共 16 处引用指向已删除的 `.archive-g3-step/`（另 `.archive-c-step` 等 6 组同类目录的链接亦失效） | 新建记录表；把 `F:\开发\.archive-g3-debug`、`F:\开发\G3测试` 归档为带日期压缩包并纳入版本控制（`.gitignore` 现排除 `/.archive-*/`，需同步调整） |
 | P1-4 | ~~补 `v0.14.0` tag~~ | 本地 `git tag` | ✅ **结案**：远端一直有该 tag，本地缺失仅因未 fetch；本次已 `git fetch --tags` 补齐（同时补到 `origin/main` = `ddab498`） | — |
 | P1-5 | 发布门未校验 CI 状态 | CI run 34363763521（`14ea9fe`） | v0.14.0 在 CI 红的状态下发布（22:27 红 → 22:39 发）；红因属环境依赖（凭据后端），但发布链路未拦截 | 发布脚本/清单里加一步「确认本次提交 CI 绿，或书面记录已知红及其原因」 |
 
@@ -240,6 +241,20 @@ cargo test --workspace -- --include-ignored             exit=0   → rust-test-a
   test result: ok. 4 passed; 0 failed; 0 ignored     (webdav_mock)
   合计 212 passed / 0 failed / 0 ignored
 ```
+
+### 变基至 `364ef33`（并入 `ddab498`）后的复跑
+
+```
+cargo fmt --all --check                    exit=0   → rust-fmt-rebased.log
+cargo clippy --workspace --all-targets -- -D warnings   exit=0   → rust-clippy-rebased.log
+cargo test --workspace --no-fail-fast -- --include-ignored   exit=0   → rust-test-rebased.log
+  121 (lib) / 10 (backup_flow) / 4 (db_resilience) / 24 (enhance_e2e) / 1 (keyring_native)
+  / 5 (ocr_flow) / 5 (spike_a_print) / 38 (voucher_flow) / 4 (webdav_mock) = 212 passed / 0 failed / 0 ignored
+推送：ddab498..364ef33  main -> main（本地 == origin/main）
+推送后 CI：run 35226164739——前端 job success；Rust job 见 CI 页（`gh run view 35226164739`）
+```
+
+注：本地命令与 CI 命令的唯一差别是 CI 用 `--no-fail-fast`（`ci.yml:98`）；上表复跑已按 CI 口径执行。
 
 对照：审计基线（HEAD `14ea9fe`，未含 F1）实测 211 passed / 0 failed / 0 ignored，与静态计数 120 + 91 = 211 一致。
 
