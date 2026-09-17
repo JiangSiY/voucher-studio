@@ -602,20 +602,23 @@ fn validate_webdav_url(url: &str) -> Result<()> {
 }
 
 /// 判断 url 的主机是否本机回环（localhost / 127.0.0.1 / [::1]，可带端口）。
+///
+/// 必须走 URL 解析：手写切分会把 userinfo 当主机——
+/// `http://127.0.0.1:9999@evil.com/dav` 的真实主机是 evil.com，
+/// 误判为回环即放行 http，Basic 凭据随后明文发往远端。
+/// 口径与 `services/ocr.rs::validate_api_url` 一致。
 fn is_loopback_host(url: &str) -> bool {
-    let Some(scheme_end) = url.find("://") else {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false; // 解析失败从严：按非回环处理
+    };
+    let Some(host) = parsed.host_str() else {
         return false;
     };
-    let host_and_port = url[scheme_end + 3..]
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
-    let host = if let Some(rest) = host_and_port.strip_prefix('[') {
-        rest.split(']').next().unwrap_or(rest) // [::1]:8080 → ::1
-    } else {
-        host_and_port.split(':').next().unwrap_or(host_and_port) // host:port → host
-    };
-    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1"
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 /// 校验配置并构造带认证的客户端；未启用/缺配置时返回 Invalid
@@ -915,6 +918,29 @@ mod tests {
         validate_webdav_url("https://dav.example.com/voucher").unwrap();
         // https 回环同样放行
         validate_webdav_url("https://localhost/dav").unwrap();
+    }
+
+    #[test]
+    fn webdav_url_rejects_userinfo_loopback_bypass() {
+        // userinfo 里伪装回环、真实主机在远端：必须按远端拒绝 http，
+        // 否则 Basic 凭据会随明文请求发往攻击者主机
+        for url in [
+            "http://127.0.0.1:9999@evil.com/dav",
+            "http://localhost:8080@evil.com/dav",
+            "http://127.0.0.1@evil.com/dav",
+            "http://[::1]@evil.com/dav",
+            "http://127.0.0.1.evil.com/dav",
+        ] {
+            let err = validate_webdav_url(url).unwrap_err();
+            assert!(
+                err.to_string().contains("HTTPS"),
+                "{url} 应按远端拒绝: {err}"
+            );
+        }
+        // 主机确为回环（userinfo 带凭据）仍放行 —— 本地调试的合法写法
+        validate_webdav_url("http://user:pass@127.0.0.1:8080/dav").unwrap();
+        // 主机名大小写不敏感
+        validate_webdav_url("http://LOCALHOST/dav").unwrap();
     }
 
     #[test]
