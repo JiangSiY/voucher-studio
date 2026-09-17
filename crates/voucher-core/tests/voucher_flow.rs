@@ -10,6 +10,9 @@ use voucher_core::db::repos::attachment_repo;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
 use voucher_core::models::{ExportFormat, NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
 use voucher_core::services::{export, ingestion, reports, search, voucher_mgr};
+use voucher_core::utils::config::{
+    AppConfig, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
+};
 use voucher_core::{CoreContext, CoreError, Result};
 #[test]
 fn schema_creates_eight_tables() -> Result<()> {
@@ -776,6 +779,43 @@ fn config_roundtrip_via_context() -> Result<()> {
     let ctx2 = CoreContext::init(Some(dir.path().to_path_buf()))?;
     assert_eq!(ctx2.config().naming.template, "{date}-K{seq}");
     assert_eq!(ctx2.config().print.columns, 2);
+    Ok(())
+}
+
+#[test]
+fn sidebar_width_is_clamped_on_write_and_read() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    // 越界值写入即被钳制：手改 app.json 不得破坏布局
+    let mut cfg = ctx.config();
+    cfg.appearance.sidebar_width = 9999;
+    ctx.set_config(cfg)?;
+    assert_eq!(ctx.config().appearance.sidebar_width, SIDEBAR_WIDTH_MAX);
+
+    let mut cfg = ctx.config();
+    cfg.appearance.sidebar_width = 10;
+    ctx.set_config(cfg)?;
+    assert_eq!(ctx.config().appearance.sidebar_width, SIDEBAR_WIDTH_MIN);
+
+    // 合法值写盘后能在新上下文读回
+    let mut cfg = ctx.config();
+    cfg.appearance.sidebar_width = 320;
+    ctx.set_config(cfg)?;
+    let ctx2 = CoreContext::init(Some(dir.path().to_path_buf()))?;
+    assert_eq!(ctx2.config().appearance.sidebar_width, 320);
+    Ok(())
+}
+
+#[test]
+fn legacy_config_without_sidebar_width_uses_default() -> Result<()> {
+    let (dir, _ctx) = test_ctx();
+    // 旧格式 app.json：appearance 只有 theme、没有 sidebarWidth（容器级 serde default 补默认值）
+    let paths = voucher_core::AppPaths::resolve(Some(dir.path().to_path_buf()))?;
+    std::fs::write(paths.config_file(), r#"{"appearance":{"theme":"dark"}}"#)
+        .expect("写旧格式配置");
+
+    let loaded = AppConfig::load(&paths.config_file())?;
+    assert_eq!(loaded.appearance.theme, "dark");
+    assert_eq!(loaded.appearance.sidebar_width, SIDEBAR_WIDTH_DEFAULT);
     Ok(())
 }
 

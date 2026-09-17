@@ -101,7 +101,8 @@ impl CoreContext {
     ///
     /// # 注意
     /// 持写锁期间不得回调会再次取 `config` 锁的逻辑。
-    pub fn set_config(&self, cfg: AppConfig) -> Result<()> {
+    pub fn set_config(&self, mut cfg: AppConfig) -> Result<()> {
+        cfg.normalize();
         cfg.save(&self.paths.config_file())?;
         *self.write_config() = cfg;
         Ok(())

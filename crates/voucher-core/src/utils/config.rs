@@ -37,17 +37,25 @@ pub struct VoucherConfig {
     pub description_templates: Vec<String>,
 }
 
-/// 外观：light / dark / system
+/// 侧边栏宽度钳制范围与默认值（前端 `src/composables/useSidebarResize.ts` 保持同值）
+pub const SIDEBAR_WIDTH_MIN: u32 = 220;
+pub const SIDEBAR_WIDTH_MAX: u32 = 400;
+pub const SIDEBAR_WIDTH_DEFAULT: u32 = 260;
+
+/// 外观：light / dark / system + 侧边栏宽度
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppearanceConfig {
     pub theme: String,
+    /// 侧边栏宽度（px）。手改 app.json 可能越界，读取与写入都经 [`AppConfig::normalize`] 钳制
+    pub sidebar_width: u32,
 }
 
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
             theme: "system".into(),
+            sidebar_width: SIDEBAR_WIDTH_DEFAULT,
         }
     }
 }
@@ -241,10 +249,21 @@ impl Default for EnhanceConfig {
 }
 
 impl AppConfig {
-    /// 读取配置；文件不存在或损坏时返回默认值（并在下次保存时重建）
+    /// 归一化越界字段（手改 app.json 不得破坏布局）。读取与写入两条路径都要过一遍。
+    pub fn normalize(&mut self) {
+        self.appearance.sidebar_width = self
+            .appearance
+            .sidebar_width
+            .clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+    }
+
+    /// 读取配置；文件不存在时返回默认值（并在下次保存时重建）
     pub fn load(path: &Path) -> Result<Self> {
         match jsonio::read_json::<Self>(path)? {
-            Some(cfg) => Ok(cfg),
+            Some(mut cfg) => {
+                cfg.normalize();
+                Ok(cfg)
+            }
             None => Ok(Self::default()),
         }
     }
