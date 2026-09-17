@@ -9,7 +9,14 @@
  * 若未来 Rust 侧调整默认值，需同步本文件与 src/config-defaults.ts（长期方案：ts-rs 生成 TS 类型）。
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NAMING_TEMPLATE, DEFAULT_PRINT_TITLE, defaultConfig } from "../config-defaults";
+import {
+  DEFAULT_NAMING_TEMPLATE,
+  DEFAULT_PRINT_TITLE,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  defaultConfig,
+} from "../config-defaults";
 
 describe("config-defaults 与 Rust AppConfig::default() 对齐", () => {
   it("命名模板默认值应为 {date-}-{n}（2026-08-19-01，而非旧的 {date}-{seq}）", () => {
@@ -22,6 +29,13 @@ describe("config-defaults 与 Rust AppConfig::default() 对齐", () => {
     expect(DEFAULT_PRINT_TITLE).toBe("原始凭证");
     expect(defaultConfig().print.title).toBe("原始凭证");
     expect(defaultConfig().print.title).not.toBe("凭证日报");
+  });
+
+  it("侧边栏宽度默认值与范围（对齐 Rust SIDEBAR_WIDTH_* 常量）", () => {
+    expect(defaultConfig().appearance.sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(SIDEBAR_WIDTH_DEFAULT).toBe(260);
+    expect(SIDEBAR_WIDTH_MIN).toBe(220);
+    expect(SIDEBAR_WIDTH_MAX).toBe(400);
   });
 
   it("返回全新的可变副本（每次调用互不共享引用，避免编辑缓冲互相污染）", () => {

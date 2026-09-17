@@ -239,7 +239,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="split" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start">
+  <div class="print-split">
     <!-- 左：选择 + 选项 -->
     <div>
       <div class="fluent-panel">
@@ -268,7 +268,7 @@ onUnmounted(() => {
             <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="invertSelection">反选</button>
           </div>
         </div>
-        <div class="fluent-panel-body" style="padding: 0; max-height: 280px; overflow-y: auto">
+        <div class="fluent-panel-body print-selected-list" style="padding: 0">
           <div class="dtable-wrap" v-if="filteredVouchers.length">
             <table class="dtable">
               <thead>

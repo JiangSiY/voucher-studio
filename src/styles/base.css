@@ -36,6 +36,9 @@ body {
 .app-shell {
   display: flex;
   height: 100vh;
+  /* 侧边栏拖拽手柄的定位上下文（手柄必须挂在 shell 上：.sidebar 自身滚动，
+     放里面会随内容滚走） */
+  position: relative;
 }
 
 .sidebar {
@@ -143,53 +146,8 @@ body {
   color: var(--text-4);
 }
 
-/* 窄窗口断点（三档语义）：>960 完整双列 / 760–960 仪表盘统计单列 / ≤760 侧栏收成图标栏、主区单列。
-   宽表格由 .dtable-wrap 的 overflow-x:auto 兜底（容器内滚动，不撑破页面）。 */
-@media (max-width: 760px) {
-  .sidebar {
-    width: 56px;
-  }
-
-  .sidebar-header {
-    padding: var(--s-4) 0;
-    display: flex;
-    justify-content: center;
-  }
-
-  .sidebar-logo {
-    justify-content: center;
-    gap: 0;
-  }
-
-  .sidebar-logo > span:not(.badge) {
-    display: none;
-  }
-
-  .sidebar-nav {
-    padding: var(--s-3) var(--s-1);
-  }
-
-  .sidebar-nav .nav-group {
-    display: none;
-  }
-
-  .sidebar-nav a {
-    justify-content: center;
-    padding: var(--s-2) 0;
-  }
-
-  .sidebar-nav .nav-label {
-    display: none;
-  }
-
-  .sidebar-footer {
-    display: none;
-  }
-
-  .main-scroll {
-    padding: var(--s-4);
-  }
-}
+/* 窄窗口断点已统一收敛到文件末尾《窗口缩放适配》一节（1260 / 1100 / 1024 / 900 / 760 五档）。
+   注意：档位规则必须位于本文件末尾——同级选择器后写胜出，放在此处会被上方的同名规则覆盖。 */
 
 .main-area {
   flex: 1;
@@ -207,8 +165,9 @@ body {
   padding: var(--s-8);
 }
 
+/* 宽内容页（凭证列表 / 仪表盘 / 打印中心）铺满可用宽度；
+   阅读型页面加 .page--reading 保留 1100px 上限（见文件末尾《窗口缩放适配》一节） */
 .page {
-  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -1632,5 +1591,327 @@ select.input {
   @page {
     size: A4 portrait;
     margin: 10mm;
+  }
+}
+
+/* =====================================================================================
+   窗口缩放适配（2026-09-18）
+
+   本节是**全站唯一的断点定义处**，必须位于文件末尾：同级选择器后写胜出，
+   放在上方会被同名规则覆盖。档位顺序敏感：1260 → 1100 → 1024 → 900 → 760，
+   靠后的档位更窄、覆盖靠前者（尤其 ≤760 的图标栏必须排在 ≤900 的侧栏钳制之后）。
+
+   数值由「默认窗口 1280×820 + 侧栏 260px 下观感不变」反推（内容宽 = 窗宽 − 侧栏 − 64）：
+     >1260  报告面板双列（面板可用 ≥438 ≥ 图表 min-width 420）
+     ≤1260  报告面板单列（内容 936 → 面板 460 → 可用 428，图内不出现横向滚动）
+     ≤1100  打印中心上下堆叠（双栏下限 = 5 列表 600 + A4 预览 420 + 间距 16）
+     ≤1024  四列/三列网格降两列（内容 700 → 单列面板 652）
+     ≤900   表单单列 / Tab 换行 / 凭证表隐「标签」/ 附件轨道加宽（内容 576）
+     ≤760   侧栏图标栏 + 隐「缩略图」+ 留白收紧（沿用原语义）
+   ===================================================================================== */
+
+/* ---- 共享网格原语：原先散在 4 个组件的 <style scoped> 里，scoped 规则会加 data 属性、
+       特异性高于本文件，导致本节的媒体查询失效；故收敛为全局单点定义。 ---- */
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.quarter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.recap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 16px 6px;
+}
+
+.enhance-hit-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 8px 0 16px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* 打印中心左右分栏（原为模板内联 1fr 1fr，无断点；命名避开通用的 .split） */
+.print-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* ---- 宽度自适应：取消 .page 上限后，若无此覆盖，auto-fill 会保留空轨道、
+       在宽屏留下右侧死空档 ---- */
+.stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.att-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+/* 阅读型页面（表单 / 设置 / 帮助）保留上限；宽内容页不加上限 */
+.page--reading {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ---- 侧边栏拖拽手柄（组件：src/components/layout/SidebarResizeHandle.vue）----
+   位置完全由 CSS 跟随侧栏宽度（含 ≤900 的钳制），无需 JS 定位。 */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--sidebar-w);
+  width: 6px;
+  margin-left: -3px; /* 骑跨侧栏右边界，便于抓取 */
+  z-index: 200; /* 高于 .sidebar 的 100 */
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:focus-visible::after,
+.sidebar-resize-handle.is-dragging::after {
+  background: var(--accent);
+}
+
+.sidebar-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---- 裁切兜底：这些容器原本直接裁掉溢出的按钮 ---- */
+.att-ops {
+  flex-wrap: wrap;
+}
+
+.closing-backup-card {
+  min-width: 0;
+  width: min(360px, 90vw);
+}
+
+.toast-host {
+  max-width: min(380px, calc(100vw - 32px));
+}
+
+/* ---- 高度自适应：min() 在常见窗高下恒等于原值（等于没改），故用 clamp 份额 ---- */
+.print-selected-list {
+  max-height: clamp(220px, 35vh, 480px);
+  overflow-y: auto;
+}
+
+/* ---- 宽表格：首列（复选框）与末列（操作）固定，窄窗下操作按钮不被滚出视野 ----
+   .dtable 是 border-collapse: collapse，sticky 单元格的边框不跟随滚动，
+   故用内阴影补分隔线，并显式给不透明底色（跟随表头/行悬停状态）。 */
+.dtable .col-check,
+.dtable .col-ops {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.dtable .col-check {
+  left: 0;
+  box-shadow: inset -1px 0 0 var(--stroke);
+}
+
+.dtable .col-ops {
+  right: 0;
+  box-shadow: inset 1px 0 0 var(--stroke);
+}
+
+.dtable tbody tr:hover .col-check,
+.dtable tbody tr:hover .col-ops {
+  background: var(--surface-hover);
+}
+
+/* ---- 档位 ≤1260 ---- */
+@media (max-width: 1260px) {
+  .report-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- 档位 ≤1100 ---- */
+@media (max-width: 1100px) {
+  .print-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- 档位 ≤1024 ---- */
+@media (max-width: 1024px) {
+  .quarter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recap-grid,
+  .enhance-hit-bar,
+  .help-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- 档位 ≤900 ---- */
+@media (max-width: 900px) {
+  /* 拖宽过的侧边栏在窄窗按视口比例收敛，避免内容区被挤没（761px → 266px） */
+  .sidebar {
+    width: min(var(--sidebar-w), 35vw);
+  }
+
+  .sidebar-resize-handle {
+    left: min(var(--sidebar-w), 35vw);
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tab-nav {
+    flex-wrap: wrap;
+  }
+
+  .recap-grid,
+  .enhance-hit-bar,
+  .help-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dtable .col-tag {
+    display: none;
+  }
+
+  .att-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+}
+
+/* ---- 档位 ≤760 ---- */
+@media (max-width: 760px) {
+  .sidebar {
+    width: 56px;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
+  }
+
+  .sidebar-header {
+    padding: var(--s-4) 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  .sidebar-logo {
+    justify-content: center;
+    gap: 0;
+  }
+
+  .sidebar-logo > span:not(.badge) {
+    display: none;
+  }
+
+  .sidebar-nav {
+    padding: var(--s-3) var(--s-1);
+  }
+
+  .sidebar-nav .nav-group {
+    display: none;
+  }
+
+  .sidebar-nav a {
+    justify-content: center;
+    padding: var(--s-2) 0;
+  }
+
+  .sidebar-nav .nav-label {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .dtable .col-thumb {
+    display: none;
+  }
+
+  .main-scroll {
+    padding: var(--s-4);
+  }
+}
+
+/* ---- 窄窗可压缩的省略号单元格 ----
+   原为模板内联 style（内联优先级高于媒体查询、窄档无法收窄），故改为类。 */
+.cell-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-desc {
+  max-width: 220px;
+}
+
+.cell-party {
+  max-width: 140px;
+}
+
+@media (max-width: 900px) {
+  .cell-desc {
+    max-width: 140px;
+  }
+
+  .cell-party {
+    max-width: 100px;
+  }
+}
+
+/* ---- 附件操作按钮：窄档收成纯图标 ----
+   图标节点始终在 DOM 里、宽档隐藏（display:none），故 1280px 默认观感不变；
+   按钮已带 title + aria-label，图标态不丢可发现性与可访问性。 */
+.att-ops .ops-icon {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .att-ops .ops-icon {
+    display: inline-block;
+  }
+
+  .att-ops .ops-label {
+    display: none;
   }
 }

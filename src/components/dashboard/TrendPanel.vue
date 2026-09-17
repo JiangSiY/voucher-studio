@@ -329,26 +329,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.report-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 960px) {
-  .report-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* v0.11 季度汇总卡（年度视图）：张数 + 金额，点击下钻该季度 */
-.quarter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 12px;
-}
+/* .report-grid / .quarter-grid 已收敛到 src/styles/base.css《窗口缩放适配》一节：
+   本组件是 <style scoped>，其规则特异性高于 base.css，会让全局断点失效，故移出。 */
 
 .quarter-card {
   display: flex;

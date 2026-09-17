@@ -233,7 +233,8 @@ watch(
 }
 
 .cp-list {
-  max-height: 320px;
+  /* 随窗口高度伸缩（原为固定 320px：窗口变高列表不跟着长） */
+  max-height: clamp(260px, 45vh, 520px);
   overflow-y: auto;
   padding: 6px;
 }

@@ -181,25 +181,33 @@ async function onCropSave(
               <span v-else-if="a.enhancedSource === 'scan'" class="tag tag-info" title="扫描件 / 拍照">扫描件</span>
             </div>
             <div class="att-ops">
-              <button class="btn btn-sm" :disabled="ocrBusy" @click="emit('runOcr', a)">
-                {{ ocrBusy ? "识别中…" : "重新识别" }}
+              <button class="btn btn-sm" :disabled="ocrBusy"
+                :title="ocrBusy ? '识别中…' : '重新识别（重跑本地 OCR）'"
+                aria-label="重新识别" @click="emit('runOcr', a)">
+                <FluentIcon class="ops-icon" name="refresh" :size="14" />
+                <span class="ops-label">{{ ocrBusy ? "识别中…" : "重新识别" }}</span>
               </button>
-              <button class="btn btn-sm" :disabled="replacing" @click="emit('replaceImage')">
-                {{ replacing ? "更换中…" : "更换图片" }}
+              <button class="btn btn-sm" :disabled="replacing"
+                :title="replacing ? '更换中…' : '更换图片'"
+                aria-label="更换图片" @click="emit('replaceImage')">
+                <FluentIcon class="ops-icon" name="image" :size="14" />
+                <span class="ops-label">{{ replacing ? "更换中…" : "更换图片" }}</span>
               </button>
               <!-- v0.12：手动裁剪/旋转（自动矫正失败的人工补救；覆盖增强版，原图不动） -->
               <button class="btn btn-sm" :disabled="!!lockedPeriod"
                 :title="lockedPeriod ? '该月已封账，不可调整' : '手动裁剪 / 旋转（覆盖增强版，原图不变）'"
+                aria-label="手动裁剪或旋转"
                 @click="openCrop(a)">
-                <FluentIcon name="edit" :size="14" />调整
+                <FluentIcon name="edit" :size="14" /><span class="ops-label">调整</span>
               </button>
               <!-- D-4：A/B 对比开关（无增强版不可用） -->
               <button v-if="a.enhancedPath" class="btn btn-sm"
                 :class="{ 'btn-primary': isCompareOpen(a) }"
                 :title="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'"
+                :aria-label="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比'"
                 @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)">
                 <FluentIcon :name="isCompareOpen(a) ? 'close' : 'compare'" :size="14" />
-                {{ isCompareOpen(a) ? "关闭对比" : "A/B 对比" }}
+                <span class="ops-label">{{ isCompareOpen(a) ? "关闭对比" : "A/B 对比" }}</span>
               </button>
             </div>
             <!-- D-4：对比模式滑块行（仅打开时显示） -->

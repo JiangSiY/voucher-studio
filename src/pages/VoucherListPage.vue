@@ -520,24 +520,26 @@ onUnmounted(() => {
         <table class="dtable" v-if="items.length">
           <thead>
             <tr>
-              <th style="width: 32px"><input type="checkbox" class="cb" :checked="selected.size === items.length && items.length > 0" @change="toggleAll" /></th>
+              <th class="col-check" style="width: 32px"><input type="checkbox" class="cb" :checked="selected.size === items.length && items.length > 0" @change="toggleAll" /></th>
               <!-- D-1：缩略图列（增强版优先显示） -->
-              <th style="width: 64px">图</th>
+              <th class="col-thumb" style="width: 64px">图</th>
               <th>凭证编号</th>
               <th>日期</th>
               <th>摘要</th>
+              <!-- 修复：数据行有 10 列而表头曾只有 9 列，「对方」缺表头 → 金额之后整体错位一列 -->
+              <th>对方</th>
               <th style="text-align: right">金额</th>
-              <th>标签</th>
+              <th class="col-tag">标签</th>
               <th>状态</th>
-              <th>操作</th>
+              <th class="col-ops">操作</th>
             </tr>
           </thead>
           <tbody>
             <!-- 场景11：行点击进编辑页；复选框/操作按钮 stop 冒泡不触发跳转 -->
             <tr v-for="(v, i) in items" :key="v.id" :data-row-index="i"
               :class="{ 'row-active': activeIndex === i }" style="cursor: pointer" @click="openEdit(v.id)">
-              <td @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
-              <td>
+              <td class="col-check" @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
+              <td class="col-thumb">
                 <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
                   <img :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
                   <span v-if="thumbs[v.id]?.enhancedSource === 'scan'" class="list-thumb-source" title="扫描件">扫</span>
@@ -554,15 +556,15 @@ onUnmounted(() => {
                   <FluentIcon name="lock" :size="11" />
                 </span>{{ v.voucherDate }}
               </td>
-              <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.description">{{ v.description || "—" }}</td>
-              <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" :title="v.counterparty">{{ v.counterparty || "—" }}</td>
+              <td class="cell-ellipsis cell-desc" :title="v.description">{{ v.description || "—" }}</td>
+              <td class="cell-ellipsis cell-party" :title="v.counterparty">{{ v.counterparty || "—" }}</td>
               <td class="num">{{ fmtAmount(v.amountCents) }}</td>
-              <td>
+              <td class="col-tag">
                 <span v-for="t in v.tags.slice(0, 2)" :key="t" class="tag tag-muted" style="margin-right: 4px">{{ t }}</span>
                 <span v-if="v.tags.length > 2" style="font-size: 11px; color: var(--text-4)">+{{ v.tags.length - 2 }}</span>
               </td>
               <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
-              <td @click.stop>
+              <td class="col-ops" @click.stop>
                 <div class="action-row">
                   <button class="icon-btn" :title="isLocked(v) ? '该月已封账，仅可查看' : '编辑'" :disabled="isLocked(v)" @click="openEdit(v.id)"><FluentIcon name="edit" :size="14" /></button>
                   <button class="icon-btn" title="导出 PDF" @click="exportOne(v)"><FluentIcon name="print" :size="14" /></button>

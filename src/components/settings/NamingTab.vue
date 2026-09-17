@@ -139,7 +139,7 @@ onMounted(() => {
       <!-- v0.10：常用摘要模板（编辑页联想置顶项） -->
       <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px">
         <label>常用摘要模板（每行一条）</label>
-        <textarea v-model="descTemplatesText" class="input" rows="5"
+        <textarea v-model="descTemplatesText" class="input" rows="5" style="resize: vertical"
           placeholder="如：&#10;办公用品采购&#10;差旅住宿费&#10;市内交通费"></textarea>
         <div class="desc">
           编辑凭证时聚焦「摘要」输入框，会联想这些模板（置顶）并合并历史高频摘要，点选即填，减少重复录入。

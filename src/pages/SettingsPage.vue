@@ -7,7 +7,7 @@
  * Tab 用 v-show 保持挂载：与拆分前一致——进页即加载各分区数据，切换不丢状态。
  */
 import { onMounted, ref } from "vue";
-import { api } from "../api/client";
+import { api, type AppConfig } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 import { useSettingsDraft } from "../stores/settingsDraft";
@@ -46,8 +46,18 @@ async function load() {
 async function save() {
   saving.value = true;
   try {
-    // 直接把共享编辑缓冲交给后端（reactive 代理会在 invoke 序列化时拍快照）
-    await configStore.save(draft.cfg);
+    // 直接把共享编辑缓冲交给后端（reactive 代理会在 invoke 序列化时拍快照）。
+    // 但 `appearance.sidebarWidth` 不属于本页 UI（由侧边栏拖拽维护），草稿里是进页时的旧快照：
+    // 用 store 的当前值覆盖，否则「拖过侧边栏 → 改任一设置 → 保存」会把宽度回退。
+    const payload: AppConfig = {
+      ...draft.cfg,
+      appearance: {
+        ...draft.cfg.appearance,
+        sidebarWidth:
+          configStore.config?.appearance.sidebarWidth ?? draft.cfg.appearance.sidebarWidth,
+      },
+    };
+    await configStore.save(payload);
     toast.success("设置已保存");
   } catch (e) {
     toastError(e);

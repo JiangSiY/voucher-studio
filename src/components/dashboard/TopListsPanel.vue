@@ -127,18 +127,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.report-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 960px) {
-  .report-grid {
-    grid-template-columns: 1fr;
-  }
-}
+/* .report-grid 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
+   base.css，会让全局断点失效，故移出组件）。 */
 
 .dist-sum {
   font-size: 12px;

@@ -78,12 +78,8 @@ const router = useRouter();
 
 <style scoped>
 /* v0.13 对账结果概览（三格：匹配 / 账单无凭证 / 凭证无账单） */
-.recap-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 14px 16px 6px;
-}
+/* .recap-grid 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
+   base.css，会让全局断点失效，故移出组件）。 */
 
 .recap-cell {
   display: flex;

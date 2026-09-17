@@ -12,7 +12,7 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "…");
   <div class="fluent-panel">
     <div class="fluent-panel-header"><h3>三步上手</h3></div>
     <div class="fluent-panel-body">
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+      <div class="help-grid">
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>

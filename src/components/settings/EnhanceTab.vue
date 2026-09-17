@@ -366,7 +366,9 @@ onUnmounted(() => {
         <!-- 最近增强 -->
         <div class="recent-enhanced">
           <div class="re-title">最近增强（按修改时间倒序）</div>
-          <table v-if="recentEnhanced.length" class="re-table">
+          <!-- 窄窗兜底：裸表在窄档会被 .fluent-panel 的 overflow:hidden 裁掉，套滚动容器 -->
+          <div v-if="recentEnhanced.length" class="dtable-wrap">
+          <table class="re-table">
             <thead>
               <tr>
                 <th style="width: 38%">文件</th>
@@ -405,6 +407,7 @@ onUnmounted(() => {
               </tr>
             </tbody>
           </table>
+          </div>
           <div v-else class="re-empty">尚无增强记录；导入图片并启用扫描矫正后会出现在这里</div>
         </div>
       </div>
@@ -509,16 +512,8 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #b91c1c, #991b1b);
 }
 
-.enhance-hit-bar {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin: 8px 0 16px;
-  padding: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--stroke);
-  border-radius: 6px;
-}
+/* .enhance-hit-bar 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
+   base.css，会让全局断点失效，故移出组件）。 */
 .hit-cell { text-align: center; }
 .hit-num {
   font-size: 22px;

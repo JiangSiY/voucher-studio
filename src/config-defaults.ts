@@ -19,10 +19,15 @@ export const DEFAULT_NAMING_TEMPLATE = "{date-}-{n}";
 /** 默认打印整理单标题 */
 export const DEFAULT_PRINT_TITLE = "原始凭证";
 
+/** 侧边栏宽度范围与默认值（必须与 crates/voucher-core/src/utils/config.rs 的同名常量一致） */
+export const SIDEBAR_WIDTH_MIN = 220;
+export const SIDEBAR_WIDTH_MAX = 400;
+export const SIDEBAR_WIDTH_DEFAULT = 260;
+
 /** 与 Rust AppConfig::default() 逐字段对齐的前端默认配置。 */
 export function defaultConfig(): AppConfig {
   return {
-    appearance: { theme: "system" },
+    appearance: { theme: "system", sidebarWidth: SIDEBAR_WIDTH_DEFAULT },
     naming: { template: DEFAULT_NAMING_TEMPLATE },
     ocr: { engine: "local", enabled: true, apiUrl: "", model: "" },
     backup: {

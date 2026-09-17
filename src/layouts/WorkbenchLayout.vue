@@ -3,9 +3,13 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import FluentIcon from "../components/FluentIcon.vue";
+import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 
 const route = useRoute();
 const configStore = useConfigStore();
+
+// 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
+const isReading = computed(() => route.meta.reading === true);
 
 const version = computed(() => configStore.appInfo?.version ?? "…");
 
@@ -63,9 +67,12 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "");
       <div class="sidebar-footer">v{{ version }} · 数据本地存储</div>
     </aside>
 
+    <!-- 侧边栏宽度拖拽手柄：挂在 shell 上（侧栏自身滚动，放里面会被滚走） -->
+    <SidebarResizeHandle />
+
     <div class="main-area">
       <div class="main-scroll">
-        <div class="page">
+        <div class="page" :class="{ 'page--reading': isReading }">
           <h1 class="page-title">{{ pageTitle }}</h1>
           <router-view />
         </div>

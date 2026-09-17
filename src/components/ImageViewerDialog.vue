@@ -58,21 +58,44 @@ function onKeydown(e: KeyboardEvent) {
   else if (e.key === "-") zoomCenter(0.8);
 }
 window.addEventListener("keydown", onKeydown);
+window.addEventListener("resize", onResize);
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", onResize);
   document.body.style.overflow = "";
 });
+
+/** 当前窗口下"适应窗口"的比例（图片按自然尺寸渲染，transform scale 控制显示大小） */
+function computeFit(): number {
+  const el = imgEl.value;
+  if (!el || !el.naturalWidth) return 0;
+  const cw = window.innerWidth - 64;
+  const ch = window.innerHeight - 140;
+  return Math.min(cw / el.naturalWidth, ch / el.naturalHeight, 1);
+}
 
 function onImgLoad() {
   const el = imgEl.value;
   if (!el) return;
-  // 适应窗口的初始缩放（图片按自然尺寸渲染，transform scale 控制显示大小）
-  const cw = window.innerWidth - 64;
-  const ch = window.innerHeight - 140;
-  fitScale.value = Math.min(cw / el.naturalWidth, ch / el.naturalHeight, 1);
+  const fit = computeFit();
+  const wasFitted = Math.abs(scale.value - fitScale.value) < 0.001;
+  fitScale.value = fit;
   if (scale.value === 1 && x.value === 0 && y.value === 0) {
-    scale.value = fitScale.value;
+    scale.value = fit;
+  } else if (wasFitted) {
+    // 原先处于"适应"状态 → 跟随新的适应比例
+    scale.value = fit;
   }
+}
+
+/** 窗口尺寸变化时重算适应比例：原先只在图片 load 时算一次，
+ *  缩放窗口后「适应」按钮/双击/按 0 会回到过时的比例 */
+function onResize() {
+  if (!imgEl.value) return;
+  const fit = computeFit();
+  const wasFitted = Math.abs(scale.value - fitScale.value) < 0.001;
+  fitScale.value = fit;
+  if (wasFitted) scale.value = fit;
 }
 
 function resetView() {

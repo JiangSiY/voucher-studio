@@ -566,7 +566,7 @@ onUnmounted(() => {
             <label>备注</label>
             <textarea v-model="note" class="input" rows="3"></textarea>
           </div>
-          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center">
+          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap">
             <span v-if="dirty && lockedPeriod" class="dirty-hint" title="该月已封账，无法保存">● 已封账</span>
             <span v-else-if="dirty" class="dirty-hint" title="有未保存的修改">● 未保存</span>
             <button class="btn" @click="goBack">返回</button>

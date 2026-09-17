@@ -283,7 +283,7 @@ export interface ExportOptions {
 }
 
 export interface AppConfig {
-  appearance: { theme: "light" | "dark" | "system" };
+  appearance: { theme: "light" | "dark" | "system"; sidebarWidth: number };
   naming: { template: string };
   ocr: { engine: "cloud" | "local"; enabled: boolean; apiUrl: string; model: string };
   backup: {
