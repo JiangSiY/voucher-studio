@@ -3,6 +3,8 @@
 > 版本：v0.13.1（HEAD `063f919`）｜ 分析日期：2026-09-09 ｜ 对象：`F:\开发\voucher-studio`
 > 方式：软件公司团队 5 角色（架构 / 产品 / 工程 ×2 / QA ×2）并行只读复核，前端测试实测，与当日《健康体检报告》(voucher-studio-health-check-2026-09.md) 交叉印证；未修改任何源码。
 
+> ⚠️ **校正注记（2026-09-17 追加，正文不改）**：本报告是 **v0.13.1 时点快照**。§五 `:104`「Q-1/Q-2/Q-5/Q-6/Q-8/Q-11/Q-12 全部仍在」与 §七 风险登记 Top6 **已全部修复**（v0.13.1→v0.14.0，提交链见 `docs/开发日志.md` §一）；§五 `:124` 的 CI 门禁描述已过期——现为 typecheck→ESLint→vitest→build ／ fmt→clippy(`--workspace --all-targets -D warnings`)→**layering guard**→`cargo test --workspace --no-fail-fast -- --include-ignored`；`:118-123` 的计数（178 / 前端 25）现为 **212 / 前端 11 文件 59 用例**；`:137` 清单1 回写已完成（`2f80819`）。另：**2026-09-17 新增并修复一处安全缺陷**（WebDAV 回环 userinfo 绕过，属 Q-3 同族）。
+
 ---
 
 ## 〇、结论先行（TL;DR）

@@ -3,15 +3,17 @@
 > 固化日期：2026-08-20（G2 评审门前，对应开发方案决策 4）。
 > v4.3 源机不在本机，本清单按 v4.3 功能域（开发方案 §3 映射表）与新库测试全集逐条对齐；
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
-> 当前基线：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。
+> 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> ⚠️ **修订注记（2026-09-09，项目综合分析报告第七章）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 v0.13.1（HEAD 525e828）：`voucher-core` 测试约 **204 个**（src 内联 113 + tests/ 集成 91，含
-> backup_flow 10 / db_resilience 4 / enhance_e2e 24 / ocr_flow 5 / spike_a_print 5 / voucher_flow 39 /
-> webdav_mock 4）；前端 vitest 7 文件 37 用例。下表逐条映射以 G1 时点为准，未随版本滚动更新；
-> **H 节「微信监听」对应功能已于 v0.7 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
+> ⚠️ **修订注记（2026-09-09 初版；2026-09-17 按 v0.14.0 更新）**：本文档固化于 G1 门，测试全集此后持续增长。
+> 截至 **v0.14.0（HEAD 364ef33，2026-09-17）**：`voucher-core` 测试 **212 个**（src 内联 **121** + tests/ 集成 **91**，含
+> backup_flow 10 / db_resilience 4 / enhance_e2e 24 / **keyring_native 1** / ocr_flow 5 / spike_a_print 5 / **voucher_flow 38** /
+> webdav_mock 4）；前端 vitest **11 文件 59 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
+> **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
-> `core_flow` 测试文件已改组为 `voucher_flow.rs`。新增域（对账/期间锁/裁剪/WebDAV mock/DB 容错）见对应验收文档与 README。
+> `core_flow` 测试文件已改组为 `voucher_flow.rs`；本表 I 节 #38 `keyring_secret_roundtrip` **测试名不变**，
+> 但 2026-09-16 起迁至独立文件 `tests/keyring_native.rs`（隔离进程级凭据后端设置，原生用例与内存后端用例不再同进程竞争）。
+> 新增域（对账/期间锁/裁剪/WebDAV mock/DB 容错）见对应验收文档与 README。
 
 ## A. 数据库与仓储（v4.3 `db/`）
 

@@ -3,6 +3,8 @@
 > 评估时间：2026-09-09 20:05 ｜ 基线 HEAD：`063f919`（v0.13.1，分析报告落笔点）｜ 当前 HEAD：`cabcbee`（+17 笔修复提交，版本号仍 0.13.1）
 > 对照对象：《voucher-studio-project-analysis-2026-09-09.md》《voucher-studio-health-check-2026-09.md》
 
+> ⚠️ **校正注记（2026-09-17 追加，正文不改）**：本报告是 **2026-09-09 20:05 时点快照**。文中「未做 1–4」（#22 v-model 23 处 / #24 AEAD / #16 组件测试补 3 场景 / 版本号 bump）**均已于当晚 v0.14.0 完成**；`:105`「本地 cargo test 受沙箱 link.exe 阻塞」**已翻案**（2026-09-17：显式指定 `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` 指向真实 MSVC 链接器后本地全量跑通）；CI 亦已于 2026-09-16 由 `ddab498` 修复后转绿。**仍然成立**：#21 ort 仍 pin `=2.0.0-rc.13`、#12 的 Prettier 仍未引入。详见 `docs/开发日志.md` 与 `docs/voucher-studio-status-audit-2026-09-17.md` §五。
+
 ---
 
 ## 〇、结论先行（TL;DR）

@@ -24,7 +24,7 @@
 |---|---|
 | 业务核心 | Rust（`crates/voucher-core`，不依赖 Tauri，可独立测试） |
 | 桌面壳 | Tauri 2（单实例、对话框、日志、opener 插件） |
-| 本地 OCR | ort 2.0（ONNX Runtime）+ RapidOCR PP-OCRv4 模型 |
+| 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv4 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
 | UI | Fluent Design 规范（亚克力、Reveal 光效、#0078D4 主色、深浅双主题） |
@@ -33,6 +33,7 @@
 
 - Rust 1.75+（stable，MSVC 工具链）
 - Node.js 20+
+- **OpenCV 4.x（必须，编译前置）**：Windows 设 `OpenCV_DIR` + `OPENCV_INCLUDE_PATHS` / `OPENCV_LINK_PATHS` / `OPENCV_LINK_LIBS`（可直接运行 `activate-dev.ps1`）；macOS `brew install opencv`；Linux/CI 装 `libopencv-dev` + `clang`/`libclang-dev`
 - Windows：VS Build Tools（C++ 工作负载）+ WebView2 运行时
 - macOS：Xcode Command Line Tools
 
@@ -49,6 +50,7 @@ npm run tauri dev  # 启动开发模式（自动编译 Rust + 前端热更新）
 npm run typecheck          # 前端类型检查
 npm run test               # 前端单元测试（Vitest）
 cargo test --workspace     # 后端测试（voucher-core：121 单元 + 91 集成，共 212 用例；静态计数）
+cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
 ```
@@ -59,7 +61,7 @@ cargo fmt --all            # 格式化
 npm run tauri build   # 产出安装包（Windows: NSIS/MSI；macOS: .app/.dmg）
 ```
 
-安装包自动携带本地 OCR 模型（约 15 MB），首次启动复制到用户数据目录。
+安装包自动携带本地 OCR 模型（约 16 MB），首次启动复制到用户数据目录。
 
 ## 目录结构
 
@@ -74,7 +76,7 @@ npm run tauri build   # 产出安装包（Windows: NSIS/MSI；macOS: .app/.dmg�
 
 ## 数据存储
 
-- Windows：`%APPDATA%\VoucherStudio`
+- Windows：`%APPDATA%\VoucherStudio\data`
 - macOS：`~/Library/Application Support/VoucherStudio`
 
 包含：`voucher.db`（SQLite）、`attachments/`（附件图片）、`backups/`（备份）、`exports/`（导出 PDF）、`models/`（OCR 模型）、`logs/`。
