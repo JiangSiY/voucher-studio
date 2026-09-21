@@ -114,6 +114,14 @@ fn main() {
                     );
                 }
             }
+            // 增强版是可重建缓存：恢复快照后**必然**缺失（备份只含原图，见 backup/local.rs）。
+            // 界面已自动回退原图，这里只留一条日志线索，不当作数据损坏；可在「扫描矫正」一键重建。
+            if report.attachment_missing_enhanced > 0 {
+                log::warn!(
+                    "{} 张附件的增强版文件缺失（可重建缓存；界面回退原图，可在「扫描矫正」一键重建）",
+                    report.attachment_missing_enhanced
+                );
+            }
             app.manage(report);
 
             // 6. 关闭流程状态（CloseRequested 防重复触发标记）

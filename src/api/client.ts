@@ -185,6 +185,8 @@ export interface RecoveryReport {
   attachmentTotal: number;
   attachmentMissingCount: number;
   attachmentMissing: string[];
+  /** 增强版文件缺失数（可重建缓存；恢复快照后必然出现，界面自动回退原图） */
+  attachmentMissingEnhanced: number;
   lastBackup: BackupInfo | null;
 }
 
@@ -442,7 +444,10 @@ export interface RestoreSummary {
   batch: string;
   createdAt: string;
   restoredFiles: string[];
+  /** 实际释放的附件数（≠ 备份引用过的附件数：快照只含原图） */
   attachmentCount: number;
+  /** 本次备份是否携带附件实体；false 时界面必须如实提示，不得宣称已覆盖附件目录 */
+  attachmentsIncluded: boolean;
   checksumsVerified: boolean;
 }
 

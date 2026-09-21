@@ -206,7 +206,7 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
 }
 
 pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
-    ctx.db.with_conn(|conn| {
+    let mut detail = ctx.db.with_conn(|conn| {
         let voucher = voucher_repo::get(conn, id)?
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
         let attachments = attachment_repo::list_by_voucher(conn, id)?;
@@ -216,7 +216,12 @@ pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
             attachments,
             snapshots,
         })
-    })
+    })?;
+    // 增强版是"可重建缓存"、不入备份：恢复/清理后可能已不在磁盘上。
+    // 下发界面时剥掉这类路径，前端 `enhancedPath ?? filePath` 自然回退原图
+    // （与 export.rs / ocr.rs 的 .exists() 回退同口径）。
+    crate::services::attachment_view::hide_missing_enhanced_all(ctx, &mut detail.attachments);
+    Ok(detail)
 }
 
 pub fn list(ctx: &CoreContext, query: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> {

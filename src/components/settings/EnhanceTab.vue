@@ -129,6 +129,8 @@ async function deleteOneEnhanced(row: RecentEnhancedRow) {
 const reEnhancing = ref(false);
 const reEnhanceDone = ref(0);
 const reEnhanceTotal = ref(0);
+/** 增强版文件缺失数（来自启动健康报告；>0 时提示可一键重建） */
+const missingEnhanced = ref(0);
 let unlistenEnhanceProgress: UnlistenFn | null = null;
 
 async function reEnhanceAll() {
@@ -159,6 +161,11 @@ async function reEnhanceAll() {
 
 onMounted(async () => {
   refreshEnhancePanel();
+  // 启动健康报告里带"增强版缺失数"（备份不含增强版，恢复快照后必然出现）→ 给出重建入口提示
+  void api
+    .getRecoveryReport()
+    .then((r) => (missingEnhanced.value = r.attachmentMissingEnhanced))
+    .catch(() => (missingEnhanced.value = 0));
   unlistenEnhanceProgress = await listen<{ done: number; total: number }>(
     "enhance:progress",
     (e) => {
@@ -223,6 +230,16 @@ onUnmounted(() => {
               <div class="step-desc">{{ s.desc }}</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 增强版缺失提示：备份把增强版当可重建缓存排除在外，恢复快照后必然出现。
+           界面已自动回退原图（后端不再下发失效路径），这里给出重建入口。 -->
+      <div v-if="missingEnhanced > 0" class="callout warning" style="margin-bottom: 12px">
+        <span class="ci"><FluentIcon name="warning" :size="18" /></span>
+        <div class="ct">
+          有 <strong>{{ missingEnhanced }}</strong> 张图片的「增强版」文件不在磁盘上——增强版属可重建缓存、
+          不随备份保存（恢复备份后常见）。界面已自动改用原图显示，点下方「重新增强全部」即可重建。
         </div>
       </div>
 

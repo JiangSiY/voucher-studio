@@ -69,7 +69,12 @@ pub fn voucher_thumbs(ctx: &CoreContext, ids: &[i64]) -> Result<HashMap<i64, Vou
                 vid,
                 VoucherThumb {
                     file_path,
-                    enhanced_path,
+                    // 增强版是"可重建缓存"、不入备份：恢复/清理后可能已不在磁盘上。
+                    // 与 PDF 导出、OCR 同口径——不可显示时下发 None，前端回退原图。
+                    enhanced_path: super::attachment_view::visible_enhanced(
+                        ctx,
+                        enhanced_path.as_deref(),
+                    ),
                     enhanced_source,
                 },
             )

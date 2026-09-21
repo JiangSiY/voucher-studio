@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
 import { useConfigStore } from "../stores/config";
 import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult, type BatchEditPatch } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -92,12 +93,22 @@ const attachmentsDir = computed(() =>
   configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
 );
 
+/** 加载失败阶梯：0=优先增强版（后端已过滤掉不存在的），1=回退原图，用尽 → 占位 */
+const thumbFallback = ref<Record<number, number>>({});
+
 /** D-1：列表缩略图 URL，enhanced 优先；convertFileSrc 把本地路径转 webview asset 协议 */
 function thumbUrl(v: Voucher): string | null {
   const t = thumbs.value[v.id];
   if (!t) return null;
-  const rel = t.enhancedPath ?? t.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+  const rel = pickCandidate(t, thumbFallback.value[v.id] ?? 0);
+  return rel ? convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`) : null;
+}
+
+/** 图片加载失败 → 走下一档（增强版→原图→占位），避免留一块无法解释的灰白 */
+function onThumbError(v: Voucher) {
+  const cur = thumbFallback.value[v.id] ?? 0;
+  const total = candidatePaths(thumbs.value[v.id] ?? { filePath: "" }).length;
+  thumbFallback.value = { ...thumbFallback.value, [v.id]: nextFallbackStep(cur, total) };
 }
 
 // 删除确认
@@ -541,7 +552,7 @@ onUnmounted(() => {
               <td class="col-check" @click.stop><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
               <td class="col-thumb">
                 <div v-if="thumbUrl(v)" class="list-thumb" :title="thumbs[v.id]?.enhancedPath ? '增强版缩略图（点击行进入编辑页查看大图）' : '原图缩略图'">
-                  <img :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
+                  <img :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" @error="onThumbError(v)" />
                   <span v-if="thumbs[v.id]?.enhancedSource === 'scan'" class="list-thumb-source" title="扫描件">扫</span>
                   <span v-else-if="thumbs[v.id]?.enhancedSource === 'screenshot'" class="list-thumb-source muted" title="截图">截</span>
                 </div>

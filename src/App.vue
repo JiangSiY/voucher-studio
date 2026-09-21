@@ -215,6 +215,11 @@ onUnmounted(() => {
           <li v-else style="display: flex; align-items: center; gap: 6px">
             <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="info" :size="15" /></span>尚无附件图片
           </li>
+          <li v-if="recovery.attachmentMissingEnhanced > 0" style="display: flex; align-items: flex-start; gap: 6px">
+            <span style="color: var(--warning); flex-shrink: 0"><FluentIcon name="info" :size="15" /></span>
+            <span>有 {{ recovery.attachmentMissingEnhanced }} 张图片的「增强版」文件不在磁盘上——增强版是可重建缓存、
+              不随备份保存（恢复备份后必然出现）。界面已自动改用原图显示，可在 设置 → 扫描矫正 一键重建增强。</span>
+          </li>
           <li v-if="recovery.lastBackup" style="display: flex; align-items: center; gap: 6px">
             <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="save" :size="15" /></span>
             最近备份：{{ fmtDate(recovery.lastBackup.createdAt) }}

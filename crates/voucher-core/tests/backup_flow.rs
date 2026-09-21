@@ -40,6 +40,72 @@ fn backup_and_restore_roundtrip() -> Result<()> {
     let conn = voucher_core::db::connection::open(&target.join("data").join("voucher.db"))?;
     let n: i64 = conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))?;
     assert_eq!(n, 1);
+    // 无附件的备份必须**如实**报告不含附件实体（界面据此提示，不得宣称已覆盖附件目录）
+    assert!(!summary.attachments_included, "无附件备份不得标记含附件");
+    assert_eq!(summary.attachment_count, 0);
+    Ok(())
+}
+
+/// 2026-09-17 缺陷锁：备份只含原图（增强版是可重建缓存、不入备份），快照恢复后 DB 的
+/// `enhanced_path` 会指向磁盘上不存在的文件——界面若直接照用就会「信息在、图空白」。
+/// 这里构造等价状态（DB 有 enhanced_path、磁盘只有原图），断言**下发界面的数据已剥掉它**，
+/// 且 DB 原值保留（「重新增强」仍按同路径覆盖）。
+#[test]
+fn missing_enhanced_is_hidden_from_ui_payloads() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("a.png");
+    make_png(&img);
+    ingestion::import_images(&ctx, &[img], None, false)?;
+
+    let (aid, vid, orig_rel) = ctx.db.with_conn(|conn| {
+        let row: (i64, i64, String) = conn.query_row(
+            "SELECT id, voucher_id, file_path FROM attachments LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        Ok(row)
+    })?;
+    let enhanced_rel = orig_rel.replace(".png", ".enhanced.png");
+    ctx.db.with_conn(|conn| {
+        voucher_core::db::repos::attachment_repo::set_enhanced(conn, aid, &enhanced_rel)
+    })?;
+    assert!(
+        !ctx.paths.attachment_abs_checked(&enhanced_rel)?.exists(),
+        "前提：增强版文件不在磁盘上（等价于快照恢复后的状态）"
+    );
+
+    // 列表缩略图出口（列表页 / 打印预览）：剥掉不可显示的增强版路径，原图路径可用
+    let thumbs = voucher_core::services::query::voucher_thumbs(&ctx, &[vid])?;
+    let thumb = thumbs.get(&vid).expect("应有缩略图条目");
+    assert!(
+        thumb.enhanced_path.is_none(),
+        "指向不存在文件的增强版不得下发界面（否则前端会显示空白）"
+    );
+    assert!(
+        ctx.paths
+            .attachment_abs_checked(&thumb.file_path)?
+            .is_file(),
+        "原图必须在位——界面据此回退显示"
+    );
+
+    // 编辑页出口：同样剥掉
+    let detail = voucher_mgr::get_detail(&ctx, vid)?;
+    assert_eq!(detail.attachments.len(), 1);
+    assert!(detail.attachments[0].enhanced_path.is_none());
+
+    // DB 存储不得改写（保留原值，「重新增强」仍覆盖同一文件）
+    let stored: Option<String> = ctx.db.with_conn(|conn| {
+        Ok(conn.query_row(
+            "SELECT enhanced_path FROM attachments WHERE id = ?1",
+            [aid],
+            |r| r.get(0),
+        )?)
+    })?;
+    assert_eq!(
+        stored.as_deref(),
+        Some(enhanced_rel.as_str()),
+        "只在下发界面时过滤，不改 DB 存储"
+    );
     Ok(())
 }
 
@@ -107,6 +173,7 @@ fn encrypted_backup_roundtrip() -> Result<()> {
     let summary = backup::restore_backup(&ctx, &snapshot, &target)?;
     assert!(summary.checksums_verified, "解密后 sha256 校验通过");
     assert!(summary.attachment_count >= 1);
+    assert!(summary.attachments_included, "含附件的加密备份应标记含附件");
     assert!(target.join("data").join("voucher.db").exists());
     let conn = voucher_core::db::connection::open(&target.join("data").join("voucher.db"))?;
     let n: i64 = conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))?;
@@ -117,6 +184,8 @@ fn encrypted_backup_roundtrip() -> Result<()> {
         atts += e?.path().is_dir() as i32;
     }
     assert!(atts >= 1, "附件从加密包中释放");
+    // 补强：DB 引用的原图必须真的落盘（旧断言只到"目录非空"）
+    assert_restored_originals_exist(&target)?;
 
     // 5. 演练同样通过
     let report = backup::drill_backup(&ctx, None)?;
@@ -157,10 +226,13 @@ fn backup_includes_attachments_and_drill_passes() -> Result<()> {
     let summary = backup::restore_backup(&ctx, PathBuf::from(&info.path).as_path(), &target)?;
     assert!(summary.checksums_verified, "v2 备份应完成 sha256 校验");
     assert!(summary.attachment_count >= 1);
+    assert!(summary.attachments_included, "含附件的备份应标记含附件");
     assert!(
         target.join("attachments").is_dir(),
         "恢复产物应含 attachments 目录"
     );
+    // 补强：不止"目录非空"——DB 里引用的每个原图都必须真的落盘
+    assert_restored_originals_exist(&target)?;
     let mut has_file = false;
     for entry in std::fs::read_dir(target.join("attachments"))? {
         let path = entry?.path();
@@ -445,5 +517,23 @@ fn recovery_marker_and_health_check() -> Result<()> {
         "check_recovery 应汇入 marker 检测结果"
     );
     assert!(combined.last_session.is_some());
+    Ok(())
+}
+
+/// 恢复产物自检：DB `attachments.file_path` 引用的每个原图都必须在磁盘上。
+/// 旧断言只验证「attachments 目录非空」，发现不了「DB 有引用、文件缺失」——
+/// 这正是 2026-09-17 那个缺陷的测试盲区（恢复后信息在、图片空白）。
+fn assert_restored_originals_exist(target: &Path) -> Result<()> {
+    let db = target.join("data").join("voucher.db");
+    let conn = voucher_core::db::connection::open(&db)?;
+    let mut stmt = conn.prepare("SELECT file_path FROM attachments")?;
+    let rels: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    assert!(!rels.is_empty(), "恢复产物里应有附件记录");
+    for rel in &rels {
+        let abs = target.join("attachments").join(rel);
+        assert!(abs.is_file(), "恢复后 DB 引用的原图必须落盘: {rel}");
+    }
     Ok(())
 }

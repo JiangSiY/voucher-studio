@@ -94,8 +94,18 @@ pub fn stage_restore(
 ) -> Result<voucher_core::services::backup::RestoreSummary, String> {
     let staging = ctx.paths.temp.join("restore-staging");
     let _ = std::fs::remove_dir_all(&staging);
-    voucher_core::services::backup::restore_backup(ctx, zip_path, &staging)
+    // 陈旧 pending 必须**无条件**清理：上次恢复若被中断，残留的 attachments.pending
+    // 会在下次启动被误落位（旧实现只在「本次含附件」的分支里清理）。
+    clear_stale_pending(&ctx.paths);
+    let pending_att = ctx.paths.attachments.with_extension("pending");
+
+    let summary = voucher_core::services::backup::restore_backup(ctx, zip_path, &staging)
         .map_err(|e| e.to_string())?;
+    if !summary.attachments_included {
+        log::warn!(
+            "该备份不含附件实体（快照只含原图/无附件）：恢复后界面将回退原图，增强版可在「扫描矫正」一键重建"
+        );
+    }
 
     let staged_db = staging.join("data").join("voucher.db");
     if staged_db.exists() {
@@ -110,11 +120,48 @@ pub fn stage_restore(
     // 附件（v2 备份）：staging → attachments.pending（目录级替换，重启落位）
     let staged_att = staging.join("attachments");
     if staged_att.is_dir() {
-        let pending_att = ctx.paths.attachments.with_extension("pending");
-        let _ = std::fs::remove_dir_all(&pending_att);
         std::fs::rename(&staged_att, &pending_att)
             .map_err(|e| format!("写入待恢复附件失败: {e}"))?;
     }
     let _ = std::fs::remove_dir_all(&staging);
-    voucher_core::services::backup::inspect_backup(ctx, zip_path).map_err(|e| e.to_string())
+    Ok(summary)
+}
+
+/// 清理上一次被中断的恢复残留：`attachments.pending`（不含本次刚写入的内容时调用）。
+/// 独立成函数便于单测——这里的行为曾在 2026-09-17 被修正过：旧实现把清理写在
+/// 「本次备份含附件」的分支里，导致**无附件备份的恢复不清残渣**，
+/// 残留目录会在下一次启动被 `apply_pending_restore` 误落位。
+fn clear_stale_pending(paths: &voucher_core::utils::paths::AppPaths) {
+    let pending_att = paths.attachments.with_extension("pending");
+    let _ = std::fs::remove_dir_all(&pending_att);
+}
+
+#[cfg(test)]
+mod tests {
+    use voucher_core::utils::paths::AppPaths;
+
+    /// 陈旧 attachments.pending 必须被清理，且**不得**碰真实 attachments 目录
+    #[test]
+    fn clear_stale_pending_removes_only_pending_dir() {
+        let base = std::env::temp_dir().join(format!("vs-pending-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let paths = AppPaths::resolve(Some(base.clone())).expect("解析路径");
+        paths.ensure_all().expect("建目录");
+
+        // 造「真实附件目录 + 陈旧 pending」现场
+        let att = paths.attachments.join("2026").join("08");
+        std::fs::create_dir_all(&att).expect("建附件子目录");
+        std::fs::write(att.join("keep.jpg"), b"original").expect("写原图");
+        let stale = paths.attachments.with_extension("pending");
+        std::fs::create_dir_all(stale.join("2026").join("08")).expect("建 pending");
+        std::fs::write(stale.join("2026").join("08").join("stale.jpg"), b"stale")
+            .expect("写 pending 内容");
+
+        super::clear_stale_pending(&paths);
+
+        assert!(!stale.exists(), "陈旧 attachments.pending 应被清理");
+        assert!(att.join("keep.jpg").is_file(), "真实附件目录不得被触碰");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

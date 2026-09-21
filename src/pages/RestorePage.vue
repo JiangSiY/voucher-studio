@@ -189,7 +189,8 @@ onUnmounted(() => unlistenBackupDone?.());
   <div class="callout warning">
     <span class="ci"><FluentIcon name="warning" :size="18" /></span>
     <div class="ct">
-      <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库、配置与附件，流程为「就绪 → 重启应用 → 生效」。
+      <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库与配置；<strong>备份含附件时</strong>才会同时替换附件目录（
+      快照只含原图，增强版属可重建缓存、不入备份）。流程为「就绪 → 重启应用 → 生效」。
       恢复前建议先做一次当前数据的备份。
     </div>
   </div>
@@ -197,11 +198,17 @@ onUnmounted(() => unlistenBackupDone?.());
   <div v-if="staged" class="callout info">
     <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
     <div class="ct">
-      <strong>备份已就绪：</strong>{{ staged.batch }}（创建于 {{ staged.createdAt }}，含
-      {{ staged.attachmentCount }} 个附件{{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
+      <strong>备份已就绪：</strong>{{ staged.batch }}（创建于 {{ staged.createdAt }}，
+      <template v-if="staged.attachmentsIncluded">含 {{ staged.attachmentCount }} 个附件</template>
+      <template v-else><strong>不含附件实体</strong></template>
+      {{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
       <button class="btn btn-sm btn-primary" style="margin-left: 8px" @click="restart">立即重启应用</button>
-      <span style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
+      <span v-if="staged.attachmentsIncluded" style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
         重启后自动替换数据库与附件目录；如需取消，重启前删除数据目录下 voucher.db.pending / attachments.pending 即可。
+      </span>
+      <span v-else style="display: block; font-size: 12px; margin-top: 4px; color: var(--warning)">
+        该备份不含附件实体：重启后只替换数据库与配置，附件目录保持不变。凭证信息可恢复，图片将自动回退到原图显示；
+        如需增强版，可在 设置 → 扫描矫正 一键重建。如需取消，重启前删除数据目录下 voucher.db.pending 即可。
       </span>
     </div>
   </div>

@@ -44,6 +44,9 @@ pub struct RecoveryReport {
     pub attachment_missing_count: usize,
     /// 缺失附件的文件名样本（最多 10 个，供前端展示举例）
     pub attachment_missing: Vec<String>,
+    /// **增强版**文件缺失数（可重建缓存，非数据损坏；恢复快照后必然出现——
+    /// 备份只含原图，界面会自动回退原图，可在「扫描矫正」一键重建）
+    pub attachment_missing_enhanced: usize,
     /// 最近一次备份（供一键前往恢复）
     pub last_backup: Option<backup::BackupInfo>,
 }
@@ -86,7 +89,8 @@ fn read_marker(path: &std::path::Path) -> Option<LastSession> {
 /// 数据健康检查（只读）
 pub fn check_health(ctx: &CoreContext) -> Result<RecoveryReport> {
     let (db_ok, integrity_errors) = check_integrity(ctx)?;
-    let (attachment_total, missing_count, missing_sample) = check_attachments(ctx)?;
+    let (attachment_total, missing_count, missing_sample, missing_enhanced) =
+        check_attachments(ctx)?;
     let last_backup = backup::list_backups(ctx)?.into_iter().next();
 
     Ok(RecoveryReport {
@@ -97,6 +101,7 @@ pub fn check_health(ctx: &CoreContext) -> Result<RecoveryReport> {
         attachment_total,
         attachment_missing_count: missing_count,
         attachment_missing: missing_sample,
+        attachment_missing_enhanced: missing_enhanced,
         last_backup,
     })
 }
@@ -127,14 +132,15 @@ fn check_integrity(ctx: &CoreContext) -> Result<(bool, Vec<String>)> {
     })
 }
 
-/// 附件物理文件核对：返回（总数, 缺失总数, 缺失 file_name 样本前 10 个）
-fn check_attachments(ctx: &CoreContext) -> Result<(i64, usize, Vec<String>)> {
-    let rows: Vec<(String, String)> = ctx.db.with_conn(|conn| {
-        let mut stmt = conn.prepare("SELECT file_path, file_name FROM attachments")?;
+/// 附件物理文件核对：返回（总数, 原图缺失数, 缺失 file_name 样本前 10 个, 增强版缺失数）
+fn check_attachments(ctx: &CoreContext) -> Result<(i64, usize, Vec<String>, usize)> {
+    let rows: Vec<(String, String, Option<String>)> = ctx.db.with_conn(|conn| {
+        let mut stmt =
+            conn.prepare("SELECT file_path, file_name, enhanced_path FROM attachments")?;
         let mut rows = stmt.query([])?;
         let mut v = Vec::new();
         while let Some(r) = rows.next()? {
-            v.push((r.get(0)?, r.get(1)?));
+            v.push((r.get(0)?, r.get(1)?, r.get(2)?));
         }
         Ok(v)
     })?;
@@ -143,15 +149,31 @@ fn check_attachments(ctx: &CoreContext) -> Result<(i64, usize, Vec<String>)> {
     let missing_rows: Vec<&String> = rows
         .iter()
         // DB 来源 rel 词法校验（Q-20）：非法路径直接计为缺失
-        .filter(|(rel, _)| {
+        .filter(|(rel, _, _)| {
             !ctx.paths
                 .attachment_abs_checked(rel)
                 .map(|p| p.is_file())
                 .unwrap_or(false)
         })
-        .map(|(_, name)| name)
+        .map(|(_, name, _)| name)
         .collect();
     let missing_count = missing_rows.len();
     let sample = missing_rows.into_iter().take(10).cloned().collect();
-    Ok((total, missing_count, sample))
+    // 增强版缺失单独统计：属"可重建缓存"而非数据损坏（恢复快照后必然命中）
+    let missing_enhanced = rows
+        .iter()
+        .filter(|(_, _, ep)| {
+            ep.as_deref()
+                .map(|rel| {
+                    !rel.trim().is_empty()
+                        && !ctx
+                            .paths
+                            .attachment_abs_checked(rel)
+                            .map(|p| p.is_file())
+                            .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
+        .count();
+    Ok((total, missing_count, sample, missing_enhanced))
 }

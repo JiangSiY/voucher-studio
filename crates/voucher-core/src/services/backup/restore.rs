@@ -14,8 +14,12 @@ pub struct RestoreSummary {
     pub batch: String,
     pub created_at: String,
     pub restored_files: Vec<String>,
-    /// 附件数（v1 备份为 0）
+    /// 实际释放的附件数（v1 备份为 0）。
+    /// 注意：**不等同于**备份引用过的附件数——快照只含原图，恢复后增强版需重建。
     pub attachment_count: u32,
+    /// 本次备份是否携带附件实体。false 表示"信息可恢复、图片需另行准备"，
+    /// 界面必须据此如实提示，不得宣称"已覆盖附件目录"。
+    pub attachments_included: bool,
     /// 是否完成 sha256 全量校验（v1 备份无清单 → false）
     pub checksums_verified: bool,
 }
@@ -96,6 +100,9 @@ pub(super) fn inspect_backup_impl(zip_path: &Path) -> Result<RestoreSummary> {
         created_at: manifest.created_at.clone(),
         restored_files: manifest.files.clone(),
         attachment_count: manifest.attachment_count,
+        // 这是**校验阶段的估计值**（取自 manifest 元数据）；真正下发界面的是
+        // restore_backup_impl 末尾按实际释放条目覆盖后的值。
+        attachments_included: manifest.attachment_count > 0,
         checksums_verified: manifest.version >= 2,
     })
 }
@@ -167,7 +174,7 @@ pub fn restore_backup(
 
 /// 释放全量 zip（内部实现，入参必须是全量）
 pub(super) fn restore_backup_impl(zip_path: &Path, target_dir: &Path) -> Result<RestoreSummary> {
-    let summary = inspect_backup_impl(zip_path)?;
+    let mut summary = inspect_backup_impl(zip_path)?;
 
     let file = std::fs::File::open(zip_path)?;
     let mut zip = zip::ZipArchive::new(file)?;
@@ -193,6 +200,7 @@ pub(super) fn restore_backup_impl(zip_path: &Path, target_dir: &Path) -> Result<
     }
 
     // 附件（v2 起）：释放为 attachments/ 树
+    let mut attachments_extracted: u32 = 0;
     for i in 0..zip.len() {
         let name = {
             let entry = zip.by_index(i)?;
@@ -206,12 +214,17 @@ pub(super) fn restore_backup_impl(zip_path: &Path, target_dir: &Path) -> Result<
             ensure_safe_rel_entry(&name, rel)?;
             let target = target_dir.join("attachments").join(rel);
             extract_verified(&mut zip, &name, &target, &checksums)?;
+            attachments_extracted += 1;
         }
     }
 
     // 校验恢复出的库可用
     let conn = crate::db::connection::open(&db_target)?;
     conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get::<_, i64>(0))?;
+
+    // 以**实际释放数**覆盖 manifest 元数据：界面据此如实提示（无附件快照不得宣称已覆盖附件目录）
+    summary.attachment_count = attachments_extracted;
+    summary.attachments_included = attachments_extracted > 0;
     Ok(summary)
 }
 
