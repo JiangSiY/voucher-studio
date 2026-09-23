@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "./composables/safeListen";
 import { useRouter } from "vue-router";
 import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
 import { fmtDate } from "./composables/format";
@@ -44,21 +45,6 @@ const closingBackup = ref(false);
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
 
-/**
- * Q-22：单条监听注册失败不影响其余——此前 8 个串行 await 裸奔在 try 之外，
- * 任一 reject 会导致后续监听全部不注册。
- */
-async function safeListen<T>(
-  event: string,
-  handler: (e: Event<T>) => void,
-): Promise<UnlistenFn | null> {
-  try {
-    return await listen<T>(event, handler);
-  } catch (e) {
-    console.warn(`事件监听注册失败（${event}）`, e);
-    return null;
-  }
-}
 
 onMounted(async () => {
   // 纯浏览器打开 dev URL：跳过所有 Tauri 相关初始化，避免裸 JS 错误刷屏

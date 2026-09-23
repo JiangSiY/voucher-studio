@@ -4,7 +4,8 @@
  * 与状态分布（横向堆叠条 + 图例）双面板。自加载数据并监听 import:done 刷新。
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../../composables/safeListen";
 import { useRouter } from "vue-router";
 import { api, type MonthlySummary } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
@@ -204,7 +205,7 @@ onMounted(async () => {
   } catch (e) {
     toastError(e);
   }
-  unlistenImportDone = await listen("import:done", () => loadTrend().catch(toastError));
+  unlistenImportDone = await safeListen("import:done", () => loadTrend().catch(toastError));
 });
 
 onUnmounted(() => {

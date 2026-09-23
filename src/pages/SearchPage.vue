@@ -2,7 +2,8 @@
 /** 全文搜索：编号/摘要/备注/标签/附件 OCR 文本 + v0.11 组合筛选（日期/金额范围） */
 import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../composables/safeListen";
 import { api, type SearchFilters, type SearchHit } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -96,7 +97,7 @@ onMounted(async () => {
     keyword.value = q.trim();
     search();
   }
-  unlistenImportDone = await listen("import:done", () => {
+  unlistenImportDone = await safeListen("import:done", () => {
     if (searched.value && keyword.value.trim()) search();
   });
 });

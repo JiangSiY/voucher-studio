@@ -12,6 +12,7 @@
  */
 import { onBeforeUnmount, ref } from "vue";
 import { useConfigStore } from "../../stores/config";
+import { toastError } from "../../stores/toast";
 import {
   applySidebarWidth,
   clampSidebarWidth,
@@ -25,6 +26,12 @@ import {
 } from "../../config-defaults";
 
 const store = useConfigStore();
+
+/** 落盘宽度：失败必须提示，不能静默吞掉（2026-09-23 审计 B15）。 */
+function persistWidth(w: number) {
+  void store.saveSidebarWidth(w).catch((e) => toastError(e));
+}
+
 const dragging = ref(false);
 
 /** 当前生效宽度：优先读**渲染后**的侧栏宽度（含 CSS 档位钳制），读不到再退回配置值 */
@@ -53,7 +60,8 @@ function apply(width: number) {
 }
 
 function onPointerDown(e: PointerEvent) {
-  if (e.button !== 0) return;
+  // macOS 的 Ctrl+左键是次要点击（等价右键），不得当作拖拽（2026-09-23 审计 B17）
+  if (e.button !== 0 || e.ctrlKey) return;
   dragging.value = true;
   startX = e.clientX;
   startWidth = effectiveWidth();
@@ -83,12 +91,12 @@ function onPointerUp() {
   dragging.value = false;
   const final = clampSidebarWidth(pendingWidth);
   apply(final);
-  void store.saveSidebarWidth(final); // 落盘一次
+  persistWidth(final); // 落盘一次
 }
 
 function resetToDefault() {
   applySidebarWidth(SIDEBAR_WIDTH_DEFAULT);
-  void store.saveSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+  persistWidth(SIDEBAR_WIDTH_DEFAULT);
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -96,7 +104,7 @@ function onKeydown(e: KeyboardEvent) {
   e.preventDefault();
   const next = steppedSidebarWidth(effectiveWidth(), e.key === "ArrowRight" ? "right" : "left");
   applySidebarWidth(next);
-  void store.saveSidebarWidth(next);
+  persistWidth(next);
 }
 
 onBeforeUnmount(() => {

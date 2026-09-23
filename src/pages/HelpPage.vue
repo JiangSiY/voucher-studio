@@ -42,7 +42,7 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "…");
     <div class="fluent-panel-header"><h3>常见问题</h3></div>
     <div class="fluent-panel-body" style="font-size: 13px; line-height: 1.8">
       <p><strong>数据存在哪里？</strong>全部在本机：<code>{{ dataDir }}</code>（数据库 + 附件图片 + 备份）。不上传任何数据（WebDAV 备份由你显式配置）。</p>
-      <p><strong>密钥安全吗？</strong>OCR API Key、WebDAV 密码保存在操作系统凭据库（Windows 凭据管理器），不会写入文件。</p>
+      <p><strong>密钥安全吗？</strong>OCR API Key、WebDAV 密码保存在操作系统凭据库（Windows 凭据管理器 / macOS 钥匙串），不会写入文件。</p>
       <p><strong>误删了怎么办？</strong>删除前系统自动留存快照记录；数据目录损坏时用「备份与恢复」页的备份还原（恢复 = 就绪 + 重启生效）。</p>
       <p><strong>为什么没有二维码？</strong>凭证是记账原始凭证，以凭证编号为核心、打印省墨、归档可读为设计目标。</p>
     </div>

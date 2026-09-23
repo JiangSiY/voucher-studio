@@ -32,7 +32,14 @@ const editId = computed(() => {
 
 // 表单状态
 const voucherNo = ref("");
-const voucherDate = ref(new Date().toISOString().slice(0, 10));
+// 本地日期（不能用 toISOString：那是 UTC，UTC+8 环境下本地 00:00–08:00 会得到「昨天」，
+// 编号预览也跟着取错日期档号）。2026-09-23 审计 B16。
+function todayLocal(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+const voucherDate = ref(todayLocal());
 const description = ref("");
 const counterparty = ref("");
 const amountYuan = ref<string>("");
@@ -586,10 +593,10 @@ onUnmounted(() => {
             <span v-if="dirty && lockedPeriod" class="dirty-hint" title="该月已封账，无法保存">● 已封账</span>
             <span v-else-if="dirty" class="dirty-hint" title="有未保存的修改">● 未保存</span>
             <button class="btn" @click="goBack">返回</button>
-            <button class="btn" :disabled="saving || !!lockedPeriod" title="Ctrl+S" @click="saveOnly">
+            <button class="btn" :disabled="saving || !!lockedPeriod" title="Ctrl/⌘+S" @click="saveOnly">
               {{ saving ? "保存中…" : "保存" }}
             </button>
-            <button class="btn btn-primary" :disabled="saving || !!lockedPeriod" title="Ctrl+Enter" @click="saveAndNext">
+            <button class="btn btn-primary" :disabled="saving || !!lockedPeriod" title="Ctrl/⌘+Enter" @click="saveAndNext">
               {{ saving ? "保存中…" : "保存并下一张" }}
             </button>
           </div>

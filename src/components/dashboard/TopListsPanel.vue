@@ -4,7 +4,8 @@
  * 自加载数据并监听 import:done 刷新；行点击下钻列表页关键词筛选。
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../../composables/safeListen";
 import { useRouter } from "vue-router";
 import { api, type CounterpartyRow, type TagRow } from "../../api/client";
 import { fmtAmount } from "../../composables/format";
@@ -68,7 +69,7 @@ let unlistenImportDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
-  unlistenImportDone = await listen("import:done", () => load());
+  unlistenImportDone = await safeListen("import:done", () => load());
 });
 
 onUnmounted(() => {

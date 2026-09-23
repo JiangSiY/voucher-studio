@@ -17,12 +17,7 @@
         "height": 820,
         "minWidth": 720,
         "minHeight": 640,
-        "center": true,
-        "transparent": true,
-        "windowEffects": {
-          "effects": ["mica", "acrylic"],
-          "state": "active"
-        }
+        "center": true
       }
     ],
     "security": {

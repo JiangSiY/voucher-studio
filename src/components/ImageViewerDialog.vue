@@ -160,6 +160,8 @@ let dragBaseX = 0;
 let dragBaseY = 0;
 
 function onMouseDown(e: MouseEvent) {
+  // macOS 的 Ctrl+左键是次要点击（等价右键），不得拖动画布（2026-09-23 审计 B17）
+  if (e.button !== 0 || e.ctrlKey) return;
   dragging.value = true;
   dragStartX = e.clientX;
   dragStartY = e.clientY;

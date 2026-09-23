@@ -2,7 +2,8 @@
 /** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
 import { nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../composables/safeListen";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
 import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult, type BatchEditPatch } from "../api/client";
@@ -459,7 +460,7 @@ onMounted(async () => {
   }
   load();
   loadPeriodLocks(); // v0.11：期间锁定态（返回本页时锁定可能已变化）
-  unlistenImportDone = await listen("import:done", () => {
+  unlistenImportDone = await safeListen("import:done", () => {
     // D-3：导入后总数变化 → 清预取缓存
     clearPrefetched();
     load();

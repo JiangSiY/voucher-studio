@@ -98,6 +98,8 @@ function clampBox() {
 }
 
 function onPointerDown(e: MouseEvent, mode: DragMode) {
+  // macOS 的 Ctrl+左键是次要点击（等价右键），不得拖走裁剪框（2026-09-23 审计 B17）
+  if (e.button !== 0 || e.ctrlKey) return;
   e.preventDefault();
   e.stopPropagation();
   drag = mode;

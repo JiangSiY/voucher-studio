@@ -6,7 +6,8 @@
  */
 import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../composables/safeListen";
 import { api, type BackupInfo, type DuplicateGroup, type ReconcileReport, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -101,8 +102,8 @@ let unlistenBackupDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
-  unlistenImportDone = await listen("import:done", () => load());
-  unlistenBackupDone = await listen("backup:done", () => load());
+  unlistenImportDone = await safeListen("import:done", () => load());
+  unlistenBackupDone = await safeListen("backup:done", () => load());
 });
 
 onUnmounted(() => {

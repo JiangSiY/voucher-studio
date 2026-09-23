@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** 备份与恢复（restore_panel）：备份列表 / 立即备份 / 校验 / 演练 / 恢复（重启生效） / WebDAV 上传与下载 */
 import { onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../composables/safeListen";
 import { api, errMsg, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -119,7 +120,13 @@ async function exportFull(b: BackupInfo) {
     const name = path.split(/[\\/]/).pop() ?? path;
     toast.success(`已导出完整备份：${name}`, {
       label: "打开目录",
-      onClick: () => void api.openPath(path.split(/[\\/]/).slice(0, -1).join("\\")),
+      onClick: () => {
+        // 去掉最后一段文件名，**保留原分隔符**：此前用 `join("\\")`，在 macOS 上会拼出
+        // `\Users\x\...` 这种非法路径（NSWorkspace 打不开），且 `void` 把失败吞掉了。
+        // 2026-09-23 审计 A7。
+        const dir = path.replace(/[\\/][^\\/]*$/, "");
+        void api.openPath(dir).catch((e) => toastError(e));
+      },
     });
     await load();
   } catch (e) {
@@ -176,7 +183,7 @@ onMounted(async () => {
   load();
   loadRemote();
   // 自动/手动备份完成（backup:done 由手动备份也触发）：云端可能新增上传副本
-  unlistenBackupDone = await listen("backup:done", () => {
+  unlistenBackupDone = await safeListen("backup:done", () => {
     load();
     loadRemote();
   });

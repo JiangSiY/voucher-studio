@@ -5,7 +5,8 @@
  * 一图一凭证的默认导出形态：「按天分组」——每天一份凭证日报（汇总表 + 图片附录）。
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { safeListen } from "../composables/safeListen";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
@@ -35,6 +36,12 @@ const filterStatus = ref<"all" | VoucherStatus>("all");
 const filterTag = ref("");
 
 /** 筛选后的可选凭证 */
+/** 渲染上限（2026-09-23 审计 B16）：打印中心原先把**全部**筛选结果渲染成 <tr>，
+ *  上万条时 WKWebView 会卡死数秒。只限制预览渲染行数，导出仍走 filteredVouchers 全量。 */
+const RENDER_CAP = 200;
+const visibleRows = computed(() => filteredVouchers.value.slice(0, RENDER_CAP));
+const truncated = computed(() => Math.max(0, filteredVouchers.value.length - RENDER_CAP));
+
 const filteredVouchers = computed(() => {
   return vouchers.value.filter((v) => {
     if (filterDateFrom.value && v.voucherDate < filterDateFrom.value) return false;
@@ -228,7 +235,7 @@ let unlistenImportDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
-  unlistenImportDone = await listen("import:done", () => loadVouchers());
+  unlistenImportDone = await safeListen("import:done", () => loadVouchers());
 });
 
 onUnmounted(() => {
@@ -279,12 +286,17 @@ onUnmounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="v in filteredVouchers" :key="v.id">
+                <tr v-for="v in visibleRows" :key="v.id">
                   <td><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
                   <td><span class="mono">{{ v.voucherNo }}</span></td>
                   <td>{{ v.voucherDate }}</td>
                   <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
                   <td><span :class="['status-tag', v.status]">{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</span></td>
+                </tr>
+                <tr v-if="truncated > 0">
+                  <td colspan="5" class="muted" style="text-align: center; padding: 8px">
+                    仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
+                  </td>
                 </tr>
               </tbody>
             </table>

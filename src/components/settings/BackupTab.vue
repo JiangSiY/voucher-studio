@@ -79,7 +79,7 @@ async function testWebdavConnection() {
         <div class="field">
           <label>备用份目录（异盘双写）</label>
           <div style="display: flex; gap: 8px">
-            <input v-model="draftCfg.backup.secondaryDir" class="input mono" placeholder="如 D:\VoucherBackups（留空不启用）" />
+            <input v-model="draftCfg.backup.secondaryDir" class="input mono" placeholder="如 D:\VoucherBackups（Windows）或 /Volumes/备份（macOS），留空不启用" />
             <button class="btn" @click="pickSecondaryDir">选择…</button>
           </div>
           <div class="desc">建议指向另一块物理盘或移动硬盘：本盘故障时备份仍在。该目录同样应用下方保留策略。</div>
