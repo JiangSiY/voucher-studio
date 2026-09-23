@@ -310,8 +310,10 @@ fn concurrent_import_of_same_image_creates_single_attachment() -> Result<()> {
     make_png(&src);
     // 两次「同时」导入同一文件：线程各自调用同一入口（模拟拖放与对话框并发）
     let (r1, r2) = std::thread::scope(|s| {
-        let h1 = s.spawn(|| ingestion::import_images(&ctx, &[src.clone()], None, false));
-        let h2 = s.spawn(|| ingestion::import_images(&ctx, &[src.clone()], None, false));
+        let h1 =
+            s.spawn(|| ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false));
+        let h2 =
+            s.spawn(|| ingestion::import_images(&ctx, std::slice::from_ref(&src), None, false));
         (
             h1.join().expect("线程 1 不应 panic"),
             h2.join().expect("线程 2 不应 panic"),

@@ -107,7 +107,11 @@ pub fn export_vouchers_pdf(
     let today = chrono::Local::now().format("%Y%m%d").to_string();
     let batch_no = next_batch_no(ctx, &format!("EXP-{today}"))?;
     let pdf_path = ctx.paths.exports.join(format!("{batch_no}.pdf"));
-    pdf::generate(&pdf_path, &input, &pdf_options(opts))?;
+    // 先写临时名再提交（fsync + rename）：生成中途失败不会在最终名留下半截 PDF
+    // （旧行为直接写最终名，坏文件留在导出目录里且没有批次记录）。审计 B11。
+    let tmp = pdf_path.with_extension("pdf.tmp");
+    pdf::generate(&tmp, &input, &pdf_options(opts))?;
+    crate::utils::jsonio::commit_file(&tmp, &pdf_path)?;
 
     record_batch(
         ctx,
@@ -152,7 +156,10 @@ pub fn export_vouchers_daily(
         // 日报批次号带 D 标识：EXP-D20260820-153012（与合并单份 EXP-20260820-153012 区分）
         let batch_no = next_batch_no(ctx, &format!("EXP-D{compact_date}"))?;
         let pdf_path = ctx.paths.exports.join(format!("{batch_no}.pdf"));
-        pdf::generate_daily(&pdf_path, &input, &pdf_options(opts))?;
+        // 同 export_vouchers：临时名 + 提交（审计 B11）
+        let tmp = pdf_path.with_extension("pdf.tmp");
+        pdf::generate_daily(&tmp, &input, &pdf_options(opts))?;
+        crate::utils::jsonio::commit_file(&tmp, &pdf_path)?;
 
         batches.push(record_batch(
             ctx,
@@ -241,13 +248,16 @@ pub fn export_yearly_report(ctx: &CoreContext, year: i32) -> Result<ExportBatch>
     let today = chrono::Local::now().format("%Y%m%d").to_string();
     let batch_no = next_batch_no(ctx, &format!("EXP-Y{year}-{today}"))?;
     let path = ctx.paths.exports.join(format!("{batch_no}.pdf"));
+    // 同 export_vouchers：临时名 + 提交（审计 B11）
+    let tmp = path.with_extension("pdf.tmp");
     pdf::generate_yearly_report(
-        &path,
+        &tmp,
         &pdf::YearlyInput {
             year,
             months: months.clone(),
         },
     )?;
+    crate::utils::jsonio::commit_file(&tmp, &path)?;
 
     // 批次 + 明细（该年全部凭证，反查可点）；不落快照、不改状态（统计报表口径）
     let voucher_ids = ctx

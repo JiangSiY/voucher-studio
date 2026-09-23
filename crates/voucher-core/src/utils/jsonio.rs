@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{CoreError, Result};
 
-/// 原子写入：pretty JSON，tmp + rename
+/// 原子写入：pretty JSON，tmp + fsync + rename
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -16,11 +16,28 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
     let content = serde_json::to_string_pretty(value)?;
     std::fs::write(&tmp, content.as_bytes())?;
-    // Windows 上 rename 目标存在时需要先移除
-    if path.exists() {
-        std::fs::remove_file(path)?;
+    commit_file(&tmp, path)
+}
+
+/// 提交临时文件：fsync 后 rename 到最终名。
+///
+/// 导出产物（PDF/CSV）、备份包这类「要么完整、要么不存在」的文件都应先写临时名、
+/// 再用本函数收口——直接写最终名时，生成失败会留下半截文件且没有批次记录，
+/// 用户看到目录里的坏文件（2026-09-23 审计 B11）。
+///
+/// fsync 后再改名是必要的：否则断电时文件内容可能仍在页缓存里，
+/// 改名成功但内容为空/半截。`sync_all` 失败不致命（只影响掉电语义），故忽略其错误。
+pub fn commit_file(tmp: &Path, final_path: &Path) -> Result<()> {
+    if let Ok(f) = std::fs::OpenOptions::new().write(true).open(tmp) {
+        let _ = f.sync_all();
     }
-    std::fs::rename(&tmp, path)?;
+    // Windows 上 rename 目标已存在时会失败，需先移除；
+    // POSIX 的 rename 本就原子覆盖，先删反而制造「文件不存在」的窗口。
+    #[cfg(windows)]
+    if final_path.exists() {
+        std::fs::remove_file(final_path)?;
+    }
+    std::fs::rename(tmp, final_path)?;
     Ok(())
 }
 

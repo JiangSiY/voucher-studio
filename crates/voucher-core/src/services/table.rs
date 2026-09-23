@@ -128,7 +128,10 @@ pub fn write_csv(path: &Path, vouchers: &[Voucher]) -> Result<()> {
     ];
     push_csv_row(&mut out, &total);
 
-    std::fs::write(path, out)?;
+    // 临时名 + 提交（fsync + rename）：与 PDF 导出同口径，失败不留半截 CSV（审计 B11）
+    let tmp = path.with_extension("csv.tmp");
+    std::fs::write(&tmp, out)?;
+    crate::utils::jsonio::commit_file(&tmp, path)?;
     Ok(())
 }
 

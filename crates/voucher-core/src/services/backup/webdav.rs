@@ -56,8 +56,12 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         }
     }
 
+    // 上传超时按包体放大（2026-09-23 审计 B12）：固定 120s 对 GB 级附件包必然超时，
+    // 重试也只是重复失败。经验值 20s/MB，下限 120s、上限 30 分钟。
+    let size_mb = std::fs::metadata(zip_path).map(|m| m.len()).unwrap_or(0) / (1024 * 1024);
+    let timeout_secs = (120 + size_mb * 20).clamp(120, 30 * 60);
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()?;
 
     // v0.9 分流：快照 → 直连上传（本地两件套已是云端结构）；
@@ -386,6 +390,7 @@ fn cleanup_webdav(
         .cloned()
         .collect();
     let excess = restorable.len().saturating_sub(keep as usize);
+    let mut delete_failed = false;
     for name in &restorable[..excess] {
         let del_url = format!("{base}/{}", url_escape(name));
         let status = client
@@ -394,24 +399,44 @@ fn cleanup_webdav(
             .send()?
             .status();
         if !status.is_success() {
+            // 删除失败 = 该快照仍留在远端：不能按「已删」处理，否则下一步会把它的
+            // 附件包当孤儿回收掉 → 远端留下「快照在、附件包没了」的永久不可恢复备份
+            // （2026-09-23 审计 B12）。
             log::warn!("WebDAV 删除远端备份 {name} 返回 {status}");
+            delete_failed = true;
         }
     }
     let kept: Vec<&String> = restorable.iter().skip(excess).collect();
 
-    // 2. 附件包回收：收集保留快照引用的 bundle 名，未引用的删
+    // 2. 附件包回收（**fail-closed**）：只要有一份保留快照的 manifest 读不出、
+    //    或任一快照删除失败，就无法判断引用关系 → 整轮跳过回收，宁可不删（审计 B12）。
     let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unreadable = false;
     for name in &kept {
         if !name.starts_with(SNAPSHOT_PREFIX) {
             continue; // 旧全量自含附件，不引用 bundle
         }
-        if let Ok(bytes) = webdav_get(client, base, user, password, name) {
-            if let Some(m) = parse_manifest_bytes(&bytes) {
+        let parsed = webdav_get(client, base, user, password, name)
+            .ok()
+            .and_then(|bytes| parse_manifest_bytes(&bytes));
+        match parsed {
+            Some(m) => {
                 if let Some(b) = m.attachments_bundle {
                     referenced.insert(b);
                 }
             }
+            None => {
+                log::warn!("读不出远端快照的 manifest，引用关系不完整：{name}");
+                unreadable = true;
+            }
         }
+    }
+    if delete_failed || unreadable {
+        log::warn!(
+            "跳过远端附件包回收（快照删除失败={delete_failed}、manifest 不可读={unreadable}）：\
+             无法确认引用关系时宁可不删，避免留下不可恢复的远端备份"
+        );
+        return Ok(());
     }
     for name in names.iter().filter(|n| n.starts_with(BUNDLE_PREFIX)) {
         if referenced.contains(name) {

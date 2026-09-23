@@ -40,6 +40,9 @@ pub struct VoucherConfig {
 /// 侧边栏宽度钳制范围与默认值（前端 `src/composables/useSidebarResize.ts` 保持同值）
 pub const SIDEBAR_WIDTH_MIN: u32 = 220;
 pub const SIDEBAR_WIDTH_MAX: u32 = 400;
+/// 自动备份间隔的合法区间（小时）：下限 1h、上限 30 天。见 `normalize` 的注释（审计 B10）。
+pub const MIN_BACKUP_INTERVAL_HOURS: u64 = 1;
+pub const MAX_BACKUP_INTERVAL_HOURS: u64 = 24 * 30;
 pub const SIDEBAR_WIDTH_DEFAULT: u32 = 260;
 
 /// 外观：light / dark / system + 侧边栏宽度
@@ -255,6 +258,15 @@ impl AppConfig {
             .appearance
             .sidebar_width
             .clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+        // 自动备份间隔（小时）：下限 1h、上限 30 天。
+        // - 0 会让调度器每 5 分钟就判定「到期」→ 备份风暴（VACUUM + zip + 云端上传）；
+        // - 超大值会走到 chrono 的 `Duration::hours` 越界 panic，而该 panic 被
+        //   `spawn_blocking` 的 JoinError 吞掉 → 自动备份**永久静默失效**（不报错也不备份）。
+        // `app.json` 允许手改（见模块头注释），故必须在读入时收口。2026-09-23 审计 B10。
+        self.backup.interval_hours = self
+            .backup
+            .interval_hours
+            .clamp(MIN_BACKUP_INTERVAL_HOURS, MAX_BACKUP_INTERVAL_HOURS);
     }
 
     /// 读取配置；文件不存在时返回默认值（并在下次保存时重建）
@@ -270,5 +282,34 @@ impl AppConfig {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         jsonio::write_json_atomic(path, self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 2026-09-23 缺陷锁（审计 B10）：自动备份间隔必须被收口。
+    /// - `0` → 调度器每 5 分钟就判定「到期」→ 备份风暴（VACUUM + zip + 云端上传）；
+    /// - `u64::MAX` → `interval_hours as i64` 变负 / chrono `Duration::hours` 越界 panic，
+    ///   而该 panic 被 `spawn_blocking` 的 JoinError 吞掉 → **自动备份永久静默失效**。
+    ///
+    /// `app.json` 允许手改，故读取与写入两条路径都必须经 `normalize`（与 sidebar 同口径）。
+    #[test]
+    fn normalize_clamps_backup_interval() {
+        let mut cfg = AppConfig::default();
+        cfg.backup.interval_hours = 0;
+        cfg.normalize();
+        assert_eq!(cfg.backup.interval_hours, MIN_BACKUP_INTERVAL_HOURS);
+
+        let mut cfg = AppConfig::default();
+        cfg.backup.interval_hours = u64::MAX;
+        cfg.normalize();
+        assert_eq!(cfg.backup.interval_hours, MAX_BACKUP_INTERVAL_HOURS);
+
+        let mut cfg = AppConfig::default();
+        cfg.backup.interval_hours = 24;
+        cfg.normalize();
+        assert_eq!(cfg.backup.interval_hours, 24, "合法值不得被改动");
     }
 }
