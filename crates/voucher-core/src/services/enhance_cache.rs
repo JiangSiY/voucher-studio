@@ -321,11 +321,16 @@ pub fn delete_one(ctx: &CoreContext, attachment_id: i64) -> Result<u32> {
     };
     let abs = ctx.paths.attachment_abs(&rel);
     let mut deleted = 0u32;
-    if ctx.paths.is_inside_attachments(&abs) {
-        if std::fs::remove_file(&abs).is_ok() {
-            deleted = 1;
-        } else if !abs.exists() {
-            // 文件已被手动删除，视为清理
+    // 词法校验 + 先看存在性：`is_inside_attachments` 依赖 canonicalize 成功，
+    // 而「文件已被手动删除」正是这里的正常态之一 → 旧实现走不到 `else if` 分支，
+    // 清理数永远少报（审计 B6）。
+    if crate::utils::paths::AppPaths::is_safe_rel(&rel) {
+        if abs.is_file() {
+            if std::fs::remove_file(&abs).is_ok() {
+                deleted = 1;
+            }
+        } else {
+            // 文件已被手动删除，视为本次清理完成
             deleted = 1;
         }
     }

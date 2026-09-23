@@ -71,6 +71,20 @@ impl Voucher {
     }
 }
 
+/// 分 → 无千分位十进制文本（CSV / 对账导出等**供机器解析**的数值口径："-1234.56"）。
+///
+/// 负数必须走 `unsigned_abs` 并显式补负号：`cents / 100` 与 `cents % 100` 各自向零截断，
+/// 直接拼接会得到 `0.-50`（-50 分）这类畸形金额，用户把 CSV 导入会计软件即得错数
+/// （2026-09-23 审计 B5；彼时 `table.rs` 与 `reconcile.rs` 各有一份手写除法）。
+pub fn format_money_plain(cents: i64) -> String {
+    let abs = cents.unsigned_abs();
+    if cents < 0 {
+        format!("-{}.{:02}", abs / 100, abs % 100)
+    } else {
+        format!("{}.{:02}", abs / 100, abs % 100)
+    }
+}
+
 /// 分 → "1,234.56" 形式
 pub fn format_money(cents: i64) -> String {
     let negative = cents < 0;

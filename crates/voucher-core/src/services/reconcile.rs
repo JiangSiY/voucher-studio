@@ -203,7 +203,9 @@ fn write_report_csv(ctx: &CoreContext, r: &ReconcileReport) -> Result<String> {
 }
 
 fn format_yuan(cents: i64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
+    // 统一走模型层实现：手写 `cents / 100` + `cents % 100` 在负数上会截断出
+    // `0.-50` 这类畸形金额（审计 B5）。
+    crate::models::voucher::format_money_plain(cents)
 }
 
 fn push_row(out: &mut String, cells: &[String]) {

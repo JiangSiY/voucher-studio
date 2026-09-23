@@ -114,14 +114,32 @@ pub(super) fn fs_retention(dir: &Path, cfg: &BackupConfig) -> Result<()> {
 
 /// 回收孤儿附件包：`kept` 为保留的备份文件路径（快照读 manifest 引用，全量自含附件）。
 /// 目录内未被引用的 voucher-attachments-*.zip 一律删除。
+///
+/// **fail-closed（2026-09-23 审计 B2）**：只要有**任何**保留中的备份读不出 manifest
+/// （age 加密备份改了/清了口令、文件损坏等），就无法判断附件包的引用关系，此时**整轮跳过**
+/// 回收。旧实现是 fail-open——读不出即视为「无引用」，于是「改加密口令 → 下次备份」会把
+/// 旧快照引用的附件包当孤儿删掉，那些快照从此永久不可恢复，而界面仍报「备份成功」。
 fn gc_orphan_bundles(dir: &Path, kept: &[PathBuf]) -> Result<()> {
     let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unreadable: Vec<&PathBuf> = Vec::new();
     for p in kept {
-        if let Some(m) = read_manifest(p) {
-            if let Some(n) = m.attachments_bundle {
-                referenced.insert(n);
+        match read_manifest(p) {
+            Some(m) => {
+                if let Some(n) = m.attachments_bundle {
+                    referenced.insert(n);
+                }
             }
+            None => unreadable.push(p),
         }
+    }
+    if !unreadable.is_empty() {
+        log::warn!(
+            "跳过孤儿附件包回收：{} 份保留中的备份读不出 manifest（口令变更或文件损坏？），\
+             无法判断引用关系，宁可不删。示例：{}",
+            unreadable.len(),
+            unreadable[0].display()
+        );
+        return Ok(());
     }
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -139,6 +157,32 @@ mod tests {
     use super::*;
     fn d(s: &str) -> NaiveDate {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    /// 2026-09-23 缺陷锁（审计 B2）：保留中的备份读不出 manifest 时（改/清加密口令、
+    /// 文件损坏），**不得**把附件包当孤儿删掉——旧实现 fail-open，会让那些快照永久不可恢复。
+    #[test]
+    fn unreadable_manifest_makes_gc_skip_bundles() {
+        let dir = std::env::temp_dir().join(format!("vs-retention-gc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 「保留中」但读不出 manifest 的备份（内容不是 zip）
+        let snap = dir.join(format!("{SNAPSHOT_PREFIX}20260923-000000.zip"));
+        std::fs::write(&snap, b"not-a-zip").unwrap();
+        // 它的附件包：旧实现会把它当孤儿删掉
+        let bundle = dir.join(format!("{BUNDLE_PREFIX}deadbeef.zip"));
+        std::fs::write(&bundle, b"bundle").unwrap();
+
+        gc_orphan_bundles(&dir, std::slice::from_ref(&snap)).unwrap();
+
+        assert!(
+            bundle.is_file(),
+            "manifest 读不出时必须整轮跳过回收，不得删附件包"
+        );
+        assert!(snap.is_file(), "保留中的备份本身当然也不能删");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

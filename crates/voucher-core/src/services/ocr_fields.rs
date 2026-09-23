@@ -543,11 +543,21 @@ fn semantic_rename(ctx: &CoreContext, voucher_id: i64, attachment: &Attachment) 
     if new_rel == attachment.file_path {
         return Ok(());
     }
-    let old_abs = ctx.paths.attachment_abs(&attachment.file_path);
-    let new_abs = ctx.paths.attachment_abs(&new_rel);
-    if !ctx.paths.is_inside_attachments(&new_abs) {
+    // **纯词法校验**：目标路径此刻必然还不存在，而 `is_inside_attachments` 依赖
+    // `canonicalize()` 成功（对缺失文件返回 false）——旧写法
+    // `!is_inside_attachments(&new_abs)` 恒成立并直接 return，于是整条语义化重命名链路
+    // 是**死代码**（2026-09-23 审计 B6）。这里与读侧 `is_safe_rel` 同口径
+    // （拒 `\` / `:` / 绝对路径 / `..`）。
+    if !crate::utils::paths::AppPaths::is_safe_rel(&attachment.file_path) {
+        log::warn!("语义化重命名：源相对路径非法，已跳过 {new_rel:?}");
         return Ok(());
     }
+    if !crate::utils::paths::AppPaths::is_safe_rel(&new_rel) {
+        log::warn!("语义化重命名：目标相对路径非法，已跳过 {new_rel:?}");
+        return Ok(());
+    }
+    let old_abs = ctx.paths.attachment_abs(&attachment.file_path);
+    let new_abs = ctx.paths.attachment_abs(&new_rel);
 
     // 物理改名 → DB 更新；DB 失败则改回，保证文件与记录一致
     if let Err(e) = std::fs::rename(&old_abs, &new_abs) {

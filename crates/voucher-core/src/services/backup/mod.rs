@@ -104,6 +104,28 @@ pub(super) struct Manifest {
     pub(super) attachments_bundle: Option<String>,
 }
 
+/// 校验一个「待落位的数据库文件」是否可用：非空 + 能作为 SQLite 打开 + `integrity_check` 通过。
+///
+/// 恢复流程在**重启后落位**前调用（见 `src-tauri/src/platform::apply_pending_restore`）：
+/// 宁可放弃这次恢复，也不能用半截/损坏的文件覆盖活库——旧实现是「先删活库再改名」，
+/// 一旦 `.pending` 是半截（`fs::copy` 中途断电/写满）就会丢掉整库且没有任何报错。
+pub fn validate_db_file(path: &Path) -> std::result::Result<(), String> {
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size == 0 {
+        return Err("文件为空（写入未完成）".into());
+    }
+    let conn =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("无法作为 SQLite 库打开：{e}"))?;
+    let ok: String = conn
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .map_err(|e| format!("integrity_check 执行失败：{e}"))?;
+    if ok != "ok" {
+        return Err(format!("integrity_check 未通过：{ok}"));
+    }
+    Ok(())
+}
+
 pub(super) fn read_manifest(zip_path: &Path) -> Option<Manifest> {
     // 统一读取分派（v0.14-A 三态兼容）：age 信封先解密到临时 zip 再读；
     // v0.13 加密 zip（加密条目）与明文 zip 原样进入，条目解密由 open_entry 负责。

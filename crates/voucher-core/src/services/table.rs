@@ -132,9 +132,10 @@ pub fn write_csv(path: &Path, vouchers: &[Voucher]) -> Result<()> {
     Ok(())
 }
 
-/// 分 → 无千分位十进制文本（CSV 数值口径："-1234.56"）
+/// 分 → 无千分位十进制文本（CSV 数值口径："-1234.56"）——统一走模型层实现，
+/// 避免各处手写除法在负数上截断出畸形金额（审计 B5）。
 fn format_yuan_plain(cents: i64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
+    crate::models::voucher::format_money_plain(cents)
 }
 
 /// 追加一行（自动换行结尾）
@@ -268,5 +269,11 @@ mod tests {
         assert_eq!(format_yuan_plain(12345), "123.45");
         assert_eq!(format_yuan_plain(-100), "-1.00");
         assert_eq!(format_yuan_plain(5), "0.05");
+        // 2026-09-23 缺陷锁（审计 B5）：负数不能因整除/取余各自向零截断而变成
+        // "0.-50" / "-12.-34"。原用例只测了 -100（恰好整除），正好绕过该缺陷。
+        assert_eq!(format_yuan_plain(-50), "-0.50");
+        assert_eq!(format_yuan_plain(-1234), "-12.34");
+        assert_eq!(format_yuan_plain(-5), "-0.05");
+        assert_eq!(format_yuan_plain(i64::MIN), "-92233720368547758.08");
     }
 }
