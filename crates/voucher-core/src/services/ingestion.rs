@@ -103,12 +103,42 @@ pub fn import_images(
             });
             continue;
         }
-        if !path.is_file() {
-            summary.failed.push(ImportFailure {
-                reason: "文件不存在".into(),
-                file_name,
-            });
-            continue;
+        // 存在性检查改用 `metadata()`，把"没权限"与"不存在"分开报（2026-09-23：
+        // macOS 上受保护目录（桌面/文稿/下载、可移除卷、网络卷）会返回 EPERM，
+        // 原先 `is_file()` 一律给"文件不存在"——用户看到的是误导性提示，
+        // 排查时也分不清是路径不对还是系统权限没给）。
+        match std::fs::metadata(path) {
+            Ok(m) if m.is_file() => {}
+            Ok(_) => {
+                summary.failed.push(ImportFailure {
+                    reason: "不是普通文件（目录或特殊文件）".into(),
+                    file_name,
+                });
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                summary.failed.push(ImportFailure {
+                    reason: "无权限读取该文件（macOS 的受保护目录需在「系统设置 → 隐私与安全性 \
+                             → 文件与文件夹」里授权；或先把图片移到普通目录再导入）"
+                        .into(),
+                    file_name,
+                });
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                summary.failed.push(ImportFailure {
+                    reason: "文件不存在".into(),
+                    file_name,
+                });
+                continue;
+            }
+            Err(e) => {
+                summary.failed.push(ImportFailure {
+                    reason: format!("无法访问文件：{e}"),
+                    file_name,
+                });
+                continue;
+            }
         }
 
         let hash = match dedup::md5_file(path) {

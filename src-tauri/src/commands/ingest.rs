@@ -50,6 +50,10 @@ pub async fn pick_and_import(
     })
     .await
     .map_err(|e| ApiError::internal(e.to_string()))??;
+    // 逐条记失败原因（2026-09-23）：原先只记数量，日志里看不出"为什么失败"
+    for f in &summary.failed {
+        log::warn!("导入失败：{} —— {}", f.file_name, f.reason);
+    }
     log::info!(
         "点击导入完成：新建 {} 张，跳过重复 {}，失败 {}，耗时 {:?}",
         summary.vouchers.len(),

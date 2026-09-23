@@ -213,6 +213,9 @@ fn main() {
                     };
                     let ctx: Arc<CoreContext> = ctx.inner().clone();
                     let app = window.app_handle().clone();
+                    // 诊断用（2026-09-23）：把 macOS 交来的**原始路径**记下来——导入失败时
+                    // 这是区分「路径本身有问题（如 file:// URL）」与「系统权限没给（TCC）」的唯一线索。
+                    log::info!("拖放原始路径：{paths:?}");
                     log::info!("拖放导入：{} 张图片", images.len());
                     let _ = app.emit("import:started", images.len());
                     tauri::async_runtime::spawn_blocking(move || {
@@ -221,6 +224,10 @@ fn main() {
                             &ctx, &images, None, true,
                         ) {
                             Ok(summary) => {
+                                // 逐条记失败原因：原先只记数量，日志里看不出"为什么失败"
+                                for f in &summary.failed {
+                                    log::warn!("导入失败：{} —— {}", f.file_name, f.reason);
+                                }
                                 log::info!(
                                     "拖放导入完成：新建 {} 张，跳过重复 {}，失败 {}，耗时 {:?}",
                                     summary.vouchers.len(),
