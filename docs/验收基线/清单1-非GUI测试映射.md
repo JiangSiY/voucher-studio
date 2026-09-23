@@ -5,10 +5,11 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> ⚠️ **修订注记（2026-09-09 初版；2026-09-21 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-09-21**：`voucher-core` 测试 **215 个**（src 内联 **121** + tests/ 集成 **94**，含
+> ⚠️ **修订注记（2026-09-09 初版；2026-09-23 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
+> 截至 **2026-09-23**：`voucher-core` 测试 **217 个**（src 内联 **123** + tests/ 集成 **94**，含
 > backup_flow 11 / db_resilience 4 / enhance_e2e 24 / **keyring_native 1** / ocr_flow 5 / spike_a_print 5 / **voucher_flow 40** /
-> webdav_mock 4）；另 `src-tauri` 1 个（首个用例：恢复残留清理）；前端 vitest **17 文件 85 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
+> webdav_mock 4）；另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
+> 合法待恢复库正常落位）；前端 vitest **17 文件 89 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
 > `core_flow` 测试文件已改组为 `voucher_flow.rs`；本表 I 节 #38 `keyring_secret_roundtrip` **测试名不变**，
