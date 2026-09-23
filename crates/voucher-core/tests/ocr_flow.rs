@@ -208,3 +208,135 @@ fn ocr_fields_extract_conservative() {
     let f5 = ocr_fields::extract(text5);
     assert_eq!(f5.date, None);
 }
+
+// ---------- 残余清理（B8 行为级）：OCR 推理期间不得持全局 DB 锁 ----------
+
+/// 极简可阻塞 mock HTTP 服务（照 `webdav_mock.rs` 的形状，零新依赖）：
+/// 收到一次请求后**阻塞**并把"已收到"置真，等调用方放行再返回 `{"text": "…"}`。
+/// 内置 30s 放行上限，避免用例失败时把 CI 挂死。
+struct BlockingOcrMock {
+    port: u16,
+    arrived: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    release: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl BlockingOcrMock {
+    fn start(text: &'static str) -> Self {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let port = listener.local_addr().expect("mock addr").port();
+        let arrived = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let (a, r) = (arrived.clone(), release.clone());
+
+        std::thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                // **读满**请求头 + 按 Content-Length 读净 body 再回应。
+                // 只读一次就回应会让客户端偶发 ContentLengthInvalid（请求尚在途/被截断）。
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                loop {
+                    let n = std::io::Read::read(&mut sock, &mut tmp).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&tmp[..n]);
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..pos]).to_string();
+                        let want = head
+                            .lines()
+                            .find_map(|l| {
+                                let (k, v) = l.split_once(':')?;
+                                k.eq_ignore_ascii_case("content-length")
+                                    .then(|| v.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+                        if buf.len() >= pos + 4 + want {
+                            break;
+                        }
+                    }
+                }
+                a.store(true, Ordering::SeqCst);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while !r.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                let body = format!("{{\"text\":\"{text}\"}}");
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(resp.as_bytes());
+            }
+        });
+        Self {
+            port,
+            arrived,
+            release,
+        }
+    }
+}
+
+/// 残余清理（B8 行为级）：**OCR 推理期间不得持全局 DB 锁**。
+///
+/// 手段：OCR 引擎指向本文件内建的 mock HTTP（`validate_api_url` 明确放行 127.0.0.1，
+/// 未绕过任何生产校验），mock 收到请求后阻塞并通知主线程；主线程在"推理进行中"计时
+/// `ctx.db.with_conn`——旧实现（查缓存→推理→写缓存同在一个 `with_conn` 内）会一直等到
+/// mock 放行，现实现应在毫秒级返回。放行后识别照常完成，顺带证明链路没被拆坏。
+///
+/// 为什么用云端引擎而不是本地 ONNX：不需要 16MB 模型、耗时确定（本地识别耗时随图大小与
+/// 机器浮动，不适合卡时间窗）。结构式守卫见 `db_resilience.rs::ocr_inference_must_not_hold_db_lock`。
+#[test]
+fn ocr_inference_does_not_hold_db_lock() -> Result<()> {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("lock.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let att_id = imported.vouchers[0].attachment.id;
+
+    let mock = BlockingOcrMock::start("mock 识别结果");
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "cloud".into();
+    cfg.ocr.api_url = format!("http://127.0.0.1:{}/ocr", mock.port);
+    cfg.ocr.enabled = true;
+    cfg.ocr.model = "mock".into();
+    ctx.set_config(cfg)?;
+
+    std::thread::scope(|s| {
+        let ocr_thread = s.spawn(|| ocr::run_for_attachment(&ctx, att_id));
+
+        // 等 mock 收到请求 = 推理已进入
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !mock.arrived.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "mock 未在 10s 内收到 OCR 请求");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // 推理进行中：取 DB 连接必须立刻成功（先放行 mock，保证断言失败也不挂死）
+        let t0 = Instant::now();
+        let probe = ctx.db.with_conn(|_| Ok(()));
+        let held = t0.elapsed();
+        mock.release.store(true, Ordering::SeqCst);
+        probe?;
+        assert!(
+            held < Duration::from_millis(500),
+            "OCR 推理期间取 DB 连接被阻塞了 {held:?}——推理不得持锁"
+        );
+
+        let att = ocr_thread.join().expect("OCR 线程不应 panic")?;
+        assert_eq!(
+            att.ocr_text.as_deref().map(str::trim),
+            Some("mock 识别结果"),
+            "放行后识别应正常完成（顺带证明链路未被拆坏）"
+        );
+        Ok(())
+    })
+}

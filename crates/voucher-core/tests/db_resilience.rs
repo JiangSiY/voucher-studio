@@ -36,7 +36,8 @@ fn corrupted_db_file_fails_open_gracefully() {
 ///
 /// 这是**结构式守卫**（与 CI 的越层 grep 门禁同风格）：静态读源码文本，禁止
 /// ①`with_conn` 附近出现推理调用、②推理函数接收 `Connection`、③旧的合并实现回归。
-/// 真正的行为级验证（推理期间 DB 可写）需要可注入的慢引擎，本轮未做。
+/// 行为级验证见 `ocr_flow.rs::ocr_inference_does_not_hold_db_lock`（云端引擎 + 仓库内自建 mock HTTP + 握手信号，确定性制造「推理进行中」）；
+/// 本守卫保留为**廉价的结构式兜底**，两条并存。
 #[test]
 fn ocr_inference_must_not_hold_db_lock() {
     let src = include_str!("../src/services/ocr.rs");
