@@ -38,8 +38,7 @@
     "targets": "all",
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": {
-      "../assets/ocr-models/": "ocr-models/",
-      "vendor/opencv_world4100.dll": "opencv_world4100.dll"
+      "../assets/ocr-models/": "ocr-models/"
     }
   }
 }

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../assets/ocr-models/": "ocr-models/",
+      "vendor/opencv_world4100.dll": "opencv_world4100.dll"
+    }
+  }
+}
