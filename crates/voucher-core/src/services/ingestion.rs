@@ -43,6 +43,34 @@ pub struct ImportFailure {
 /// 导入图片。`voucher_id` 为 None 时每张图片各建一张草稿凭证（一图一凭证）；
 /// 为 Some 时附加到指定凭证——仅当该凭证当前无图片（一图上限）。
 /// `run_ocr`：导入后立即 OCR 并自动填单（失败不影响入库）。
+/// 把「读不到文件」翻译成用户能照做的原因（2026-09-23）。
+///
+/// 两类在 macOS 上最常见，且**都不是本应用的缺陷**：
+/// - 路径落在**其它应用的沙盒容器**内（例如微信的
+///   `~/Library/Containers/com.tencent.xinWeChat/.../RWTemp/...`）：macOS 禁止跨容器读取，
+///   任何用途说明键/授权弹窗都不起作用——必须先在来源应用里「另存为」到普通目录；
+/// - 受保护目录（桌面/文稿/下载、可移除卷、网络卷）未授权：可在系统设置里授权（Info.plist
+///   已补用途说明键，正常会弹提示）。
+fn io_failure_reason(path: &std::path::Path, e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::PermissionDenied => {
+            let p = path.to_string_lossy();
+            if p.contains("/Library/Containers/") || p.contains("/Library/Group Containers/") {
+                "该文件位于**其他应用的沙盒容器**内（例如微信聊天窗口里的图片/临时文件），\
+                 macOS 不允许其它应用读取。请先在来源应用里「另存为」到普通目录（如桌面）再导入；\
+                 或为本应用开启「系统设置 → 隐私与安全性 → 完全磁盘访问权限」。"
+                    .into()
+            } else {
+                "无权限读取该文件（macOS 受保护目录需在「系统设置 → 隐私与安全性 → 文件与文件夹」\
+                 里授权；或先把图片移到普通目录再导入）"
+                    .into()
+            }
+        }
+        std::io::ErrorKind::NotFound => "文件不存在".into(),
+        _ => format!("无法读取文件：{e}"),
+    }
+}
+
 pub fn import_images(
     ctx: &CoreContext,
     paths: &[PathBuf],
@@ -103,10 +131,7 @@ pub fn import_images(
             });
             continue;
         }
-        // 存在性检查改用 `metadata()`，把"没权限"与"不存在"分开报（2026-09-23：
-        // macOS 上受保护目录（桌面/文稿/下载、可移除卷、网络卷）会返回 EPERM，
-        // 原先 `is_file()` 一律给"文件不存在"——用户看到的是误导性提示，
-        // 排查时也分不清是路径不对还是系统权限没给）。
+        // 存在性检查改用 `metadata()`，把"没权限"与"不存在"分开报（2026-09-23）。
         match std::fs::metadata(path) {
             Ok(m) if m.is_file() => {}
             Ok(_) => {
@@ -116,25 +141,9 @@ pub fn import_images(
                 });
                 continue;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                summary.failed.push(ImportFailure {
-                    reason: "无权限读取该文件（macOS 的受保护目录需在「系统设置 → 隐私与安全性 \
-                             → 文件与文件夹」里授权；或先把图片移到普通目录再导入）"
-                        .into(),
-                    file_name,
-                });
-                continue;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                summary.failed.push(ImportFailure {
-                    reason: "文件不存在".into(),
-                    file_name,
-                });
-                continue;
-            }
             Err(e) => {
                 summary.failed.push(ImportFailure {
-                    reason: format!("无法访问文件：{e}"),
+                    reason: io_failure_reason(path, &e),
                     file_name,
                 });
                 continue;
@@ -144,10 +153,13 @@ pub fn import_images(
         let hash = match dedup::md5_file(path) {
             Ok(h) => h,
             Err(e) => {
-                summary.failed.push(ImportFailure {
-                    reason: e.to_string(),
-                    file_name,
-                });
+                // 读**内容**失败最常见的正是权限（跨沙盒容器 / 受保护目录未授权）——
+                // `stat` 能过、`read` 被拒，就发生在这一步。
+                let reason = match &e {
+                    CoreError::Io(io) => io_failure_reason(path, io),
+                    other => other.to_string(),
+                };
+                summary.failed.push(ImportFailure { reason, file_name });
                 continue;
             }
         };
