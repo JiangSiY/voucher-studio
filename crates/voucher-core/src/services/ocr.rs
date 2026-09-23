@@ -8,7 +8,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use base64::Engine;
-use rusqlite::Connection;
 
 use crate::db::repos::{attachment_repo, enhance_hit_repo, ocr_cache_repo, ocr_layout_repo};
 use crate::models::{Attachment, OcrStatus};
@@ -54,9 +53,18 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         abs.clone()
     };
 
-    let (text, lines) = ctx
-        .db
-        .with_conn(|conn| recognize_with_cache(conn, ctx, &attachment, &ocr_target))?;
+    // 识别：缓存命中走短锁；未命中则**锁外推理**、再用短锁写回。
+    // 推理（本地 ONNX 每张数百 ms 至数秒；云端超时上限 60s）绝不能持 DB 连接锁——
+    // 旧实现把它夹在同一个 `with_conn` 内，于是识别期间列表、保存、备份等**所有**
+    // DB 操作都被阻塞（2026-09-23 审计 B8）。批量识别时这个阻塞会被放大成"界面卡住"。
+    let (text, lines) = match cached_ocr(ctx, &attachment.file_hash)? {
+        Some(text) => (text, None),
+        None => {
+            let (text, lines, engine) = infer_ocr(ctx, &ocr_target)?;
+            store_ocr_cache(ctx, &attachment.file_hash, engine, &text)?;
+            (text, lines)
+        }
+    };
 
     ctx.db.with_conn(|conn| {
         attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&text))?;
@@ -110,35 +118,41 @@ pub fn run_pending(
     Ok(ok)
 }
 
-/// 识别 + 缓存。返回 (纯文本, 版面数据)：
-/// 版面仅本地引擎产生；缓存命中 / 云端引擎 → None（抽取回退纯文本模式）。
-fn recognize_with_cache(
-    conn: &Connection,
-    ctx: &CoreContext,
-    attachment: &Attachment,
-    abs: &Path,
-) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
-    if let Some((engine, text)) = ocr_cache_repo::get(conn, &attachment.file_hash)? {
-        let _ = engine;
-        return Ok((text, None));
-    }
+/// 缓存命中的识别文本（**短锁**：只读 ocr_cache 后立即释放）。
+/// 版面数据不入缓存：命中时返回 None，字段抽取回退纯文本模式（与旧行为一致）。
+fn cached_ocr(ctx: &CoreContext, file_hash: &str) -> Result<Option<String>> {
+    Ok(ctx
+        .db
+        .with_conn(|conn| ocr_cache_repo::get(conn, file_hash))?
+        .map(|(_engine, text)| text))
+}
 
+/// **锁外推理**：返回 (纯文本, 版面数据, 引擎名)。
+/// 调用方负责在推理前后各取一次**短锁**（查缓存 / 写缓存），推理本身不持任何 DB 锁
+/// ——见 [`cached_ocr`] 与 [`store_ocr_cache`] 的注释（审计 B8）。
+fn infer_ocr(
+    ctx: &CoreContext,
+    abs: &Path,
+) -> Result<(String, Option<Vec<crate::models::OcrLine>>, &'static str)> {
     let cfg = ctx.config();
     if !cfg.ocr.enabled {
         return Err(CoreError::Invalid("OCR 未启用（设置 → OCR）".into()));
     }
-
     let engine = engine_for(&cfg.ocr.engine)?;
     let (text, lines) = engine.recognize(ctx, abs)?;
+    Ok((text, lines, engine.name()))
+}
 
-    ocr_cache_repo::upsert(conn, &attachment.file_hash, engine.name(), &text)?;
-    Ok((text, lines))
+/// 写回识别缓存（**短锁**）
+fn store_ocr_cache(ctx: &CoreContext, file_hash: &str, engine: &str, text: &str) -> Result<()> {
+    ctx.db
+        .with_conn(|conn| ocr_cache_repo::upsert(conn, file_hash, engine, text))
 }
 
 // ---------- 引擎抽象（体检 A-2 / 第四批 19 项） ----------
 
 /// OCR 引擎统一接口：换引擎 / 加引擎实现此 trait 即可，
-/// `recognize_with_cache` 经 [`engine_for`] 工厂分发，不再感知具体种类。
+/// [`infer_ocr`] 经 [`engine_for`] 工厂分发，不再感知具体种类。
 trait OcrEngine {
     /// 引擎标识（写 ocr_cache.engine 溯源，与配置串一致）
     fn name(&self) -> &'static str;

@@ -28,6 +28,49 @@ fn corrupted_db_file_fails_open_gracefully() {
     assert!(r2.is_err(), "损坏库 init 应整体报错");
 }
 
+/// 契约守卫（2026-09-23 审计 B8）：OCR 推理**不得**被 `with_conn` 包住。
+///
+/// 背景：全局只有一条 DB 连接（`Mutex<Connection>`），推理期间持锁会让列表、保存、
+/// 备份等**所有** DB 操作排队等待——本地 ONNX 每张数百 ms 至数秒，云端超时上限 60s。
+/// 旧实现把「查缓存 → 推理 → 写缓存」写在同一个 `with_conn` 闭包里，正是这个症状。
+///
+/// 这是**结构式守卫**（与 CI 的越层 grep 门禁同风格）：静态读源码文本，禁止
+/// ①`with_conn` 附近出现推理调用、②推理函数接收 `Connection`、③旧的合并实现回归。
+/// 真正的行为级验证（推理期间 DB 可写）需要可注入的慢引擎，本轮未做。
+#[test]
+fn ocr_inference_must_not_hold_db_lock() {
+    let src = include_str!("../src/services/ocr.rs");
+
+    // ① with_conn 之后紧跟的若干行内不得出现推理调用
+    let lines: Vec<&str> = src.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("with_conn") {
+            let window = lines[i..(i + 8).min(lines.len())].join("\n");
+            assert!(
+                !window.contains("recognize("),
+                "第 {} 行起的 with_conn 闭包内出现推理调用：推理不得持 DB 锁",
+                i + 1
+            );
+        }
+    }
+
+    // ② 推理函数不得接收数据库连接
+    let pos = src
+        .find("fn infer_ocr(")
+        .expect("infer_ocr 应存在（推理入口）");
+    let end = src[pos..].find(')').expect("签名应有右括号") + pos;
+    assert!(
+        !src[pos..end].contains("Connection"),
+        "infer_ocr 不得接收 Connection：推理必须在锁外"
+    );
+
+    // ③ 旧的「推理 + 缓存」合并实现不得回归
+    assert!(
+        !src.contains("fn recognize_with_cache("),
+        "推理不得再与缓存读写合并进同一个持锁函数（见 cached_ocr / infer_ocr / store_ocr_cache）"
+    );
+}
+
 /// 多线程并发写入：UoW 单连接 + Mutex 串行化下，
 /// 8 线程 × 10 张凭证全部落库、无丢失、无重复编号。
 #[test]
