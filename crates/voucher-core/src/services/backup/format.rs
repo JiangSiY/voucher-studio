@@ -63,11 +63,8 @@ fn materialize_full_zip(ctx: &CoreContext, path: &Path) -> Result<PathBuf> {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    let res = compose_full_zip(&snap_plain, &bundle_path, &staging).and_then(|()| {
-        #[cfg(windows)]
-        let _ = std::fs::remove_file(&dest);
-        std::fs::rename(&staging, &dest).map_err(CoreError::from)
-    });
+    let res = compose_full_zip(&snap_plain, &bundle_path, &staging)
+        .and_then(|()| crate::utils::jsonio::commit_file(&staging, &dest));
     let _ = std::fs::remove_file(&staging);
     if sealed {
         let _ = std::fs::remove_file(&snap_plain);
@@ -120,10 +117,15 @@ pub fn export_full_backup(ctx: &CoreContext, source: &Path) -> Result<PathBuf> {
         .paths
         .backups
         .join(format!("voucher-backup-export-{stamp}.zip"));
+    // 临时名 + 提交：原先直接 `fs::copy` 写最终名，中断会留下半截
+    // `voucher-backup-export-*.zip`，而它**会被 list_backups 当成可恢复备份列出**
+    // （2026-09-23 残余清理）。注意临时名不能匹配 `voucher-backup-*.zip`。
+    let tmp = dest.with_extension("zip.tmp");
     with_materialized(ctx, source, |full| {
-        std::fs::copy(full, &dest)?;
+        std::fs::copy(full, &tmp)?;
         Ok(())
     })?;
+    crate::utils::jsonio::commit_file(&tmp, &dest)?;
     log::info!("导出完整备份：{} → {}", source.display(), dest.display());
     Ok(dest)
 }

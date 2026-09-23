@@ -775,7 +775,8 @@ pub fn download_webdav_backup(ctx: &CoreContext, file_name: &str) -> Result<Stri
         if let Some(dir) = dest.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::rename(&tmp_full, &dest)?;
+        // fsync + rename 收口（残余清理：下载落位此前无 fsync）
+        crate::utils::jsonio::commit_file(&tmp_full, &dest)?;
         let _ = std::fs::remove_file(&tmp_snap);
         let _ = std::fs::remove_file(&tmp_bundle);
         log::info!("WebDAV 快照合成下载完成：{file_name} + {bundle_name} → {full_name}");
@@ -806,7 +807,7 @@ pub fn download_webdav_backup(ctx: &CoreContext, file_name: &str) -> Result<Stri
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::rename(&tmp, &dest)?;
+    crate::utils::jsonio::commit_file(&tmp, &dest)?;
     log::info!("WebDAV 下载完成：{file_name} → {}", dest.display());
     Ok(dest.to_string_lossy().into_owned())
 }

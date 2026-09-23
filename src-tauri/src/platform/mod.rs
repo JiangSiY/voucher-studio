@@ -195,7 +195,8 @@ pub fn stage_restore(
         let pending_db = ctx.paths.base.join("voucher.db.pending");
         let tmp = ctx.paths.base.join("voucher.db.pending.tmp");
         std::fs::copy(&staged_db, &tmp).map_err(|e| format!("写入待恢复文件失败: {e}"))?;
-        std::fs::rename(&tmp, &pending_db).map_err(|e| format!("落位待恢复文件失败: {e}"))?;
+        voucher_core::utils::jsonio::commit_file(&tmp, &pending_db)
+            .map_err(|e| format!("落位待恢复文件失败: {e}"))?;
     }
     let staged_cfg = staging.join("config").join("app.json");
     if staged_cfg.exists() {

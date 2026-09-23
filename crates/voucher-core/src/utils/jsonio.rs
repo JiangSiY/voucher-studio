@@ -95,4 +95,27 @@ mod tests {
         let v: Option<std::collections::HashMap<String, i64>> = read_json(&p).unwrap();
         assert!(v.is_none());
     }
+
+    /// 2026-09-23 残余清理：`commit_file` 的语义——fsync 后 rename，
+    /// 临时文件被消费、最终文件就位；覆盖已有文件时旧内容被替换
+    /// （备份/导出/配置/待恢复文件现在都走它）。
+    #[test]
+    fn commit_file_publishes_and_overwrites() {
+        let dir = std::env::temp_dir().join(format!("voucher-commit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = dir.join("a.tmp");
+        let fin = dir.join("a.bin");
+
+        std::fs::write(&tmp, b"v1").unwrap();
+        commit_file(&tmp, &fin).unwrap();
+        assert!(!tmp.exists(), "临时文件应被改名消费");
+        assert_eq!(std::fs::read(&fin).unwrap(), b"v1");
+
+        std::fs::write(&tmp, b"v2-longer").unwrap();
+        commit_file(&tmp, &fin).unwrap();
+        assert_eq!(std::fs::read(&fin).unwrap(), b"v2-longer", "应覆盖旧内容");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

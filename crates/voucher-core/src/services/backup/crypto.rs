@@ -126,7 +126,8 @@ pub(super) fn seal_file(plain_src: &Path, dest: &Path, password: &str) -> Result
     writer
         .finish()
         .map_err(|e| CoreError::Invalid(format!("备份加密收尾失败：{e}")))?;
-    std::fs::rename(&tmp, dest)?;
+    // fsync + rename：这是**加密备份真正的落盘点**（local.rs 的收口不覆盖加密分支）
+    crate::utils::jsonio::commit_file(&tmp, dest)?;
     Ok(())
 }
 

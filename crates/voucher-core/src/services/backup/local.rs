@@ -258,7 +258,8 @@ fn write_bundle_zip(
             super::crypto::seal_file(&tmp, dest, p)?;
             let _ = std::fs::remove_file(&tmp);
         }
-        None => std::fs::rename(&tmp, dest)?,
+        // 非加密路径：fsync + rename 收口（掉电时不留 0 字节/半截备份）
+        None => crate::utils::jsonio::commit_file(&tmp, dest)?,
     }
     Ok(())
 }
@@ -316,7 +317,8 @@ fn write_snapshot_zip(
             super::crypto::seal_file(&tmp, dest, p)?;
             let _ = std::fs::remove_file(&tmp);
         }
-        None => std::fs::rename(&tmp, dest)?,
+        // 非加密路径：fsync + rename 收口（掉电时不留 0 字节/半截备份）
+        None => crate::utils::jsonio::commit_file(&tmp, dest)?,
     }
     Ok(())
 }
@@ -361,7 +363,8 @@ fn copy_if_missing(src: &Path, dir: &Path) -> Result<()> {
         src.file_name().and_then(|s| s.to_str()).unwrap_or("tmp")
     ));
     std::fs::copy(src, &tmp)?;
-    std::fs::rename(&tmp, &dst)?;
+    // fsync + rename：tmp 就在目标目录内（同卷），不会跨设备
+    crate::utils::jsonio::commit_file(&tmp, &dst)?;
     Ok(())
 }
 

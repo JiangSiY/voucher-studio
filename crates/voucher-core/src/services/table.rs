@@ -80,7 +80,10 @@ pub fn write_xlsx(path: &Path, vouchers: &[Voucher]) -> Result<()> {
         sheet.set_column_width(c as u16, *w)?;
     }
 
-    workbook.save(path)?;
+    // 临时名 + 提交：XLSX 此前直接写最终名（PDF/CSV 已改、这里漏了）
+    let tmp = path.with_extension("xlsx.tmp");
+    workbook.save(&tmp)?;
+    crate::utils::jsonio::commit_file(&tmp, path)?;
     Ok(())
 }
 
