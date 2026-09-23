@@ -76,14 +76,13 @@ pub fn upload_backup_to_webdav(ctx: &CoreContext, zip_path: &Path) -> Result<()>
         if incremental {
             upload_incremental(ctx, &client, &base, &webdav.username, &password, zip_path)?;
         } else {
-            let bytes = std::fs::read(zip_path)?;
             put_with_retry(
                 &client,
                 &format!("{base}/{file_name}"),
                 &base,
                 &webdav.username,
                 &password,
-                bytes,
+                zip_path,
                 file_name,
             )?;
         }
@@ -130,8 +129,11 @@ fn upload_snapshot_direct(
         if existing.contains(&bundle_name) {
             log::info!("附件集合未变，云端命中附件包（0 附件流量）：{bundle_name}");
         } else if bundle_path.is_file() {
-            let bytes = std::fs::read(&bundle_path)?;
-            let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
+            let size_mb = std::fs::metadata(&bundle_path)
+                .map(|m| m.len())
+                .unwrap_or(0) as f64
+                / 1024.0
+                / 1024.0;
             log::info!("上传附件包 {bundle_name}（{size_mb:.1} MB，附件集合已变化）");
             put_with_retry(
                 client,
@@ -139,7 +141,7 @@ fn upload_snapshot_direct(
                 base,
                 user,
                 password,
-                bytes,
+                &bundle_path,
                 &bundle_name,
             )?;
         } else {
@@ -150,14 +152,13 @@ fn upload_snapshot_direct(
     }
 
     // 快照：KB 级，每次都传
-    let bytes = std::fs::read(snap_path)?;
     put_with_retry(
         client,
         &format!("{base}/{}", url_escape(&snap_name)),
         base,
         user,
         password,
-        bytes,
+        snap_path,
         &snap_name,
     )?;
     log::info!("云端快照直连上传完成：{snap_name}");
@@ -189,8 +190,8 @@ fn upload_incremental(
         if existing.contains(&bundle_name) {
             log::info!("附件集合未变，云端命中附件包（0 附件流量）：{bundle_name}");
         } else if let Some(bp) = &bundle_path {
-            let bytes = std::fs::read(bp)?;
-            let size_mb = bytes.len() as f64 / 1024.0 / 1024.0;
+            let size_mb =
+                std::fs::metadata(bp).map(|m| m.len()).unwrap_or(0) as f64 / 1024.0 / 1024.0;
             log::info!("上传附件包 {bundle_name}（{size_mb:.1} MB，附件集合已变化）");
             put_with_retry(
                 client,
@@ -198,20 +199,19 @@ fn upload_incremental(
                 base,
                 user,
                 password,
-                bytes,
+                bp,
                 &bundle_name,
             )?;
         }
 
         // snapshot：KB 级，每次都传
-        let bytes = std::fs::read(&snap_path)?;
         put_with_retry(
             client,
             &format!("{base}/{}", url_escape(&snap_name)),
             base,
             user,
             password,
-            bytes,
+            &snap_path,
             &snap_name,
         )?;
         log::info!("云端增量上传完成：{snap_name}");
@@ -225,6 +225,21 @@ fn upload_incremental(
 /// - 401/403/507：认证 / 权限 / 存储配额——确定性失败，立即报错
 /// - 404/409：目标目录不存在 → 逐级 MKCOL 创建，成功后跳过退避立即重试
 /// - 网络错误 / 5xx：2s / 4s 指数退避重试
+///
+/// **流式上传（2026-09-23 残余清理）**：入参是**文件路径**而非 `Vec<u8>`——
+/// 原先调用方先 `std::fs::read` 整包入内存，且每次尝试都 `bytes.clone()`（峰值 2× 包体，
+/// GB 级附件包直接吃满内存）。现每次尝试重新 `File::open` + `Body::sized(file, len)`：
+/// 流式 body **不可克隆**（这正是"每次重开文件"的原因），内存占用与包体无关。
+///
+/// 必须用 `Body::sized`（带 Content-Length）而不是 `Body::new`：后者退化成 chunked，
+/// 部分 WebDAV 服务端不接受，本仓的 mock 也按 Content-Length 读请求体。
+///
+/// 两处**语义变化**（流式带来的，非缺陷）：
+/// 1. 不可克隆的 body 不参与重定向重放 → **307/308 不再自动跟随**，会落进下面的
+///    5xx 退避分支直到耗尽（错误信息里会看到 307/308）。目标服务器若靠重定向，
+///    需要在配置里填最终地址。
+/// 2. 阻塞版 reqwest 是"先把 body 发完再取响应"：大包 + 服务端提前拒绝（如 401）时，
+///    可能先炸在写 body 上、表现为网络错误而非 401 快速失败（多花 6s 退避）。
 #[allow(clippy::too_many_arguments)]
 fn put_with_retry(
     client: &reqwest::blocking::Client,
@@ -232,7 +247,7 @@ fn put_with_retry(
     base: &str,
     user: &str,
     password: &str,
-    bytes: Vec<u8>,
+    src: &Path,
     file_name: &str,
 ) -> Result<()> {
     let mut last_err = None;
@@ -248,10 +263,13 @@ fn put_with_retry(
                 log::info!("WebDAV 上传重试 #{attempt}: {file_name}");
             }
         }
+        // 每次尝试重新打开（流式 body 不可克隆），长度取自文件元数据
+        let file = std::fs::File::open(src)?;
+        let len = file.metadata()?.len();
         match client
             .put(url)
             .basic_auth(user, Some(password))
-            .body(bytes.clone())
+            .body(reqwest::blocking::Body::sized(file, len))
             .send()
         {
             Ok(resp) if resp.status().is_success() => return Ok(()),
