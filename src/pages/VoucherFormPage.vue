@@ -197,16 +197,30 @@ function applyAllExtracted() {
   toast.info(`已填入表单，核对后点「保存」生效${skipped}`);
 }
 
+/**
+ * 请求序号（2026-09-23 审计 B3）：连续翻张/切换记录时会有多个 `get_voucher` 在途，
+ * 旧响应若无条件 `applyDetail` 会覆盖当前记录——表单显示 A 的字段而 `editId` 已是 C，
+ * 点保存即把 A 的字段写进 C（跨记录写坏数据）；`applyDetail` 还会 `markClean()`
+ * 重置脏基线，抹掉用户刚编辑的内容。
+ */
+let detailSeq = 0;
+
 async function loadDetail() {
   if (!editId.value) {
+    detailSeq += 1; // 让在途响应失效
     refreshNoPreview();
     return;
   }
+  const my = ++detailSeq;
+  const wantId = editId.value;
   try {
-    applyDetail(await api.getVoucher(editId.value));
+    const detail = await api.getVoucher(wantId);
+    if (my !== detailSeq || editId.value !== wantId) return; // 已被更新的请求取代
+    applyDetail(detail);
     loadNeighbor();
     loadLockState(); // v0.11：期间锁定态（保存前提示）
   } catch (e) {
+    if (my !== detailSeq || editId.value !== wantId) return;
     toastError(e);
     router.replace("/vouchers");
   }
@@ -363,8 +377,10 @@ async function saveOnly() {
 
 /** 翻到下一张（已保存或无改动状态直接跳）。返回是否真的跳走了。 */
 async function jumpNext(): Promise<boolean> {
-  await loadNeighbor(); // 用最新键位取邻居（保存改日期后位置会变）
-  const next = neighbor.value?.nextId;
+  // 用本次请求的结果翻张：`neighbor` 可能被并发请求改写，读它不保证是这一轮的
+  // （2026-09-23 审计 B3，连续翻张/保存改日期后会跳错张）。
+  const fresh = await loadNeighbor(); // 用最新键位取邻居（保存改日期后位置会变）
+  const next = fresh?.nextId;
   if (next == null) {
     toast.info("当前筛选内没有更多凭证了");
     return false;

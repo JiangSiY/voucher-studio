@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { computed, ref } from "vue";
+import type { VoucherNeighbor } from "../../api/client";
 import { navContextToQuery, parseNavContext, useNeighborNav } from "../neighborNav";
 
 // 隔离 Tauri invoke（测试环境无桌面宿主）
@@ -109,5 +110,34 @@ describe("useNeighborNav", () => {
     await loadNeighbor();
     expect(neighbor.value).toBeNull();
     expect(positionLabel.value).toBe("");
+  });
+
+  it("连续翻张：先发的旧响应后到时不得覆盖新响应（2026-09-23 审计 B3）", async () => {
+    const { api } = await import("../../api/client");
+    // 手工控制两个在途请求的完成顺序
+    const resolvers: Array<(v: VoucherNeighbor) => void> = [];
+    vi.mocked(api.getVoucherNeighbor).mockImplementation(
+      () =>
+        new Promise<VoucherNeighbor>((res) => {
+          resolvers.push(res);
+        }),
+    );
+
+    const editId = ref<number | null>(1);
+    const ctx = computed(() => parseNavContext({}));
+    const { neighbor, loadNeighbor } = useNeighborNav({ editId, ctx });
+
+    const p1 = loadNeighbor(); // 记录 1 的邻居查询（先发）
+    editId.value = 2;
+    const p2 = loadNeighbor(); // 切到记录 2 后再发一次
+    expect(resolvers).toHaveLength(2);
+
+    resolvers[1]({ prevId: 1, nextId: 3, position: 2, total: 5 }); // 新的先回
+    await p2;
+    resolvers[0]({ prevId: null, nextId: 99, position: 1, total: 5 }); // 旧的后回
+    await p1;
+
+    expect(neighbor.value?.nextId).toBe(3); // 旧响应不得把导航条改回 99；
+    // 同时 loadNeighbor 会把「本次结果」返回给调用方（jumpNext 据此翻张，不读共享状态）
   });
 });

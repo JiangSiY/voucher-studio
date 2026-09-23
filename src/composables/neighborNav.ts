@@ -57,15 +57,24 @@ export function useNeighborNav(opts: {
     return `第 ${n.position} / ${n.total} 张`;
   });
 
-  /** 拉取相邻凭证（失败静默隐藏导航条——导航是辅助能力，不阻断编辑） */
-  async function loadNeighbor() {
+  /** 请求序号：连续翻张/切换记录会有多个请求在途，旧响应不得覆盖新响应（2026-09-23 审计 B3/B4） */
+  let seq = 0;
+
+  /**
+   * 拉取相邻凭证（失败静默隐藏导航条——导航是辅助能力，不阻断编辑）。
+   * 返回**本次请求**的结果（调用方据此翻张，避免读到别的请求写进去的值）；
+   * `neighbor` 响应式值只在「本次请求仍是最新」时才更新。
+   */
+  async function loadNeighbor(): Promise<VoucherNeighbor | null> {
     if (!opts.editId.value) {
+      seq += 1; // 让在途响应失效
       neighbor.value = null;
-      return;
+      return null;
     }
     const c = opts.ctx.value;
+    const my = ++seq;
     try {
-      neighbor.value = await api.getVoucherNeighbor(opts.editId.value, {
+      const n = await api.getVoucherNeighbor(opts.editId.value, {
         page: 1,
         pageSize: 1,
         status: c.status,
@@ -75,8 +84,12 @@ export function useNeighborNav(opts: {
         // 搜索页进入：翻张与搜索结果同口径（含 OCR 命中），连续核对不跳张
         includeOcr: c.fromSearch,
       });
+      if (my !== seq) return n; // 已被更晚的请求取代：不写回，但把本次结果交给调用方
+      neighbor.value = n;
+      return n;
     } catch {
-      neighbor.value = null;
+      if (my === seq) neighbor.value = null;
+      return null;
     }
   }
 

@@ -59,18 +59,26 @@ function isLocked(v: Voucher): boolean {
 type ListKey = string;
 const prefetched = ref<Map<ListKey, Map<number, VoucherListResult>>>(new Map());
 let nextPagePrefetchTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * 列表请求代次（2026-09-23 审计 B4）：筛选/搜索/日期切换后在途的旧响应
+ * 既不得写界面、也不得写预取缓存。
+ * 旧实现里预取的缓存键是在**响应回来时**才计算的（`putPrefetched` 内部取 `listKey()`），
+ * 于是「hover 预取下一页 → 立刻切筛选」会把「全部」的第 2 页当成「草稿」的第 2 页存进缓存，
+ * 用户点下一页时 `load()` 直接消费这枚脏缓存，后续批量改状态/编辑/删除就作用在错行上。
+ */
+let listGen = 0;
+
 function listKey(): ListKey {
   return `${filter.value}|${keyword.value}|${dateFrom.value}|${dateTo.value}|${pageSize}`;
 }
 function getPrefetched(p: number): VoucherListResult | null {
   return prefetched.value.get(listKey())?.get(p) ?? null;
 }
-function putPrefetched(p: number, data: VoucherListResult) {
-  const k = listKey();
-  let m = prefetched.value.get(k);
+function putPrefetched(key: ListKey, p: number, data: VoucherListResult) {
+  let m = prefetched.value.get(key);
   if (!m) {
     m = new Map();
-    prefetched.value.set(k, m);
+    prefetched.value.set(key, m);
   }
   m.set(p, data);
   // 限制每 key 最多 2 页缓存（防内存膨胀）
@@ -80,6 +88,7 @@ function putPrefetched(p: number, data: VoucherListResult) {
   }
 }
 function clearPrefetched() {
+  listGen += 1; // 让在途请求的响应作废
   if (nextPagePrefetchTimer) {
     clearTimeout(nextPagePrefetchTimer);
     nextPagePrefetchTimer = null;
@@ -139,13 +148,17 @@ async function load() {
     return;
   }
   loading.value = true;
+  const gen = listGen;
+  const wantPage = page.value;
   try {
-    const result = await api.listVouchers(listQuery(page.value));
+    const result = await api.listVouchers(listQuery(wantPage));
+    if (gen !== listGen) return; // 期间筛选/搜索已变：旧响应作废（B4）
     // 越界回弹：删除末页数据后页码可能超出总页数，回到最后一页重取
     const pages = Math.max(1, Math.ceil(result.total / pageSize));
     if (page.value > pages) {
       page.value = pages;
       const retry = await api.listVouchers(listQuery(page.value));
+      if (gen !== listGen) return;
       items.value = retry.items;
       total.value = retry.total;
       thumbs.value = retry.thumbs ?? {};
@@ -170,9 +183,14 @@ function prefetchNextPage() {
   if (nextPagePrefetchTimer) clearTimeout(nextPagePrefetchTimer);
   nextPagePrefetchTimer = setTimeout(async () => {
     nextPagePrefetchTimer = null;
+    // 请求键与页码在**发起前**快照，代次用于丢弃「切筛选后才回来」的旧响应（B4）
+    const gen = listGen;
+    const p = page.value + 1;
+    const key = listKey();
     try {
-      const data = await api.listVouchers(listQuery(page.value + 1));
-      putPrefetched(page.value + 1, data);
+      const data = await api.listVouchers(listQuery(p));
+      if (gen !== listGen) return; // 期间筛选已变：丢弃，不污染缓存
+      putPrefetched(key, p, data);
     } catch {
       // 静默失败，不打扰用户
     }
