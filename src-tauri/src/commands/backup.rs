@@ -26,36 +26,64 @@ pub fn skip_closing_backup(
         .map_err(|e| ApiError::internal(format!("关闭窗口失败：{e}")))
 }
 
+/// 列出本地备份。读每份备份的 manifest 才能填元数据（加密备份要先解密到临时文件读），
+/// 备份多时并不轻——放阻塞线程，避免卡住主线程（审计 B7）。
 #[tauri::command]
-pub fn list_backups(ctx: Ctx) -> std::result::Result<Vec<backup::BackupInfo>, ApiError> {
-    err_api(backup::list_backups(&ctx))
+pub async fn list_backups(ctx: Ctx<'_>) -> std::result::Result<Vec<backup::BackupInfo>, ApiError> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || err_api(backup::list_backups(&core)))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
+/// 校验备份可恢复性。会对整包做 sha256（GB 级备份几十秒起）——必须离开主线程，
+/// 否则窗口事件循环被占住、界面完全冻死（2026-09-23 审计 B7）。
 #[tauri::command]
-pub fn inspect_backup(
-    ctx: Ctx,
+pub async fn inspect_backup(
+    ctx: Ctx<'_>,
     path: String,
 ) -> std::result::Result<backup::RestoreSummary, ApiError> {
+    let core = ctx.inner().clone();
     // 快照会自动与附件包合成全量再校验（v0.9 本地增量透明兼容）
-    err_api(backup::inspect_backup(&ctx, Path::new(&path)))
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(backup::inspect_backup(&core, Path::new(&path)))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
-/// v0.9 导出完整备份：快照 + 附件包合成单个全量 zip 落入 backups/（供拷走）
+/// v0.9 导出完整备份：快照 + 附件包合成单个全量 zip 落入 backups/（供拷走）。
+/// 合成过程要复制整包附件——同样放阻塞线程（审计 B7）。
 #[tauri::command]
-pub fn export_full_backup(ctx: Ctx, path: String) -> std::result::Result<String, ApiError> {
-    err_api(
-        backup::export_full_backup(&ctx, Path::new(&path))
-            .map(|p| p.to_string_lossy().into_owned()),
-    )
+pub async fn export_full_backup(
+    ctx: Ctx<'_>,
+    path: String,
+) -> std::result::Result<String, ApiError> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(
+            backup::export_full_backup(&core, Path::new(&path))
+                .map(|p| p.to_string_lossy().into_owned()),
+        )
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
+/// 恢复：解压整包 + 逐文件 sha256 校验 + 全部附件落盘（staging），
+/// 是全程最重的命令之一——放阻塞线程（审计 B7）。
 #[tauri::command]
-pub fn restore_backup(
-    ctx: Ctx,
+pub async fn restore_backup(
+    ctx: Ctx<'_>,
     path: String,
 ) -> std::result::Result<backup::RestoreSummary, ApiError> {
+    let core = ctx.inner().clone();
     // 恢复走「待恢复文件 + 重启生效」流程，避免在运行中替换数据库
-    crate::platform::stage_restore(&ctx, Path::new(&path)).map_err(ApiError::internal)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::platform::stage_restore(&core, Path::new(&path)).map_err(ApiError::internal)
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// 恢复演练：完整校验 + 解包到临时目录 + 数据库可用性验证，不触碰真实数据

@@ -14,10 +14,16 @@ pub fn enhance_status(ctx: Ctx) -> voucher_core::services::enhance_cache::Enhanc
 }
 
 /// 清除所有增强版缓存 v1（DB 字段置 NULL + 物理文件删除）。
-/// 返回实际删除的文件数（可能 < DB 记录数：文件已被手动删除）
+/// 返回实际删除的文件数（可能 < DB 记录数：文件已被手动删除）。
+/// 逐条删文件 + 逐行写库，附件多时是重活 → 放阻塞线程（2026-09-23 审计 B7）。
 #[tauri::command]
-pub fn clear_enhance_cache(ctx: Ctx) -> std::result::Result<u32, ApiError> {
-    err_api(voucher_core::services::enhance_cache::clear_v1(&ctx))
+pub async fn clear_enhance_cache(ctx: Ctx<'_>) -> std::result::Result<u32, ApiError> {
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(voucher_core::services::enhance_cache::clear_v1(&core))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 // ---------- v0.6.5 D-2 增强缓存管理 UI 升级 ----------
@@ -33,17 +39,23 @@ pub fn enhance_status_v2(
 /// 按策略释放增强缓存
 /// strategy: "all" | "older_than_days" | "larger_than_mb" | "smart"
 /// threshold: 阈值（天数 / MB；all 忽略；smart = 宽限期天数，默认 30）
+/// 逐条删文件 + 逐行写库 → 放阻塞线程（2026-09-23 审计 B7）。
 #[tauri::command]
-pub fn clear_enhance_cache_v2(
-    ctx: Ctx,
+pub async fn clear_enhance_cache_v2(
+    ctx: Ctx<'_>,
     strategy: String,
     threshold: u32,
 ) -> std::result::Result<voucher_core::services::enhance_cache::ClearSummary, ApiError> {
     let s = voucher_core::services::enhance_cache::ClearStrategy::parse(&strategy)
         .ok_or_else(|| ApiError::plain("invalid", format!("未知释放策略: {strategy}")))?;
-    err_api(voucher_core::services::enhance_cache::clear_v2(
-        &ctx, s, threshold,
-    ))
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(voucher_core::services::enhance_cache::clear_v2(
+            &core, s, threshold,
+        ))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// 单条释放某张附件的增强版
@@ -55,15 +67,21 @@ pub fn delete_enhanced_one(ctx: Ctx, attachment_id: i64) -> std::result::Result<
     ))
 }
 
-/// 最近增强列表（按文件 mtime 倒序）
+/// 最近增强列表（按文件 mtime 倒序）。要走文件系统 + 逐行补查凭证（N+1），
+/// 附件多时不可忽略 → 放阻塞线程（2026-09-23 审计 B7）。
 #[tauri::command]
-pub fn recent_enhanced(
-    ctx: Ctx,
+pub async fn recent_enhanced(
+    ctx: Ctx<'_>,
     limit: u32,
 ) -> std::result::Result<Vec<voucher_core::services::enhance_cache::RecentEnhancedRow>, ApiError> {
-    err_api(voucher_core::services::enhance_cache::recent_enhanced(
-        &ctx, limit,
-    ))
+    let core = ctx.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(voucher_core::services::enhance_cache::recent_enhanced(
+            &core, limit,
+        ))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
 /// D-7：查看器打开了某附件的增强版 → 记一条 viewer 命中。
