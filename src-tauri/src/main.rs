@@ -73,7 +73,12 @@ fn main() {
             app.manage(ctx.clone());
 
             // 3.5 本地 OCR 模型：首次启动从安装源复制到数据目录（幂等）
-            for src in voucher_core::services::ocr_local::default_model_sources() {
+            // 资源目录优先（打包版：macOS 在 Contents/Resources、Windows 在 exe 同级），
+            // 否则打包版会因「exe 旁没有 ocr-models」而静默拿不到本地 OCR 模型。
+            let resource_dir = app.path().resource_dir().ok();
+            for src in
+                voucher_core::services::ocr_local::default_model_sources(resource_dir.as_deref())
+            {
                 match voucher_core::LocalOcr::ensure_installed(&src, &ctx.paths.models) {
                     Ok(true) => {
                         log::info!("本地 OCR 模型已从 {} 安装", src.display());
@@ -301,6 +306,48 @@ fn main() {
             commands::record_viewer_hit,
             commands::enhance_hit_trend,
         ])
-        .run(tauri::generate_context!())
-        .expect("Voucher Studio 启动失败");
+        .build(tauri::generate_context!())
+        .expect("Voucher Studio 启动失败")
+        .run(|app, event| {
+            // 2026-09-23 审计 A3：macOS 的 ⌘Q / 菜单「退出」走 `terminate:`，**不经过**
+            // `WindowEvent::CloseRequested`。旧实现只在 CloseRequested 里做「关闭前备份 +
+            // 清会话 marker」，于是 macOS 上最常见的退出方式会 ①跳过关闭前备份；
+            // ②留下会话 marker → 下次启动把正常退出误报成「异常退出」并跑全库体检。
+            let tauri::RunEvent::ExitRequested { api, .. } = event else {
+                return;
+            };
+            let Some(ctx) = app.try_state::<Arc<CoreContext>>() else {
+                return;
+            };
+            let ctx: Arc<CoreContext> = ctx.inner().clone();
+            // 未开启关闭前备份：清 marker 后放行（等同 CloseRequested 的正常退出路径）
+            if !ctx.config().backup.auto_backup_on_close {
+                let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+                return;
+            }
+            let Some(closing) = app.try_state::<Arc<ClosingState>>() else {
+                return;
+            };
+            // 已在收尾（关窗分支正在进行）→ 直接放行，不重复备份
+            if closing
+                .in_progress
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return;
+            }
+            // 首次请求退出：拦下 → 前端弹「正在备份」遮罩 → 后台跑本地快速备份 → 退出
+            api.prevent_exit();
+            let _ = app.emit("backup:closing", ());
+            log::info!("退出请求触发本地快速备份（macOS ⌘Q / 菜单退出）…");
+            let app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                match voucher_core::services::backup::run_local_backup(&ctx) {
+                    Ok(Some(info)) => log::info!("退出备份完成：{}", info.file_name),
+                    Ok(None) => log::info!("退出备份跳过：60 分钟内已备份"),
+                    Err(e) => log::warn!("退出自动备份失败（不影响退出）: {e}"),
+                }
+                let _ = voucher_core::services::recovery::mark_clean_exit(&ctx);
+                app.exit(0);
+            });
+        });
 }

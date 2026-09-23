@@ -293,7 +293,7 @@ fn write_poc_sample_and_report() {
             "windows": "verified (automated + manual sample)",
             "macos": "pending device; font candidates include PingFang/STHeiti/Songti, re-verify per risk register item 'Spike conclusion expiry'"
         },
-        "known_tradeoff": "printpdf embeds full font (no subsetting) -> ~10MB PDF; acceptable for desktop app, revisit if size matters"
+        "known_tradeoff": "字体已启用子集化（printpdf font_subsetting，2026-09-23 起）：样张约 170-230 KB；此前的『嵌入整字体 ~10MB/份』问题已消除"
     });
     std::fs::write(
         poc_dir.join("report.json"),

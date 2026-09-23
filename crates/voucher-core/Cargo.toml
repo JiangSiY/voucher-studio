@@ -18,7 +18,7 @@ sha2 = "0.10"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 directories = "5"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
-printpdf = { version = "0.7", features = ["embedded_images"] }
+printpdf = { version = "0.7", features = ["embedded_images", "font_subsetting"] }
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
 # v0.6 文档扫描矫正与增强（5.5 方案）：opencv-rust 绑定 OpenCV 4.x
 # +30MB 装包、首次编译 3-8 分钟。链接到系统 OpenCV 4.x（环境变量 OpenCV_DIR + OPENCV_LINK_*）。

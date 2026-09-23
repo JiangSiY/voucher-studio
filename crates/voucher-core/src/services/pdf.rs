@@ -1434,7 +1434,11 @@ fn font_candidates() -> Vec<PathBuf> {
         r"C:\Windows\Fonts\msyh.ttc",
         r"C:\Windows\Fonts\simsun.ttc",
         // macOS
+        // 注：PingFang.ttc 在较新的 macOS（本机 macOS 27）上已不存在，保留在前只为兼容旧系统；
+        // Hiragino Sans GB 是当前系统上体积较小的 CJK 集合字体（约 23 MB，而 STHeiti 55 MB），
+        // 排在 STHeiti 之前以免回退到最大的那个（2026-09-23 审计 A4）。
         "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/System/Library/Fonts/Supplemental/Songti.ttc",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",

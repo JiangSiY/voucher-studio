@@ -446,12 +446,21 @@ fn crop_xyxy(img: &RgbImage, b: &[f32; 4]) -> RgbImage {
     image::imageops::crop_imm(img, x0, y0, x1 - x0, y1 - y0).to_image()
 }
 
-/// 模型来源目录探测（应用启动时自动安装模型用）：
-/// 环境变量 → 项目 assets（开发期编译期路径）→ exe 旁 ocr-models
-pub fn default_model_sources() -> Vec<PathBuf> {
+/// 模型来源目录探测（应用启动时自动安装模型用），按优先级：
+/// 环境变量 → **打包资源目录**（macOS: `Xxx.app/Contents/Resources`）→
+/// 项目 assets（开发期编译期路径）→ exe 旁 `ocr-models`。
+///
+/// 2026-09-23 审计 A2：原实现只找「exe 旁」，而 macOS 的 .app 把资源放在
+/// `Contents/Resources/`（Tauri 的 resources），`exe.parent()` 是 `Contents/MacOS` →
+/// 打包版找不到模型、本地 OCR 静默失效。更隐蔽的是编译期仓库路径在**构建机上仍然存在**，
+/// 于是「本机冒烟测试全过、发给别人就废」——所以资源目录必须排在开发期路径**之前**。
+pub fn default_model_sources(resource_dir: Option<&std::path::Path>) -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(p) = std::env::var("VOUCHER_OCR_MODELS") {
         v.push(PathBuf::from(p));
+    }
+    if let Some(rd) = resource_dir {
+        v.push(rd.join("ocr-models"));
     }
     // 开发期：voucher-core 的 ../../assets/ocr-models（即项目根 assets）
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
@@ -464,4 +473,33 @@ pub fn default_model_sources() -> Vec<PathBuf> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    /// 2026-09-23 缺陷锁（审计 A2）：打包资源目录必须**优先于**开发期编译期路径。
+    /// 否则在构建机上（仓库还在磁盘里）打包版会一直用仓库里的模型，
+    /// 把「发给别人后没有本地 OCR」这个问题一直掩盖到用户手里。
+    #[test]
+    fn resource_dir_precedes_dev_path() {
+        let tmp = std::env::temp_dir().join(format!("vs-ocr-src-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let sources = default_model_sources(Some(&tmp));
+        let want_rd = tmp.join("ocr-models");
+        let pos_rd = sources
+            .iter()
+            .position(|p| p == &want_rd)
+            .expect("应包含资源目录");
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
+        let pos_dev = sources.iter().position(|p| p == &dev);
+        if let Some(pd) = pos_dev {
+            assert!(
+                pos_rd < pd,
+                "资源目录（{pos_rd}）必须排在开发期路径（{pd}）之前"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
