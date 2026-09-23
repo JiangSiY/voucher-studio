@@ -46,7 +46,16 @@ fn main() {
         )
         .setup(|app| {
             // 1. 落位待恢复备份（restore 命令重启生效机制）
-            let paths = AppPaths::resolve(None)?;
+            // 数据目录覆盖：`VOUCHER_DATA_DIR`（开发/真机验证用）——便于在隔离目录里
+            // 跑恢复等破坏性流程而不碰真实数据；未设置时按平台约定（ProjectDirs）。
+            let base = match std::env::var("VOUCHER_DATA_DIR") {
+                Ok(p) if !p.trim().is_empty() => {
+                    log::warn!("VOUCHER_DATA_DIR 覆盖生效，使用非默认数据目录：{p}");
+                    Some(std::path::PathBuf::from(p))
+                }
+                _ => None,
+            };
+            let paths = AppPaths::resolve(base.clone())?;
             paths.ensure_all()?;
             platform::apply_pending_restore(&paths);
 
@@ -60,7 +69,7 @@ fn main() {
             app.manage(DataLock(guard));
 
             // 3. 核心上下文（打开数据库、建表、加载配置）
-            let ctx = Arc::new(CoreContext::init(None)?);
+            let ctx = Arc::new(CoreContext::init(base)?);
             app.manage(ctx.clone());
 
             // 3.5 本地 OCR 模型：首次启动从安装源复制到数据目录（幂等）
