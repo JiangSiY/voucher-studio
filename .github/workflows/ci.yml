@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -96,3 +97,120 @@ jobs:
       # 会让排在失败目标之后的测试目标根本不执行——加此参数一次跑出完整失败清单
       - name: Test
         run: cargo test --workspace --no-fail-fast -- --include-ignored
+
+  # 2026-09-23 审计残余⑥：双平台矩阵的 macOS 一侧。
+  #
+  # **按需触发**：只在手动 workflow_dispatch 或打 v* tag 时跑。私有仓库的 macOS runner
+  # 计费是 Linux 的 10 倍，而本岗位要源码编译 OpenCV 4.10（首次 ~20 分钟；之后靠 cache
+  # 命中恢复，约 3 分钟），日常 push 跑它性价比太低。
+  #
+  # 为什么必须源码编译：`opencv` crate 按**本机已装头文件**生成绑定，而代码依赖 4.10 的
+  # API 面（imgproc::bounding_rect/contour_area/approx_poly_dp、ImreadModes::IMREAD_COLOR、
+  # cvt_color/HoughLines 参数个数）。brew 现在给的是 5.x（`opencv@4` 亦已 4.14），
+  # 这些点在 4.11+ 全变了——用它会让 Rust 侧直接编译失败。
+  # 构建参数与本机验证通过的那套保持一致（见 docs/开发日志.md 2026-09-23 条目）。
+  macos:
+    name: macOS (Rust + frontend)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build tools
+        run: brew install cmake ninja pkg-config
+
+      - name: Cache OpenCV 4.10
+        id: opencv-cache
+        uses: actions/cache@v4
+        with:
+          # 改下面的构建参数时请 bump 末尾版本号，否则会命中旧缓存（静默用旧产物）。
+          # 刻意不用 `hashFiles(本文件)`：那会让任何 CI 文案改动都触发 20 分钟重建。
+          path: ~/.local/opencv-4.10
+          key: opencv-4.10-macos14-v1
+
+      - name: Build OpenCV 4.10
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
+        env:
+          # cmake 4.x 已移除对 `cmake_minimum_required(VERSION <3.5)` 的兼容，
+          # 而 OpenCV 4.10 的 OpenCVGenPkgconfig.cmake 仍是 2.8 写法；
+          # 该变量必须进**环境**（那一步是独立 `cmake -P` 脚本，`-D` 传不进去）。
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          set -euo pipefail
+          curl -sSL --retry 3 -o "$RUNNER_TEMP/opencv-4.10.0.tar.gz" \
+            https://github.com/opencv/opencv/archive/refs/tags/4.10.0.tar.gz
+          tar xzf "$RUNNER_TEMP/opencv-4.10.0.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/opencv-4.10.0" -B "$RUNNER_TEMP/ocv-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/.local/opencv-4.10" \
+            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d \
+            -DBUILD_SHARED_LIBS=ON \
+            -DOPENCV_GENERATE_PKGCONFIG=ON \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_opencv_apps=OFF \
+            -DBUILD_DOCS=OFF -DBUILD_JAVA=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
+            -DWITH_OPENEXR=OFF -DWITH_IPP=OFF -DWITH_OPENCL=OFF -DWITH_FFMPEG=OFF -DWITH_QT=OFF \
+            -DWITH_GTK=OFF -DWITH_PROTOBUF=OFF -DWITH_CUDA=OFF -DWITH_OPENVINO=OFF -DWITH_ITT=OFF \
+            -DWITH_EIGEN=OFF -DWITH_LAPACK=OFF -DWITH_GSTREAMER=OFF -DWITH_1394=OFF -DWITH_V4L=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_INSTALL_NAME_DIR="$HOME/.local/opencv-4.10/lib" \
+            -DCMAKE_BUILD_WITH_INSTALL_NAME_DIR=ON
+          cmake --build "$RUNNER_TEMP/ocv-build" -j "$(sysctl -n hw.ncpu)"
+          cmake --install "$RUNNER_TEMP/ocv-build"
+
+      - name: Setup build environment
+        run: |
+          {
+            echo "PKG_CONFIG_PATH=$HOME/.local/opencv-4.10/lib/pkgconfig"
+            echo "LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib"
+          } >> "$GITHUB_ENV"
+          # opencv crate 的 build script 按 @rpath 加载 libclang，而
+          # DYLD_FALLBACK_LIBRARY_PATH 会被 /bin/bash（CI 的 shell）剥离——
+          # 放进 dyld 的默认回退目录 $HOME/lib 才稳（与本机 .zshenv 方案一致）。
+          mkdir -p "$HOME/lib"
+          ln -sf /Library/Developer/CommandLineTools/usr/lib/libclang.dylib "$HOME/lib/libclang.dylib"
+
+      - name: Verify OpenCV 4.10 is the one being used
+        run: |
+          pkg-config --modversion opencv4
+          v=$(pkg-config --modversion opencv4)
+          [ "$v" = "4.10.0" ] || { echo "预期 4.10.0，实际 $v（brew 的 opencv/opencv@4 会破坏绑定生成，勿安装）"; exit 1; }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --no-fail-fast -- --include-ignored
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend gates
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      # 打包冒烟：直出 .app + dmg（含 OpenCV dylib 自包含与重签名收尾）。
+      # 这一步能抓住"本机能跑、换机器起不来"的一类问题（dylib 未收进包、install_name
+      # 未改 @rpath、部署目标高于主程序等），而它们只有打包后才暴露。
+      - name: Packaging smoke (app + dmg)
+        run: |
+          # 在 shell 里 export 才能展开 $HOME（Actions 的 env: 块不做变量展开）
+          export OPENCV_LIB="$HOME/.local/opencv-4.10/lib"
+          npm run tauri build
+          bash package-macos.sh
