@@ -34,6 +34,23 @@ pub fn run_local_backup(ctx: &CoreContext) -> Result<Option<BackupInfo>> {
     Ok(Some(info))
 }
 
+/// 关闭/退出路径专用：**拿不到备份锁就跳过本次关闭备份**，绝不让用户干等。
+///
+/// `run_local_backup` 会阻塞等 `backup_guard`——若备份正做多轮 WebDAV 上传（单次超时
+/// 上限 30 分钟），窗口会**关不掉且没有任何提示**（2026-09-23 审计 B13）。
+/// 跳过不会丢数据：备份是增量的，调度器与下次启动都会再备份。
+pub fn run_local_backup_nonblocking(ctx: &CoreContext) -> Result<Option<BackupInfo>> {
+    let Some(guard) = ctx.try_backup_guard() else {
+        log::warn!("关闭前备份跳过：另一个备份任务正在进行（不阻塞退出）");
+        return Ok(None);
+    };
+    if last_backup_within(ctx, 60 * 60) {
+        log::info!("本地备份跳过：60 分钟内已备份");
+        return Ok(None);
+    }
+    Ok(Some(run_backup_impl_locked(ctx, true, guard)?))
+}
+
 /// 最近一次备份是否在 `seconds` 秒内
 fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
     let last: Option<String> = ctx
@@ -62,7 +79,17 @@ fn last_backup_within(ctx: &CoreContext, seconds: i64) -> bool {
 ///
 /// 旧全量 voucher-backup-*.zip 兼容并存；恢复/演练经 materialize 合成，流程零改动。
 fn run_backup_impl(ctx: &CoreContext, local_only: bool) -> Result<BackupInfo> {
-    let _guard = ctx.backup_guard();
+    let guard = ctx.backup_guard();
+    run_backup_impl_locked(ctx, local_only, guard)
+}
+
+/// 已持锁的备份实现：锁由调用方持有并传入——`Mutex` 非重入，`run_backup_impl` 与
+/// `run_local_backup_nonblocking`（try_lock 路径）各自持锁后都走这里，避免重复加锁死锁。
+fn run_backup_impl_locked(
+    ctx: &CoreContext,
+    local_only: bool,
+    _guard: std::sync::MutexGuard<'_, ()>,
+) -> Result<BackupInfo> {
     // v0.14-A：加密口令前置检查（开启加密但无密码 → 立即报错，不产生明文备份）
     let enc_password = super::crypto::password_for_write(ctx)?;
     // 1. 数据库一致性快照

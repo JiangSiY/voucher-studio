@@ -113,6 +113,15 @@ impl CoreContext {
         self.backup_lock.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// **非阻塞**取备份互斥：拿不到返回 `None`。
+    ///
+    /// 给「关闭前备份」「退出前备份」这类不能让用户干等的路径用——备份可能正持锁做
+    /// 多轮 WebDAV 上传（单次超时上限 30 分钟），阻塞等待会让窗口**关不掉**且毫无提示
+    /// （2026-09-23 审计 B13）。数据不会因此丢：备份是增量的，调度器与下次启动都会再备份。
+    pub fn try_backup_guard(&self) -> Option<std::sync::MutexGuard<'_, ()>> {
+        self.backup_lock.try_lock().ok()
+    }
+
     /// 本地 OCR 引擎（懒加载 + 共享）。模型未安装时报错并提示处理方式。
     /// 锁中毒自动恢复；`RwLock` 写锁非重入，持锁期间不得回调会再次取同一把锁的逻辑。
     pub fn local_ocr(&self) -> Result<Arc<Mutex<LocalOcr>>> {

@@ -132,7 +132,17 @@ pub fn drill_backup(ctx: &CoreContext, zip_path: Option<&Path>) -> Result<DrillR
     };
 
     let summary = with_materialized(ctx, &path, inspect_backup_impl)?;
-    let drill_dir = ctx.paths.temp.join("backup-drill");
+    // 演练目录唯一化（2026-09-23 审计 B14）：原先固定 `temp/backup-drill`，并发演练
+    // （双击两次、或演练与恢复重叠）会互相 `remove_dir_all`／覆盖，导致假失败甚至
+    // 拿着半成品继续。带进程号 + 纳秒时间戳，用完即删（见下）。
+    let drill_dir = ctx.paths.temp.join(format!(
+        "backup-drill-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
     let _ = std::fs::remove_dir_all(&drill_dir);
     let restored = with_materialized(ctx, &path, |full| restore_backup_impl(full, &drill_dir))?;
 
@@ -211,8 +221,8 @@ pub(super) fn restore_backup_impl(zip_path: &Path, target_dir: &Path) -> Result<
             // attachments/ 下的相对路径。绝对路径（/、\ 开头、Windows 盘符、UNC）
             // 或含 `..` 路径段的条目一律拒绝恢复，而不是静默跳过。
             let rel = name.strip_prefix(ATTACHMENTS_PREFIX).unwrap_or("");
-            ensure_safe_rel_entry(&name, rel)?;
-            let target = target_dir.join("attachments").join(rel);
+            let rel = ensure_safe_rel_entry(&name, rel)?;
+            let target = target_dir.join("attachments").join(&rel);
             extract_verified(&mut zip, &name, &target, &checksums)?;
             attachments_extracted += 1;
         }
@@ -266,21 +276,27 @@ fn extract_verified<R: Read + std::io::Seek>(
 /// - 绝对路径：以 `/` 或 `\` 开头、UNC（`\\`、`//`）、Windows 盘符（`C:` 开头）
 /// - 任一路径段为 `..`（路径穿越）
 ///
-/// 命中任一即拒绝整份恢复（返回错误），不静默跳过——损坏/恶意备份应显式暴露。
-fn ensure_safe_rel_entry(full_name: &str, rel: &str) -> Result<()> {
-    let is_absolute = rel.starts_with('/')
-        || rel.starts_with('\\')
-        || rel
+/// 校验并**规范化**相对路径：`\` → `/`（zip 条目可能用反斜杠分隔，见上）。
+///
+/// 2026-09-23 审计 A9：旧实现只校验不归一化，随后直接 `join(rel)`——在 macOS/Linux 上
+/// 反斜杠是**普通字符**，于是解出的是「文件名里带 `\`」的怪文件，而 DB 里记的是
+/// `2026/08/a.jpg` → 附件全部失联（Windows 上恰好正确，所以一直没暴露）。
+///
+/// 命中任一不安全形态即**拒绝整份恢复**（返回错误），不静默跳过——损坏/恶意备份应显式暴露。
+fn ensure_safe_rel_entry(full_name: &str, rel: &str) -> Result<String> {
+    let norm = rel.replace('\\', "/");
+    let is_absolute = norm.starts_with('/')
+        || norm
             .as_bytes()
             .get(..2)
             .is_some_and(|b| b[0].is_ascii_alphabetic() && b[1] == b':');
-    let has_dotdot = rel.split(['/', '\\']).any(|seg| seg == "..");
-    if rel.is_empty() || is_absolute || has_dotdot {
+    let has_dotdot = norm.split('/').any(|seg| seg == "..");
+    if norm.is_empty() || is_absolute || has_dotdot {
         return Err(CoreError::Invalid(format!(
             "备份包含不安全的附件路径，已拒绝恢复：{full_name}"
         )));
     }
-    Ok(())
+    Ok(norm)
 }
 
 #[cfg(test)]
@@ -291,8 +307,13 @@ mod tests {
     fn safe_rel_allows_normal_relative_paths() {
         // 正常相对路径（含中文/空格文件名）放行
         assert!(ensure_safe_rel_entry("attachments/2026/08/a.jpg", "2026/08/a.jpg").is_ok());
-        // 反斜杠分隔的相对路径（zip 条目非标准写法）也应放行
-        assert!(ensure_safe_rel_entry("attachments\\2026\\08\\a.jpg", "2026\\08\\a.jpg").is_ok());
+        // 反斜杠分隔的相对路径（zip 条目非标准写法）应放行，且**必须归一化为 `/`**：
+        // macOS/Linux 上反斜杠是普通字符，不归一化会解出「文件名含 `\`」的怪文件、
+        // 与 DB 里的 `2026/08/a.jpg` 对不上（2026-09-23 审计 A9）。
+        assert_eq!(
+            ensure_safe_rel_entry("attachments\\2026\\08\\a.jpg", "2026\\08\\a.jpg").unwrap(),
+            "2026/08/a.jpg"
+        );
         assert!(ensure_safe_rel_entry(
             "attachments/2026/08/凭证 收据.png",
             "2026/08/凭证 收据.png"

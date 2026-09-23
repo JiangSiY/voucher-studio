@@ -23,7 +23,7 @@ mod retention;
 mod webdav;
 
 pub use format::export_full_backup;
-pub use local::{list_backups, run_backup, run_local_backup};
+pub use local::{list_backups, run_backup, run_local_backup, run_local_backup_nonblocking};
 pub use restore::{drill_backup, inspect_backup, restore_backup, DrillReport, RestoreSummary};
 pub use webdav::{
     download_webdav_backup, list_webdav_backups, test_webdav, upload_backup_to_webdav,

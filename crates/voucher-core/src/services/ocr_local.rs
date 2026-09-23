@@ -303,6 +303,13 @@ fn run_session(
     let outputs = session
         .run(ort::inputs![input_name => tensor])
         .map_err(|e| CoreError::LocalOcr(format!("推理失败: {e}")))?;
+    // 先确认有输出再索引（2026-09-23 审计 B17）：原先直接 `outputs[0]`，
+    // 模型异常/无输出时越界 panic，且发生在 spawn_blocking 里只表现为 JoinError。
+    if outputs.len() == 0 {
+        return Err(CoreError::LocalOcr(
+            "模型未返回任何输出（模型文件异常？）".into(),
+        ));
+    }
     let (shape, data) = outputs[0]
         .try_extract_tensor::<f32>()
         .map_err(|e| CoreError::LocalOcr(format!("读取输出失败: {e}")))?;
@@ -328,6 +335,16 @@ fn chw_norm_half(img: &RgbImage) -> Vec<f32> {
 /// DB 后处理（RapidOCR 语义）：
 /// 阈值二值化 → 2×2 膨胀 → 连通域 → 分数/最小尺寸过滤 → unclip 扩边 → 映射回原图
 fn db_postprocess(prob: &[f32], w: usize, h: usize, ow: usize, oh: usize) -> Vec<[f32; 4]> {
+    // 形状校验（2026-09-23 审计 B17）：模型输出长度与期望的 w×h 不符时（模型被替换、
+    // 输入尺寸算错），原先会在下面的 `prob[i]` 直接索引越界 panic——而该 panic 发生在
+    // spawn_blocking 线程里，只体现为 JoinError，用户侧看到的是「OCR 一直失败」。
+    if prob.len() < w * h {
+        log::warn!(
+            "检测输出形状异常（prob {} < {w}×{h}），本次按空结果处理",
+            prob.len()
+        );
+        return Vec::new();
+    }
     let mut mask = vec![false; w * h];
     for i in 0..w * h {
         mask[i] = prob[i] > DET_THRESH;

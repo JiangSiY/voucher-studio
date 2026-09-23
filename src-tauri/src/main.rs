@@ -173,7 +173,8 @@ fn main() {
                     let ctx: Arc<CoreContext> = ctx.inner().clone();
                     let app = window.app_handle().clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        match voucher_core::services::backup::run_local_backup(&ctx) {
+                        // 非阻塞：备份正做 WebDAV 上传时不能把关闭卡住（审计 B13）
+                        match voucher_core::services::backup::run_local_backup_nonblocking(&ctx) {
                             Ok(Some(info)) => log::info!(
                                 "关闭备份完成：{}（{} 附件）",
                                 info.file_name,
@@ -341,7 +342,8 @@ fn main() {
             log::info!("退出请求触发本地快速备份（macOS ⌘Q / 菜单退出）…");
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                match voucher_core::services::backup::run_local_backup(&ctx) {
+                // 非阻塞：⌘Q/菜单退出同样不能被进行中的备份卡住（审计 B13）
+                match voucher_core::services::backup::run_local_backup_nonblocking(&ctx) {
                     Ok(Some(info)) => log::info!("退出备份完成：{}", info.file_name),
                     Ok(None) => log::info!("退出备份跳过：60 分钟内已备份"),
                     Err(e) => log::warn!("退出自动备份失败（不影响退出）: {e}"),

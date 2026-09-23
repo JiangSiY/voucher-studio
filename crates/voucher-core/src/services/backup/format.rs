@@ -53,7 +53,22 @@ fn materialize_full_zip(ctx: &CoreContext, path: &Path) -> Result<PathBuf> {
         "materialized-{}",
         name.replacen(SNAPSHOT_PREFIX, "voucher-backup-", 1)
     ));
-    let res = compose_full_zip(&snap_plain, &bundle_path, &dest);
+    // 并发演练/恢复可能同时合成同一份 → 先写**唯一**临时名再原子发布，避免互相覆盖出
+    // 半成品（2026-09-23 审计 B14）：读取方要么看到旧的完整文件、要么看到新的完整文件。
+    let staging = ctx.paths.temp.join(format!(
+        "materialized-tmp-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let res = compose_full_zip(&snap_plain, &bundle_path, &staging).and_then(|()| {
+        #[cfg(windows)]
+        let _ = std::fs::remove_file(&dest);
+        std::fs::rename(&staging, &dest).map_err(CoreError::from)
+    });
+    let _ = std::fs::remove_file(&staging);
     if sealed {
         let _ = std::fs::remove_file(&snap_plain);
     }
