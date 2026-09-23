@@ -172,7 +172,7 @@ pub fn import_images(
             &ext,
         );
         match created {
-            Ok((created_voucher_id, voucher_no, attachment)) => {
+            Ok(Some((created_voucher_id, voucher_no, attachment))) => {
                 if voucher_id.is_some() {
                     attach_done = true; // 附加模式：该凭证已满
                 }
@@ -208,6 +208,12 @@ pub fn import_images(
                     voucher_no,
                     attachment: attachment_out,
                 });
+            }
+            Ok(None) => {
+                // 事务内复查发现并发重复（另一次导入在本次查重之后插入了同一 hash）：
+                // 按 hash 寻址的文件内容相同、路径也相同，**不能删**——删了会连带删掉
+                // 对方那条附件记录的图（2026-09-23 审计 B9）。
+                summary.skipped_duplicates.push(file_name);
             }
             Err(e) => {
                 // 事务失败：清理刚复制的文件 + 增强版文件，不留孤儿
@@ -257,7 +263,7 @@ fn import_one(
     hash: String,
     size: u64,
     ext: &str,
-) -> Result<(i64, String, Attachment)> {
+) -> Result<Option<(i64, String, Attachment)>> {
     let today = crate::utils::paths::today();
     let file_stem = file_name
         .rsplit_once('.')
@@ -265,6 +271,14 @@ fn import_one(
         .unwrap_or_else(|| file_name.clone());
 
     ctx.db.with_tx(|tx| {
+        // 事务内复查（2026-09-23 审计 B9）：外层查重走的是 `with_conn`，与这里的插入
+        // 之间存在窗口——拖放导入与对话框导入都在 `spawn_blocking` 里，两次并发导入
+        // 可能都通过外层查重 → 两条附件记录指向同一物理文件（rel 由 hash 决定），
+        // 之后删掉其中一张凭证会连带删掉另一张的图。
+        // 单连接 + Mutex 保证两个事务串行，故这里能看到先提交的那条 → 返回 None 跳过。
+        if dedup::find_duplicate(tx, &hash)?.is_some() {
+            return Ok(None);
+        }
         let (voucher_id, voucher_no) = match attach_to {
             Some(id) => {
                 let v = crate::db::repos::voucher_repo::get(tx, id)?
@@ -300,7 +314,7 @@ fn import_one(
                 mime_type: imaging::mime_from_ext(ext).to_string(),
             },
         )?;
-        Ok((voucher_id, voucher_no, attachment))
+        Ok(Some((voucher_id, voucher_no, attachment)))
     })
 }
 

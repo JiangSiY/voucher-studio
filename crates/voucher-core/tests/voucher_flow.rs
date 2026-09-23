@@ -297,6 +297,53 @@ fn import_batch_dedups_same_content() -> Result<()> {
     Ok(())
 }
 
+/// 2026-09-23 缺陷锁（审计 B9）：**并发**导入同一张图也只能入库一条附件记录。
+///
+/// 旧实现是「先查后插」：查重走 `with_conn`、插入在之后的 `with_tx` 里，两者之间有窗口；
+/// 拖放导入与对话框导入都在 `spawn_blocking` 里，真并发时两条记录会指向同一物理文件
+/// （rel 由内容 hash 决定），之后删掉其中一张凭证会连带删掉另一张的图。
+/// 修法是在插入事务内复查同一 hash。本用例锁住这条不变量。
+#[test]
+fn concurrent_import_of_same_image_creates_single_attachment() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let src = dir.path().join("same.png");
+    make_png(&src);
+    // 两次「同时」导入同一文件：线程各自调用同一入口（模拟拖放与对话框并发）
+    let (r1, r2) = std::thread::scope(|s| {
+        let h1 = s.spawn(|| ingestion::import_images(&ctx, &[src.clone()], None, false));
+        let h2 = s.spawn(|| ingestion::import_images(&ctx, &[src.clone()], None, false));
+        (
+            h1.join().expect("线程 1 不应 panic"),
+            h2.join().expect("线程 2 不应 panic"),
+        )
+    });
+    let r1 = r1?;
+    let r2 = r2?;
+
+    let rows: i64 = ctx.db.with_conn(|conn| {
+        Ok(conn.query_row("SELECT COUNT(*) FROM attachments", [], |r| r.get(0))?)
+    })?;
+    assert_eq!(
+        rows,
+        1,
+        "并发导入同一张图只应有一条附件记录（两线程各得汇总：{:?}/{:?}）",
+        r1.vouchers.len(),
+        r2.vouchers.len()
+    );
+    // 两侧加起来的入库数必须是 1，另一侧应判为重复跳过（而非失败）
+    assert_eq!(
+        r1.vouchers.len() + r2.vouchers.len(),
+        1,
+        "合计入库数必须为 1"
+    );
+    assert_eq!(
+        r1.failed.len() + r2.failed.len(),
+        0,
+        "重复侧应计入 skipped_duplicates 而不是 failed"
+    );
+    Ok(())
+}
+
 #[test]
 fn set_status_creates_snapshot() -> Result<()> {
     let (_dir, ctx) = test_ctx();
