@@ -122,13 +122,19 @@ fn read_one_request(stream: &mut TcpStream) -> Option<RecordedReq> {
 
 /// 构造 WebDAV 已启用的测试上下文（url 指向 mock；密码写入凭据库）
 fn webdav_ctx(ctx: &CoreContext, url: &str) -> Result<()> {
+    webdav_ctx_with_retention(ctx, url, 0)
+}
+
+/// 同上，但可指定远端保留数——`0` = 跳过远端清理（既有用例的单请求闭环），
+/// `>=1` 才会走 `cleanup_webdav`（2026-09-23 残余清理新增，供 fail-closed 用例使用）。
+fn webdav_ctx_with_retention(ctx: &CoreContext, url: &str, remote_retention: u32) -> Result<()> {
     ctx.secrets.set(SECRET_WEBDAV_PASSWORD, "mock-pw")?;
     let mut cfg = ctx.config();
     cfg.backup.webdav.enabled = true;
     cfg.backup.webdav.url = url.to_string();
     cfg.backup.webdav.username = "tester".into();
     cfg.backup.webdav.once_daily = false; // 跳过「当日已传」检查，聚焦 PUT 本身
-    cfg.backup.webdav.remote_retention = 0; // 跳过远端清理，单请求闭环
+    cfg.backup.webdav.remote_retention = remote_retention;
     ctx.set_config(cfg)
 }
 
@@ -236,5 +242,50 @@ fn webdav_test_connection_counts_all_valid_names() -> Result<()> {
     webdav_ctx(&ctx, &mock.url)?;
 
     assert_eq!(backup::test_webdav(&ctx)?, 3);
+    Ok(())
+}
+
+/// 残余清理（B12）：远端附件包回收必须 **fail-closed**——被淘汰备份的 DELETE 失败时，
+/// 不得继续回收附件包，否则远端会留下「快照/备份还在、附件包已被删」的永久不可恢复备份。
+///
+/// 构造：PROPFIND 列出两份旧全量 + 一个附件包，`remote_retention=1` → 淘汰字典序最小的
+/// 那份；让它的 DELETE 返回 500（确定性失败）→ 断言**没有**对附件包发 DELETE。
+/// fail-closed 生效时表现为「少一次请求」，从返回值看不出来 → 断言必须落在请求记录上。
+///
+/// 用旧全量而非快照：快照会触发 manifest GET，而 mock 只能回字符串（回不了二进制 zip），
+/// 那会让「manifest 不可读」也置为跳过，混入另一种原因、失去判别力。
+#[test]
+fn webdav_cleanup_skips_bundle_reclaim_when_delete_fails() -> Result<()> {
+    let (dir, ctx) = common::test_ctx();
+    let xml = "<?xml version=\"1.0\"?>\
+<d:multistatus xmlns:d=\"DAV:\">\
+<d:response><d:href>/dav/</d:href></d:response>\
+<d:response><d:href>/dav/voucher-backup-20260901-000000.zip</d:href></d:response>\
+<d:response><d:href>/dav/voucher-backup-20260908-000000.zip</d:href></d:response>\
+<d:response><d:href>/dav/voucher-attachments-1c81db15.zip</d:href></d:response>\
+</d:multistatus>";
+    // 回放顺序：PUT(201) → PROPFIND(207) → DELETE 旧全量(500)；耗尽后重复最后一个
+    let mock = MockWebdav::start(vec![
+        (201, String::new()),
+        (207, xml.to_string()),
+        (500, String::new()),
+    ]);
+    webdav_ctx_with_retention(&ctx, &mock.url, 1)?;
+
+    let src = plain_backup_file(dir.path());
+    backup::upload_backup_to_webdav(&ctx, &src)?;
+
+    let reqs = mock.recorded();
+    assert!(
+        reqs.iter()
+            .any(|r| r.method == "DELETE" && r.path.contains("voucher-backup-20260901")),
+        "应先尝试删除被淘汰的旧备份：{reqs:?}"
+    );
+    assert!(
+        !reqs
+            .iter()
+            .any(|r| r.method == "DELETE" && r.path.contains("voucher-attachments-")),
+        "被淘汰备份删除失败时必须跳过附件包回收（fail-closed），实际请求：{reqs:?}"
+    );
     Ok(())
 }

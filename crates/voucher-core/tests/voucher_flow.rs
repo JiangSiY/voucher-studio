@@ -1941,3 +1941,55 @@ fn reconcile_matches_and_reports_gaps() -> Result<()> {
     assert!(text.contains("🔴 凭证无账单"));
     Ok(())
 }
+
+/// 残余清理（B11）：导出失败**不得**留下最终文件或批次记录。
+///
+/// 失败注入：把 exports 目录设成只读（0555）。导出应在写临时文件阶段就失败——目录里
+/// 既无最终 PDF/CSV、也无 `.tmp` 残留，且不产生批次记录（此前直接写最终名时，半截文件
+/// 会留在导出目录里、而界面看不到批次）。
+///
+/// 仅 unix：Windows 的目录只读位不阻止创建文件。用例会先**探测**只读是否真的生效
+/// （root 下权限位无效）——探测失败即软跳过，避免假绿。
+#[cfg(unix)]
+#[test]
+fn export_failure_leaves_no_file_or_batch() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_dir, ctx) = test_ctx();
+    let v = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "导出失败注入".into(),
+            ..Default::default()
+        },
+    )?;
+    let exports = ctx.paths.exports.clone();
+    let orig = std::fs::metadata(&exports)?.permissions();
+
+    std::fs::set_permissions(&exports, std::fs::Permissions::from_mode(0o555))?;
+    let probe = exports.join(".probe");
+    if std::fs::write(&probe, b"x").is_ok() {
+        let _ = std::fs::remove_file(&probe);
+        std::fs::set_permissions(&exports, orig)?;
+        eprintln!("跳过：当前用户可无视目录只读位（root？），权限注入无效");
+        return Ok(());
+    }
+
+    let result = export::export_vouchers_table(&ctx, &[v.id], ExportFormat::Csv);
+    std::fs::set_permissions(&exports, orig)?; // 先恢复，避免影响后续断言
+
+    assert!(result.is_err(), "只读目录下导出必须报错，而不是静默成功");
+    assert!(
+        export::list_batches(&ctx, 10)?.is_empty(),
+        "失败不得留下批次记录"
+    );
+    let left: Vec<String> = std::fs::read_dir(&exports)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        left.is_empty(),
+        "失败不得留下最终文件或 .tmp 残留：{left:?}"
+    );
+    Ok(())
+}
