@@ -29,7 +29,7 @@
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$DATA/VoucherStudio/data/attachments/**/*"]
+        "scope": ["$DATA/VoucherStudio/attachments/**/*"]
       }
     }
   },

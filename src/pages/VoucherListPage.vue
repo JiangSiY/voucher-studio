@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /** 凭证列表（核心页）：筛选/搜索/分页/批量操作/导入/行内操作 */
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
-import { useConfigStore } from "../stores/config";
 import { api, type Voucher, type VoucherStatus, type VoucherThumb, type VoucherListResult, type BatchEditPatch } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -15,7 +14,6 @@ import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
 const route = useRoute();
-const configStore = useConfigStore();
 
 type Filter = "all" | VoucherStatus;
 const filters: { key: Filter; label: string }[] = [
@@ -89,25 +87,24 @@ function clearPrefetched() {
   prefetched.value.clear();
 }
 
-const attachmentsDir = computed(() =>
-  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
-);
-
 /** 加载失败阶梯：0=优先增强版（后端已过滤掉不存在的），1=回退原图，用尽 → 占位 */
 const thumbFallback = ref<Record<number, number>>({});
 
-/** D-1：列表缩略图 URL，enhanced 优先；convertFileSrc 把本地路径转 webview asset 协议 */
+/**
+ * D-1：列表缩略图 URL。候选路径是后端拼好的**绝对路径**
+ * （`fileAbs`/`enhancedAbs`），前端只做 convertFileSrc——不要自行拼分隔符。
+ */
 function thumbUrl(v: Voucher): string | null {
   const t = thumbs.value[v.id];
   if (!t) return null;
-  const rel = pickCandidate(t, thumbFallback.value[v.id] ?? 0);
-  return rel ? convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`) : null;
+  const abs = pickCandidate(t, thumbFallback.value[v.id] ?? 0);
+  return abs ? convertFileSrc(abs) : null;
 }
 
 /** 图片加载失败 → 走下一档（增强版→原图→占位），避免留一块无法解释的灰白 */
 function onThumbError(v: Voucher) {
   const cur = thumbFallback.value[v.id] ?? 0;
-  const total = candidatePaths(thumbs.value[v.id] ?? { filePath: "" }).length;
+  const total = candidatePaths(thumbs.value[v.id] ?? {}).length;
   thumbFallback.value = { ...thumbFallback.value, [v.id]: nextFallbackStep(cur, total) };
 }
 

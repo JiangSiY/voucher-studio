@@ -129,6 +129,15 @@ impl AppPaths {
         format!("{}/{}.{}", year_month, hash, ext)
     }
 
+    /// rel → 绝对路径字符串（非法 rel 返回 None）。
+    /// 供**界面下发**用：由 Rust 侧用 `PathBuf` 拼出平台原生分隔符，前端不要再自行拼接。
+    /// 不判存在性——文件缺失交给前端的回退阶梯，否则「原图在、增强缺失」会连原图都不显示。
+    pub fn abs_string_checked(&self, rel: &str) -> Option<String> {
+        self.attachment_abs_checked(rel)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+    }
+
     pub fn attachment_dir_for(&self, year_month: &str) -> PathBuf {
         self.attachments.join(year_month)
     }

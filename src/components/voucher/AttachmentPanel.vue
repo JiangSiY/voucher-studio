@@ -5,11 +5,10 @@
  * 从 VoucherFormPage 提取；仅此面板聚焦图片展示与交互。
  * OCR 重跑 / 换图 / 裁剪后刷新由父组件编排（裁剪落库后 emit cropSaved 交由父级刷新 + 提示）。
  */
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Attachment } from "../../api/client";
 import { OCR_META } from "../../composables/format";
-import { useConfigStore } from "../../stores/config";
 import { toastError } from "../../stores/toast";
 import ImageViewerDialog from "../ImageViewerDialog.vue";
 import CropDialog from "../CropDialog.vue";
@@ -29,19 +28,20 @@ const emit = defineEmits<{
   cropSaved: [];
 }>();
 
-const configStore = useConfigStore();
+// 图片地址一律用后端下发的绝对路径（`fileAbs` / `enhancedAbs`）。
+// 不要在前端拼路径：拼分隔符曾在 macOS 上拼出不存在的路径，被 asset protocol 全部拒绝。
 
-const attachmentsDir = computed(() =>
-  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
-);
+/** 把一个绝对路径转成 webview 可用的 asset URL（空值 → 占位空串） */
+function assetUrl(abs?: string | null): string {
+  return abs ? convertFileSrc(abs) : "";
+}
 
 // ---------- D-1：编辑页缩略图优先用增强版，支持「原图/增强」切换 ----------
 
 /** D-1：单图默认用增强版（如有）；查看器/查看大图也走同一规则 */
 function attSrc(a: Attachment): string {
-  // enhancedPath 始终指向 5 步矫正后的 JPEG；缺失时回退原图
-  const rel = a.enhancedPath ?? a.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+  // enhancedAbs 由后端保证「指向真实存在的文件」；缺失时回退原图
+  return assetUrl(a.enhancedAbs ?? a.fileAbs);
 }
 
 /** 切换该附件当前显示的图（编辑页用，per-attachment 状态） */
@@ -49,8 +49,7 @@ const useEnhanced = ref<Record<number, boolean>>({});
 function thumbSrc(a: Attachment): string {
   // 默认 true（优先增强版），用户切换时改 map
   const preferEnhanced = useEnhanced.value[a.id] ?? true;
-  const rel = preferEnhanced && a.enhancedPath ? a.enhancedPath : a.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+  return assetUrl(preferEnhanced && a.enhancedAbs ? a.enhancedAbs : a.fileAbs);
 }
 function toggleThumbSource(a: Attachment) {
   useEnhanced.value[a.id] = !(useEnhanced.value[a.id] ?? true);
@@ -79,7 +78,7 @@ function setSplit(a: Attachment, v: number) {
 }
 function compareOriginalSrc(a: Attachment): string {
   // 原图层 = always 原图（不受 useEnhanced 切换影响）
-  return convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
+  return assetUrl(a.fileAbs);
 }
 function compareClipRight(a: Attachment): string {
   // 增强版（thumbSrc）只显示左侧，比例 = compareSplit
@@ -111,7 +110,7 @@ const cropDialog = ref<InstanceType<typeof CropDialog> | null>(null);
 
 function openCrop(a: Attachment) {
   // 基准 = 原图（手动裁剪替代自动增强，不叠加）
-  cropSrc.value = convertFileSrc(`${attachmentsDir.value}\\${a.filePath.replace(/\//g, "\\")}`);
+  cropSrc.value = assetUrl(a.fileAbs);
   cropFileName.value = a.fileName;
   cropAttachmentId.value = a.id;
   cropVisible.value = true;

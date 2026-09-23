@@ -19,9 +19,6 @@ const configStore = useConfigStore();
 const vouchers = ref<Voucher[]>([]);
 const selected = ref<Set<number>>(new Set());
 const thumbs = ref<Record<number, VoucherThumb>>({});
-const attachmentsDir = computed(() =>
-  configStore.appInfo ? `${configStore.appInfo.dataDir}\\attachments` : "",
-);
 
 const title = ref("凭证整理单");
 const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
@@ -126,9 +123,10 @@ const previewThumbRows = computed(() =>
  * 预览即所见即所得，用户在预览里看到的图就是 PDF 附录里印出来的图。
  */
 function appendixThumbUrl(t: VoucherThumb): string {
-  const rel =
-    t.enhancedSource === "scan" && t.enhancedPath ? t.enhancedPath : t.filePath;
-  return convertFileSrc(`${attachmentsDir.value}\\${rel.replace(/\//g, "\\")}`);
+  // 地址用后端拼好的绝对路径（不要在前端拼分隔符）
+  const abs =
+    t.enhancedSource === "scan" && t.enhancedAbs ? t.enhancedAbs : t.fileAbs;
+  return abs ? convertFileSrc(abs) : "";
 }
 
 async function load() {

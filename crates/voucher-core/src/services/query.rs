@@ -43,13 +43,17 @@ pub use crate::services::dedup::DuplicateGroup;
 
 // ---- 命令 DTO（原定义在命令层，现收敛到 core，JSON 契约不变） ----
 
-/// D-1 列表缩略图信息：相对附件根目录的路径，前端用 convertFileSrc 转换
+/// D-1 列表缩略图信息：相对路径 + 下发给界面用的**绝对路径**（前端 convertFileSrc 直接用绝对路径）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoucherThumb {
     pub file_path: String,
     pub enhanced_path: Option<String>,
     pub enhanced_source: String,
+    /// 原图绝对路径（非法 rel 为 None）；不判存在性，缺失由前端回退阶梯兜
+    pub file_abs: Option<String>,
+    /// 增强版绝对路径（不可显示时为 None）
+    pub enhanced_abs: Option<String>,
 }
 
 /// 当前页所有凭证的首附件缩略图（key = voucher.id）。
@@ -65,17 +69,22 @@ pub fn voucher_thumbs(ctx: &CoreContext, ids: &[i64]) -> Result<HashMap<i64, Vou
     Ok(rows
         .into_iter()
         .map(|(vid, file_path, enhanced_path, enhanced_source)| {
+            let file_abs = ctx.paths.abs_string_checked(&file_path);
+            // 增强版是"可重建缓存"、不入备份：恢复/清理后可能已不在磁盘上。
+            // 与 PDF 导出、OCR 同口径——不可显示时下发 None，前端回退原图。
+            let enhanced_path =
+                super::attachment_view::visible_enhanced(ctx, enhanced_path.as_deref());
+            let enhanced_abs = enhanced_path
+                .as_deref()
+                .and_then(|rel| ctx.paths.abs_string_checked(rel));
             (
                 vid,
                 VoucherThumb {
                     file_path,
-                    // 增强版是"可重建缓存"、不入备份：恢复/清理后可能已不在磁盘上。
-                    // 与 PDF 导出、OCR 同口径——不可显示时下发 None，前端回退原图。
-                    enhanced_path: super::attachment_view::visible_enhanced(
-                        ctx,
-                        enhanced_path.as_deref(),
-                    ),
+                    enhanced_path,
                     enhanced_source,
+                    file_abs,
+                    enhanced_abs,
                 },
             )
         })

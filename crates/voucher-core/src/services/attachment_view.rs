@@ -41,11 +41,23 @@ pub fn visible_enhanced(ctx: &CoreContext, rel: Option<&str>) -> Option<String> 
     enhanced_available(ctx, rel).then(|| rel.to_string())
 }
 
-/// 就地剥掉不可显示的增强版路径（编辑页附件列表用）
+/// 就地剥掉不可显示的增强版路径，并填好下发给界面的**绝对路径**
+/// （编辑页附件列表用；`get_detail` 等场景统一走这里）。
+///
+/// 绝对路径由 Rust 侧用 `PathBuf` 拼（平台原生分隔符），前端只把它交给
+/// `convertFileSrc`——前端自行拼路径曾在 macOS 上把 `\` 拼进路径，导致
+/// asset protocol 拒绝全部图片请求（2026-09-23 缺陷）。
+/// `file_abs` 只要相对路径合法就填：**不判存在性**，文件确实缺失时交给浏览器
+/// 的「增强→原图→占位」回退阶梯处理，这样「原图在、增强缺失」仍能显示原图。
 pub fn hide_missing_enhanced(ctx: &CoreContext, a: &mut Attachment) {
-    if let Some(rel) = a.enhanced_path.as_deref() {
-        if !enhanced_available(ctx, rel) {
+    a.file_abs = ctx.paths.abs_string_checked(&a.file_path);
+    match a.enhanced_path.clone() {
+        Some(rel) if enhanced_available(ctx, &rel) => {
+            a.enhanced_abs = ctx.paths.abs_string_checked(&rel);
+        }
+        _ => {
             a.enhanced_path = None;
+            a.enhanced_abs = None;
         }
     }
 }

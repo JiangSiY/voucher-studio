@@ -25,6 +25,9 @@ fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
         enhanced_path: row.get(9)?,
         enhanced_source: EnhanceSource::parse(&source).unwrap_or(EnhanceSource::Unknown),
         created_at: row.get(11)?,
+        // 界面展示字段：由 services::attachment_view 在下发前填充，DB 层恒为 None
+        file_abs: None,
+        enhanced_abs: None,
     })
 }
 

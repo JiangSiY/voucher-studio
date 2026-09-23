@@ -71,6 +71,14 @@ pub struct Attachment {
     /// v3：来源分类（截图/扫描件/未识别）
     pub enhanced_source: EnhanceSource,
     pub created_at: String,
+    /// 下发界面用的**绝对路径**（view 层填充，见 `services::attachment_view`；DB 读写不涉及）。
+    /// 前端一律用它交给 `convertFileSrc`，不再自行拼接——拼接曾在拼分隔符时把
+    /// macOS 路径拼坏（`\`），导致 asset protocol 拒绝全部图片请求。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_abs: Option<String>,
+    /// 增强版绝对路径（不可显示时为 None，与 `enhanced_path` 同口径）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_abs: Option<String>,
 }
 
 impl Attachment {

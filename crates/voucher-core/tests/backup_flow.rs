@@ -88,10 +88,60 @@ fn missing_enhanced_is_hidden_from_ui_payloads() -> Result<()> {
         "原图必须在位——界面据此回退显示"
     );
 
-    // 编辑页出口：同样剥掉
+    // 2026-09-23 缺陷锁：下发的**绝对路径**必须由 Rust 侧拼好。
+    // 前端曾拿相对路径自行拼 `${attachmentsDir}\\${rel.replace(/\//g,"\\")}`，
+    // 在 macOS 上拼出的是不存在的路径 → asset protocol 逐条拒绝 → 缩略图全站空白。
+    let thumb_abs = thumb
+        .file_abs
+        .as_deref()
+        .expect("缩略图必须下发原图绝对路径");
+    assert!(
+        std::path::Path::new(thumb_abs).is_absolute(),
+        "file_abs 必须是绝对路径：{thumb_abs}"
+    );
+    assert_eq!(
+        std::path::Path::new(thumb_abs),
+        ctx.paths.attachment_abs_checked(&thumb.file_path)?,
+        "file_abs 应与 rel 的解析结果一致（平台原生分隔符；不判存在性）"
+    );
+    assert!(
+        thumb.enhanced_abs.is_none(),
+        "增强版不可显示时也不得下发其绝对路径"
+    );
+
+    // 编辑页出口：同样剥掉，同时下发原图绝对路径
     let detail = voucher_mgr::get_detail(&ctx, vid)?;
     assert_eq!(detail.attachments.len(), 1);
     assert!(detail.attachments[0].enhanced_path.is_none());
+    let a0_abs = detail.attachments[0]
+        .file_abs
+        .as_deref()
+        .expect("编辑页附件必须下发原图绝对路径");
+    assert!(
+        std::path::Path::new(a0_abs).is_absolute(),
+        "file_abs 必须是绝对路径：{a0_abs}"
+    );
+    assert!(detail.attachments[0].enhanced_abs.is_none());
+
+    // 反向：增强版文件真实存在时，绝对路径随之下发（且与 rel 解析一致）
+    let enhanced_abs = ctx.paths.attachment_abs_checked(&enhanced_rel)?;
+    if let Some(parent) = enhanced_abs.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&enhanced_abs, b"fake")?;
+    let thumbs2 = voucher_core::services::query::voucher_thumbs(&ctx, &[vid])?;
+    let t2 = thumbs2.get(&vid).expect("应有缩略图条目");
+    assert_eq!(
+        t2.enhanced_abs.as_deref().map(std::path::PathBuf::from),
+        Some(enhanced_abs.clone()),
+        "增强版在位时必须下发其绝对路径"
+    );
+    assert_eq!(
+        t2.enhanced_path.as_deref(),
+        Some(enhanced_rel.as_str()),
+        "相对路径字段保持兼容，仍应下发"
+    );
+    let _ = std::fs::remove_file(&enhanced_abs);
 
     // DB 存储不得改写（保留原值，「重新增强」仍覆盖同一文件）
     let stored: Option<String> = ctx.db.with_conn(|conn| {

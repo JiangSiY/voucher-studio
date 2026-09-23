@@ -66,6 +66,14 @@ export interface Attachment {
   ocrText: string | null;
   /** v0.6：5 步增强后的 JPEG 相对路径（null = 未增强，原图回退） */
   enhancedPath: string | null;
+  /**
+   * 下发给界面的**绝对路径**（由 Rust 侧用平台原生分隔符拼好）。
+   * 前端只把它交给 `convertFileSrc`，**不要自行拼接**——前端拼分隔符曾在 macOS
+   * 上把路径拼成 `...VoucherStudio\attachments\...`，被 asset protocol 全部拒绝。
+   */
+  fileAbs?: string | null;
+  /** 增强版绝对路径（不可显示时为 null，与 enhancedPath 同口径） */
+  enhancedAbs?: string | null;
   /** v0.6：来源分类（screenshot=截图 / scan=扫描件 / unknown=未识别） */
   enhancedSource: "screenshot" | "scan" | "unknown";
   createdAt: string;
@@ -119,11 +127,15 @@ export interface VoucherNeighbor {
   total: number;
 }
 
-/** D-1 列表缩略图：相对附件根的路径，前端用 convertFileSrc 拼 URL */
+/** D-1 列表缩略图：相对路径（保留兼容）+ Rust 侧拼好的绝对路径（界面用这个） */
 export interface VoucherThumb {
   filePath: string;
   enhancedPath: string | null;
   enhancedSource: "screenshot" | "scan" | "unknown";
+  /** 原图绝对路径（Rust 侧拼好；前端直接用，不要自行拼接） */
+  fileAbs?: string | null;
+  /** 增强版绝对路径（不可显示时为 null） */
+  enhancedAbs?: string | null;
 }
 
 export interface VoucherStats {
