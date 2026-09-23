@@ -33,7 +33,8 @@
 
 - Rust 1.75+（stable，MSVC 工具链）
 - Node.js 20+
-- **OpenCV 4.x（必须，编译前置）**：Windows 设 `OpenCV_DIR` + `OPENCV_INCLUDE_PATHS` / `OPENCV_LINK_PATHS` / `OPENCV_LINK_LIBS`（可直接运行 `activate-dev.ps1`）；macOS `brew install opencv`；Linux/CI 装 `libopencv-dev` + `clang`/`libclang-dev`
+- **OpenCV 4.x（必须，编译前置）**：Windows 设 `OpenCV_DIR` + `OPENCV_INCLUDE_PATHS` / `OPENCV_LINK_PATHS` / `OPENCV_LINK_LIBS`（可直接运行 `activate-dev.ps1`）；Linux/CI 装 `libopencv-dev` + `clang`/`libclang-dev`
+- **macOS 必须 OpenCV 4.10**（原文为 `brew install opencv`，自 v0.15.1 起改为源码编译固定 4.10）：`opencv` crate 按**本机已装头文件**生成绑定，代码依赖 4.10 的 API 面（`imgproc::bounding_rect`/`contour_area`/`approx_poly_dp`、`ImreadModes::IMREAD_COLOR`、`cvt_color`/`HoughLines` 参数个数），而 brew 现供 5.x（`opencv@4` 亦已 4.14）上述位置全部变更，直接编译报错。需源码编译 4.10 并让 `PKG_CONFIG_PATH` 指向其 `lib/pkgconfig`；**机器上不要保留 brew 的 opencv**（crate 的 pkg-config 探测优先 `opencv5.pc`，会静默改用 5.x 头文件）
 - Windows：VS Build Tools（C++ 工作负载）+ WebView2 运行时
 - macOS：Xcode Command Line Tools
 
@@ -49,7 +50,7 @@ npm run tauri dev  # 启动开发模式（自动编译 Rust + 前端热更新）
 ```bash
 npm run typecheck          # 前端类型检查
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：121 单元 + 91 集成，共 212 用例；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：121 单元 + 94 集成，共 215 用例；加 src-tauri 首个用例共 216；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
@@ -58,8 +59,11 @@ cargo fmt --all            # 格式化
 ## 构建
 
 ```bash
-npm run tauri build   # 产出安装包（Windows: NSIS/MSI；macOS: .app/.dmg）
+npm run tauri build    # 产出安装包（Windows: NSIS/MSI；macOS: .app/.dmg）
+bash package-macos.sh  # macOS 必需收尾：OpenCV dylib 收进包内 + 重签，产出 dist/macos/*.dmg
 ```
+
+macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对路径**引用，`tauri build` 直出的 `.app` 只能在装有同一路径 OpenCV 的机器上启动（拷给别人即 dyld `Library not loaded`）。脚本把 6 个 dylib 收进 `Contents/Frameworks`、引用改为 `@rpath`、补 rpath 并 ad-hoc 重签名。无 Developer ID 证书时签名只能是 ad-hoc、**无法公证**，分发对象首次打开需右键→打开（或 `xattr -dr com.apple.quarantine`）。
 
 安装包自动携带本地 OCR 模型（约 16 MB），首次启动复制到用户数据目录。
 
