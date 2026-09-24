@@ -7,11 +7,10 @@
  * 后端已在下发时剥掉坏路径（`services::attachment_view`），这里的阶梯是第二道保险。
  *
  * 场景来源二（2026-09-23 缺陷，本文件据此改口径）：候选一律用**后端下发的绝对路径**
- * （`fileAbs` / `enhancedAbs`，Rust 侧按平台原生分隔符拼好）。前端历史上用
- * `` `${attachmentsDir}\\${rel.replace(/\//g,"\\")}` `` 自行拼绝对路径，在 macOS 上
- * 拼出的是 `...VoucherStudio\attachments\...` 这种并不存在的路径，被 asset protocol
- * 逐条拒绝 → 缩略图/预览全站空白。这里锁住「只消费绝对路径、字段缺失按占位处理」，
- * 避免有人把相对路径拼接再写回来。
+ * （`fileAbs` / `enhancedAbs`，Rust 侧按平台原生分隔符拼好）。前端历史上自行拼绝对路径
+ * 并把 `/` 替换成分隔符，在 macOS 上拼出的是 `...VoucherStudio\attachments\...` 这种
+ * 并不存在的路径，被 asset protocol 逐条拒绝 → 缩略图/预览全站空白。这里锁住
+ * 「只消费绝对路径、原样透传不做任何替换、字段缺失按占位处理」，避免相对路径拼接回潮。
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -21,7 +20,6 @@ import {
 } from "../useAttachmentFallback";
 
 const ABS = "/Users/x/Library/Application Support/VoucherStudio/attachments";
-const WIN = "C:\\Users\\x\\AppData\\Roaming\\VoucherStudio\\data\\attachments";
 
 describe("candidatePaths（绝对路径口径）", () => {
   it("有增强版时：增强优先、原图兜底", () => {
@@ -35,9 +33,13 @@ describe("candidatePaths（绝对路径口径）", () => {
     ]);
   });
 
-  it("Windows 形态的绝对路径原样透传（反斜杠不做替换）", () => {
-    const a = { fileAbs: `${WIN}\\2026\\08\\x.jpg`, enhancedAbs: null };
-    expect(candidatePaths(a)).toEqual([`${WIN}\\2026\\08\\x.jpg`]);
+  it("绝对路径原样透传（不做任何分隔符替换，也不做归一化）", () => {
+    const odd = "/Volumes/备份 盘/attachments/2026/08/x.jpg";
+    expect(candidatePaths({ fileAbs: odd, enhancedAbs: null })).toEqual([odd]);
+    // 含特殊字符/空格的路径同样逐字透传（后端给什么就用什么）
+    expect(candidatePaths({ fileAbs: `${ABS}/2026/08/含 空格 & 符号.jpg` })).toEqual([
+      `${ABS}/2026/08/含 空格 & 符号.jpg`,
+    ]);
   });
 
   it("增强版缺失（null/undefined/空串）时只用原图", () => {

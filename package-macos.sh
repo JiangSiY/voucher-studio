@@ -3,7 +3,7 @@
 #
 # 为什么必须有这一步：
 #   Rust 侧（opencv crate）链接的是本机安装的 OpenCV dylib，且引用是**绝对路径**
-#   （Linux/Windows 因库在系统默认搜索路径下而无感）。这样的 .app 只能在装有同一路径
+#   （Linux 因库在系统默认搜索路径下而无感）。这样的 .app 只能在装有同一路径
 #   OpenCV 的机器上启动，拷给别人即 dyld 报 "Library not loaded"。
 #   Tauri 打包器对 .dylib 只做「复制到 Contents/Frameworks」，既不改 install name 也不补
 #   rpath（见 tauri-bundler/src/bundle/macos/app.rs，全文无 install_name_tool 调用），
@@ -11,7 +11,6 @@
 #
 # 本脚本四件事：dylib 收进 Contents/Frameworks → 引用统一改 @rpath → 主程序补 rpath →
 # 由内到外 ad-hoc 重签名（改了 mach-o 必须重签，否则 arm64 直接拒绝启动）。
-# 另清掉 tauri.conf.json 无差别打进 Resources 的 Windows 运行库占位（LFS 指针）。
 #
 # 前置：本机已按 README「环境要求」装好 OpenCV 4.10（OPENCV_LIB 可覆盖其 lib 目录）。
 # 用法：bash package-macos.sh [path/to/Xxx.app] [输出目录]
@@ -60,16 +59,7 @@ for l in "${LIBS[@]}"; do
   cp -f "$src" "$FRAMEWORKS/libopencv_$l.$ABI.dylib"
 done
 
-# --- 1b) 清掉 Windows 运行库占位：src-tauri/vendor/opencv_world4100.dll 在 git 里是
-#   LFS 指针（133 字节文本，真实文件 64MB 且仅 Windows 用）；Windows 资源已移到
-#   tauri.windows.conf.json，macOS 包不该带它。按"≤1KB 视为指针"判定，避免误删真文件。
-POINTER="$APP/Contents/Resources/opencv_world4100.dll"
-if [ -f "$POINTER" ] && [ "$(wc -c < "$POINTER" | tr -d ' ')" -le 1024 ]; then
-  echo "==> 移除 Windows 运行库占位（LFS 指针）：Contents/Resources/opencv_world4100.dll"
-  rm -f "$POINTER"
-fi
-
-# --- 1c) 部署目标自检：包内 dylib 要求的系统版本不得高于主程序，否则 dyld 会拒绝加载
+# --- 1b) 部署目标自检：包内 dylib 要求的系统版本不得高于主程序，否则 dyld 会拒绝加载
 #   （症状：在开发机上一切正常，别人机器一启动即崩，且报错不易联想到"库比系统新"）。
 #   踩过一次：OpenCV 未设 CMAKE_OSX_DEPLOYMENT_TARGET 时，CMake 默认取**构建机的系统版本**，
 #   于是 dylib 成了 minos 27.0，而主程序是 11.0 —— 该包只能在 macOS 27 上跑。

@@ -30,8 +30,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.png"],
     "resources": {
       "../assets/ocr-models/": "ocr-models/"
     }

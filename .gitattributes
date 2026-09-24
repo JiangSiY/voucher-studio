@@ -1,23 +1,18 @@
-# 换行符统一 LF：所有文本文件入库前归一为 LF，检出不转换（跨平台协作 + 消除 CRLF 警告）
+# 换行符统一 LF：所有文本文件入库前归一为 LF，检出不转换（消除 CRLF 警告）
 * text=auto eol=lf
-# 脚本类强制 LF（Windows 工具误写 CRLF 会导致 bash/sh 无法执行）
+# 脚本类强制 LF
 *.sh text eol=lf
-*.ps1 text eol=crlf
 # 二进制文件：禁止任何换行符/编码转换
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.bmp binary
 *.webp binary
-*.ico binary
 *.icns binary
 *.pdf binary
 *.onnx binary
-*.exe binary
-*.msi binary
 *.zip binary
 *.woff binary
 *.woff2 binary
 *.ttf binary
 *.lock binary
-src-tauri/vendor/*.dll filter=lfs diff=lfs merge=lfs -text
