@@ -22,7 +22,7 @@ use serde::Serialize;
 
 use crate::db::repos::{attachment_repo, ocr_layout_repo};
 use crate::models::{Attachment, Voucher};
-use crate::services::{dedup, naming, ocr_fields, ocr_layout};
+use crate::services::{dedup, dup_review, naming, ocr_fields, ocr_layout};
 use crate::{CoreContext, Result};
 
 // ---- 稳定 DTO re-export：命令层不再引用 db::repos 路径，契约形状不变 ----
@@ -41,6 +41,12 @@ pub use crate::db::repos::enhance_hit_repo::HitSource;
 /// 疑似重复组（原 `services::dedup::DuplicateGroup`）
 pub use crate::services::dedup::DuplicateGroup;
 
+/// v0.16 处置：核查队列 / 证据 / 置信度 / 统计（命令层不再引用 services::dup_review 路径）
+pub use crate::services::dup_review::{EvidenceLevel, PairEvidence, PendingSummary, ReviewGroup};
+
+/// 处置记录（审计日志；`removedPayload` 为被删凭证留痕快照）
+pub use crate::models::dup_decision::DupDecision;
+
 // ---- 命令 DTO（原定义在命令层，现收敛到 core，JSON 契约不变） ----
 
 /// D-1 列表缩略图信息：相对路径 + 下发给界面用的**绝对路径**（前端 convertFileSrc 直接用绝对路径）
@@ -54,6 +60,14 @@ pub struct VoucherThumb {
     pub file_abs: Option<String>,
     /// 增强版绝对路径（不可显示时为 None）
     pub enhanced_abs: Option<String>,
+}
+
+/// v0.16 保存后提示项：疑似重复的**对端凭证 + 证据**
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateSuspect {
+    pub voucher: Voucher,
+    pub evidence: PairEvidence,
 }
 
 /// 当前页所有凭证的首附件缩略图（key = voucher.id）。
@@ -91,14 +105,38 @@ pub fn voucher_thumbs(ctx: &CoreContext, ids: &[i64]) -> Result<HashMap<i64, Vou
         .collect())
 }
 
-/// 单凭证疑似重复（保存后前端提示）：同日期同金额的其他凭证。
-pub fn suspected_duplicates(ctx: &CoreContext, id: i64) -> Result<Vec<Voucher>> {
-    ctx.db.with_conn(|conn| dedup::suspected_by_id(conn, id))
+/// 单凭证疑似重复（保存后前端提示）：同日期同金额的**其他凭证 + 证据**。
+///
+/// v0.16 起**已判定（不是重复 / 已确认并删除）的对不再返回**——旧版每次都重算全量，
+/// 导致"每次保存都重弹同一个提示"且无法消除。
+pub fn suspected_duplicates(ctx: &CoreContext, id: i64) -> Result<Vec<DuplicateSuspect>> {
+    let rows = dup_review::undecided_suspects(ctx, id)?;
+    Ok(rows
+        .into_iter()
+        .map(|(voucher, evidence)| DuplicateSuspect { voucher, evidence })
+        .collect())
 }
 
 /// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张。
+///
+/// 注意：**不过滤已判定**——需要"还剩多少要处理"请用 `duplicate_pending_summary`。
 pub fn duplicate_groups(ctx: &CoreContext) -> Result<Vec<DuplicateGroup>> {
     ctx.db.with_conn(dedup::scan_groups)
+}
+
+/// v0.16：待核查队列（只含还有未判定对的组；组内对按置信度排序）
+pub fn duplicate_review_queue(ctx: &CoreContext) -> Result<Vec<ReviewGroup>> {
+    dup_review::review_queue(ctx)
+}
+
+/// v0.16：待处理统计（侧栏徽标 / 仪表盘面板）
+pub fn duplicate_pending_summary(ctx: &CoreContext) -> Result<PendingSummary> {
+    dup_review::pending_summary(ctx)
+}
+
+/// v0.16：处置历史（新 → 旧）
+pub fn duplicate_decisions(ctx: &CoreContext, limit: u32) -> Result<Vec<DupDecision>> {
+    dup_review::history(ctx, limit)
 }
 
 /// 附件实体查询（附件不存在返回 `Ok(None)`，由调用方决定文案）。

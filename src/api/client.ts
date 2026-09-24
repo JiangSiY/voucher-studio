@@ -248,6 +248,64 @@ export interface DuplicateGroup {
   vouchers: Voucher[];
 }
 
+/** v0.16：置信度分档（只用于排序与提示强弱，不做过滤） */
+export type EvidenceLevel = "high" | "medium" | "low";
+
+/** v0.16：一对疑似重复的证据（人工核对用；判定口径仍是同日期同金额） */
+export interface PairEvidence {
+  /** 两张凭证的首附件内容哈希相同（唯一强证据） */
+  sameImage: boolean;
+  sameCounterparty: boolean;
+  sameDescription: boolean;
+  level: EvidenceLevel;
+}
+
+/** v0.16：保存后提示项（对端凭证 + 证据） */
+export interface DuplicateSuspect {
+  voucher: Voucher;
+  evidence: PairEvidence;
+}
+
+/** v0.16：待核查的一对 */
+export interface ReviewPair {
+  a: Voucher;
+  b: Voucher;
+  evidence: PairEvidence;
+  decided?: DupDecisionKind | null;
+}
+
+/** v0.16：待核查组（同日期同金额；只含还有未判定对的组） */
+export interface ReviewGroup {
+  voucherDate: string;
+  amountCents: number;
+  vouchers: Voucher[];
+  /** 未判定的对（高置信度在前） */
+  pending: ReviewPair[];
+  decidedPairs: number;
+}
+
+/** v0.16：待处理统计（侧栏徽标 / 仪表盘面板） */
+export interface PendingSummary {
+  groups: number;
+  pairs: number;
+}
+
+/** v0.16：处置结论 */
+export type DupDecisionKind = "not_duplicate" | "duplicate_removed";
+
+/** v0.16：一条处置记录（`removedPayload` 为被删凭证留痕快照） */
+export interface DupDecision {
+  id: number;
+  aId: number;
+  bId: number;
+  decision: DupDecisionKind;
+  keepId?: number | null;
+  removedId?: number | null;
+  removedPayload?: { voucher?: Voucher; attachments?: Attachment[] } | null;
+  note: string;
+  createdAt: string;
+}
+
 /** v0.11：会计期间锁（period = YYYY-MM） */
 export interface PeriodLock {
   period: string;
@@ -520,11 +578,29 @@ export const api = {
   /** v0.10：高频摘要（编辑页联想；自定义模板在 config.voucher.descriptionTemplates） */
   frequentDescriptions: (limit?: number) =>
     invoke<DescriptionRow[]>("frequent_descriptions", { limit }),
-  /** v0.10：单凭证疑似重复（同日期同金额的其他凭证；保存后提示用） */
+  /**
+   * v0.16：单凭证疑似重复（保存后提示用）——同日期同金额、**尚未判定**的对端 + 证据。
+   * 已判定（不是重复 / 已确认并删除）的对不再返回，故提示不会反复重现。
+   */
   checkVoucherDuplicates: (id: number) =>
-    invoke<Voucher[]>("check_voucher_duplicates", { id }),
-  /** v0.10：全库疑似重复扫描（仪表盘面板；同日期同金额、组内 ≥2 张） */
+    invoke<DuplicateSuspect[]>("check_voucher_duplicates", { id }),
+  /** v0.10：全库疑似重复扫描（不过滤已判定；仪表盘"还剩多少"用 duplicatePendingSummary） */
   scanDuplicates: () => invoke<DuplicateGroup[]>("scan_duplicates"),
+
+  // ---- v0.16：疑似重复处置闭环 ----
+  /** 待核查队列：只含还有未判定对的组，组内对按置信度排序 */
+  scanDuplicateReview: () => invoke<ReviewGroup[]>("scan_duplicate_review"),
+  /** 待处理统计（侧栏徽标 / 仪表盘面板） */
+  duplicatePendingSummary: () => invoke<PendingSummary>("duplicate_pending_summary"),
+  /** 处置历史（新 → 旧；含被删凭证留痕） */
+  listDuplicateDecisions: (limit?: number) =>
+    invoke<DupDecision[]>("list_duplicate_decisions", { limit }),
+  /** 判定"不是重复"（不动凭证，故不受封账限制）；返回处置记录 id */
+  resolveDuplicatePair: (aId: number, bId: number, note?: string) =>
+    invoke<number>("resolve_duplicate_pair", { aId, bId, note }),
+  /** 确认重复：保留 keepId、删除 removeId（单事务留痕 + 删除）；返回删除数 */
+  removeDuplicateVoucher: (keepId: number, removeId: number, note?: string) =>
+    invoke<number>("remove_duplicate_voucher", { keepId, removeId, note }),
 
   /** v0.11：会计期间锁（period = YYYY-MM；锁定月凭证禁止增删改） */
   listPeriodLocks: () => invoke<PeriodLock[]>("list_period_locks"),

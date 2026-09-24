@@ -361,14 +361,17 @@ async function save(): Promise<Voucher | null> {
   }
 }
 
-/** 疑似重复提示：金额为空不检测（空金额无判定意义）；失败静默 */
+/** 疑似重复提示：金额为空不检测（空金额无判定意义）；失败静默。
+ * v0.16：后端只返回**尚未判定**的对（已标记"不是重复"或已确认删除的不再提示） */
 async function checkDuplicateHint(v: Voucher) {
   if (v.amountCents == null) return;
   try {
     const dup = await api.checkVoucherDuplicates(v.id);
     if (dup.length) {
+      const names = dup.map((d) => d.voucher.voucherNo).join("、");
+      const strongest = dup[0].evidence.level === "high" ? "（证据较强，建议优先核对）" : "";
       toast.warning(
-        `疑似重复：与凭证 ${dup.map((d) => d.voucherNo).join("、")} 同日期同金额（${v.voucherDate} · ￥${(v.amountCents / 100).toFixed(2)}），请核对是否重复报销`,
+        `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ￥${(v.amountCents / 100).toFixed(2)}），请核对是否重复报销${strongest}`,
       );
     }
   } catch {

@@ -102,6 +102,48 @@ impl OcrStatus {
     }
 }
 
+/// 疑似重复的处置结论（v0.16）
+///
+/// - `NotDuplicate`：人工核对后判定"不是重复"——**不碰凭证**，只记下这一对已被判定，
+///   从待核查队列与保存提示里消失（对应行业里的 "Mark as non-duplicate"）
+/// - `DuplicateRemoved`：确认重复并删掉多余的那一份——留痕（`removed_payload`）后删除
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DupDecisionKind {
+    NotDuplicate,
+    DuplicateRemoved,
+}
+
+impl DupDecisionKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DupDecisionKind::NotDuplicate => "not_duplicate",
+            DupDecisionKind::DuplicateRemoved => "duplicate_removed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "not_duplicate" => Some(DupDecisionKind::NotDuplicate),
+            "duplicate_removed" => Some(DupDecisionKind::DuplicateRemoved),
+            _ => None,
+        }
+    }
+
+    pub fn label_cn(&self) -> &'static str {
+        match self {
+            DupDecisionKind::NotDuplicate => "已判定不是重复",
+            DupDecisionKind::DuplicateRemoved => "已删除多余的一份",
+        }
+    }
+}
+
+impl std::fmt::Display for DupDecisionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// 导出批次状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

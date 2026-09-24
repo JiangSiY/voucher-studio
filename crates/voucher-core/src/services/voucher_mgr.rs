@@ -149,30 +149,43 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
     }
-    // 事务内：逐个删除凭证（附件行由 ON DELETE CASCADE 移除），先收集附件相对路径（含增强版）
-    let (deleted, attachment_rels) = ctx.db.with_tx(|tx| {
-        let mut deleted = 0u64;
-        let mut rels: Vec<String> = Vec::new();
-        for id in ids {
-            let Some(v) = voucher_repo::get(tx, *id)? else {
-                continue; // 不存在的 id 跳过（幂等）
-            };
-            // v0.11 期间锁：已封账月份的凭证不可删除
-            crate::services::period::ensure_dates_open(tx, &[v.voucher_date.as_str()])?;
-            for a in attachment_repo::list_by_voucher(tx, *id)? {
-                rels.push(a.file_path);
-                if let Some(er) = a.enhanced_path {
-                    rels.push(er);
-                }
-            }
-            voucher_repo::delete(tx, *id)?;
-            deleted += 1;
-        }
-        Ok((deleted, rels))
-    })?;
+    let (deleted, attachment_rels) = ctx.db.with_tx(|tx| delete_vouchers_in_tx(tx, ids))?;
+    cleanup_attachment_files(ctx, &attachment_rels);
+    Ok(deleted)
+}
 
-    // 事务外：清理物理文件（尽力而为；失败仅告警，不影响数据一致性）
-    for rel in &attachment_rels {
+/// 事务内的删除部分：逐个删除凭证（附件行由 ON DELETE CASCADE 移除），
+/// 先收集附件相对路径（含增强版）供事务外清理。
+///
+/// 抽出来是为了给"确认重复后删除多余一份"复用——那条路径必须在**同一事务**里
+/// 先写处置留痕再删除（两件事同成同败，否则会出现"删了但没留痕"或"留痕说删了却还在"）。
+pub(crate) fn delete_vouchers_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    ids: &[i64],
+) -> Result<(u64, Vec<String>)> {
+    let mut deleted = 0u64;
+    let mut rels: Vec<String> = Vec::new();
+    for id in ids {
+        let Some(v) = voucher_repo::get(tx, *id)? else {
+            continue; // 不存在的 id 跳过（幂等）
+        };
+        // v0.11 期间锁：已封账月份的凭证不可删除
+        crate::services::period::ensure_dates_open(tx, &[v.voucher_date.as_str()])?;
+        for a in attachment_repo::list_by_voucher(tx, *id)? {
+            rels.push(a.file_path);
+            if let Some(er) = a.enhanced_path {
+                rels.push(er);
+            }
+        }
+        voucher_repo::delete(tx, *id)?;
+        deleted += 1;
+    }
+    Ok((deleted, rels))
+}
+
+/// 事务外清理物理文件与空月份目录（尽力而为；失败仅告警，不影响数据一致性）
+pub(crate) fn cleanup_attachment_files(ctx: &CoreContext, attachment_rels: &[String]) {
+    for rel in attachment_rels {
         let abs = ctx.paths.attachment_abs(rel);
         if ctx.paths.is_inside_attachments(&abs) {
             if let Err(e) = std::fs::remove_file(&abs) {
@@ -202,7 +215,6 @@ pub fn delete_vouchers(ctx: &CoreContext, ids: &[i64]) -> Result<u64> {
             let _ = std::fs::remove_dir(&dir);
         }
     }
-    Ok(deleted)
 }
 
 pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {

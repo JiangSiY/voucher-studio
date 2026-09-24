@@ -150,21 +150,87 @@ pub fn frequent_descriptions(
     ))
 }
 
-// ---------- v0.10：疑似重复检测（同日期 + 同金额） ----------
+// ---------- v0.10 疑似重复检测（同日期 + 同金额）/ v0.16 处置闭环 ----------
 
-/// 单凭证疑似重复（保存后前端提示）：同日期同金额的其他凭证
+/// 单凭证疑似重复（保存后前端提示）：同日期同金额、**尚未判定**的其他凭证 + 证据
 #[tauri::command]
 pub fn check_voucher_duplicates(
     ctx: Ctx,
     id: i64,
-) -> std::result::Result<Vec<voucher_core::models::Voucher>, ApiError> {
+) -> std::result::Result<Vec<qsvc::DuplicateSuspect>, ApiError> {
     err_api(qsvc::suspected_duplicates(&ctx, id))
 }
 
-/// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张
+/// 全库疑似重复扫描（不过滤已判定；仪表盘"还剩多少要处理"请用 duplicate_pending_summary）
 #[tauri::command]
 pub fn scan_duplicates(ctx: Ctx) -> std::result::Result<Vec<qsvc::DuplicateGroup>, ApiError> {
     err_api(qsvc::duplicate_groups(&ctx))
+}
+
+/// v0.16：待核查队列（只含还有未判定对的组；组内对按置信度排序）
+#[tauri::command]
+pub fn scan_duplicate_review(ctx: Ctx) -> std::result::Result<Vec<qsvc::ReviewGroup>, ApiError> {
+    err_api(qsvc::duplicate_review_queue(&ctx))
+}
+
+/// v0.16：待处理统计（侧栏徽标 / 仪表盘面板）
+#[tauri::command]
+pub fn duplicate_pending_summary(ctx: Ctx) -> std::result::Result<qsvc::PendingSummary, ApiError> {
+    err_api(qsvc::duplicate_pending_summary(&ctx))
+}
+
+/// v0.16：处置历史（新 → 旧；含被删凭证的留痕快照）
+#[tauri::command]
+pub fn list_duplicate_decisions(
+    ctx: Ctx,
+    limit: Option<u32>,
+) -> std::result::Result<Vec<qsvc::DupDecision>, ApiError> {
+    err_api(qsvc::duplicate_decisions(&ctx, limit.unwrap_or(100)))
+}
+
+/// v0.16：判定"不是重复"（只写处置记录，不动凭证 → 不受封账限制）；幂等
+#[tauri::command]
+pub fn resolve_duplicate_pair(
+    ctx: Ctx,
+    app: AppHandle,
+    a_id: i64,
+    b_id: i64,
+    note: Option<String>,
+) -> std::result::Result<i64, ApiError> {
+    let id = err_api(voucher_core::services::dup_review::resolve_pair(
+        &ctx,
+        a_id,
+        b_id,
+        note.as_deref().unwrap_or(""),
+    ))?;
+    emit_dup_changed(&app);
+    Ok(id)
+}
+
+/// v0.16：确认重复，**保留 keep_id、删除 remove_id**（单事务：留痕 + 删除同成同败）；
+/// 已封账月份会被拒绝（与列表页删除同口径）
+#[tauri::command]
+pub fn remove_duplicate_voucher(
+    ctx: Ctx,
+    app: AppHandle,
+    keep_id: i64,
+    remove_id: i64,
+    note: Option<String>,
+) -> std::result::Result<u64, ApiError> {
+    let (_decision_id, deleted) = err_api(voucher_core::services::dup_review::remove_duplicate(
+        &ctx,
+        keep_id,
+        remove_id,
+        note.as_deref().unwrap_or(""),
+    ))?;
+    emit_dup_changed(&app);
+    Ok(deleted)
+}
+
+/// 处置变更后通知各页刷新（沿用 import:done / backup:done 的跨页刷新惯例）
+fn emit_dup_changed(app: &AppHandle) {
+    use tauri::Emitter;
+    let _ = app.emit("dup:changed", serde_json::json!({}));
 }
 
 // ---------- v0.11：会计期间锁定（按月封账） ----------

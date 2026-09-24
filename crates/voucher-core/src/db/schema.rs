@@ -146,6 +146,32 @@ CREATE TABLE IF NOT EXISTS period_locks (
 );
 "#;
 
+/// v7 附加表（v0.16）：疑似重复的**处置记录**。
+///
+/// 背景：语义层"疑似重复"（同日期 + 同金额）自 v0.10 起只检测不处理——结果每次重算、
+/// 无任何持久化，于是面板/提示永远重现，用户无处处置（2026-09-23 用户报"很鸡肋"）。
+/// 本表记录**逐对判定**：同一对只存一行（`a_id < b_id` 归一化 + 唯一索引）。
+///
+/// **刻意不加外键**：这是审计日志。若加 `ON DELETE CASCADE`，删掉被删凭证会把留痕一起
+/// 冲掉——而"确认重复后删掉多余那一份"恰恰是本表要留痕的动作（`removed_payload` 存
+/// 被删凭证的完整 JSON + 附件清单）。删除是本项目不可恢复的操作（快照随凭证级联删除），
+/// 所以留痕必须独立于凭证生命周期。
+pub const SCHEMA_V7: &str = r#"
+CREATE TABLE IF NOT EXISTS dup_decisions (
+    id              INTEGER PRIMARY KEY,
+    a_id            INTEGER NOT NULL,
+    b_id            INTEGER NOT NULL,
+    decision        TEXT    NOT NULL CHECK (decision IN ('not_duplicate','duplicate_removed')),
+    keep_id         INTEGER,
+    removed_id      INTEGER,
+    removed_payload TEXT,
+    note            TEXT    NOT NULL DEFAULT '',
+    created_at      TEXT    NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dup_decisions_pair ON dup_decisions(a_id, b_id);
+CREATE INDEX IF NOT EXISTS idx_dup_decisions_created ON dup_decisions(created_at DESC);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -165,6 +191,8 @@ pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_LAYOUT)?;
     // v6：疑似重复索引 + 期间锁表（幂等）；v0.9 已发布、用户已有数据，只增不改
     conn.execute_batch(SCHEMA_V6)?;
+    // v7：疑似重复处置记录表（幂等，v0.16 新增；同上，只增不改）
+    conn.execute_batch(SCHEMA_V7)?;
     // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
     let has_format: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;
