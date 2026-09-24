@@ -18,9 +18,10 @@
 html[data-theme="light"] {
   /* ===== 新语义层：表面 ===== */
   --bg-window: #ececec;
-  /* 侧栏：叠在**原生材质**上的半透明着色（材质由 windowEffects 提供，见规范 §1.4）；
+  /* 侧栏/工具栏：叠在**原生材质**上的着色。alpha 刻意压低（0.28）——用户反馈
+     "没有看到玻璃效果"，此前 0.55 把模糊盖住了；降低后材质透出更明显。
      `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
-  --bg-sidebar: rgba(243, 243, 243, 0.55);
+  --bg-sidebar: rgba(243, 243, 243, 0.28);
   --bg-sidebar-solid: #e8e8ec;
   /* 内容区：**不透明**，长阅读对比度优先 */
   --bg-content: #ffffff;
@@ -140,7 +141,7 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   --bg-window: #1e1e1e;
-  --bg-sidebar: rgba(38, 38, 42, 0.55);
+  --bg-sidebar: rgba(38, 38, 42, 0.35);
   --bg-sidebar-solid: #252528;
   --bg-content: #1c1c1e;
   --bg-control: #2c2c2e;
@@ -206,7 +207,7 @@ html[data-theme="dark"] {
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
     --bg-window: #1e1e1e;
-    --bg-sidebar: rgba(38, 38, 42, 0.55);
+    --bg-sidebar: rgba(38, 38, 42, 0.35);
     --bg-sidebar-solid: #252528;
     --bg-content: #1c1c1e;
     --bg-control: #2c2c2e;

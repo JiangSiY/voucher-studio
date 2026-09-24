@@ -377,21 +377,23 @@ onUnmounted(() => {
     </section>
 
     <!-- ④ 趋势与排行（本样张沿用既有面板；批次 7 把它们接到同一口径控制器上） -->
-    <section class="panel-row">
-      <header class="section-head">
-        <h2>趋势与构成</h2>
-        <span class="scope">面板自带窗口（批次 7 接入上方口径）</span>
-      </header>
-      <TrendPanel />
-    </section>
-
-    <section class="panel-row">
-      <header class="section-head">
-        <h2>对方账户与标签</h2>
-        <span class="scope">全历史 · 前 10</span>
-      </header>
-      <TopListsPanel />
-    </section>
+    <!-- 趋势与排行并排（趋势略窄）：图表本身保持紧凑，不为填满宽度而拉大 -->
+    <div class="grid-main">
+      <section class="col-main">
+        <header class="section-head">
+          <h2>趋势与构成</h2>
+          <span class="scope">面板自带窗口（批次 7 接入上方口径）</span>
+        </header>
+        <TrendPanel />
+      </section>
+      <section class="col-side">
+        <header class="section-head">
+          <h2>对方账户与标签</h2>
+          <span class="scope">全历史 · 前 10</span>
+        </header>
+        <TopListsPanel />
+      </section>
+    </div>
 
     <!-- ⑤ 最近活动 -->
     <div class="grid-activity">
@@ -448,14 +450,22 @@ onUnmounted(() => {
 /* 样张样式：只使用 `docs/UI-设计规范-macOS27.md` §1 的新语义令牌 */
 .workbench { display: flex; flex-direction: column; gap: var(--s-4); }
 
+/* 口径控制器：允许换行 —— 字号调大后若不允许换行，分段按钮会被压成一个字（已出现） */
 .range-bar {
   display: flex; align-items: center; gap: var(--s-2);
+  flex-wrap: wrap;
   padding: var(--s-2) var(--s-3);
   border: 1px solid var(--separator);
   border-radius: var(--radius-panel);
   background: var(--bg-content);
 }
-.range-presets { display: inline-flex; border: 1px solid var(--separator); border-radius: var(--radius-control); overflow: hidden; }
+.range-presets {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
 .seg {
   height: var(--control-h-sm);
   padding: 0 var(--s-3);
@@ -463,6 +473,8 @@ onUnmounted(() => {
   background: transparent;
   color: var(--label-secondary);
   font: var(--type-caption);
+  flex: 0 0 auto;
+  white-space: nowrap;
   cursor: default;
 }
 .seg + .seg { border-left: 1px solid var(--separator); }
@@ -476,7 +488,7 @@ onUnmounted(() => {
   color: var(--label-primary);
   font: var(--type-body);
 }
-.scope { color: var(--label-tertiary); font: var(--type-caption); }
+.scope { color: var(--label-tertiary); font: var(--type-caption); flex: 1 1 auto; min-width: 0; }
 .flex-1 { flex: 1; }
 
 /* KPI 自适应列数：字号调大后 5 列会把金额挤到溢出——宁可换行也不要截断数字 */
@@ -526,8 +538,16 @@ button.kpi:hover { background: var(--bg-selection); }
 .todo-text b { font: var(--type-body); font-weight: 500; color: var(--label-primary); }
 .todo-text small { font: var(--type-caption); color: var(--label-tertiary); }
 
-/* 面板整行排布：趋势与排行各占一行（宽度充足 → 内部再分栏也不会溢出） */
-.panel-row { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+/* 趋势（1.45）与排行（1）并排：既不给图表过多横向空间，也让右侧列表放得下 */
+.grid-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: var(--s-4);
+  align-items: start;
+}
+.col-main, .col-side { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+/* 排行内部原来是全局 .report-grid 的两列；在窄列里会把金额截断 → 强制单列 */
+.col-side :deep(.report-grid) { grid-template-columns: minmax(0, 1fr); }
 .grid-activity { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s-4); }
 .panel {
   padding: var(--s-3);
@@ -545,6 +565,6 @@ button.kpi:hover { background: var(--bg-selection); }
 .footnote { color: var(--label-tertiary); font: var(--type-caption); margin: 0; }
 
 @media (max-width: 1100px) {
-  .grid-activity { grid-template-columns: minmax(0, 1fr); }
+  .grid-main, .grid-activity { grid-template-columns: minmax(0, 1fr); }
 }
 </style>
