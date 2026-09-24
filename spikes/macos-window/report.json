@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "howToRerun": "cd spikes/macos-window && CARGO_TARGET_DIR=../../target cargo run --release",
+    "note": "本文件由 spike 应用运行时写入（前端采集 → Rust 落盘），随后归档入库。visualChecks 三项需目视。",
+    "os": "macOS 27 (darwin 27.0.0, Apple Silicon)",
+    "runAt": "2026-09-24"
+  },
+  "accent": {
+    "appleAccentColor": null,
+    "appleHighlightColor": null,
+    "notes": "AppleHighlightColor 形如 'r g b Name'（0..1 浮点）；AppleAccentColor 为索引（存在时以它为准）；两者都读不到时系统应为默认蓝"
+  },
+  "mediaQueries": {
+    "prefersColorSchemeDark": false,
+    "prefersContrastMore": false,
+    "prefersReducedMotion": false,
+    "prefersReducedTransparency": false
+  },
+  "staticFacts": {
+    "dragRegionPermission": "core:window:allow-start-dragging（capabilities/default.json）",
+    "hiddenTitle": true,
+    "titleBarStyle": "Overlay",
+    "trafficLightPosition": {
+      "x": 14,
+      "y": 18
+    },
+    "transparent": true,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+    "windowEffectsInitial": "sidebar"
+  },
+  "visualChecks": {
+    "m1_materialVisible": "需目视：侧栏材质应透出桌面模糊（未开启减少透明度时）",
+    "m4_backdropFilter": "需目视：上方 blur 块是否真的模糊（预期：不模糊 → 冲突成立）",
+    "m7_windowBorder": "需目视：窗口四周是否有内描边"
+  }
+}

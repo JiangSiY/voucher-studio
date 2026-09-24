@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Spike M · macOS 窗口材质验证</title>
+  <style>
+    /* 关键：窗口透明 + html/body 透明，材质才能透出（Tauri 官方要求） */
+    html, body { background: transparent; }
+    body {
+      margin: 0;
+      font: 13px -apple-system, "PingFang SC", system-ui, sans-serif;
+      color: #1c1c1e;
+      -webkit-font-smoothing: antialiased;
+    }
+    .toolbar {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px 0 84px; /* 左侧给交通灯留位（trafficLightPosition 14,18） */
+      border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    }
+    .toolbar .title { font-weight: 600; }
+    .toolbar .spacer { flex: 1; }
+    .content { padding: 14px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    button {
+      font: inherit;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      background: rgba(255, 255, 255, 0.75);
+      cursor: default;
+    }
+    button.on { outline: 2px solid var(--accent, #007aff); }
+    .panel {
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: rgba(255, 255, 255, 0.55);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    /* M4：透明窗口下的 CSS backdrop-filter 表现（已知与透明窗口冲突） */
+    .blur-demo {
+      height: 72px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      display: flex; align-items: center; justify-content: center;
+      color: #333;
+    }
+    /* M5：系统「减少透明度」时，用媒体查询把材质替换为不透明底（回退路径） */
+    @media (prefers-reduced-transparency: reduce) {
+      .panel { background: #f2f2f7; }
+      .blur-demo { background: #e9e9ee; backdrop-filter: none; }
+      body::after { content: "（系统已开启「减少透明度」→ 回退为不透明）"; }
+    }
+    .kv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+    .note { color: #555; font-size: 12px; }
+    .drag-strip { cursor: grab; user-select: none; }
+  </style>
+</head>
+<body>
+  <!-- M3：自绘工具栏——整条可拖拽（data-tauri-drag-region 需 core:window:allow-start-dragging 权限） -->
+  <div class="toolbar drag-strip" data-tauri-drag-region>
+    <span class="title">Spike M · 窗口材质与工具栏</span>
+    <span class="spacer"></span>
+    <span class="note">这一条空白处可拖动窗口（双击放大）</span>
+  </div>
+
+  <div class="content">
+    <div class="panel">
+      <div class="row" id="effects"></div>
+      <div class="kv" id="effect-result">当前材质：sidebar（启动时来自 tauri.conf.json）</div>
+    </div>
+
+    <div class="panel">
+      <div><b>M4 · 透明窗口下的 CSS backdrop-filter</b></div>
+      <div class="blur-demo" id="blur">这块用 backdrop-filter 模糊背后的内容</div>
+      <div class="note">若此块看起来**没有**模糊（只是一层半透明灰），即证实"透明窗口与 CSS backdrop-filter 冲突"——材质只能走原生路线。</div>
+    </div>
+
+    <div class="panel">
+      <div><b>M5 · 系统设置联动</b></div>
+      <div class="kv" id="mq"></div>
+      <div class="note">在「系统设置 → 外观」里切换浅色/深色、调 Liquid Glass 浓度或开启「减少透明度」，本块与上方面板应随之变化。</div>
+    </div>
+
+    <div class="panel">
+      <div><b>M6 · 系统强调色读取</b></div>
+      <div class="kv" id="accent"></div>
+      <div class="note">下面的按钮用读到的强调色描边（读不到就用默认蓝）。</div>
+      <div class="row"><button id="accent-btn">强调色示例按钮</button></div>
+    </div>
+
+    <div class="panel">
+      <div><b>M7 · 透明窗口的内描边</b></div>
+      <div class="note">把窗口拖到桌面深色/浅色内容上方，观察四周是否还有一圈内描边（透明窗口常见副作用是丢失描边）；如需保留，方案是给窗口设一个极小 alpha 的底色。</div>
+    </div>
+  </div>
+
+  <script>
+    const tauri = window.__TAURI__;
+    const invoke = tauri.core.invoke;
+
+    const EFFECTS = [
+      ["sidebar", "sidebar（侧栏材质）"],
+      ["under-window-background", "underWindowBackground"],
+      ["header-view", "headerView"],
+      ["hud-window", "hudWindow"],
+      ["content-background", "contentBackground"],
+      ["none", "无材质（对照）"],
+    ];
+
+    const result = {};
+    let active = "sidebar";
+
+    function renderButtons() {
+      const box = document.getElementById("effects");
+      box.innerHTML = "";
+      for (const [kind, label] of EFFECTS) {
+        const b = document.createElement("button");
+        b.textContent = label;
+        if (kind === active) b.classList.add("on");
+        b.onclick = async () => {
+          try {
+            active = await invoke("apply_effect", { kind });
+            result.effectApplying = { kind: active, ok: true };
+          } catch (e) {
+            result.effectApplying = { kind, ok: false, error: String(e) };
+          }
+          document.getElementById("effect-result").textContent =
+            "当前材质：" + active + (result.effectApplying?.ok === false ? "（系统拒绝：" + result.effectApplying.error + "）" : "（已生效）");
+          renderButtons();
+        };
+        box.appendChild(b);
+      }
+    }
+
+    function mq() {
+      const q = (name) => window.matchMedia(name).matches;
+      const vals = {
+        prefersColorSchemeDark: q("(prefers-color-scheme: dark)"),
+        prefersReducedTransparency: q("(prefers-reduced-transparency: reduce)"),
+        prefersContrastMore: q("(prefers-contrast: more)"),
+        prefersReducedMotion: q("(prefers-reduced-motion: reduce)"),
+      };
+      document.getElementById("mq").textContent = JSON.stringify(vals, null, 1);
+      return vals;
+    }
+
+    async function readAccent() {
+      const a = await invoke("read_accent");
+      document.getElementById("accent").textContent = JSON.stringify(a, null, 1);
+      // 若 AppleHighlightColor 形如 "r g b Name"，取 RGB 应用到按钮描边
+      const m = /^([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(a.appleHighlightColor || "");
+      if (m) {
+        const rgb = [1, 2, 3].map((i) => Math.round(parseFloat(m[i]) * 255));
+        document.getElementById("accent-btn").style.outline = `2px solid rgb(${rgb.join(",")})`;
+        result.accentApplied = rgb;
+      }
+      return a;
+    }
+
+    async function collect() {
+      result.mediaQueries = mq();
+      result.accent = await readAccent();
+      // 自绘工具栏权限与透明窗口的静态事实（供报告）
+      result.staticFacts = {
+        titleBarStyle: "Overlay",
+        hiddenTitle: true,
+        trafficLightPosition: { x: 14, y: 18 },
+        transparent: true,
+        dragRegionPermission: "core:window:allow-start-dragging（capabilities/default.json）",
+        windowEffectsInitial: "sidebar",
+        userAgent: navigator.userAgent,
+      };
+      result.visualChecks = {
+        m1_materialVisible: "需目视：侧栏材质应透出桌面模糊（未开启减少透明度时）",
+        m4_backdropFilter: "需目视：上方 blur 块是否真的模糊（预期：不模糊 → 冲突成立）",
+        m7_windowBorder: "需目视：窗口四周是否有内描边",
+      };
+      const path = await invoke("write_report", { payload: result });
+      document.title = "Spike M 报告已写入：" + path;
+      console.log("SPIKE_M_REPORT_PATH=" + path);
+    }
+
+    renderButtons();
+    mq();
+    readAccent().then(collect);
+    // 系统设置变化时刷新读数（浅色/深色、减少透明度都会触发）
+    window.matchMedia("(prefers-reduced-transparency: reduce)").addEventListener("change", collect);
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", collect);
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[package]
+name = "voucher-macos-window-spike"
+version = "0.1.0"
+edition = "2021"
+description = "Spike M：macOS 窗口材质/工具栏/无障碍回退的能力验证（一次性验证程序，不参与日常构建）"
+publish = false
+
+# spikes/* 不属于主 workspace（见根 Cargo.toml 注释）：本目录独立构建，
+# 与 spikes/ocr-poc 同一约定。
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde_json = "1"

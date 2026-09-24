@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Spike M 默认权限集：含 start-dragging（自绘工具栏拖拽必需，core:default 不含它）","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging"]}}
