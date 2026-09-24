@@ -92,6 +92,26 @@ jobs:
             exit 1
           fi
 
+      # v0.17.0 平台范围收窄门禁：项目只支持 macOS，Windows 专属代码/配置不得回归
+      # （只查属性/配置形态，不查注释里的历史叙述——那些是有意保留的）
+      - name: Platform scope guard (no Windows cfg / platform config)
+        run: |
+          fail=0
+          if grep -rnE '#\[cfg\(windows\)\]|cfg\(target_os = "windows"\)|cfg\(any\(windows' \
+               crates/*/src crates/*/tests src-tauri/src; then
+            echo "错误：Windows 平台条件编译不得回归（v0.17.0 起只支持 macOS）"
+            fail=1
+          fi
+          if [ -e src-tauri/tauri.windows.conf.json ]; then
+            echo "错误：src-tauri/tauri.windows.conf.json 不得回归"
+            fail=1
+          fi
+          if find . -name '*.ps1' -not -path './node_modules/*' -not -path './target/*' | grep -q .; then
+            echo "错误：仓库内不得存在 Windows 专用脚本（.ps1）"
+            fail=1
+          fi
+          exit $fail
+
       # --include-ignored：CI 环境模型/字体齐备，全量真跑（#[ignore] 仅为本地精简环境显式计数）
       # --no-fail-fast：单个测试目标失败不中止其余目标。cargo test 默认遇错即停，
       # 会让排在失败目标之后的测试目标根本不执行——加此参数一次跑出完整失败清单
