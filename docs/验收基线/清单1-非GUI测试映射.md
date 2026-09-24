@@ -5,16 +5,24 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> ⚠️ **修订注记（2026-09-09 初版；2026-09-23 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-09-23**：`voucher-core` 测试 **224 个**（src 内联 **125** + tests/ 集成 **99**，含
-> backup_flow 11 / db_resilience 5 / enhance_e2e 24 / **keyring_native 1** / ocr_flow 6 / spike_a_print 5 / **voucher_flow 42** /
-> webdav_mock 5）；另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **18 文件 93 用例**。下表逐条映射以 G1 时点为准，未随版本滚动更新；
+> ⚠️ **修订注记（2026-09-09 初版；2026-09-24 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
+> 截至 **2026-09-24**：`voucher-core` 测试 **233 个**（src 内联 **126** + tests/ 集成 **107**，含
+> backup_flow 11 / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
+> **keyring_native 1** / ocr_flow 6 / spike_a_print 5 / **voucher_flow 42** / webdav_mock 5）；
+> 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
+> 合法待恢复库正常落位）；前端 vitest **21 文件 130 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试）。
+> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（231 通过 + 5 `#[ignore]`）。
+> 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
 > `core_flow` 测试文件已改组为 `voucher_flow.rs`；本表 I 节 #38 `keyring_secret_roundtrip` **测试名不变**，
 > 但 2026-09-16 起迁至独立文件 `tests/keyring_native.rs`（隔离进程级凭据后端设置，原生用例与内存后端用例不再同进程竞争）。
-> 新增域（对账/期间锁/裁剪/WebDAV mock/DB 容错）见对应验收文档与 README。
+> 新增域（对账/期间锁/裁剪/WebDAV mock/DB 容错/**重复凭证处置**）见对应验收文档与 README。
+> **v0.16 新增的两组用例**（下表未逐条展开）：`dup_review_flow.rs` 7 例覆盖
+> 证据分档（同图/同对方/同摘要）、判定幂等（含反向传参归一化）、已判定不再入队与不再提示、
+> 留痕删除（被删凭证 JSON + 附件清单 + 物理文件清理）、审计不随凭证删除消失、
+> 封账月拒删但允许标注（事务回滚不留假留痕）、越组守卫；`dup_decisions_upgrade.rs` 1 例覆盖
+> **老库升级不丢数据**（还原成无处置表的老库后重新初始化 → 凭证齐全 + 表补齐可写）。
 
 ## A. 数据库与仓储（v4.3 `db/`）
 
