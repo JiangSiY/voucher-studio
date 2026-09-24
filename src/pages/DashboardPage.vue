@@ -8,18 +8,21 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, type BackupInfo, type DuplicateGroup, type ReconcileReport, type Voucher, type VoucherStats } from "../api/client";
+import { api, type BackupInfo, type ReconcileReport, type ReviewGroup, type ReviewPair, type Voucher, type VoucherStats } from "../api/client";
 import StatCard from "../components/StatCard.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import TrendPanel from "../components/dashboard/TrendPanel.vue";
 import TopListsPanel from "../components/dashboard/TopListsPanel.vue";
 import ReconcilePanel from "../components/dashboard/ReconcilePanel.vue";
+import { groupHeadline, pairKey } from "../composables/dupReview";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { useConfigStore } from "../stores/config";
+import { useDupStore } from "../stores/dup";
 import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
 const configStore = useConfigStore();
+const dupStore = useDupStore();
 
 const stats = ref<VoucherStats | null>(null);
 const recent = ref<Voucher[]>([]);
@@ -52,9 +55,34 @@ function closeReconcile() {
   reconcileReport.value = null;
 }
 
-// ---------- v0.10：疑似重复扫描（同日期 + 同金额；仅提示，不阻断任何操作） ----------
+// ---------- v0.10 疑似重复（v0.16 起收敛为"待核查"面板：只显示未处置的，清零即消失） ----------
+//
+// 旧版是"全库疑似重复"面板：条件只有 `duplicates.length`、无关闭无操作，而扫描是纯派生
+// （同日同金额恒成立），于是标记/删除之后它照样挂着，用户抱怨"一直挂着提示"。
+// 现在改为未处置队列：处置过的对由后端排除，处理完自然消失，并给出直达核查页的入口。
 
-const duplicates = ref<DuplicateGroup[]>([]);
+const dupGroups = ref<ReviewGroup[]>([]);
+const dupPairs = ref(0);
+
+async function loadDuplicates() {
+  try {
+    const queue = await api.scanDuplicateReview();
+    dupGroups.value = queue;
+    dupPairs.value = queue.reduce((n, g) => n + g.pending.length, 0);
+    void dupStore.refresh(); // 侧栏徽标与面板同源
+  } catch {
+    dupGroups.value = [];
+    dupPairs.value = 0;
+  }
+}
+
+function gotoDuplicates(pair?: ReviewPair) {
+  if (!pair) {
+    router.push("/duplicates");
+    return;
+  }
+  router.push({ path: "/duplicates", query: { pair: pairKey(pair.a.id, pair.b.id) } });
+}
 
 async function load() {
   try {
@@ -63,11 +91,7 @@ async function load() {
     recent.value = list.items;
     backups.value = await api.listBackups();
     // 疑似重复是辅助检查，失败静默（不影响仪表盘其他数据展示）
-    try {
-      duplicates.value = await api.scanDuplicates();
-    } catch {
-      duplicates.value = [];
-    }
+    await loadDuplicates();
   } catch (e) {
     toastError(e);
   }
@@ -99,16 +123,20 @@ function statusOf(v: Voucher) {
 // 自动备份在后台完成 → 刷新备份卡片与最近备份时间
 let unlistenImportDone: UnlistenFn | null = null;
 let unlistenBackupDone: UnlistenFn | null = null;
+// v0.16：别处（核查页/编辑页）处置疑似重复后刷新面板
+let unlistenDupChanged: UnlistenFn | null = null;
 
 onMounted(async () => {
   load();
   unlistenImportDone = await safeListen("import:done", () => load());
   unlistenBackupDone = await safeListen("backup:done", () => load());
+  unlistenDupChanged = await safeListen("dup:changed", () => loadDuplicates());
 });
 
 onUnmounted(() => {
   unlistenImportDone?.();
   unlistenBackupDone?.();
+  unlistenDupChanged?.();
 });
 </script>
 
@@ -141,21 +169,27 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- v0.10：疑似重复面板（同日期 + 同金额；点击凭证号跳编辑页人工比对） -->
-  <div class="callout warning" v-if="duplicates.length">
-    <span class="ci"><FluentIcon name="warning" :size="18" /></span>
+  <!-- v0.16：疑似重复待核查面板（只列**未处置**的对；处置完自然消失，不再"一直挂着"） -->
+  <div class="callout warning" v-if="dupGroups.length">
+    <span class="ci"><FluentIcon name="duplicate" :size="18" /></span>
     <div class="ct">
-      <strong>发现 {{ duplicates.length }} 组疑似重复凭证</strong>
-      （同日期同金额；可能是同一票据多次拍照/扫描，也可能是同日两笔相同金额的正常业务——请人工核对）
-      <div v-for="(g, gi) in duplicates.slice(0, 4)" :key="gi" class="dup-group">
-        <span class="dup-key">{{ g.voucherDate }} · ¥{{ fmtAmount(g.amountCents) }} × {{ g.vouchers.length }} 张：</span>
-        <template v-for="(v, vi) in g.vouchers" :key="v.id">
-          <a class="dup-link" @click.prevent="router.push(`/vouchers/${v.id}`)" href="#"
-            :title="`${v.description || '（无摘要）'} · ${v.counterparty || '（无对方）'}`">{{ v.voucherNo }}</a><span v-if="vi < g.vouchers.length - 1">、</span>
-        </template>
+      <strong>还有 {{ dupGroups.length }} 组疑似重复待核查（{{ dupPairs }} 对）</strong>
+      （同日期同金额；可能是同一票据多次拍照/扫描，也可能是同日两笔相同金额的正常业务）
+      <div v-for="(g, gi) in dupGroups.slice(0, 3)" :key="gi" class="dup-group">
+        <span class="dup-key">{{ groupHeadline(g) }}：</span>
+        <a v-for="(p, pi) in g.pending.slice(0, 3)" :key="pi" class="dup-link" href="#"
+          @click.prevent="gotoDuplicates(p)" :title="`去核查：${p.a.voucherNo} ↔ ${p.b.voucherNo}`">
+          {{ p.a.voucherNo }} ↔ {{ p.b.voucherNo }}<span v-if="pi < Math.min(g.pending.length, 3) - 1">、</span>
+        </a>
+        <span v-if="g.pending.length > 3" class="dup-key">…等 {{ g.pending.length }} 对</span>
       </div>
-      <div v-if="duplicates.length > 4" style="font-size: 12px; margin-top: 4px">
-        其余 {{ duplicates.length - 4 }} 组在保存凭证时也会逐张提示
+      <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
+        <button class="btn btn-primary" @click="gotoDuplicates()">
+          <FluentIcon name="duplicate" :size="15" /> 去核查（可并排比对、标记不是重复或删除多余的一份）
+        </button>
+        <span style="font-size: 12px; color: var(--text-3)">
+          已处置过的对不会再列出，也不会再在保存时提示
+        </span>
       </div>
     </div>
   </div>

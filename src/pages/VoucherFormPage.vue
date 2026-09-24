@@ -17,13 +17,16 @@ import SnapshotPanel from "../components/voucher/SnapshotPanel.vue";
 import VoucherNavBar from "../components/voucher/VoucherNavBar.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { useDirtyGuard } from "../composables/dirtyGuard";
+import { pairKey } from "../composables/dupReview";
 import { parseNavContext, useNeighborNav } from "../composables/neighborNav";
 import { useConfigStore } from "../stores/config";
+import { useDupStore } from "../stores/dup";
 import { toast, toastError } from "../stores/toast";
 
 const route = useRoute();
 const router = useRouter();
 const configStore = useConfigStore();
+const dupStore = useDupStore();
 
 const editId = computed(() => {
   const id = Number(route.params.id);
@@ -362,18 +365,27 @@ async function save(): Promise<Voucher | null> {
 }
 
 /** 疑似重复提示：金额为空不检测（空金额无判定意义）；失败静默。
- * v0.16：后端只返回**尚未判定**的对（已标记"不是重复"或已确认删除的不再提示） */
+ *
+ * v0.16：① 后端只返回**尚未判定**的对（已标记"不是重复"或已确认删除的不再提示）；
+ * ② toast 带「去核查」动作，直达核查页并定位到这一对（并排比对 + 处置）；
+ * ③ 本次会话内同一对只提示一次（连续保存同一张时不重复弹）。 */
 async function checkDuplicateHint(v: Voucher) {
   if (v.amountCents == null) return;
   try {
     const dup = await api.checkVoucherDuplicates(v.id);
-    if (dup.length) {
-      const names = dup.map((d) => d.voucher.voucherNo).join("、");
-      const strongest = dup[0].evidence.level === "high" ? "（证据较强，建议优先核对）" : "";
-      toast.warning(
-        `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ￥${(v.amountCents / 100).toFixed(2)}），请核对是否重复报销${strongest}`,
-      );
-    }
+    const fresh = dup.filter((d) => !dupStore.wasNotified(pairKey(v.id, d.voucher.id)));
+    if (!fresh.length) return;
+    fresh.forEach((d) => dupStore.markNotified(pairKey(v.id, d.voucher.id)));
+    const names = fresh.map((d) => d.voucher.voucherNo).join("、");
+    const strongest = fresh[0].evidence.level === "high" ? "（证据较强，建议优先核对）" : "";
+    const first = fresh[0];
+    toast.warning(
+      `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ¥${((v.amountCents ?? 0) / 100).toFixed(2)}），请核对是否重复报销${strongest}`,
+      {
+        label: "去核查",
+        onClick: () => router.push({ path: "/duplicates", query: { pair: pairKey(v.id, first.voucher.id) } }),
+      },
+    );
   } catch {
     // 提示是辅助能力，失败不打扰主流程
   }

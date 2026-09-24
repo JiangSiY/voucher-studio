@@ -2,43 +2,46 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
+import { useDupStore } from "../stores/dup";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 
 const route = useRoute();
 const configStore = useConfigStore();
+const dupStore = useDupStore();
 
 // 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
 const isReading = computed(() => route.meta.reading === true);
 
 const version = computed(() => configStore.appInfo?.version ?? "…");
 
-const navGroups = [
+const navGroups = computed(() => [
   {
     group: "概览",
     items: [
-      { to: "/dashboard", icon: "dashboard", label: "仪表盘" },
-      { to: "/search", icon: "search", label: "搜索" },
+      { to: "/dashboard", icon: "dashboard", label: "仪表盘", badge: 0 },
+      { to: "/search", icon: "search", label: "搜索", badge: 0 },
     ],
   },
   {
     group: "凭证管理",
     items: [
-      { to: "/vouchers", icon: "list", label: "凭证列表" },
-      { to: "/duplicates", icon: "duplicate", label: "重复核查" },
-      { to: "/print", icon: "print", label: "打印中心" },
-      { to: "/exports", icon: "chart", label: "导出历史" },
+      { to: "/vouchers", icon: "list", label: "凭证列表", badge: 0 },
+      // v0.16：待核查的疑似重复组数（0 不显示；处置后由 dup:changed 刷新）
+      { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
+      { to: "/print", icon: "print", label: "打印中心", badge: 0 },
+      { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
     ],
   },
   {
     group: "数据与设置",
     items: [
-      { to: "/settings", icon: "settings", label: "设置" },
-      { to: "/restore", icon: "save", label: "备份与恢复" },
-      { to: "/help", icon: "help", label: "帮助" },
+      { to: "/settings", icon: "settings", label: "设置", badge: 0 },
+      { to: "/restore", icon: "save", label: "备份与恢复", badge: 0 },
+      { to: "/help", icon: "help", label: "帮助", badge: 0 },
     ],
   },
-];
+]);
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "");
 </script>
@@ -59,9 +62,11 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "");
       <nav class="sidebar-nav">
         <template v-for="g in navGroups" :key="g.group">
           <div class="nav-group">{{ g.group }}</div>
-          <router-link v-for="item in g.items" :key="item.to" :to="item.to" :title="item.label">
+          <router-link v-for="item in g.items" :key="item.to" :to="item.to"
+            :title="item.badge > 0 ? `${item.label}（${item.badge} 组待核查）` : item.label">
             <span class="nav-icon"><FluentIcon :name="item.icon" :size="17" /></span>
             <span class="nav-label">{{ item.label }}</span>
+            <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} 组疑似重复待核查`">{{ item.badge }}</span>
           </router-link>
         </template>
       </nav>

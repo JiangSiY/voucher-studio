@@ -241,13 +241,6 @@ export interface DescriptionRow {
   count: number;
 }
 
-/** v0.10：疑似重复组（全库扫描；同日期 + 同金额、组内 ≥2 张） */
-export interface DuplicateGroup {
-  voucherDate: string;
-  amountCents: number;
-  vouchers: Voucher[];
-}
-
 /** v0.16：置信度分档（只用于排序与提示强弱，不做过滤） */
 export type EvidenceLevel = "high" | "medium" | "low";
 
@@ -592,8 +585,6 @@ export const api = {
    */
   checkVoucherDuplicates: (id: number) =>
     invoke<DuplicateSuspect[]>("check_voucher_duplicates", { id }),
-  /** v0.10：全库疑似重复扫描（不过滤已判定；仪表盘"还剩多少"用 duplicatePendingSummary） */
-  scanDuplicates: () => invoke<DuplicateGroup[]>("scan_duplicates"),
 
   // ---- v0.16：疑似重复处置闭环 ----
   /** 待核查队列：只含还有未判定对的组，组内对按置信度排序 */

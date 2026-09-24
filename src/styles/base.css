@@ -139,6 +139,22 @@ body {
   opacity: 0.85;
 }
 
+/* v0.16：导航徽标（待处理数；0 时模板不渲染）。配色沿用 .tag-warning 的柔和底+同色字，
+   深色模式下同样可读（不用实心橙底白字——深色主题的 --warning 是浅黄，白字会糊） */
+.sidebar-nav .nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
 .sidebar-footer {
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--stroke);

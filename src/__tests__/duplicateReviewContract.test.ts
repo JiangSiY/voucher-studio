@@ -23,6 +23,7 @@ const paletteSrc = repoFile("src/components/CommandPalette.vue");
 const iconSrc = repoFile("src/components/FluentIcon.vue");
 const pageSrc = repoFile("src/pages/DuplicateReviewPage.vue");
 const clientSrc = repoFile("src/api/client.ts");
+const dupStoreSrc = repoFile("src/stores/dup.ts");
 
 describe("重复核查页登记", () => {
   it("路由已注册（name/标题/懒加载组件齐备）", () => {
@@ -39,8 +40,13 @@ describe("重复核查页登记", () => {
     expect(dupIdx).toBeLessThan(dynIdx);
   });
 
-  it("侧栏已登记（含图标）", () => {
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/duplicates",\s*icon:\s*"duplicate",\s*label:\s*"[^"]+"\s*\}/);
+  it("侧栏已登记（含图标与待处理徽标）", () => {
+    expect(layoutSrc).toMatch(
+      /\{\s*to:\s*"\/duplicates",\s*icon:\s*"duplicate",\s*label:\s*"[^"]+"\s*,\s*badge:[^}]*\}/,
+    );
+    // 徽标必须接共用 store 的待处理数（各页面各查一次会出现互相矛盾的瞬间）
+    expect(layoutSrc).toMatch(/badge:\s*dupStore\.pending\.groups/);
+    expect(layoutSrc).toContain("nav-badge");
   });
 
   it("命令面板已登记（可直接搜「重复」跳转）", () => {
@@ -83,5 +89,36 @@ describe("重复核查页与后端契约", () => {
   it("已判定的对由后端排除（前端不得自行过滤，否则口径会分叉）", () => {
     // 提示文案要如实说明"已处置的不再列出"
     expect(pageSrc).toMatch(/不再列出/);
+  });
+});
+
+describe("三处提示都指向处置（不再「只提示不处理」）", () => {
+  const dashboardSrc = repoFile("src/pages/DashboardPage.vue");
+  const formSrc = repoFile("src/pages/VoucherFormPage.vue");
+  const appSrc = repoFile("src/App.vue");
+
+  it("仪表盘面板只显示未处置的对（不得退回全量扫描——那正是「一直挂着提示」的成因）", () => {
+    expect(dashboardSrc).toContain("api.scanDuplicateReview");
+    expect(dashboardSrc).not.toContain("api.scanDuplicates");
+    expect(dashboardSrc).toMatch(/去核查/);
+  });
+
+  it("保存提示带「去核查」动作 + 深链到那一对", () => {
+    expect(formSrc).toMatch(/label:\s*"去核查"/);
+    expect(formSrc).toMatch(/path:\s*"\/duplicates"/);
+    expect(formSrc).toContain("pairKey");
+  });
+
+  it("本次会话内同一对只提示一次（连续保存同一张不重复弹）", () => {
+    expect(formSrc).toContain("wasNotified");
+    expect(formSrc).toContain("markNotified");
+    expect(dupStoreSrc).toMatch(/const notified = new Set<string>\(\)/);
+  });
+
+  it("待处理数是共用 store（侧栏徽标与仪表盘不得各查一次）", () => {
+    expect(layoutSrc).toContain("useDupStore");
+    expect(dashboardSrc).toContain("useDupStore");
+    expect(appSrc).toMatch(/dupStore\.refresh\(\)/);
+    expect(appSrc).toMatch(/safeListen\("dup:changed"/);
   });
 });

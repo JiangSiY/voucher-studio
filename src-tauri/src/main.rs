@@ -272,7 +272,6 @@ fn main() {
             commands::tag_stats,
             commands::frequent_descriptions,
             commands::check_voucher_duplicates,
-            commands::scan_duplicates,
             commands::scan_duplicate_review,
             commands::duplicate_pending_summary,
             commands::list_duplicate_decisions,

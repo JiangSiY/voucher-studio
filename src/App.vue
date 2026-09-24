@@ -6,12 +6,14 @@ import { useRouter } from "vue-router";
 import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
+import { useDupStore } from "./stores/dup";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
 import FluentIcon from "./components/FluentIcon.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 
 const configStore = useConfigStore();
+const dupStore = useDupStore();
 const router = useRouter();
 
 // v0.13：全局命令面板（Ctrl+K）
@@ -37,6 +39,8 @@ let unlistenDragLeave: UnlistenFn | null = null;
 let unlistenImportStarted: UnlistenFn | null = null;
 let unlistenImportDone: UnlistenFn | null = null;
 let unlistenImportError: UnlistenFn | null = null;
+// v0.16：疑似重复待处理数（侧栏徽标 / 仪表盘面板）
+let unlistenDupChanged: UnlistenFn | null = null;
 const draggingOver = ref(false);
 const importing = ref(false);
 // 关闭前备份进行中（遮罩 + 跳过按钮）
@@ -112,6 +116,13 @@ onMounted(async () => {
     importing.value = false;
     toast.danger(`导入失败：${e.payload}`);
   });
+
+  // v0.16 疑似重复：启动拉一次待处理数（侧栏徽标 / 仪表盘面板共用），
+  // 任意页面处置后由后端 dup:changed 驱动刷新（含仪表盘的面板与徽标）
+  void dupStore.refresh();
+  unlistenDupChanged = await safeListen("dup:changed", () => {
+    void dupStore.refresh();
+  });
 });
 
 function dismissRecovery() {
@@ -141,6 +152,7 @@ onUnmounted(() => {
   unlistenImportStarted?.();
   unlistenImportDone?.();
   unlistenImportError?.();
+  unlistenDupChanged?.();
 });
 </script>
 

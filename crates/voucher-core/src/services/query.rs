@@ -22,7 +22,7 @@ use serde::Serialize;
 
 use crate::db::repos::{attachment_repo, ocr_layout_repo};
 use crate::models::{Attachment, Voucher};
-use crate::services::{dedup, dup_review, naming, ocr_fields, ocr_layout};
+use crate::services::{dup_review, naming, ocr_fields, ocr_layout};
 use crate::{CoreContext, Result};
 
 // ---- 稳定 DTO re-export：命令层不再引用 db::repos 路径，契约形状不变 ----
@@ -37,9 +37,6 @@ pub use crate::db::repos::period_repo::PeriodLock;
 
 /// 增强版命中来源（原 `db::repos::enhance_hit_repo::HitSource`）
 pub use crate::db::repos::enhance_hit_repo::HitSource;
-
-/// 疑似重复组（原 `services::dedup::DuplicateGroup`）
-pub use crate::services::dedup::DuplicateGroup;
 
 /// v0.16 处置：核查队列 / 证据 / 置信度 / 统计（命令层不再引用 services::dup_review 路径）
 pub use crate::services::dup_review::{EvidenceLevel, PairEvidence, PendingSummary, ReviewGroup};
@@ -115,13 +112,6 @@ pub fn suspected_duplicates(ctx: &CoreContext, id: i64) -> Result<Vec<DuplicateS
         .into_iter()
         .map(|(voucher, evidence)| DuplicateSuspect { voucher, evidence })
         .collect())
-}
-
-/// 全库疑似重复扫描（仪表盘「疑似重复」面板）：同日期同金额、组内 ≥2 张。
-///
-/// 注意：**不过滤已判定**——需要"还剩多少要处理"请用 `duplicate_pending_summary`。
-pub fn duplicate_groups(ctx: &CoreContext) -> Result<Vec<DuplicateGroup>> {
-    ctx.db.with_conn(dedup::scan_groups)
 }
 
 /// v0.16：待核查队列（只含还有未判定对的组；组内对按置信度排序）

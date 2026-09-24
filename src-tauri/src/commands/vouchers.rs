@@ -161,12 +161,6 @@ pub fn check_voucher_duplicates(
     err_api(qsvc::suspected_duplicates(&ctx, id))
 }
 
-/// 全库疑似重复扫描（不过滤已判定；仪表盘"还剩多少要处理"请用 duplicate_pending_summary）
-#[tauri::command]
-pub fn scan_duplicates(ctx: Ctx) -> std::result::Result<Vec<qsvc::DuplicateGroup>, ApiError> {
-    err_api(qsvc::duplicate_groups(&ctx))
-}
-
 /// v0.16：待核查队列（只含还有未判定对的组；组内对按置信度排序）
 #[tauri::command]
 pub fn scan_duplicate_review(ctx: Ctx) -> std::result::Result<Vec<qsvc::ReviewGroup>, ApiError> {
