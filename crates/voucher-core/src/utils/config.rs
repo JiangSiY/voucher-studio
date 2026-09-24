@@ -45,6 +45,13 @@ pub const MIN_BACKUP_INTERVAL_HOURS: u64 = 1;
 pub const MAX_BACKUP_INTERVAL_HOURS: u64 = 24 * 30;
 pub const SIDEBAR_WIDTH_DEFAULT: u32 = 260;
 
+/// 界面字号档位（倍数）。**默认偏大**：用户视力不好，明确要求"字号要大一些"
+/// （2026-09-24 反馈；当时正文 13px 被评价为太小）。
+/// 该值写入 CSS 变量 `--font-scale`，只作用于设计令牌定义的排版与控件高度。
+pub const UI_SCALE_DEFAULT: f32 = 1.15;
+pub const UI_SCALE_MIN: f32 = 1.0;
+pub const UI_SCALE_MAX: f32 = 1.5;
+
 /// 外观：light / dark / system + 侧边栏宽度
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -52,6 +59,14 @@ pub struct AppearanceConfig {
     pub theme: String,
     /// 侧边栏宽度（px）。手改 app.json 可能越界，读取与写入都经 [`AppConfig::normalize`] 钳制
     pub sidebar_width: u32,
+    /// 界面字号倍数（1.0–1.5）。前端写入 `--font-scale`；越界同样经 normalize 钳制。
+    /// 缺省 1.15（大字号基线），旧配置文件无此字段时由此 `#[serde(default)]` 补齐。
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
+}
+
+fn default_ui_scale() -> f32 {
+    UI_SCALE_DEFAULT
 }
 
 impl Default for AppearanceConfig {
@@ -59,6 +74,7 @@ impl Default for AppearanceConfig {
         Self {
             theme: "system".into(),
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            ui_scale: UI_SCALE_DEFAULT,
         }
     }
 }
@@ -258,6 +274,13 @@ impl AppConfig {
             .appearance
             .sidebar_width
             .clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+        // 界面字号倍数：手改 app.json 可能写入 0 或 99（0 会让界面无法阅读、99 直接撑爆布局），
+        // 故与侧栏宽度同口径在读取/写入两侧都收口。
+        self.appearance.ui_scale = if self.appearance.ui_scale.is_finite() {
+            self.appearance.ui_scale.clamp(UI_SCALE_MIN, UI_SCALE_MAX)
+        } else {
+            UI_SCALE_DEFAULT
+        };
         // 自动备份间隔（小时）：下限 1h、上限 30 天。
         // - 0 会让调度器每 5 分钟就判定「到期」→ 备份风暴（VACUUM + zip + 云端上传）；
         // - 超大值会走到 chrono 的 `Duration::hours` 越界 panic，而该 panic 被
@@ -311,5 +334,40 @@ mod tests {
         cfg.backup.interval_hours = 24;
         cfg.normalize();
         assert_eq!(cfg.backup.interval_hours, 24, "合法值不得被改动");
+    }
+
+    /// 界面字号倍数：默认偏大、越界与非法值收口（手改 app.json 不得让界面不可读或撑爆布局）
+    #[test]
+    fn normalize_clamps_ui_scale() {
+        assert_eq!(
+            AppConfig::default().appearance.ui_scale,
+            UI_SCALE_DEFAULT,
+            "默认应为大字号基线"
+        );
+
+        for (input, expect) in [
+            (0.1_f32, UI_SCALE_MIN),
+            (99.0, UI_SCALE_MAX),
+            (1.3, 1.3),
+            (f32::NAN, UI_SCALE_DEFAULT),
+            (f32::INFINITY, UI_SCALE_DEFAULT),
+        ] {
+            let mut cfg = AppConfig::default();
+            cfg.appearance.ui_scale = input;
+            cfg.normalize();
+            assert_eq!(
+                cfg.appearance.ui_scale, expect,
+                "输入 {input} 应归一化为 {expect}"
+            );
+        }
+    }
+
+    /// 旧配置（无 `uiScale` 字段）反序列化后应补上默认值，而不是 0（0 会让界面无法阅读）
+    #[test]
+    fn legacy_config_without_ui_scale_gets_default() {
+        let json = r#"{"appearance":{"theme":"dark","sidebarWidth":280}}"#;
+        let cfg: AppConfig = serde_json::from_str(json).expect("旧配置应能反序列化");
+        assert_eq!(cfg.appearance.ui_scale, UI_SCALE_DEFAULT);
+        assert_eq!(cfg.appearance.sidebar_width, 280);
     }
 }

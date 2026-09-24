@@ -16,6 +16,16 @@ import type { AppConfig } from "./api/client";
 /** 默认凭证编号模板：形如 2026-08-19-01 */
 export const DEFAULT_NAMING_TEMPLATE = "{date-}-{n}";
 
+/** 默认界面字号倍数（与 Rust `UI_SCALE_DEFAULT` 一致；1 = 标准，另有 1.15/1.3 档） */
+export const UI_SCALE_DEFAULT = 1.15;
+
+/** 界面字号档位（设置页选项；值写入 CSS 变量 `--font-scale`） */
+export const UI_SCALE_OPTIONS = [
+  { value: 1, label: "标准" },
+  { value: 1.15, label: "大" },
+  { value: 1.3, label: "更大" },
+] as const;
+
 /** 默认打印整理单标题 */
 export const DEFAULT_PRINT_TITLE = "原始凭证";
 
@@ -27,7 +37,9 @@ export const SIDEBAR_WIDTH_DEFAULT = 260;
 /** 与 Rust AppConfig::default() 逐字段对齐的前端默认配置。 */
 export function defaultConfig(): AppConfig {
   return {
-    appearance: { theme: "system", sidebarWidth: SIDEBAR_WIDTH_DEFAULT },
+    // uiScale：界面字号倍数。**默认偏大**——用户视力不好，明确要求"字号要大一些"
+    // （2026-09-24 反馈；当时正文 13px 被评为太小）。与 Rust `UI_SCALE_DEFAULT` 同步。
+    appearance: { theme: "system", sidebarWidth: SIDEBAR_WIDTH_DEFAULT, uiScale: UI_SCALE_DEFAULT },
     naming: { template: DEFAULT_NAMING_TEMPLATE },
     ocr: { engine: "local", enabled: true, apiUrl: "", model: "" },
     backup: {

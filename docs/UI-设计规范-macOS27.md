@@ -22,7 +22,12 @@
    列表页回显"来自工作台：本月 + 草稿 ×"并可一键清除。
 5. **无障碍是下限不是加分项**：`prefers-reduced-transparency` / `-motion` / `contrast`
    三档回退必须实装（Spike M 已验证可读）。
-6. **系统观感优先于品牌表达**：系统字体、系统语义色、系统强调色（当前为固定值，见 §1.6）、
+6. **可读性优先于信息密度（硬约束）**：本产品的用户**视力不好**（2026-09-24 明确要求「字号要大
+   一些，UI 设计需要考虑这点」）。因此：正文 15px 起、辅助文字 13px 起、表格行高 ≥32px、
+   控件高 ≥32px，且字号**可调**（标准/大/更大，默认「大」）。**任何为了多塞信息而缩小字号的
+   做法都不成立**——宁可减少首屏信息量、加宽列或换行，也不要截断或缩小关键数字
+   （金额、编号、摘要、状态）。
+7. **系统观感优先于品牌表达**：系统字体、系统语义色、系统强调色（当前为固定值，见 §1.6）、
    交通灯与工具栏按 macOS 惯例排布。
 
 ---
@@ -67,9 +72,9 @@
 | `--radius-panel` | `12px` | | 面板/对话框/浮层 |
 | `--radius-control` | `6px` | | 按钮/输入框/分段控件 |
 | `--radius-small` | `4px` | | 标签、缩略图角标 |
-| `--control-h-sm` | `22px` | | 行内 icon 按钮、标签 |
-| `--control-h-md` | `28px` | | 常规按钮/输入框（**默认**） |
-| `--control-h-lg` | `32px` | | 主操作按钮、工具栏按钮 |
+| `--control-h-sm` | `26px × scale` | | 行内 icon 按钮、标签 |
+| `--control-h-md` | `32px × scale` | | 常规按钮/输入框（**默认**） |
+| `--control-h-lg` | `36px × scale` | | 主操作按钮、工具栏按钮 |
 | `--shadow-popover` | `0 8px 24px rgba(0,0,0,.18)` | 同左（更深） | 对话框/命令面板 |
 | `--shadow-menu` | `0 4px 12px rgba(0,0,0,.14)` | 同左 | 下拉/上下文菜单 |
 | `--motion-fast` | `120ms` | | hover/按下反馈 |
@@ -96,10 +101,17 @@
 |---|---|---|
 | `--font` | `-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif` | 全局（**去掉 Segoe UI / Microsoft YaHei**） |
 | `--font-mono` | `ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace` | 编号、金额、哈希 |
-| `--type-title` | `15px / 600 / 1.35` | 面板标题、对话框标题 |
-| `--type-body` | `13px / 400 / 1.5` | **正文基准**（由 14px 降到 13px，贴合 macOS 系统字号） |
-| `--type-caption` | `11px / 400 / 1.4` | 表头、辅助说明、标签 |
-| `--type-mono-sm` | `12px / 400 / 1.45` | 编号/金额（等宽） |
+| `--type-title` | `600 17px/1.35` | 面板标题、对话框标题 |
+| `--type-body` | `400 15px/1.5` | **正文基准**（大字号基线；用户视力需要，见 §0.6） |
+| `--type-caption` | `400 13px/1.4` | 表头、辅助说明、标签 |
+| `--type-mono-sm` | `400 14px/1.45` | 编号/金额（等宽 + `tabular-nums` 对齐数字） |
+
+**字号档位（可调）**：令牌层定义 `--font-scale`（**默认 1.15**，即「大」），`--type-*` 与
+`--control-h-*` 都写成 `calc(基准 * var(--font-scale))`；设置页「外观 → 界面字号」提供
+标准(1.0) / 大(1.15) / 更大(1.3)，保存后立即生效（无需重启）。后端 `AppConfig.appearance.uiScale`
+持久化并在读取/写入两侧钳制到 1.0–1.5（0 会让界面不可读、过大撑爆布局）。
+**布局必须能承受放大**：禁止固定高度装文本、禁止为省空间截断关键数字；
+容量不足时优先「自适应列数 / 换行 / 减少首屏区块数」，而不是缩小字号。
 
 **不做**：引入 webfont（`font-src 'self' data:` 允许但无必要；系统字体在 macOS 上最优）；
 不改 PDF 导出字体（后端 `find_cjk_font` 独立解析，与前端字体栈无关）。
@@ -122,15 +134,15 @@
 
 | 控件 | 规格 |
 |---|---|
-| 按钮（标准） | 高 28、圆角 6、`--bg-control` + `--separator` 描边、hover 提亮 4%、按下 `--motion-fast` |
+| 按钮（标准） | 高 ≥32（内边距 7px 14px）、圆角 6、`--bg-control` + `--separator` 描边、hover 提亮 4%、按下 `--motion-fast` |
 | 按钮（强调） | `--accent` 实底 + `--label-on-accent` 文字 |
 | 按钮（危险） | 文字 `--danger`、仅 hover 时淡红底（macOS 惯例：破坏性动作不抢视觉） |
 | 图标按钮 | 22×22、圆角 4、hover `--bg-selection` |
-| 输入框 | 高 28、圆角 6、内描边 `--separator`、聚焦时 3px `--accent` 25% 外环 |
+| 输入框 | 高 ≥32（内边距 7px 10px）、圆角 6、内描边 `--separator`、聚焦时 3px `--accent` 25% 外环 |
 | 分段控件 | 高 24、圆角 6、选中段 `--bg-control` + 轻阴影（替代现 `tab-nav`/`fchip`） |
 | 开关 | 22×13 胶囊、开 = `--accent`（替代现 40×20 的 Fluent 样式） |
-| 表格 | 行高 28、**无斑马纹**、表头 11px `--label-secondary`、选中行 `--bg-selection`、行下沿 `--separator` |
-| 侧栏项 | 行高 28、图标 16、圆角 6、选中 `--bg-selection`、分组标题 11px `--label-tertiary` |
+| 表格 | 行高 ≥32（内边距 10px）、**无斑马纹**、表头 13px `--label-secondary`、选中行 `--bg-selection`、行下沿 `--separator` |
+| 侧栏项 | 行高 ≥36（内边距 10px）、图标 18、圆角 6、选中 `--bg-selection`、分组标题 13px `--label-tertiary` |
 | 工具栏 | 高 52、标题 13/600、右侧动作组、下沿 `--separator-strong` |
 | 对话框 | 宽 420–560、圆角 12、`--bg-popover` + `--shadow-popover`、按钮右对齐（取消在左） |
 | 通知条（toast） | 右上角、圆角 10、`--bg-popover`、宽 320、`--motion-normal` 滑入 |
@@ -241,6 +253,7 @@
 | 减少透明度 | `prefers-reduced-transparency: reduce` → 侧栏/工具栏/浮层全部改实色（`--bg-sidebar`/`--bg-popover`） |
 | 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭（`--motion-*` 置 0） |
 | 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary` |
+| 字号可调 | 标准/大/更大三档（`--font-scale`，默认「大」）；放大后不得出现截断、横向溢出或文字重叠 |
 | 现有基线 | 保留并补强既有 16 处 `role` 与 25 处 `aria-*`（ToastHost `aria-live`、对话框 `aria-modal`、侧栏手柄 aria-value 等） |
 
 ---
@@ -266,7 +279,7 @@
 | 9 | 细节、走查、文档、v0.18.0 发布 | 清单2/3 增补项走查 + 截图入库 |
 
 **样张验收清单（用户逐条核对）**
-- 视觉 12 项：侧栏材质浅/深对比度 · 交通灯留白 · 13px 正文层级 · 圆角同心 · 分隔线层级 ·
+- 视觉 12 项：**正文字号是否够大（默认 15px×1.15 ≈ 17px；三档可调）** · 侧栏材质浅/深对比度 · 交通灯留白 · 正文层级 · 圆角同心 · 分隔线层级 ·
   聚焦环可见性 · 表格行高与选中态 · 按钮四态 · 空状态 · 菜单/下拉 · 通知条 · 图表配色与网格
 - 交互 8 项：⌘K 与动作组 · 时间窗切换联动 · 状态筛选双向 · 点柱下钻并回显来源 · Top 精确筛选 ·
   待办卡直达筛选 · 返回保留选择 · 键盘遍历图表

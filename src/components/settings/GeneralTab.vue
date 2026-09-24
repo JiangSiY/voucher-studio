@@ -5,6 +5,7 @@
  * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { computed } from "vue";
+import { UI_SCALE_OPTIONS } from "../../config-defaults";
 import { storeToRefs } from "pinia";
 import { api } from "../../api/client";
 import { toastError } from "../../stores/toast";
@@ -34,6 +35,17 @@ async function openDataDir() {
           <option value="light">浅色</option>
           <option value="dark">深色</option>
         </select>
+      </div>
+      <!-- 界面字号（用户视力需要，见设计规范 §1.3）：保存后立即生效，无需重启 -->
+      <div class="field">
+        <label>界面字号</label>
+        <select v-model.number="draftCfg.appearance.uiScale" class="input" style="max-width: 240px">
+          <option v-for="o in UI_SCALE_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+        <div class="desc">
+          控制正文字号与控件高度（标准 / 大 / 更大）。默认「大」——正文 17px、辅助 15px 左右；
+          若仍看不清请选「更大」，或告诉我再往上调。
+        </div>
       </div>
       <div class="field">
         <label>数据目录</label>

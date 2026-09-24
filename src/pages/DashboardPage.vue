@@ -377,22 +377,21 @@ onUnmounted(() => {
     </section>
 
     <!-- ④ 趋势与排行（本样张沿用既有面板；批次 7 把它们接到同一口径控制器上） -->
-    <div class="grid-main">
-      <section class="col-main">
-        <header class="section-head">
-          <h2>趋势与构成</h2>
-          <span class="scope">面板自带窗口（批次 7 接入上方口径）</span>
-        </header>
-        <TrendPanel />
-      </section>
-      <section class="col-side">
-        <header class="section-head">
-          <h2>排行</h2>
-          <span class="scope">全历史 · 前 10</span>
-        </header>
-        <TopListsPanel />
-      </section>
-    </div>
+    <section class="panel-row">
+      <header class="section-head">
+        <h2>趋势与构成</h2>
+        <span class="scope">面板自带窗口（批次 7 接入上方口径）</span>
+      </header>
+      <TrendPanel />
+    </section>
+
+    <section class="panel-row">
+      <header class="section-head">
+        <h2>对方账户与标签</h2>
+        <span class="scope">全历史 · 前 10</span>
+      </header>
+      <TopListsPanel />
+    </section>
 
     <!-- ⑤ 最近活动 -->
     <div class="grid-activity">
@@ -480,7 +479,8 @@ onUnmounted(() => {
 .scope { color: var(--label-tertiary); font: var(--type-caption); }
 .flex-1 { flex: 1; }
 
-.kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-3); }
+/* KPI 自适应列数：字号调大后 5 列会把金额挤到溢出——宁可换行也不要截断数字 */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s-3); }
 .kpi {
   display: flex; flex-direction: column; gap: 2px;
   padding: var(--s-3);
@@ -492,7 +492,13 @@ onUnmounted(() => {
 }
 button.kpi:hover { background: var(--bg-selection); }
 .kpi-label { color: var(--label-secondary); font: var(--type-caption); }
-.kpi-value { color: var(--label-primary); font-size: 22px; font-weight: 600; }
+.kpi-value {
+  color: var(--label-primary);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
 .kpi-foot { color: var(--label-tertiary); font: var(--type-caption); }
 .kpi-foot.up { color: var(--success); }
 .kpi-foot.down { color: var(--danger); }
@@ -520,8 +526,8 @@ button.kpi:hover { background: var(--bg-selection); }
 .todo-text b { font: var(--type-body); font-weight: 500; color: var(--label-primary); }
 .todo-text small { font: var(--type-caption); color: var(--label-tertiary); }
 
-.grid-main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s-4); }
-.col-main, .col-side { display: flex; flex-direction: column; gap: var(--s-2); }
+/* 面板整行排布：趋势与排行各占一行（宽度充足 → 内部再分栏也不会溢出） */
+.panel-row { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .grid-activity { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s-4); }
 .panel {
   padding: var(--s-3);
@@ -535,11 +541,10 @@ button.kpi:hover { background: var(--bg-selection); }
 .link { border: none; background: none; color: var(--accent); font: var(--type-caption); cursor: default; }
 .link:hover { text-decoration: underline; }
 .empty-hint { color: var(--label-tertiary); font: var(--type-body); margin: var(--s-2) 0; }
-.cell-desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-desc { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .footnote { color: var(--label-tertiary); font: var(--type-caption); margin: 0; }
 
 @media (max-width: 1100px) {
-  .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .grid-main, .grid-activity { grid-template-columns: minmax(0, 1fr); }
+  .grid-activity { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

@@ -28,6 +28,15 @@ export const useConfigStore = defineStore("config", () => {
   }
   watch(effectiveTheme, applyTheme, { immediate: true });
 
+  /** 把界面字号倍数写进 CSS 变量（未加载时不写，保持 CSS 里的默认值 1） */
+  function applyFontScale() {
+    const s = config.value?.appearance.uiScale;
+    if (typeof s === "number" && Number.isFinite(s) && s > 0) {
+      document.documentElement.style.setProperty("--font-scale", String(s));
+    }
+  }
+  watch(() => config.value?.appearance.uiScale, applyFontScale, { immediate: true });
+
   /** 把已保存的侧边栏宽度写进 CSS 变量（唯一 JS→CSS 通道；配置未加载时不写，保持 CSS 默认值） */
   function applyLayout() {
     const w = config.value?.appearance.sidebarWidth;
