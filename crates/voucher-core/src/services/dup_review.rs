@@ -17,6 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rusqlite::params;
 use serde::Serialize;
 
 use crate::db::repos::{attachment_repo, dup_decision_repo, voucher_repo};
@@ -205,12 +206,116 @@ pub fn review_queue(ctx: &CoreContext) -> Result<Vec<ReviewGroup>> {
 }
 
 /// 待处理统计（侧栏徽标/仪表盘面板）
+///
+/// **注意**：本函数会构造整个核查队列（含逐对证据与首附件哈希），成本较高——
+/// 徽标/待办卡这类只需数字的场景请用 [`pending_count`]。
 pub fn pending_summary(ctx: &CoreContext) -> Result<PendingSummary> {
     let queue = review_queue(ctx)?;
     Ok(PendingSummary {
         groups: queue.len() as u32,
         pairs: queue.iter().map(|g| g.pending.len() as u32).sum(),
     })
+}
+
+/// 轻量待处理计数（v0.18）：只做 SQL 计数，**不构造队列、不查证据**。
+///
+/// 口径与 [`review_queue`] 严格一致，并由用例锁定（`pending_count_matches_queue`）：
+/// - `groups`：仍有未判定对的组数；
+/// - `pairs`：组内 `C(n,2)` 之和减去已判定对；
+/// - `high_pairs`：其中高置信度（同图 **或** 同对方∧同摘要）的对数——**精确值**，
+///   同图部分靠 `attachments.file_hash` 等值自连接（走 `idx_attachments_hash`），
+///   已判定的对由 `dup_decisions` 唯一索引排除。
+///
+/// 判定口径本身不变（同日期 + 同金额）；这里只是把"还剩多少、其中多少证据较强"用一条
+/// SQL 算出来，供侧栏徽标与工作台待办卡使用——旧实现是跑完整个 `review_queue` 再取长度。
+pub fn pending_count(ctx: &CoreContext) -> Result<PendingCount> {
+    ctx.db.with_conn(|conn| {
+        // 1) 高置信度对数：同图 ∨ (同对方 ∧ 同摘要)，且排除已判定的对
+        let high_pairs: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM (
+                 SELECT v1.id AS a, v2.id AS b
+                 FROM vouchers v1
+                 JOIN vouchers v2
+                   ON v1.id < v2.id
+                  AND v1.voucher_date = v2.voucher_date
+                  AND v1.amount_cents IS NOT NULL
+                  AND v1.amount_cents = v2.amount_cents
+                 WHERE (
+                        (TRIM(COALESCE(v1.counterparty,'')) <> '' AND TRIM(v1.counterparty) = TRIM(v2.counterparty)
+                         AND TRIM(COALESCE(v1.description,'')) <> '' AND TRIM(v1.description) = TRIM(v2.description))
+                     OR EXISTS (
+                         SELECT 1 FROM attachments a1 JOIN attachments a2 ON a1.file_hash = a2.file_hash
+                         WHERE a1.voucher_id = v1.id AND a2.voucher_id = v2.id AND a1.file_hash <> ''
+                     )
+                 )
+             ) pair
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM dup_decisions d WHERE d.a_id = pair.a AND d.b_id = pair.b
+             )",
+            [],
+            |r| r.get::<_, i64>(0),
+        )? as u32;
+
+        // 2) 组与对：沿用与队列相同的分组（同日期同金额、金额非空），逐组扣减已判定对
+        let mut stmt = conn.prepare(
+            "SELECT voucher_date, amount_cents FROM vouchers WHERE amount_cents IS NOT NULL
+             GROUP BY voucher_date, amount_cents HAVING COUNT(*) >= 2",
+        )?;
+        let mut keys: Vec<(String, i64)> = Vec::new();
+        {
+            let mut rows = stmt.query([])?;
+            while let Some(r) = rows.next()? {
+                keys.push((r.get(0)?, r.get(1)?));
+            }
+        }
+        let decided = dup_decision_repo::decided_pairs(conn)?;
+
+        let mut groups = 0u32;
+        let mut pairs = 0u32;
+        for (date, amount) in &keys {
+            let mut stmt = conn
+                .prepare("SELECT id FROM vouchers WHERE voucher_date = ?1 AND amount_cents = ?2")?;
+            let mut ids: Vec<i64> = Vec::new();
+            {
+                let mut rows = stmt.query(params![date, amount])?;
+                while let Some(r) = rows.next()? {
+                    ids.push(r.get(0)?);
+                }
+            }
+            let n = ids.len() as u32;
+            if n < 2 {
+                continue;
+            }
+            let in_group: std::collections::HashSet<i64> = ids.iter().copied().collect();
+            let decided_in_group = decided
+                .iter()
+                .filter(|(a, b)| in_group.contains(a) && in_group.contains(b))
+                .count() as u32;
+            let pending = (n * (n - 1) / 2).saturating_sub(decided_in_group);
+            if pending == 0 {
+                continue;
+            }
+            groups += 1;
+            pairs += pending;
+        }
+
+        Ok(PendingCount {
+            groups,
+            pairs,
+            // 高置信度对一定落在"有未判定对的组"里，故不会超过 pairs
+            high_pairs: high_pairs.min(pairs),
+        })
+    })
+}
+
+/// 轻量待处理计数结果
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCount {
+    pub groups: u32,
+    pub pairs: u32,
+    /// 高置信度对数（同图 ∨ 同对方∧同摘要），已排除已判定的对
+    pub high_pairs: u32,
 }
 
 /// 处置：判定"不是重复"（**不碰凭证，故不受封账限制**）。

@@ -3,6 +3,7 @@
 pub mod attachment_view;
 pub mod backup;
 pub mod crop;
+pub mod dashboard;
 pub mod dedup;
 pub mod dup_review;
 pub mod export;

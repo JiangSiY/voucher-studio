@@ -20,9 +20,10 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::db::repos::{attachment_repo, ocr_layout_repo};
+use crate::db::repos::{attachment_repo, ocr_layout_repo, voucher_repo};
+use crate::models::enums::VoucherStatus;
 use crate::models::{Attachment, Voucher};
-use crate::services::{dup_review, naming, ocr_fields, ocr_layout};
+use crate::services::{dashboard, dup_review, naming, ocr_fields, ocr_layout};
 use crate::{CoreContext, Result};
 
 // ---- 稳定 DTO re-export：命令层不再引用 db::repos 路径，契约形状不变 ----
@@ -43,6 +44,10 @@ pub use crate::services::dup_review::{EvidenceLevel, PairEvidence, PendingSummar
 
 /// 处置记录（审计日志；`removedPayload` 为被删凭证留痕快照）
 pub use crate::models::dup_decision::DupDecision;
+
+/// v0.18 工作台（仪表盘）只读聚合：窗口概览 / 待办与健康度 / 轻量重复计数
+pub use crate::services::dashboard::{Overview as DashboardOverview, Todos as DashboardTodos};
+pub use crate::services::dup_review::PendingCount as DupPendingCount;
 
 // ---- 命令 DTO（原定义在命令层，现收敛到 core，JSON 契约不变） ----
 
@@ -127,6 +132,37 @@ pub fn duplicate_pending_summary(ctx: &CoreContext) -> Result<PendingSummary> {
 /// v0.16：处置历史（新 → 旧）
 pub fn duplicate_decisions(ctx: &CoreContext, limit: u32) -> Result<Vec<DupDecision>> {
     dup_review::history(ctx, limit)
+}
+
+// ---------- v0.18 工作台（仪表盘）只读聚合 ----------
+
+/// 工作台概览：**统一窗口口径**（`date_from`/`date_to` 为 `YYYY-MM-DD`，含端点）+ 全库固定项。
+///
+/// 两端都给时附上一等长窗口的金额/张数（供前端算环比；不足两个窗口时不编造）。
+pub fn dashboard_overview(
+    ctx: &CoreContext,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    status: Option<VoucherStatus>,
+) -> Result<DashboardOverview> {
+    dashboard::overview(ctx, date_from, date_to, status)
+}
+
+/// 待办与健康度：把已落库但此前没有出口的数据变成可行动的计数
+/// （待识别 / 未填金额 / 陈旧草稿 / 未封账往月 / 备份新鲜度 / 疑似重复）。
+pub fn dashboard_todos(ctx: &CoreContext) -> Result<DashboardTodos> {
+    dashboard::todos(ctx)
+}
+
+/// 疑似重复**轻量**计数（徽标/待办卡用）：不构造队列、不查证据；
+/// 口径与核查队列一致（有用例锁定）。
+pub fn duplicate_pending_count(ctx: &CoreContext) -> Result<DupPendingCount> {
+    dup_review::pending_count(ctx)
+}
+
+/// 按当前筛选**只取 id**（列表页跨页全选）；顺序与列表一致。
+pub fn voucher_ids(ctx: &CoreContext, query: &VoucherQuery) -> Result<Vec<i64>> {
+    ctx.db.with_conn(|conn| voucher_repo::list_ids(conn, query))
 }
 
 /// 附件实体查询（附件不存在返回 `Ok(None)`，由调用方决定文案）。

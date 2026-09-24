@@ -172,6 +172,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dup_decisions_pair ON dup_decisions(a_id, 
 CREATE INDEX IF NOT EXISTS idx_dup_decisions_created ON dup_decisions(created_at DESC);
 "#;
 
+/// v8 附加索引（v0.18 仪表盘批）：只增索引、不改表结构。
+///
+/// 三条都对应"新指标卡片"的查询路径，此前的列上都**没有**可用索引：
+/// - `attachments(ocr_status)`：待识别计数（`ocr_status IN ('pending','failed')`）
+/// - `vouchers(status, updated_at)`：陈旧草稿（`status='draft' AND updated_at < ?`）
+/// - `export_items(voucher_id)`：导出覆盖度反连接（"从未导出"、每张最近导出时间）
+///
+/// 幂等 `CREATE INDEX IF NOT EXISTS`，对既有库无损（与 v5/v6 同一模式，不清库）。
+/// **不加** `vouchers(amount_cents)` 独占索引：千级数据量下金额区间筛选的全表扫可接受，
+/// 先观察真实数据量的代价再决定（挂账）。
+pub const SCHEMA_V8: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_attachments_ocr_status ON attachments(ocr_status);
+CREATE INDEX IF NOT EXISTS idx_vouchers_status_updated ON vouchers(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_export_items_voucher ON export_items(voucher_id);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -193,6 +209,8 @@ pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_V6)?;
     // v7：疑似重复处置记录表（幂等，v0.16 新增；同上，只增不改）
     conn.execute_batch(SCHEMA_V7)?;
+    // v8：仪表盘新指标所需的三条索引（幂等，v0.18 新增；只增索引、不改表结构）
+    conn.execute_batch(SCHEMA_V8)?;
     // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
     let has_format: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;

@@ -211,6 +211,22 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
     Ok((items, total))
 }
 
+/// 按当前筛选**只取 id**（顺序与列表一致）。
+///
+/// 用途（v0.18 仪表盘批）：列表页「按筛选全选 N 条」——跨页选择集只需 id，
+/// 不必把整页对象拉回前端；批删/批改仍是既有写路径，不新增写命令。
+pub fn list_ids(conn: &Connection, q: &VoucherQuery) -> Result<Vec<i64>> {
+    let (where_sql, bind) = build_filter_where(q);
+    let sql = format!("SELECT id FROM vouchers {where_sql} ORDER BY voucher_date DESC, id DESC");
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(bind.iter()))?;
+    let mut out = Vec::new();
+    while let Some(r) = rows.next()? {
+        out.push(r.get(0)?);
+    }
+    Ok(out)
+}
+
 /// 按 id 集合批量取凭证（导出批次反查用；返回顺序与传入顺序一致，不存在的跳过）
 pub fn get_many(conn: &Connection, ids: &[i64]) -> Result<Vec<Voucher>> {
     let mut out = Vec::with_capacity(ids.len());

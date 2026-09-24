@@ -227,6 +227,38 @@ fn emit_dup_changed(app: &AppHandle) {
     let _ = app.emit("dup:changed", serde_json::json!({}));
 }
 
+// ---------- v0.18 工作台（仪表盘）只读聚合 ----------
+
+/// 工作台概览：统一窗口口径（`dateFrom`/`dateTo` 为 `YYYY-MM-DD`，含端点）+ 全库固定项；
+/// 两端都给时附上一等长窗口的金额/张数（供前端算环比）
+#[tauri::command]
+pub fn dashboard_overview(
+    ctx: Ctx,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    status: Option<voucher_core::models::VoucherStatus>,
+) -> std::result::Result<qsvc::DashboardOverview, ApiError> {
+    err_api(qsvc::dashboard_overview(&ctx, date_from, date_to, status))
+}
+
+/// 待办与健康度（待识别 / 未填金额 / 陈旧草稿 / 未封账往月 / 备份新鲜度 / 疑似重复）
+#[tauri::command]
+pub fn dashboard_todos(ctx: Ctx) -> std::result::Result<qsvc::DashboardTodos, ApiError> {
+    err_api(qsvc::dashboard_todos(&ctx))
+}
+
+/// 疑似重复轻量计数（徽标 / 待办卡）：不构造队列，口径与核查队列一致
+#[tauri::command]
+pub fn duplicate_pending_count(ctx: Ctx) -> std::result::Result<qsvc::DupPendingCount, ApiError> {
+    err_api(qsvc::duplicate_pending_count(&ctx))
+}
+
+/// 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集）
+#[tauri::command]
+pub fn list_voucher_ids(ctx: Ctx, query: VoucherQuery) -> std::result::Result<Vec<i64>, ApiError> {
+    err_api(qsvc::voucher_ids(&ctx, &query))
+}
+
 // ---------- v0.11：会计期间锁定（按月封账） ----------
 
 /// 全部已锁期间（设置页期间管理 + 列表/编辑页锁定态判断）

@@ -307,6 +307,61 @@ export interface DupDecision {
   createdAt: string;
 }
 
+/** v0.18：工作台窗口内的状态分布（**口径**：始终是窗口内的完整构成，不随顶部状态筛选收窄） */
+export interface StatusCount {
+  status: string;
+  count: number;
+  amountCents: number;
+}
+
+/**
+ * v0.18：工作台概览（**统一窗口口径**）
+ *
+ * - 窗口由 `dateFrom`/`dateTo`（`YYYY-MM-DD`，含端点）界定，两端口径与列表页筛选一致；
+ * - `prevAmountCents`/`prevCount` 仅在两端口都给时给出（上一**等长天数**窗口，供算环比）；
+ * - `total`/`attachments`/`thisMonth` 是**全库口径**的固定项，界面须标注"全库"。
+ */
+export interface DashboardOverview {
+  dateFrom: string | null;
+  dateTo: string | null;
+  status: string | null;
+  count: number;
+  amountCents: number;
+  prevAmountCents: number | null;
+  prevCount: number | null;
+  byStatus: StatusCount[];
+  total: number;
+  attachments: number;
+  thisMonth: number;
+}
+
+/** v0.18：最近一份本地备份（轻量：只看目录里的文件名与时间，不读 manifest） */
+export interface BackupLite {
+  fileName: string;
+  modifiedAt: string;
+}
+
+/** v0.18：待办与健康度（数值为 0 时界面可隐藏该项；每项都能点进对应筛选） */
+export interface DashboardTodos {
+  ocrPending: number;
+  amountMissing: number;
+  staleDrafts: number;
+  staleDraftDays: number;
+  unlockedMonths: number;
+  latestBackup: BackupLite | null;
+  backupStale: boolean;
+  dupPairs: number;
+  dupHighPairs: number;
+  dupGroups: number;
+}
+
+/** v0.18：疑似重复轻量计数（徽标 / 待办卡；与核查队列口径一致，第 3 位为高置信度对数） */
+export interface DupPendingCount {
+  groups: number;
+  pairs: number;
+  highPairs: number;
+}
+
 /** v0.11：会计期间锁（period = YYYY-MM） */
 export interface PeriodLock {
   period: string;
@@ -600,6 +655,21 @@ export const api = {
   /** 确认重复：保留 keepId、删除 removeId（单事务留痕 + 删除）；返回删除数 */
   removeDuplicateVoucher: (keepId: number, removeId: number, note?: string) =>
     invoke<number>("remove_duplicate_voucher", { keepId, removeId, note }),
+
+  // ---- v0.18：工作台（仪表盘）只读聚合 ----
+  /**
+   * 工作台概览：**统一窗口口径**（`dateFrom`/`dateTo` 为 `YYYY-MM-DD`，含端点；
+   * 两端都给时才附上一等长窗口的金额/张数供算环比）。
+   * `byStatus` 始终是窗口内的**完整构成**，不随 `status` 收窄（供堆叠条展示）。
+   */
+  dashboardOverview: (dateFrom?: string | null, dateTo?: string | null, status?: VoucherStatus | null) =>
+    invoke<DashboardOverview>("dashboard_overview", { dateFrom, dateTo, status }),
+  /** 待办与健康度：待识别 / 未填金额 / 陈旧草稿 / 未封账往月 / 备份新鲜度 / 疑似重复 */
+  dashboardTodos: () => invoke<DashboardTodos>("dashboard_todos"),
+  /** 疑似重复**轻量**计数（徽标 / 待办卡）：不构造队列，口径与核查队列一致 */
+  duplicatePendingCount: () => invoke<DupPendingCount>("duplicate_pending_count"),
+  /** 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集；顺序同列表） */
+  listVoucherIds: (query: VoucherQuery) => invoke<number[]>("list_voucher_ids", { query }),
 
   /** v0.11：会计期间锁（period = YYYY-MM；锁定月凭证禁止增删改） */
   listPeriodLocks: () => invoke<PeriodLock[]>("list_period_locks"),
