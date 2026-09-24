@@ -1,5 +1,7 @@
 # Voucher Studio 修复状态评估 — 与分析报告对照
 
+> ⚠️ **平台范围注记（2026-09-24 追加，正文不改）**：自 **v0.17.0** 起本项目**仅支持 macOS**（原文所述双平台中的 Windows 端已移除）。本报告为时点快照，文中 Windows/MSVC/WebView2/`%APPDATA%`/`Ctrl+` 等表述**均为当时实况**，保留原貌；平台无关的功能语义与缺陷结论仍然成立。
+
 > 评估时间：2026-09-09 20:05 ｜ 基线 HEAD：`063f919`（v0.13.1，分析报告落笔点）｜ 当前 HEAD：`cabcbee`（+17 笔修复提交，版本号仍 0.13.1）
 > 对照对象：《voucher-studio-project-analysis-2026-09-09.md》《voucher-studio-health-check-2026-09.md》
 

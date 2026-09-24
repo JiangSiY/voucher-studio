@@ -12,11 +12,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI 同口径（含 #[ignore] 真跑）
 ```
 
-**本机（Windows）跑 cargo 的必备环境**：编译/测试需要 OpenCV + LLVM + MSVC 工具链，先 `source ./activate-dev.ps1` 对应的环境变量（`OpenCV_DIR` / `OPENCV_INCLUDE_PATHS` / `OPENCV_LINK_PATHS` / `OPENCV_LINK_LIBS` / `LIBCLANG_PATH` / `INCLUDE` / `LIB`）。
+**本机（macOS）跑 cargo 的必备环境**：编译/测试需要 OpenCV 4.10 与 libclang，两者都不在系统默认搜索路径上，故每次新开 shell 先备好环境：
 
-> **必须显式指定 MSVC 链接器**：在 Git Bash 等环境里 `link.exe` 会被 coreutils 的同名工具抢占（`which link.exe` 指向 `/usr/bin/link.exe`），仅把 MSVC 目录前置到 PATH **不生效**。正确做法：
-> `export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"`
-> 否则 `cargo test` 会在链接期失败——不要据此断言"需 CI 复核"。
+- `. "$HOME/.cargo/env"`（工具链 PATH；harness 的 shell 快照会覆盖 PATH，不 source 会 `cargo: command not found`）
+- `export PKG_CONFIG_PATH="$HOME/.local/opencv-4.10/lib/pkgconfig"`（OpenCV 4.10 为源码编译，见 README；**不要**装 brew 的 opencv/opencv@4，版本不兼容会让 Rust 侧编译失败）
+- libclang：`$HOME/lib/libclang.dylib` → Command Line Tools 的同名库（符号链接）。`DYLD_*` 会被系统剥离，`LIBCLANG_PATH` 无效，只能靠这个固定路径
+- 需要判断"是不是环境问题"时：`pkg-config --modversion opencv4` 必须打印 `4.10.0`
 
 ## 文档纪律（三条）
 
@@ -44,5 +45,5 @@ cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI �
 
 - 中文 conventional commits：`feat(scope):` / `fix(scope):` / `docs:` / `test:` / `refactor:` / `chore:` / `ci:`；scope 常用 `core` / `frontend` / `tauri` / `test` / `ci`。
 - 一个逻辑变更一笔提交；文档与代码**分开提交**。
-- 提交前确保：`git status` 无意外文件混入；上表四门 + Rust 三门通过（默认本地即可跑通，见上文链接器说明）。
+- 提交前确保：`git status` 无意外文件混入；上表四门 + Rust 三门 + CI 的越层/平台范围两道 grep 门禁通过（本地环境见上文 macOS 段）。
 - **推送前先 `git fetch`**，确认与 `origin/main` 的关系再推（历史上出现过"本地领先/落后各若干"的分叉情形）。

@@ -16,7 +16,7 @@
 - **对账**：微信/支付宝账单 CSV 与库内凭证只读对账（同日同金额匹配），差异报告 CSV 导出
 - **重复凭证核查**：同日期同金额的疑似重复进入「重复核查」队列，可并排比对（图片 + 字段差异高亮 + 置信度证据）后处置——**标记"不是重复"**（不改动凭证）或**确认重复并删除多余的一份**（二次确认 + 留痕，含被删凭证快照）。已处置的对不再重复提示。注：「重复」在本项目分三义——**内容重复**（同一张图，导入期 MD5 阻断）、**疑似重复**（同日期同金额，本入口）、**编号重复**（编号唯一约束）
 - **备份与恢复**：本地 zip 备份（带版本清单，快照 + 内容寻址附件包增量）+ WebDAV 云备份（可选：age 加密，ChaCha20-Poly1305 AEAD 整文件密封）+ 定时/退出前自动备份；恢复走「待恢复文件 + 重启生效」流程，避免运行中替换数据库。**增强版图片属"可重建缓存"、不入备份包**——恢复后界面自动回退原图显示（后端不会下发指向不存在文件的增强路径），需要增强版时可在 设置 → 扫描矫正 一键重建
-- **安全**：敏感凭据（WebDAV 密码、云端 OCR API Key）存入操作系统凭据库（Windows 凭据管理器 / macOS Keychain），密钥不明文落盘
+- **安全**：敏感凭据（WebDAV 密码、云端 OCR API Key）存入系统凭据库（macOS 钥匙串 / Keychain），密钥不明文落盘
 - **稳定性**：数据目录文件锁 + 单实例保护，同一目录同一时刻只允许一个实例写入；异常退出后启动健康检查并提供恢复选项
 
 ## 技术栈
@@ -28,16 +28,17 @@
 | 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv4 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
-| UI | Fluent Design 规范（亚克力、Reveal 光效、#0078D4 主色、深浅双主题） |
+| UI | 桌面端 macOS 原生观感（系统字体与语义色、材料分层、深浅双主题）；**自 v0.17.0 起仅支持 macOS**（原为 Fluent Design 双平台，见 `docs/开发日志.md`） |
 
 ## 环境要求
 
-- Rust 1.75+（stable，MSVC 工具链）
+仅支持 **macOS**（Apple Silicon / arm64）。开发环境：
+
+- Rust 1.75+（stable）+ Xcode Command Line Tools
 - Node.js 20+
-- **OpenCV 4.x（必须，编译前置）**：Windows 设 `OpenCV_DIR` + `OPENCV_INCLUDE_PATHS` / `OPENCV_LINK_PATHS` / `OPENCV_LINK_LIBS`（可直接运行 `activate-dev.ps1`）；Linux/CI 装 `libopencv-dev` + `clang`/`libclang-dev`
-- **macOS 必须 OpenCV 4.10**（原文为 `brew install opencv`，自 v0.15.1 起改为源码编译固定 4.10）：`opencv` crate 按**本机已装头文件**生成绑定，代码依赖 4.10 的 API 面（`imgproc::bounding_rect`/`contour_area`/`approx_poly_dp`、`ImreadModes::IMREAD_COLOR`、`cvt_color`/`HoughLines` 参数个数），而 brew 现供 5.x（`opencv@4` 亦已 4.14）上述位置全部变更，直接编译报错。需源码编译 4.10 并让 `PKG_CONFIG_PATH` 指向其 `lib/pkgconfig`；**机器上不要保留 brew 的 opencv**（crate 的 pkg-config 探测优先 `opencv5.pc`，会静默改用 5.x 头文件）
-- Windows：VS Build Tools（C++ 工作负载）+ WebView2 运行时
-- macOS：Xcode Command Line Tools
+- **OpenCV 4.10（必须，编译前置；原文为 `brew install opencv`，自 v0.15.1 起改为源码编译固定 4.10）**：`opencv` crate 按**本机已装头文件**生成绑定，代码依赖 4.10 的 API 面（`imgproc::bounding_rect`/`contour_area`/`approx_poly_dp`、`ImreadModes::IMREAD_COLOR`、`cvt_color`/`HoughLines` 参数个数），而 brew 现供 5.x（`opencv@4` 亦已 4.14）上述位置全部变更，直接编译报错。需源码编译 4.10 并让 `PKG_CONFIG_PATH` 指向其 `lib/pkgconfig`；**机器上不要保留 brew 的 opencv**（crate 的 pkg-config 探测优先 `opencv5.pc`，会静默改用 5.x 头文件）
+- `libclang`：`opencv` crate 的 bindgen 需要；若 `DYLD_*` 被系统剥离导致找不到，可在 `$HOME/lib` 放符号链接指向 Command Line Tools 的 `libclang.dylib`
+- Linux 侧仅用于 CI 的快速门禁（`libopencv-dev` + `clang`/`libclang-dev`），不产出桌面产物
 
 ## 开发
 
@@ -60,7 +61,7 @@ cargo fmt --all            # 格式化
 ## 构建
 
 ```bash
-npm run tauri build    # 产出安装包（Windows: NSIS/MSI；macOS: .app/.dmg）
+npm run tauri build    # 产出 .app / .dmg（bundle.targets 已钉为 app+dmg）
 bash package-macos.sh  # macOS 必需收尾：OpenCV dylib 收进包内 + 重签，产出 dist/macos/*.dmg
 ```
 
@@ -81,7 +82,6 @@ macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对�
 
 ## 数据存储
 
-- Windows：`%APPDATA%\VoucherStudio\data`
 - macOS：`~/Library/Application Support/VoucherStudio`
 
 包含：`voucher.db`（SQLite）、`attachments/`（附件图片）、`backups/`（备份）、`exports/`（导出 PDF）、`models/`（OCR 模型）、`logs/`。
