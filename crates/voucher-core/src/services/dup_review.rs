@@ -271,11 +271,15 @@ pub fn remove_duplicate(
                 keep.voucher_no, remove.voucher_no
             )));
         }
-        // 留痕：被删凭证的完整 JSON + 附件清单（凭证行删除后仍可追溯）
+        // 留痕：被删凭证的完整 JSON + 附件清单（凭证行删除后仍可追溯）。
+        // 同时记下**保留侧**的 id 与编号：被删的凭证已不在库里，只留 removed_id 的话
+        // 「已处理」列表就显示不出"留的是哪一张"（编号要再查一次库，还可能已被删）。
         let attachments = attachment_repo::list_by_voucher(tx, remove_id)?;
         let payload = serde_json::json!({
             "voucher": serde_json::to_value(&remove)?,
             "attachments": serde_json::to_value(&attachments)?,
+            "keptVoucherId": keep_id,
+            "keptVoucherNo": keep.voucher_no,
         });
         let decision_id = dup_decision_repo::upsert(
             tx,

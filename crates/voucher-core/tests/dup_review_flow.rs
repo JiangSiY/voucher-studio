@@ -196,6 +196,14 @@ fn remove_duplicate_keeps_audit_payload_and_cleans_files() -> Result<()> {
         payload["attachments"][0]["fileHash"], "hash-dup-201",
         "附件清单也要留痕（含内容哈希，便于日后核对原始图片）"
     );
+    assert_eq!(
+        (
+            payload["keptVoucherId"].clone(),
+            payload["keptVoucherNo"].clone()
+        ),
+        (serde_json::json!(keep.id), serde_json::json!("记-201")),
+        "保留侧也要留痕，否则「已处理」列表显示不出留的是哪一张"
+    );
 
     assert!(!abs.exists(), "被删凭证的附件文件应被清理");
     assert!(

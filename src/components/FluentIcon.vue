@@ -88,6 +88,8 @@ const ICONS: Record<string, string> = {
     '<path d="M12 4l8.66 14.5a1 1 0 0 1-.87 1.5H4.21a1 1 0 0 1-.87-1.5L12 4z"/><path d="M12 10v4.5M12 17.5v.01"/>',
   info:
     '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.25M12 7.75v.01"/>',
+  duplicate:
+    '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="1.5"/><path d="M15.5 8.5V5.5A1.5 1.5 0 0 0 14 4H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/>',
 
   // ---- 查看 ----
   zoomIn:

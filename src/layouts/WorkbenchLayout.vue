@@ -25,6 +25,7 @@ const navGroups = [
     group: "凭证管理",
     items: [
       { to: "/vouchers", icon: "list", label: "凭证列表" },
+      { to: "/duplicates", icon: "duplicate", label: "重复核查" },
       { to: "/print", icon: "print", label: "打印中心" },
       { to: "/exports", icon: "chart", label: "导出历史" },
     ],

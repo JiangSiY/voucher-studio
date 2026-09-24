@@ -27,6 +27,7 @@ type Command = {
 const commands: Command[] = [
   { key: "nav:dash", label: "前往 仪表盘", hint: "统计与趋势", icon: "dashboard", run: () => router.push("/") },
   { key: "nav:list", label: "前往 凭证列表", hint: "筛选 / 批量操作", icon: "list", run: () => router.push("/vouchers") },
+  { key: "nav:duplicates", label: "前往 重复核查", hint: "疑似重复的比对与处置", icon: "duplicate", run: () => router.push("/duplicates") },
   { key: "nav:new", label: "新建凭证", hint: "选图建卡 + OCR", icon: "plus", run: () => router.push("/vouchers/new") },
   { key: "nav:search", label: "前往 全文搜索", hint: "编号 / 摘要 / OCR 文本", icon: "search", run: () => router.push("/search") },
   { key: "nav:print", label: "前往 打印中心", hint: "PDF / Excel / CSV 导出", icon: "print", run: () => router.push("/print") },

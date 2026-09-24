@@ -11,6 +11,8 @@ export const router = createRouter({
         { path: "", redirect: "/dashboard" },
         { path: "dashboard", name: "dashboard", component: () => import("../pages/DashboardPage.vue"), meta: { title: "仪表盘" } },
         { path: "vouchers", name: "vouchers", component: () => import("../pages/VoucherListPage.vue"), meta: { title: "凭证列表" } },
+        // v0.16 疑似重复核查（静态段须在 vouchers/:id 之前，避免被动态段吃掉）
+        { path: "duplicates", name: "duplicates", component: () => import("../pages/DuplicateReviewPage.vue"), meta: { title: "重复核查" } },
         { path: "vouchers/new", name: "voucher-new", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "新建凭证", reading: true } },
         { path: "vouchers/:id", name: "voucher-edit", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "编辑凭证", reading: true } },
         { path: "search", name: "search", component: () => import("../pages/SearchPage.vue"), meta: { title: "搜索" } },

@@ -301,7 +301,15 @@ export interface DupDecision {
   decision: DupDecisionKind;
   keepId?: number | null;
   removedId?: number | null;
-  removedPayload?: { voucher?: Voucher; attachments?: Attachment[] } | null;
+  removedPayload?: {
+    /** 被删凭证的完整快照 */
+    voucher?: Voucher;
+    /** 被删凭证的附件清单（含内容哈希） */
+    attachments?: Attachment[];
+    /** 保留侧（被删的依据：留的是哪一张） */
+    keptVoucherId?: number;
+    keptVoucherNo?: string;
+  } | null;
   note: string;
   createdAt: string;
 }
