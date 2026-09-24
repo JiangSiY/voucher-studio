@@ -16,7 +16,10 @@ serde_json.workspace = true
 log.workspace = true
 chrono.workspace = true
 tokio = { version = "1", features = ["time"] }
-tauri = { version = "2", features = ["protocol-asset"] }
+# macos-private-api：透明窗口 + 原生材质（windowEffects）在 macOS 上的前置条件
+# （规范 §1.4；Spike M 已验证 透明 + sidebar 材质被系统接受）。代价：不可上架 App Store
+# —— 本项目本就 ad-hoc 签名、不上架，见 README「已知限制」。
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

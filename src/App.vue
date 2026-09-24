@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "./composables/safeListen";
 import { useRouter } from "vue-router";
@@ -7,6 +7,7 @@ import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type Recover
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { useDupStore } from "./stores/dup";
+import { useUiStore } from "./stores/ui";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
 import FluentIcon from "./components/FluentIcon.vue";
@@ -17,12 +18,13 @@ const dupStore = useDupStore();
 const router = useRouter();
 
 // v0.13：全局命令面板（Ctrl+K）
-const paletteVisible = ref(false);
+const ui = useUiStore();
+const paletteVisible = computed(() => ui.paletteVisible);
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
     e.preventDefault();
-    paletteVisible.value = !paletteVisible.value;
+    ui.togglePalette();
   }
 }
 
@@ -160,7 +162,7 @@ onUnmounted(() => {
   <router-view />
 
   <!-- v0.13：全局命令面板（Ctrl+K）：页面跳转 / 快速动作 / 凭证搜索 -->
-  <CommandPalette :visible="paletteVisible" @close="paletteVisible = false" />
+  <CommandPalette :visible="paletteVisible" @close="ui.closePalette()" />
 
   <!-- 拖放导入遮罩（Rust 侧 drag-enter/leave 事件驱动） -->
   <div v-if="draggingOver" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>

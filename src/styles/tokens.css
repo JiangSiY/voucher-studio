@@ -1,37 +1,53 @@
 /**
- * Fluent Design 令牌（1:1 移植自 voucher-print-ui-scheme 设计方案）
- * 主题切换：html[data-theme="light" | "dark"]
+ * 设计令牌（v0.18 重写：**macOS 27 语义层**）
+ *
+ * 正本：`docs/UI-设计规范-macOS27.md` §1。要点：
+ * - 新语义令牌（`--bg-*` / `--label-*` / `--separator*` / `--radius-*` / `--control-h-*` /
+ *   `--type-*` / `--motion-*`）是**唯一真源**；
+ * - 旧 Fluent 令牌（`--surface*` / `--text*` / `--stroke*` / `--r-*` / `--shadow-*` /
+ *   `--mica-tint`）**全部保留为别名**，指向新令牌——既有 300+ 处引用与
+ *   `tokenContract.test.ts` 的 5 个锚点名（`--surface`/`--text`/`--stroke`/`--accent`/
+ *   `--sidebar-w`）因此不需要一次性改动（引用迁移放到批次 6）。
+ * - 浅色为默认；深色由 `html[data-theme="dark"]` 提供，并在文件末尾用一条
+ *   `@media (prefers-color-scheme: dark)` 给**首帧兜底**（主题属性由 JS 写入，
+ *   写入前的极短窗口内需要跟随系统；CSP 是 `default-src 'self'`，**不能用内联脚本**）。
+ * 主题切换：`html[data-theme="light" | "dark"]`。
  */
+
 :root,
 html[data-theme="light"] {
-  /* Accent */
-  --accent: #0078d4;
-  --accent-hover: #006cbe;
-  --accent-active: #005a9e;
-  --accent-soft: #eaf4fc;
-  --accent-soft-2: #d6ebf9;
+  /* ===== 新语义层：表面 ===== */
+  --bg-window: #ececec;
+  /* 侧栏：叠在**原生材质**上的半透明着色（材质由 windowEffects 提供，见规范 §1.4）；
+     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
+  --bg-sidebar: rgba(243, 243, 243, 0.55);
+  --bg-sidebar-solid: #e8e8ec;
+  /* 内容区：**不透明**，长阅读对比度优先 */
+  --bg-content: #ffffff;
+  --bg-control: #ffffff;
+  --bg-popover: rgba(247, 247, 250, 0.92);
+  --bg-popover-solid: #f7f7fa;
+  --bg-selection: rgba(10, 132, 255, 0.12);
 
-  /* Neutral */
-  --bg: #f3f3f3;
-  --surface: #ffffff;
-  --surface-2: #fafafa;
-  --surface-3: #f5f5f5;
-  --surface-hover: #f0f0f0;
-  --surface-active: #e8e8e8;
+  /* ===== 新语义层：文字 ===== */
+  --label-primary: rgba(0, 0, 0, 0.85);
+  --label-secondary: rgba(0, 0, 0, 0.55);
+  --label-tertiary: rgba(0, 0, 0, 0.35);
+  --label-quaternary: rgba(0, 0, 0, 0.2);
+  --label-on-accent: #ffffff;
 
-  /* Text */
-  --text: #1f1f1f;
-  --text-2: #323232;
-  --text-3: #606060;
-  --text-4: #8e8e8e;
-  --text-disabled: #b0b0b0;
+  /* ===== 新语义层：分隔线 ===== */
+  --separator: rgba(0, 0, 0, 0.1);
+  --separator-strong: rgba(0, 0, 0, 0.18);
 
-  /* Stroke */
-  --stroke: #e1e1e1;
-  --stroke-2: #d1d1d1;
-  --stroke-3: #c4c4c4;
+  /* ===== 新语义层：强调色（macOS 默认蓝；系统强调色不可读，见规范 §1.6）===== */
+  --accent: #0a84ff;
+  --accent-hover: #0077ed;
+  --accent-active: #0069d9;
+  --accent-soft: rgba(10, 132, 255, 0.12);
+  --accent-soft-2: rgba(10, 132, 255, 0.22);
 
-  /* Status */
+  /* ===== 状态色（沿用既有取值：可读性已验证，仅强调色改 macOS 蓝）===== */
   --success: #107c10;
   --success-soft: #dff6dd;
   --warning: #ff8c00;
@@ -40,26 +56,35 @@ html[data-theme="light"] {
   --danger-soft: #fde7e9;
   --info-soft: #eaf4fc;
 
-  /* Acrylic */
-  --acrylic-bg: rgba(252, 252, 252, 0.85);
-  --acrylic-blur: saturate(180%) blur(30px);
-  /* 窗口级 Mica 上叠加的侧栏着色（兼顾无效果系统下的可读性兜底） */
-  --mica-tint: rgba(243, 243, 243, 0.5);
+  /* ===== 新语义层：圆角（同心：子圆角 = 父圆角 − 内边距，clamp ≥4）===== */
+  --radius-window: 10px;
+  --radius-panel: 12px;
+  --radius-control: 6px;
+  --radius-small: 4px;
 
-  /* Depth */
-  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-8: 0 4px 8px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-16: 0 8px 16px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.06);
+  /* ===== 新语义层：控件高度 ===== */
+  --control-h-sm: 22px;
+  --control-h-md: 28px;
+  --control-h-lg: 32px;
 
-  /* Radius */
-  --r-2: 2px;
-  --r-4: 4px;
-  --r-6: 6px;
-  --r-8: 8px;
+  /* ===== 新语义层：字体与排版 ===== */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --type-title: 600 15px/1.35 var(--font);
+  --type-body: 400 13px/1.5 var(--font);
+  --type-caption: 400 11px/1.4 var(--font);
+  --type-mono-sm: 400 12px/1.45 var(--font-mono);
 
-  /* Spacing */
+  /* ===== 新语义层：阴影（内容区不用阴影，仅浮层）===== */
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+
+  /* ===== 新语义层：动效（Apple 常用曲线）===== */
+  --motion-fast: 120ms;
+  --motion-normal: 200ms;
+  --motion-curve: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* ===== 间距（沿用既有 4px 基数）===== */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -70,37 +95,67 @@ html[data-theme="light"] {
   --s-10: 40px;
   --s-16: 64px;
 
-  /* Font */
-  --font: "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono: "Cascadia Code", "Consolas", "SF Mono", "JetBrains Mono", monospace;
-
-  /* Layout */
+  /* ===== 布局 ===== */
   --sidebar-w: 260px;
+  /* 统一工具栏高度（自绘工具栏；左侧为交通灯留白 84px，见规范 §1.4） */
+  --toolbar-h: 52px;
+  --toolbar-inset-start: 84px;
+
+  /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6）===== */
+  --bg: var(--bg-window);
+  --surface: var(--bg-content);
+  --surface-2: #fafafa;
+  --surface-3: #f5f5f5;
+  --surface-hover: #f0f0f0;
+  --surface-active: #e8e8e8;
+
+  --text: var(--label-primary);
+  --text-2: rgba(0, 0, 0, 0.72);
+  --text-3: var(--label-secondary);
+  --text-4: var(--label-tertiary);
+  --text-disabled: var(--label-quaternary);
+
+  --stroke: var(--separator);
+  --stroke-2: var(--separator-strong);
+  --stroke-3: rgba(0, 0, 0, 0.24);
+
+  --mica-tint: var(--bg-sidebar);
+
+  --r-2: 2px;
+  --r-4: var(--radius-small);
+  --r-6: var(--radius-control);
+  --r-8: var(--radius-panel);
+
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-8: var(--shadow-menu);
+  --shadow-16: var(--shadow-popover);
+  --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 html[data-theme="dark"] {
-  --accent: #4cc2ff;
-  --accent-hover: #6ecfff;
-  --accent-active: #2ba3e0;
-  --accent-soft: rgba(76, 194, 255, 0.14);
-  --accent-soft-2: rgba(76, 194, 255, 0.24);
+  --bg-window: #1e1e1e;
+  --bg-sidebar: rgba(38, 38, 42, 0.55);
+  --bg-sidebar-solid: #252528;
+  --bg-content: #1c1c1e;
+  --bg-control: #2c2c2e;
+  --bg-popover: rgba(42, 42, 45, 0.94);
+  --bg-popover-solid: #2a2a2d;
+  --bg-selection: rgba(10, 132, 255, 0.2);
 
-  --bg: #202020;
-  --surface: #2b2b2b;
-  --surface-2: #272727;
-  --surface-3: #232323;
-  --surface-hover: #333333;
-  --surface-active: #3a3a3a;
+  --label-primary: rgba(255, 255, 255, 0.92);
+  --label-secondary: rgba(255, 255, 255, 0.62);
+  --label-tertiary: rgba(255, 255, 255, 0.42);
+  --label-quaternary: rgba(255, 255, 255, 0.28);
 
-  --text: #ffffff;
-  --text-2: #f0f0f0;
-  --text-3: #c8c8c8;
-  --text-4: #9e9e9e;
-  --text-disabled: #6e6e6e;
+  --separator: rgba(255, 255, 255, 0.12);
+  --separator-strong: rgba(255, 255, 255, 0.2);
 
-  --stroke: #3d3d3d;
-  --stroke-2: #4d4d4d;
-  --stroke-3: #5c5c5c;
+  --accent: #0a84ff;
+  --accent-hover: #3d9bff;
+  --accent-active: #0069d9;
+  --accent-soft: rgba(10, 132, 255, 0.16);
+  --accent-soft-2: rgba(10, 132, 255, 0.28);
 
   --success: #6ccb5f;
   --success-soft: rgba(108, 203, 95, 0.16);
@@ -108,15 +163,19 @@ html[data-theme="dark"] {
   --warning-soft: rgba(255, 210, 100, 0.14);
   --danger: #ff99a4;
   --danger-soft: rgba(255, 99, 105, 0.16);
-  --info-soft: rgba(76, 194, 255, 0.12);
+  --info-soft: rgba(10, 132, 255, 0.12);
 
-  --acrylic-bg: rgba(32, 32, 32, 0.85);
-  --mica-tint: rgba(32, 32, 32, 0.55);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 
+  --surface-2: #272727;
+  --surface-3: #232323;
+  --surface-hover: #333333;
+  --surface-active: #3a3a3a;
+  --text-2: rgba(255, 255, 255, 0.82);
+  --stroke-3: rgba(255, 255, 255, 0.26);
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
   --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
-  --shadow-8: 0 4px 8px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
-  --shadow-16: 0 8px 16px rgba(0, 0, 0, 0.4), 0 0 1px rgba(0, 0, 0, 0.3);
   --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
@@ -133,4 +192,46 @@ html[data-theme="dark"] {
   --surface-1: var(--surface);
   --text-1: var(--text);
   --border: var(--stroke);
+}
+
+/* 首帧兜底：主题属性由 JS 写入（`stores/config.ts`），写入前若系统是深色，
+   基础令牌的浅色值会闪一下。CSP 禁内联脚本，故用纯 CSS 跟随系统——
+   只覆盖最显眼的数个令牌（完整深色值仍以 `html[data-theme="dark"]` 为准，
+   两者数值保持一致，改一处请同步另一处）。 */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    --bg-window: #1e1e1e;
+    --bg-sidebar: rgba(38, 38, 42, 0.55);
+    --bg-sidebar-solid: #252528;
+    --bg-content: #1c1c1e;
+    --bg-control: #2c2c2e;
+    --bg-popover: rgba(42, 42, 45, 0.94);
+    --bg-popover-solid: #2a2a2d;
+    --bg-selection: rgba(10, 132, 255, 0.2);
+    --label-primary: rgba(255, 255, 255, 0.92);
+    --label-secondary: rgba(255, 255, 255, 0.62);
+    --label-tertiary: rgba(255, 255, 255, 0.42);
+    --label-quaternary: rgba(255, 255, 255, 0.28);
+    --separator: rgba(255, 255, 255, 0.12);
+    --separator-strong: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* 无障碍回退（规范 §4）：系统开启「减少透明度」时，材质不可依赖 → 全部改实色。
+   Spike M 已验证该媒体查询在 WKWebView 可读。 */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  html[data-theme="light"],
+  html[data-theme="dark"] {
+    --bg-sidebar: var(--bg-sidebar-solid);
+    --bg-popover: var(--bg-popover-solid);
+  }
+}
+
+/* 无障碍回退：系统要求减少动效 → 过渡与动画全部关闭 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-normal: 0ms;
+  }
 }

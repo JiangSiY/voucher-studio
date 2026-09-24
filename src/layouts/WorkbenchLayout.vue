@@ -3,12 +3,14 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
+import { useUiStore } from "../stores/ui";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 
 const route = useRoute();
 const configStore = useConfigStore();
 const dupStore = useDupStore();
+const ui = useUiStore();
 
 // 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
 const isReading = computed(() => route.meta.reading === true);
@@ -44,6 +46,11 @@ const navGroups = computed(() => [
 ]);
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "");
+
+/** 工具栏右侧动作：打开命令面板（与 ⌘K 同一入口） */
+function openPalette() {
+  ui.openPalette();
+}
 </script>
 
 <template>
@@ -77,9 +84,20 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "");
     <SidebarResizeHandle />
 
     <div class="main-area">
+      <!-- 统一工具栏（自绘）：整条可拖动窗口、双击最大化；左侧 84px 给交通灯留白
+           （trafficLightPosition 14,18）。拖拽依赖 `core:window:allow-start-dragging`
+           权限——它不在 core:default 里，见 capabilities/default.json。 -->
+      <header class="unified-toolbar" data-tauri-drag-region>
+        <h1 class="toolbar-title">{{ pageTitle }}</h1>
+        <div class="toolbar-actions">
+          <button class="toolbar-btn" title="命令面板（⌘K）" @click="openPalette">
+            <FluentIcon name="search" :size="15" />
+            <span class="toolbar-hint">⌘K</span>
+          </button>
+        </div>
+      </header>
       <div class="main-scroll">
         <div class="page" :class="{ 'page--reading': isReading }">
-          <h1 class="page-title">{{ pageTitle }}</h1>
           <router-view />
         </div>
       </div>

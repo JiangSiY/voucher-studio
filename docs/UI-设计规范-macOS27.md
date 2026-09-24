@@ -1,0 +1,274 @@
+# UI 设计规范 · macOS 27（v0.18 重构正本）
+
+> **定位**：本文是 voucher-studio 界面与交互的**唯一设计正本**。代码（`src/styles/tokens.css`、
+> `src/styles/base.css`、页面组件）与文档冲突时以本文为准；本文与 macOS 27 实际行为冲突时
+> 以真机取证为准（并回写本文）。
+> **替代关系**：取代原 Fluent Design 视觉语言（亚克力/Reveal/#0078D4/Segoe UI）。
+> **前置取证**：`spikes/macos-window/README.md`（Spike M，2026-09-24 · macOS 27 · Apple Silicon）。
+> **范围**：视觉令牌、控件规格、材料与层级、交互与信息架构、数据可视化与联动契约、无障碍与键盘。
+> **不改**：业务功能语义、数据层、PDF 导出链路（打印相关只做观感适配，见 §7）。
+
+---
+
+## 0. 设计原则（先定原则，再定数值）
+
+1. **内容优先，材料只做 chrome**：原生材质（vibrancy/玻璃）只用于**窗口级 chrome**——侧栏、
+   统一工具栏、浮层（对话框/菜单/命令面板）。**内容区永远不透明**，保证长时间阅读的对比度。
+2. **不叠"圆角卡片套圆角卡片"**：层级用**分隔线 + 间距**表达，卡片不再层层嵌套；圆角只在
+   需要区分"容器/控件"时出现，并遵循**同心圆角**（子元素圆角 = 父圆角 − 内边距，clamp 到 ≥4）。
+3. **一份口径只定义一次**：任何数字在界面上出现时，同屏只有一种时间窗/状态口径；跨块差异必须
+   **显式标注**（如"全库"、"窗口内"、"前 10"）。历史教训：旧仪表盘同屏三套口径互不说明。
+4. **可点即可达**：任何统计/图表元素都能下钻到对应筛选的列表；下钻参数走统一构造器，
+   列表页回显"来自工作台：本月 + 草稿 ×"并可一键清除。
+5. **无障碍是下限不是加分项**：`prefers-reduced-transparency` / `-motion` / `contrast`
+   三档回退必须实装（Spike M 已验证可读）。
+6. **系统观感优先于品牌表达**：系统字体、系统语义色、系统强调色（当前为固定值，见 §1.6）、
+   交通灯与工具栏按 macOS 惯例排布。
+
+---
+
+## 1. 视觉令牌（`src/styles/tokens.css` 重写）
+
+### 1.1 命名与分层
+
+语义命名（**不用**"颜色名/尺度名"直接命名），三层结构：
+
+```
+--bg-*        表面（window / sidebar / content / control / popover / selection）
+--label-*     文字（primary / secondary / tertiary / quaternary / on-accent）
+--separator*  分隔线（separator / separator-strong）
+--accent*     强调色（accent / accent-soft / on-accent）
+--radius-*    圆角（window / panel / control / small）
+--control-h-* 控件高度（sm / md / lg）
+--space-*     间距（沿用既有 --s-*，4px 基数）
+--type-*      字号/行高/字重（见 §1.3）
+--shadow-*    阴影（popover / menu / window；**内容区不用阴影**）
+--motion-*    动效（fast / normal / curve）
+```
+
+### 1.2 数值（浅色 / 深色）
+
+| 令牌 | 浅色 | 深色 | 用途 |
+|---|---|---|---|
+| `--bg-window` | `#ececec` | `#1e1e1e` | 窗口底（内容区不可见它，仅作兜底） |
+| `--bg-sidebar` | 材质透出（回退 `#e8e8ec`） | 同左（回退 `#252528`） | 侧栏；`prefers-reduced-transparency: reduce` 时用回退实色 |
+| `--bg-content` | `#ffffff` | `#1c1c1e` | 内容区（**不透明**） |
+| `--bg-control` | `#ffffff` | `#2c2c2e` | 输入框/按钮底 |
+| `--bg-popover` | 材质透出 + `--shadow-popover`（回退 `#f7f7fa`） | 同左（回退 `#2a2a2d`） | 对话框/菜单/命令面板 |
+| `--bg-selection` | `--accent` 12% | `--accent` 20% | 选中行/选中段 |
+| `--label-primary` | `rgba(0,0,0,.85)` | `rgba(255,255,255,.92)` | 正文/标题 |
+| `--label-secondary` | `rgba(0,0,0,.55)` | `rgba(255,255,255,.62)` | 次要信息、表头 |
+| `--label-tertiary` | `rgba(0,0,0,.35)` | `rgba(255,255,255,.42)` | 说明、占位 |
+| `--label-quaternary` | `rgba(0,0,0,.20)` | `rgba(255,255,255,.28)` | 禁用 |
+| `--separator` | `rgba(0,0,0,.10)` | `rgba(255,255,255,.12)` | 常规分隔线 |
+| `--separator-strong` | `rgba(0,0,0,.18)` | `rgba(255,255,255,.20)` | 工具栏下沿、表头下沿 |
+| `--accent` | `#0a84ff`（macOS 默认蓝，替代 `#0078D4`） | `#0a84ff` | 主要动作、选中、聚焦环 |
+| `--radius-window` | `10px` | | 窗口（由系统绘制，仅弹层/卡片参考用） |
+| `--radius-panel` | `12px` | | 面板/对话框/浮层 |
+| `--radius-control` | `6px` | | 按钮/输入框/分段控件 |
+| `--radius-small` | `4px` | | 标签、缩略图角标 |
+| `--control-h-sm` | `22px` | | 行内 icon 按钮、标签 |
+| `--control-h-md` | `28px` | | 常规按钮/输入框（**默认**） |
+| `--control-h-lg` | `32px` | | 主操作按钮、工具栏按钮 |
+| `--shadow-popover` | `0 8px 24px rgba(0,0,0,.18)` | 同左（更深） | 对话框/命令面板 |
+| `--shadow-menu` | `0 4px 12px rgba(0,0,0,.14)` | 同左 | 下拉/上下文菜单 |
+| `--motion-fast` | `120ms` | | hover/按下反馈 |
+| `--motion-normal` | `200ms` | | 面板出现、选中迁移 |
+| `--motion-curve` | `cubic-bezier(.32,.72,0,1)` | | Apple 常用曲线（替代 ease/ease-in-out） |
+
+**兼容别名（必须保留，契约测试依赖）**：`--surface`、`--text`、`--stroke`、`--accent`、
+`--sidebar-w` 五个名字继续存在，作为新令牌的单向别名：
+
+```css
+--surface: var(--bg-content);
+--text: var(--label-primary);
+--stroke: var(--separator);
+--accent: var(--accent);      /* 名字未变，仅取值改为 macOS 蓝 */
+--sidebar-w: 260px;           /* 运行时由 JS 写入，白名单变量 */
+```
+
+> 说明：`tokenContract.test.ts` 要求"被 `var()` 无 fallback 引用的令牌必须有定义"，
+> 且必须存在上述 5 个锚点名。别名层是**唯一允许**的双向过渡手段，避免一次性改 300+ 处引用。
+
+### 1.3 字体与排版
+
+| 令牌 | 值 | 用途 |
+|---|---|---|
+| `--font` | `-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif` | 全局（**去掉 Segoe UI / Microsoft YaHei**） |
+| `--font-mono` | `ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace` | 编号、金额、哈希 |
+| `--type-title` | `15px / 600 / 1.35` | 面板标题、对话框标题 |
+| `--type-body` | `13px / 400 / 1.5` | **正文基准**（由 14px 降到 13px，贴合 macOS 系统字号） |
+| `--type-caption` | `11px / 400 / 1.4` | 表头、辅助说明、标签 |
+| `--type-mono-sm` | `12px / 400 / 1.45` | 编号/金额（等宽） |
+
+**不做**：引入 webfont（`font-src 'self' data:` 允许但无必要；系统字体在 macOS 上最优）；
+不改 PDF 导出字体（后端 `find_cjk_font` 独立解析，与前端字体栈无关）。
+
+### 1.4 材料与层级（依据 Spike M）
+
+| 层 | 实现 | 回退 |
+|---|---|---|
+| 窗口 | `transparent: true` + `macOSPrivateApi: true` | —— |
+| 侧栏 | 原生材质（`windowEffects: {effects:["sidebar"]}`；M2 升级为 Liquid Glass 时改 `window-vibrancy` 的 `apply_liquid_glass`） | `prefers-reduced-transparency: reduce` → `--bg-sidebar` 实色 |
+| 工具栏 | **不透明** 半透明叠色（`--bg-sidebar` 同源）——工具栏与侧栏同材质、下沿 `--separator-strong` | 同上 |
+| 浮层 | `--bg-popover` + `--shadow-popover`；**不用 CSS `backdrop-filter`**（透明窗口下与 WKWebView 冲突，M4 待目视确认，规范先按"不用"写） | —— |
+| 内容区 | `--bg-content` **不透明** | —— |
+
+**窗口装饰**：`titleBarStyle: "Overlay"` + `hiddenTitle: true` + `trafficLightPosition: {x:14, y:18}`
+（Spike M 已验证）；自绘工具栏需要 `core:window:allow-start-dragging` 权限（**不在 `core:default` 中**，
+已加进 `capabilities/default.json`）；工具栏左侧固定留 84px 给交通灯。
+
+### 1.5 控件规格（速查）
+
+| 控件 | 规格 |
+|---|---|
+| 按钮（标准） | 高 28、圆角 6、`--bg-control` + `--separator` 描边、hover 提亮 4%、按下 `--motion-fast` |
+| 按钮（强调） | `--accent` 实底 + `--label-on-accent` 文字 |
+| 按钮（危险） | 文字 `--danger`、仅 hover 时淡红底（macOS 惯例：破坏性动作不抢视觉） |
+| 图标按钮 | 22×22、圆角 4、hover `--bg-selection` |
+| 输入框 | 高 28、圆角 6、内描边 `--separator`、聚焦时 3px `--accent` 25% 外环 |
+| 分段控件 | 高 24、圆角 6、选中段 `--bg-control` + 轻阴影（替代现 `tab-nav`/`fchip`） |
+| 开关 | 22×13 胶囊、开 = `--accent`（替代现 40×20 的 Fluent 样式） |
+| 表格 | 行高 28、**无斑马纹**、表头 11px `--label-secondary`、选中行 `--bg-selection`、行下沿 `--separator` |
+| 侧栏项 | 行高 28、图标 16、圆角 6、选中 `--bg-selection`、分组标题 11px `--label-tertiary` |
+| 工具栏 | 高 52、标题 13/600、右侧动作组、下沿 `--separator-strong` |
+| 对话框 | 宽 420–560、圆角 12、`--bg-popover` + `--shadow-popover`、按钮右对齐（取消在左） |
+| 通知条（toast） | 右上角、圆角 10、`--bg-popover`、宽 320、`--motion-normal` 滑入 |
+| 空状态 | 图标 42（`--label-quaternary`）+ 标题 13/600 + 说明 11px + 主操作 |
+
+### 1.6 强调色策略（依据 M6）
+
+`defaults read -g AppleHighlightColor/AppleAccentColor` 在默认强调色下**读不到**（Spike M 实证），
+故本版**不跟随系统强调色**，采用固定 `#0a84ff`（macOS 默认蓝）+ 未来可在设置页配置。
+若后续要跟随系统，需引入 `objc2-app-kit` 读 `NSColor.controlAccentColor`（登记为挂账）。
+
+---
+
+## 2. 交互与信息架构
+
+### 2.1 导航四组（侧栏）
+
+| 组 | 项 | 说明 |
+|---|---|---|
+| **工作台** | 仪表盘（含待办行动区）、搜索 | 每日开工入口 |
+| **凭证** | 凭证列表、重复核查（徽标）、新建凭证 | 录入与核对 |
+| **产出** | 打印中心、导出历史 | 打印/导出/归档 |
+| **数据与安全** | 备份与恢复、设置、帮助 | 维护 |
+
+**动作落点原则（一个动作只有一个主入口）**：配置留在设置页；**动作上工作台**——批量 OCR →
+待办卡 + 列表批量 + ⌘K；重建增强 → 健康度卡；期间锁/解锁 → 待办卡 + ⌘K；打开数据目录/日志 →
+帮助页 + ⌘K；立即备份 → 工作台 + 恢复页。设置页只保留配置项与"去工作台执行"的说明。
+
+### 2.2 操作逻辑修正（每条都有代码证据，见开发日志 2026-09-24 批次 3/后续批次）
+
+| 现状问题 | 目标行为 |
+|---|---|
+| 导入后只跳第 1 张；「下一张」会翻到历史凭证 | 导入结果携带**批次上下文**（`?batch=import-<ts>`），可"继续核对本批"；末张给"本批完成 / 同筛选剩余 N 张" |
+| 每张核对要两步（选状态 → 保存并下一张） | 新增「复核通过并下一张」（⌘⇧Enter）：`status=reviewed` + 保存 + 跳下一张（零后端改动） |
+| 全选只选当前页；跨页勾选会被清空 | **跨页选择集**（store）+「按筛选全选 N 条」（走 `list_voucher_ids`，不新增写路径） |
+| 封账月凭证可勾选、可批量提交，只在后端被拒 | 勾选与批量按钮按 `period_locks` 一致禁用，并提示"已跳过 N 张封账凭证" |
+| 打印中心不读 query、把全库拉进内存重筛 | 读筛选参数 + 服务端分页；与工作台下钻直连 |
+| 列表搜索不含 OCR、搜索页含 OCR 且截断 100 条 | 统一口径（`includeOcr` 开关）+ 分页与总数提示 |
+| 对账入口藏在仪表盘一个小按钮、报告切页即丢 | 入口常驻（工作台 + ⌘K）+ 报告会话内保留 + "账单无凭证"行可补录预填 |
+| 长任务反馈不均（按钮路径连 `import:started` 都不发） | **任务中心**（全局浮层，可最小化）：导入/OCR/导出/增强统一进度；后端仅补**附加**进度事件 |
+| 加载/失败/无数据三态不分 | 统一骨架 + `EmptyState` + 显式失败降级；`load()` 并行化 |
+
+### 2.3 键盘总表
+
+| 快捷键 | 动作 |
+|---|---|
+| ⌘K | 命令面板（含**动作组**：备份 / 对账 / 批量识别 / 重建增强 / 锁定期间 / 打开数据目录） |
+| ⌘S | 保存当前凭证 |
+| ⌘⇧Enter | **复核通过并下一张**（新增） |
+| ⌘Enter | 保存并下一张 |
+| ⌥← / ⌥→ | 上一张 / 下一张 |
+| ↑ ↓ ← → | 图表内遍历数据点；Enter 下钻；Esc 清除选择 |
+| Esc | 关闭浮层（对话框/命令面板/菜单），焦点归还触发元素 |
+
+---
+
+## 3. 数据可视化与联动契约
+
+### 3.1 每个图表必须满足（缺一即不合格）
+
+1. **hover**：精确数值 tooltip（张数 + 金额 + 占比），不用 `<title>` 原生提示代替；
+2. **click**：按统一构造器生成筛选参数并跳列表页（或在页内切换口径）；
+3. **键盘**：方向键遍历数据点、Enter 下钻、Esc 清除；
+4. **无障碍**：`role="img"` + `aria-label` 概述 + 可切换"数据表视图"兜底；
+5. **口径标注**：块标题右侧小字标注口径（全库 / 窗口内 / 前 N）；
+6. **空与稀疏**：空库 → 引导态；数据不足（如仅 1 个月）→ 不显示环比/趋势线，给出说明文案。
+
+### 3.2 工作台（仪表盘）排布
+
+```
+工具栏（52px）：标题「工作台」                      ⌘K  任务中心  ⟳
+① 口径控制器（唯一真源，写 URL）：时间窗[本月|近3月|近6月|今年|自定义] · 状态[全部|草稿|已复核|已导出|已归档]
+② 待办与健康度（首屏最高优先，可折叠）
+   待识别 N ｜ 未填金额 N ｜ 疑似重复 N 对（高置信 M）｜ 陈旧草稿 N ｜ 未封账 M 月 ｜ 备份 X 小时前 ｜ 增强缺失 N ｜ 库完整性 ✓
+③ 主图表（左 2/3）                          ④ 排行（右 1/3）
+   月度趋势（金额柱 / 张数折线，可切指标）       Top 对方账户（占比、"更多"、精确下钻）
+   状态分布堆叠条（与顶部状态双向同步）          Top 标签（精确，含未分类）
+   导出覆盖度（已导出 / 从未导出）              存储占用（原图 / 增强版 / OCR 缓存）
+⑤ 洞察与活动（下屏）：金额异常（空/0/负/极大）· 从未导出清单 · 最近处置留痕
+   最近凭证（含"查看全部"）· 最近导出批次（含 pdf/xlsx/csv）· 上次对账（重跑/看报告）
+```
+
+### 3.3 指标口径表（**新增数字前必须先在此登记**）
+
+| 指标 | 定义 | 数据来源 | 刷新时机 |
+|---|---|---|---|
+| 窗口张数/金额 | `voucher_date` 落在 `[dateFrom, dateTo]`（含端点）的张数与 `amount_cents` 合计（空金额不计） | `dashboard_overview` | 口径控制器变化 |
+| 环比 | 与**上一等长天数**窗口比较（不按月回推，避免月份长度不齐的假落差） | 同上（`prev*` 字段） | 同上 |
+| 状态分布 | 窗口内**完整构成**，**不随**顶部状态筛选收窄（供堆叠条） | 同上（`byStatus`） | 同上 |
+| 全库总数 / 附件数 / 本月新增 | 全库口径，界面须标注"全库" | 同上 | 同上 |
+| 待识别 | `attachments.ocr_status IN ('pending','failed')` 的附件数 | `dashboard_todos` | 打开工作台、OCR 完成事件 |
+| 未填金额 | `vouchers.amount_cents IS NULL` 的凭证数 | 同上 | 同上 |
+| 陈旧草稿 | `status='draft'` 且 `updated_at` 早于 **7 天** | 同上 | 同上 |
+| 未封账往月 | 有凭证、月份早于当前月、且无 `period_locks` 记录的月份数 | 同上 | 同上 |
+| 备份新鲜度 | 备份目录内最新 `.zip` 的 mtime（**不读 manifest**）；超 24h 视为陈旧 | 同上（目录扫描） | 同上 |
+| 疑似重复 | 未判定对数与高置信度对数（同图 ∨ 同对方∧同摘要），**与核查队列口径一致**（有用例锁定） | `duplicate_pending_count` | `dup:changed` 事件 |
+| 从未导出 | `export_items` 中无该凭证记录（口径含已归档；**待批次 5 实装**） | `export_coverage` | 打开工作台 |
+| 库完整性 / 附件缺失 | 启动时健康检查缓存（**不在工作台重算**，避免全表 stat） | `get_recovery_report` | 启动时一次 |
+
+---
+
+## 4. 无障碍
+
+| 项 | 要求 |
+|---|---|
+| 聚焦环 | `:focus-visible` 统一 3px `--accent` 25% 外环 + 2px 实色边，**不得** `outline: none` 无替代 |
+| 焦点管理 | 对话框/命令面板：打开时聚焦首个可操作元素，**Tab 循环留在浮层内**，Esc 关闭并**归还焦点** |
+| 减少透明度 | `prefers-reduced-transparency: reduce` → 侧栏/工具栏/浮层全部改实色（`--bg-sidebar`/`--bg-popover`） |
+| 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭（`--motion-*` 置 0） |
+| 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary` |
+| 现有基线 | 保留并补强既有 16 处 `role` 与 25 处 `aria-*`（ToastHost `aria-live`、对话框 `aria-modal`、侧栏手柄 aria-value 等） |
+
+---
+
+## 5. 打印链路（与 UI 重构隔离）
+
+- `@media print` + `.print-only` 机制与 `VoucherCard` 三种风格（standard / clean / ledger）**保持不变**，
+  只做灰阶/对比度适配（打印不吃材料与补色）。
+- 打印中心的取图规则必须与 PDF 附录一致（既有约定，重构不得破坏）。
+- PDF 导出（printpdf 后端）与前端字体/样式**无耦合**。
+
+---
+
+## 6. 实施与验收
+
+| 批次 | 内容 | 验收 |
+|---|---|---|
+| 4 | 令牌层 + 窗口基座（透明/材质/Overlay/ACL）+ 工作台样张 + 本文 | 真机截图（深浅两色）+ 本规范逐条对照 |
+| 5 | 后端只读扩展（月度透视 / 导出覆盖度 / 存储占用 / `VoucherQuery` 扩维） | Rust 用例 + 口径登记 |
+| 6 | 基座全量（控件层、图表基础、任务中心、三态、对话框焦点） | 四门 + 新契约守卫 |
+| 7 | 工作台正式版（全联动 + 待办行动区 + 洞察区） | 交互清单 + 数据正确性清单 |
+| 8 | IA 重组 + 操作逻辑 + 信息增强（列表列/快照 diff/搜索分页） | 契约测试同步改写 |
+| 9 | 细节、走查、文档、v0.18.0 发布 | 清单2/3 增补项走查 + 截图入库 |
+
+**样张验收清单（用户逐条核对）**
+- 视觉 12 项：侧栏材质浅/深对比度 · 交通灯留白 · 13px 正文层级 · 圆角同心 · 分隔线层级 ·
+  聚焦环可见性 · 表格行高与选中态 · 按钮四态 · 空状态 · 菜单/下拉 · 通知条 · 图表配色与网格
+- 交互 8 项：⌘K 与动作组 · 时间窗切换联动 · 状态筛选双向 · 点柱下钻并回显来源 · Top 精确筛选 ·
+  待办卡直达筛选 · 返回保留选择 · 键盘遍历图表
+- 数据正确性 6 项：统计与列表 total 一致 · 环比公式（不足 2 月不显示）· 待办计数与筛选结果一致 ·
+  疑似重复计数与队列一致 · "从未导出"口径 · 空库/单月降级

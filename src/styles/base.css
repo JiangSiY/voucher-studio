@@ -45,10 +45,11 @@ body {
   width: var(--sidebar-w);
   flex-shrink: 0;
   height: 100vh;
-  /* 窗口级 Mica/Acrylic 已提供模糊质感，这里仅叠半透明着色；
-     保留底色亦是无效果系统下的可读性兜底 */
-  background: var(--mica-tint);
-  border-right: 1px solid var(--stroke);
+  /* 原生 sidebar 材质（windowEffects，规范 §1.4）：这里只叠一层半透明着色，
+     模糊质感由窗口级材质提供；`prefers-reduced-transparency: reduce` 时
+     tokens 会把 --bg-sidebar 换成实色（无障碍回退，Spike M 已验证媒体查询可读） */
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -171,8 +172,65 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  /* 内容区不透明：Mica 只在侧栏透出，保证正文可读性 */
-  background: var(--bg);
+  /* 内容区**不透明**：材质只用于窗口 chrome（侧栏/工具栏），正文对比度优先（规范 §0.1） */
+  background: var(--bg-content);
+}
+
+/* 统一工具栏（自绘，规范 §1.4/§1.5）：整条可拖动窗口、双击最大化；
+   左侧留白给交通灯（--toolbar-inset-start = 84px，对应 trafficLightPosition 14,18） */
+.unified-toolbar {
+  height: var(--toolbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-3) 0 var(--toolbar-inset-start);
+  border-bottom: 1px solid var(--separator-strong);
+  /* 与侧栏同源：材质由窗口提供，这里只叠着色 */
+  background: var(--bg-sidebar);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.unified-toolbar .toolbar-title {
+  font: var(--type-title);
+  color: var(--label-primary);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-toolbar .toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+/* 工具栏按钮：不参与拖拽（drag-region 在父级，按钮自身要能点击） */
+.unified-toolbar .toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--control-h-md);
+  padding: 0 var(--s-2);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  color: var(--label-secondary);
+  font: var(--type-caption);
+  transition: background var(--motion-fast) var(--motion-curve);
+}
+
+.unified-toolbar .toolbar-btn:hover {
+  background: var(--bg-selection);
+  color: var(--label-primary);
+}
+
+.unified-toolbar .toolbar-hint {
+  color: var(--label-tertiary);
 }
 
 .main-scroll {
