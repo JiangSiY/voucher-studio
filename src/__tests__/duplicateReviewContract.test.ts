@@ -97,10 +97,14 @@ describe("三处提示都指向处置（不再「只提示不处理」）", () =
   const formSrc = repoFile("src/pages/VoucherFormPage.vue");
   const appSrc = repoFile("src/App.vue");
 
-  it("仪表盘面板只显示未处置的对（不得退回全量扫描——那正是「一直挂着提示」的成因）", () => {
-    expect(dashboardSrc).toContain("api.scanDuplicateReview");
+  it("工作台只消费**未处置计数**（不得退回全量扫描，也不得在工作台跑重活）", () => {
+    // v0.18：工作台的疑似重复取自 `dashboardTodos`（内部走轻量计数，口径与核查队列一致，
+    // 由 Rust 用例 `pending_count_matches_queue` 锁定）——旧实现是"跑完整个队列再取长度"。
+    expect(dashboardSrc).toContain("api.dashboardTodos");
     expect(dashboardSrc).not.toContain("api.scanDuplicates");
-    expect(dashboardSrc).toMatch(/去核查/);
+    expect(dashboardSrc).not.toContain("api.scanDuplicateReview");
+    // 仍然要能一键去核查
+    expect(dashboardSrc).toMatch(/duplicates/);
   });
 
   it("保存提示带「去核查」动作 + 深链到那一对", () => {
