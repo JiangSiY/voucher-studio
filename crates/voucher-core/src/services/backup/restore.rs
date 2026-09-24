@@ -262,7 +262,7 @@ fn extract_verified<R: Read + std::io::Seek>(
     // 先写临时再替换，避免覆盖一半
     let tmp = target.with_extension("restore-tmp");
     std::fs::write(&tmp, &buf)?;
-    // fsync + rename 收口（`commit_file` 内含 Windows 的「先删目标」分支）
+    // fsync + rename 收口（`commit_file`：先 fsync 临时文件再原子 rename 覆盖）
     crate::utils::jsonio::commit_file(&tmp, target)?;
     Ok(())
 }

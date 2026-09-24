@@ -1,4 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Voucher Studio 桌面应用入口（Tauri 壳）
 
 mod commands;
@@ -73,8 +72,8 @@ fn main() {
             app.manage(ctx.clone());
 
             // 3.5 本地 OCR 模型：首次启动从安装源复制到数据目录（幂等）
-            // 资源目录优先（打包版：macOS 在 Contents/Resources、Windows 在 exe 同级），
-            // 否则打包版会因「exe 旁没有 ocr-models」而静默拿不到本地 OCR 模型。
+            // 资源目录优先（打包版：macOS 在 Contents/Resources），
+            // 否则打包版会因「应用旁没有 ocr-models」而静默拿不到本地 OCR 模型。
             let resource_dir = app.path().resource_dir().ok();
             for src in
                 voucher_core::services::ocr_local::default_model_sources(resource_dir.as_deref())

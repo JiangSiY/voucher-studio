@@ -1948,8 +1948,8 @@ fn reconcile_matches_and_reports_gaps() -> Result<()> {
 /// 既无最终 PDF/CSV、也无 `.tmp` 残留，且不产生批次记录（此前直接写最终名时，半截文件
 /// 会留在导出目录里、而界面看不到批次）。
 ///
-/// 仅 unix：Windows 的目录只读位不阻止创建文件。用例会先**探测**只读是否真的生效
-/// （root 下权限位无效）——探测失败即软跳过，避免假绿。
+/// 仅 unix（macOS/Linux）：目录只读位在 unix 上阻止创建文件。用例会先**探测**只读是否
+/// 真的生效（root 下权限位无效）——探测失败即软跳过，避免假绿。
 #[cfg(unix)]
 #[test]
 fn export_failure_leaves_no_file_or_batch() -> Result<()> {

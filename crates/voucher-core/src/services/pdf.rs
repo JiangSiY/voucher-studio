@@ -1429,10 +1429,6 @@ fn load_cjk_font(doc: &printpdf::PdfDocumentReference) -> Result<IndirectFontRef
 
 fn font_candidates() -> Vec<PathBuf> {
     [
-        // Windows（simhei 为单文件 TTF，兼容性最好）
-        r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\simsun.ttc",
         // macOS
         // 注：PingFang.ttc 在较新的 macOS（本机 macOS 27）上已不存在，保留在前只为兼容旧系统；
         // Hiragino Sans GB 是当前系统上体积较小的 CJK 集合字体（约 23 MB，而 STHeiti 55 MB），

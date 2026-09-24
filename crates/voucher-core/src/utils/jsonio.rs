@@ -31,21 +31,15 @@ pub fn commit_file(tmp: &Path, final_path: &Path) -> Result<()> {
     if let Ok(f) = std::fs::OpenOptions::new().write(true).open(tmp) {
         let _ = f.sync_all();
     }
-    // Windows 上 rename 目标已存在时会失败，需先移除；
-    // POSIX 的 rename 本就原子覆盖，先删反而制造「文件不存在」的窗口。
-    #[cfg(windows)]
-    if final_path.exists() {
-        std::fs::remove_file(final_path)?;
-    }
+    // POSIX 的 rename 原子覆盖，不需要"先删目标"（先删反而制造「文件不存在」的窗口）
     std::fs::rename(tmp, final_path)?;
     Ok(())
 }
 
 /// 读取 JSON（文件不存在返回 None）
 ///
-/// G3-1：兼容带 BOM 的 UTF-8（PowerShell 5.1 `Out-File -Encoding utf8`、
-/// 记事本保存的文件会带 BOM，serde_json 直接解析会 panic/报错）——
-/// 统一剥掉前导 `\u{feff}` 再反序列化。
+/// G3-1：兼容带 BOM 的 UTF-8——外部工具（编辑器/导出的配置、从别处拷来的
+/// JSON）保存时可能带 BOM，serde_json 直接解析会报错；统一剥掉前导 `\u{feff}` 再反序列化。
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
     if !path.exists() {
         return Ok(None);
@@ -67,11 +61,11 @@ mod tests {
         p
     }
 
-    /// G3-1 回归：带 BOM 的 JSON 可正常读取（PowerShell 5.1 / 记事本保存场景）
+    /// G3-1 回归：带 BOM 的 JSON 可正常读取（外部工具保存配置的常见形态）
     #[test]
     fn read_json_strips_bom() {
         let p = tmp_path("bom");
-        // 模拟 `Out-File -Encoding utf8`：EF BB BF 前导 + 合法 JSON
+        // 模拟带 BOM 的保存：EF BB BF 前导 + 合法 JSON
         std::fs::write(&p, "\u{feff}{\"a\": 1}").unwrap();
         let v: Option<std::collections::HashMap<String, i64>> = read_json(&p).unwrap();
         assert_eq!(v.as_ref().and_then(|m| m.get("a")), Some(&1));

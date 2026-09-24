@@ -23,8 +23,8 @@
   "known_tradeoff": "字体已启用子集化（printpdf font_subsetting，2026-09-23 起）：样张约 170-230 KB；此前的『嵌入整字体 ~10MB/份』问题已消除",
   "layout_note": "original Spike A criterion assumed WebView print at 4 cards/page; final layout is 3 cols x 7 rows = 21 cards/page (ink-saving design per UI scheme). Criterion semantics = exact pagination, verified against final layout.",
   "platforms": {
-    "macos": "pending device; font candidates include PingFang/STHeiti/Songti, re-verify per risk register item 'Spike conclusion expiry'",
-    "windows": "verified (automated + manual sample)"
+    "macos": "automated assertions pass on macOS (arm64); manual sample walkthrough still pending (see 挂账). Font candidates include PingFang/Hiragino/STHeiti/Songti, re-verify per risk register item 'Spike conclusion expiry'",
+    "windows": "historical: verified under v0.6 (automated + manual sample); Windows support removed in v0.17.0 — see docs/开发日志.md"
   },
   "spike": "A-print"
 }

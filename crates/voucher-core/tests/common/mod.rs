@@ -101,13 +101,13 @@ static INSTALL: Once = Once::new();
 
 /// 全进程装一次：把 keyring 的默认凭据后端换成上方的共享内存实现。
 ///
-/// 为什么需要：本仓 `keyring` 依赖只启用 `windows-native` / `apple-native`，
-/// 在 Linux（CI runner）未启用任何后端。keyring 3.x 遇到「目标平台无后端」时会
+/// 为什么需要：本仓 `keyring` 依赖只启用 `apple-native`，在 Linux（CI 的快门禁
+/// runner，仅跑逻辑类用例）未启用任何后端。keyring 3.x 遇到「目标平台无后端」时会
 /// **静默**回退到自带 mock，而该 mock 的 Entry 之间互不可见——于是「写入备份密码 →
 /// 另一处读取」的链路在 Linux 上必然失败（`encrypted_backup_roundtrip`、
 /// `webdav_mock` 全套都因此红），且失败表现为业务错误码，容易误判为产品缺陷。
 ///
-/// 附带收益：测试不再读写真实系统凭据库（Windows 凭据管理器 / macOS Keychain），
+/// 附带收益：测试不再读写真实系统凭据库（macOS Keychain），
 /// 避免测试密码（如 `test-enc-pwd`）残留在用户真实凭据里——生产代码读取备份密码
 /// 用的正是同一个服务名 `VoucherStudio`。
 ///

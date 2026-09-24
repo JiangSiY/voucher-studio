@@ -68,7 +68,7 @@ pub struct CoreContext {
 
 impl CoreContext {
     /// 初始化上下文：解析目录、打开数据库、建表、加载配置。
-    /// `base_dir` 为 None 时使用系统默认数据目录（Windows: %APPDATA%\VoucherStudio）。
+    /// `base_dir` 为 None 时使用系统默认数据目录（macOS：`~/Library/Application Support/VoucherStudio`）。
     pub fn init(base_dir: Option<PathBuf>) -> Result<Self> {
         let paths = AppPaths::resolve(base_dir)?;
         paths.ensure_all()?;
