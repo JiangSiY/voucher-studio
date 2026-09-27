@@ -376,9 +376,9 @@ watch(keyword, () => {
   <div class="library">
     <!-- 工具栏：筛选（保持 URL 参数通道）+ 批量动作 -->
     <div class="filter-bar">
+      <!-- 搜索框用全局唯一实现（base.css 的 .search，高度走控件令牌，图标由 ::before 提供） -->
       <div class="search">
-        <FluentIcon name="search" :size="16" />
-        <input v-model="keyword" class="search-input" placeholder="搜索编号 / 摘要 / 对方 / 备注" />
+        <input v-model="keyword" placeholder="搜索编号 / 摘要 / 对方 / 备注" />
       </div>
       <select v-model="status" class="input" style="max-width: 160px">
         <option value="all">全部状态</option>
@@ -593,16 +593,6 @@ watch(keyword, () => {
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
-.search {
-  display: flex; align-items: center; gap: var(--s-2);
-  padding: 0 var(--s-2);
-  min-width: 260px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
-  background: var(--bg-control);
-  color: var(--label-tertiary);
-}
-.search-input { flex: 1; border: none; outline: none; background: transparent; color: var(--label-primary); font: var(--type-body); padding: 7px 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
   height: var(--control-h-sm);

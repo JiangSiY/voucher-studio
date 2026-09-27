@@ -49,6 +49,23 @@ describe("控件高度一致性", () => {
     expect(rule(".btn")).not.toMatch(/padding:\s*\d+px\s+\d+px/);
   });
 
+  it("搜索框容器走控件高度令牌，且只有 base.css 一份实现", () => {
+    const r = rule(".search");
+    expect(r).toContain("height: var(--control-h-md)");
+    expect(r).toContain("box-sizing: border-box");
+    // 页面不得再自带一套 .search / .search-input 样式（那正是"两套高度算法"的来源）
+    const root = new URL("../../src", import.meta.url);
+    const files = readdirSync(root, { recursive: true })
+      .map((f) => String(f))
+      .filter((f) => f.endsWith(".vue") && !f.includes("__tests__"));
+    const reimpl = files.filter((rel) => {
+      const src = repoFile(`src/${rel}`);
+      const styles = [...src.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
+      return /(^|\n)\s*\.search(-input)?\s*\{/.test(styles);
+    });
+    expect(reimpl, `这些页面重复实现了搜索框样式：${reimpl.join(", ")}`).toEqual([]);
+  });
+
   it("控件元素（button/input/select 或 .btn/.input）不得内联覆盖 height / 垂直 padding", () => {
     // 只查**控件本身**：容器（div/section）上的 padding 是布局，不属于本约定
     const root = new URL("../../src", import.meta.url);
