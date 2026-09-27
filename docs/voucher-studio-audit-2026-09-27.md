@@ -7,6 +7,17 @@
 > **范围声明**：全量（代码 + 文档 + CI/门禁 + 打包发布）；本轮**未**做真机走查（见 §5）。
 >
 > **校正注记（2026-09-27 同日追加，正文不改）**：§6 记的是**最终跑**（脚本自检缺陷修毕后）；其中「快照头部注记」一项在 `scripts/audit.sh` 第 7.4 节改为 glob 后覆盖 **5 份**（含本报告），原写 4 份。审计结论与 §1–§3 的发现状态不受影响。
+>
+> **校正注记之二（2026-09-27 晚，七批修复执行完毕）**：本报告 §2/§3/§4 的条目状态已被后续七批工作推进，正文不改，状态以本注记为准：
+> - **A-7（登记守卫）→ ✅ L2**：新增 `src/__tests__/registrationContract.test.ts`（叶子路由必须在命令面板登记、侧栏例外恰好两条、动态路由须有模板化入口、图标名须有定义、动态段须在静态兄弟之后）；已用幽灵路由验证会变红。同时把两份会漂移的 grep 门禁收拢为 `scripts/guards.sh`（含 `--selftest`，越层模式扩容覆盖 `db::connection::open`/`Database::new`/`db::{…}`/rusqlite 四种历史盲区）
+> - **A-8（静默 clamp）→ ✅ L2**：`.min(pairs)` 改为 `clamp_high_pairs()`——`debug_assert!` + `log::warn!`（不再静默），配 2 个单测；判定矩阵用例扩到「初始 / 判定一对 / **删除一张** / 整组判完 / 只有弱证据」，每步断言轻量计数 == 队列派生值。**矩阵未暴露漂移**：原顾虑（两处口径不同步）在当前实现下未被证实，防线与用例长期保留
+> - **A-9（tags 静默容错）→ ✅ L2，且真实病灶与初判不同**：问题不在 `row_to_voucher` 本身，而在 **两条 SQL 口径不一致**——`reports.rs::tag_stats` 有 `json_valid` 兜底、`dashboard.rs::monthly_breakdown(dim="tag")` 没有（同一个坏值：报告页降级、洞察页抛 `db` 错误）。已统一兜底；`row_to_voucher` 的两处降级改为「容错 + 告警日志（含凭证 id）」
+> - **A-10（定时器/监听）→ ✅ 代码侧 L2**：`DescriptionInput.vue` 与 `EnhanceTab.vue` 的定时器接句柄并在卸载时清理；`stores/config.ts` 的 matchMedia 改具名 handler + `import.meta.hot.dispose`；新增 `timerContract.test.ts`（改写前先跑，如实点名三个文件）
+> - **§2「另记」的生产 unwrap/expect 7 处 → 现为 1 处**：6 处已消（`thousands` 改 let-else、`ingestion` 改 if-let、webdav 四处走 `dav_method()?`）；仅保留 `src-tauri/src/main.rs` 的启动 `expect`（`main` 无返回错误的调用方，改签名会丢中文文案——代码注释已写明）。`audit.sh` 该行改为基线阈值（≤1）防回归
+> - **§4.2 供应链判定变化**：从「缺自动化」→「**有自动化**」（CI `deps-audit` 非阻塞 job + `audit.sh --deps`）。**首次实跑发现 2 个漏洞**：`rustls 0.23.43`（RUSTSEC-2026-0285）已随 `cargo update` 升到 0.23.45 修复；`lopdf 0.31`（RUSTSEC-2026-0187，经 `printpdf 0.7` 传入）**当前不可达**（本仓只用 printpdf 写 PDF、从不解析外部 PDF），修法（printpdf 0.12，API 大改）登记为挂账 **#28**
+> - **§4.3 可观测性缺口已补**：新增 `utils/timing.rs`，六条重算路径（overview / monthly_breakdown / export_coverage / storage_usage / pending_count / review_queue）≥500ms 告警、正常 debug
+> - **新发现（本报告之后由压测用例抓出，已修）**：**空库（无任何附件）时 `storage_usage` 报 `db` 错误**——`SUM(CASE WHEN enhanced_path IS NOT NULL …)` 在空表上返回 NULL 而读取端按 `i64` 解（`InvalidColumnType(Null)`），即新装用户打开洞察页就会撞上；四处 `SUM` 加 `COALESCE(…, 0)`，用例 `aggregations_survive_empty_library` 覆盖空库下五个聚合（已用回退验证）
+> - **§5 未验证项的进展**：性能压测**有工具**了（`tests/perf_bench.rs`，`VOUCHER_BENCH=1`；2000 张实测各路径 0–37ms/debug，真实数据量下的结论仍需你机器上跑一次）；真机目视与 a11y 三档走查清单已产出（`docs/走查清单-v0.18.md`，把 a11y 五条 + 清单2 #48–50 + 批次 5 目视项写成可执行条目）；真实 WebDAV / 掉电语义仍同前
 
 ---
 
