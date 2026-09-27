@@ -26,6 +26,8 @@ export const useToastStore = defineStore("toast", () => {
     const id = nextId++;
     items.value.push({ id, kind, text, action });
     if (duration > 0) {
+      // 定时器无需清理：这是「到点自动消失」的语义本身（不绑定组件生命周期；
+      // 提前 dismiss 时定时器再触发也只是把已删的 id 再过滤一次，幂等无副作用）
       setTimeout(() => dismiss(id), duration);
     }
     return id;

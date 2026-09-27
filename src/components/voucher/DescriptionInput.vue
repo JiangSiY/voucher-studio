@@ -3,7 +3,7 @@
  * v0.10 摘要快速录入：输入框 + 联想下拉（模板置顶 pin + 历史高频带次数）。
  * 从 VoucherFormPage 提取；「联想」只改输入值，落库仍由父组件「保存」决定。
  */
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useDescriptionSuggest } from "../../composables/descriptionSuggest";
 import FluentIcon from "../FluentIcon.vue";
 
@@ -23,6 +23,11 @@ const { load: loadDescHistory, suggest: suggestDesc } = useDescriptionSuggest({
 });
 const descFocused = ref(false);
 const descHighlight = ref(-1);
+/**
+ * blur 延迟收起的定时器句柄（审计 A-10）：不接句柄的话，组件在 150ms 内被卸载
+ * （表单路由切换）后回调仍会写已卸载组件的 ref；重复 blur 还会叠加多个定时器。
+ */
+let blurTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 联想列表：聚焦时展示；键盘 ↑↓ 移动高亮（Enter 选中，Esc 关闭） */
 const descSuggestions = computed(() => suggestDesc(props.modelValue));
@@ -34,17 +39,29 @@ function onDescFocus() {
 
 function onDescBlur() {
   // 延迟收起：点击下拉项时 mousedown 先于 blur 触发，直接关会吃掉点击
-  setTimeout(() => {
+  clearBlurTimer();
+  blurTimer = setTimeout(() => {
+    blurTimer = null;
     descFocused.value = false;
     descHighlight.value = -1;
   }, 150);
 }
 
+function clearBlurTimer() {
+  if (blurTimer !== null) {
+    clearTimeout(blurTimer);
+    blurTimer = null;
+  }
+}
+
 function pickDescription(text: string) {
   emit("update:modelValue", text);
+  clearBlurTimer(); // 选完即收起，不必等那 150ms
   descFocused.value = false;
   descHighlight.value = -1;
 }
+
+onBeforeUnmount(clearBlurTimer);
 
 function onDescKeydown(e: KeyboardEvent) {
   if (!descFocused.value || !descSuggestions.value.length) return;

@@ -8,14 +8,22 @@ export const useConfigStore = defineStore("config", () => {
   const appInfo = ref<AppInfo | null>(null);
   const loaded = ref(false);
 
-  const systemDark = ref(
-    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-  if (window.matchMedia) {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      systemDark.value = e.matches;
-    });
-  }
+  const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  const systemDark = ref(darkQuery?.matches ?? false);
+  /**
+   * 监听系统深浅色。此前是匿名函数 + 不保存 `MediaQueryList`，**结构上无法移除**
+   * （审计 A-10）：store 是单例，正式运行时确实全程存活，但 **dev HMR 每次热更都会
+   * 重新执行 setup** —— 旧闭包会继续写入上一轮 store 的 ref，切主题时表现漂移。
+   * 现在保存句柄，并在 HMR 释放时移除。
+   */
+  const onSystemThemeChange = (e: MediaQueryListEvent) => {
+    systemDark.value = e.matches;
+  };
+  darkQuery?.addEventListener("change", onSystemThemeChange);
+  const disposeSystemThemeWatch = () => {
+    darkQuery?.removeEventListener("change", onSystemThemeChange);
+  };
+  if (import.meta.hot) import.meta.hot.dispose(disposeSystemThemeWatch);
 
   const effectiveTheme = computed<"light" | "dark">(() => {
     const t = config.value?.appearance.theme ?? "system";

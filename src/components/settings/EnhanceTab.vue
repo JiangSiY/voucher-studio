@@ -39,6 +39,8 @@ const trendDays = ref<7 | 14 | 30>(14);
 const clearStrategy = ref<ClearStrategy>("all");
 const clearThreshold = ref<number>(30); // older_than_days / smart=30 天 · larger_than_mb=10 MB
 const pendingDeleteOne = ref<number | null>(null); // 单条释放：行 id（null = 不可见）
+/** 「5 秒撤销」定时器句柄（审计 A-10）：句柄留存以便重置与卸载时清理 */
+let undoOneTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** D-2 刷新：v2 状态 + 最近列表 + D-10 趋势 */
 async function refreshEnhancePanel() {
@@ -117,12 +119,22 @@ async function deleteOneEnhanced(row: RecentEnhancedRow) {
     return;
   }
   pendingDeleteOne.value = row.attachmentId;
-  // 5 秒后自动撤销二次确认态
-  setTimeout(() => {
+  // 5 秒后自动撤销二次确认态（句柄留存：再次点击别的行要重置计时，卸载时要清掉——
+  // 否则切走页面后回调仍写已卸载组件的 ref，审计 A-10）
+  clearUndoOneTimer();
+  undoOneTimer = setTimeout(() => {
+    undoOneTimer = null;
     if (pendingDeleteOne.value === row.attachmentId) {
       pendingDeleteOne.value = null;
     }
   }, 5000);
+}
+
+function clearUndoOneTimer() {
+  if (undoOneTimer !== null) {
+    clearTimeout(undoOneTimer);
+    undoOneTimer = null;
+  }
 }
 
 // v0.8：存量重新增强（进度事件 enhance:progress 驱动按钮文案）
@@ -176,6 +188,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  clearUndoOneTimer();
   unlistenEnhanceProgress?.();
 });
 </script>
