@@ -567,11 +567,13 @@ pub fn storage_usage(ctx: &CoreContext, with_enhanced_bytes: bool) -> Result<Sto
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
+            // COALESCE 必需（审计批次 7 由压测发现）：attachments 为空表时 SUM(...) 返回 NULL，
+            // 而下面按 i64 读 → `InvalidColumnType(Null)`，即"新装用户打开洞察页就报 db 错误"
             let (ec, ss, sc, uk): (i64, i64, i64, i64) = conn.query_row(
-                "SELECT SUM(CASE WHEN enhanced_path IS NOT NULL THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='screenshot' THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='scan' THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='unknown' THEN 1 ELSE 0 END)
+                "SELECT COALESCE(SUM(CASE WHEN enhanced_path IS NOT NULL THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='screenshot' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='scan' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='unknown' THEN 1 ELSE 0 END), 0)
                  FROM attachments",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),

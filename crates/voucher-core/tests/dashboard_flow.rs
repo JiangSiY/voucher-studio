@@ -319,6 +319,30 @@ fn pending_count_matches_queue() -> Result<()> {
     Ok(())
 }
 
+/// 空库（没有附件、没有凭证）时聚合不得报错（2026-09-27 批次 7 由压测用例发现）。
+///
+/// 病灶：`storage_usage` 的 `SUM(CASE WHEN enhanced_path IS NOT NULL …)` 在空表上返回 NULL，
+/// 而读取端按 `i64` 解 → `InvalidColumnType(Null)`。新装用户打开洞察页就会看到 `db` 错误，
+/// 而老用例都先造了附件，**完全绕过了这条路径**。
+#[test]
+fn aggregations_survive_empty_library() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let usage = dashboard::storage_usage(&ctx, false)?;
+    assert_eq!(usage.original_count, 0);
+    assert_eq!(
+        usage.enhanced_count, 0,
+        "空库的增强版计数必须是 0，而不是报错"
+    );
+    assert_eq!(usage.ocr_cache_count, 0);
+    let coverage = dashboard::export_coverage(&ctx, None, None)?;
+    assert_eq!((coverage.total, coverage.never_exported), (0, 0));
+    let overview = dashboard::overview(&ctx, None, None, None)?;
+    assert_eq!(overview.total, 0);
+    assert!(dashboard::monthly_breakdown(&ctx, None, None, "tag", 5)?.is_empty());
+    assert_eq!(dup_review::pending_count(&ctx)?.pairs, 0);
+    Ok(())
+}
+
 /// 脏数据口径统一（审计 A-9，2026-09-27）：外部工具把 `tags` 写成非法 JSON 之后——
 /// 列表仍可用（该行按空标签处理）、标签透视不得抛错、报告页与洞察页表现一致。
 ///
