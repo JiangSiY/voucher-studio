@@ -1,9 +1,12 @@
 <script setup lang="ts">
 /**
- * 仪表盘 → 趋势面板：月度趋势（近 6 月滚动 / 年度切换 + 季度卡 + 年报导出）
+ * 洞察 → 趋势面板：月度趋势（**滚动窗口由外部口径控制器决定** / 年度切换 + 季度卡 + 年报导出）
  * 与状态分布（横向堆叠条 + 图例）双面板。自加载数据并监听 import:done 刷新。
+ *
+ * v0.18：`months` 由调用方（洞察页的时间窗控制器）传入——此前写死"近 6 月"，
+ * 与同屏其它块的窗口口径不一致（旧仪表盘的核心病灶之一，见规范 §3）。
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../../composables/safeListen";
 import { useRouter } from "vue-router";
@@ -12,10 +15,16 @@ import FluentIcon from "../FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../../composables/format";
 import { toast, toastError } from "../../stores/toast";
 
+const props = withDefaults(
+  defineProps<{
+    /** 滚动窗口的月数（由外部口径控制器给出；1–24，后端同口径） */
+    months?: number;
+  }>(),
+  { months: 6 },
+);
+
 const router = useRouter();
 const busy = ref(false);
-
-const REPORT_MONTHS = 6;
 
 // ---------- v0.11：趋势视图切换（近 6 月滚动 | 自然年度 12 月） ----------
 
@@ -29,10 +38,21 @@ const yearOptions = computed(() =>
 
 const monthly = ref<MonthlySummary[]>([]);
 
+/** 当前视图的窗口月数（滚动模式取外部口径，年度模式恒 12） */
+const windowMonths = computed(() => (trendMode.value === "recent" ? props.months : 12));
+
+// 外部窗口变化 → 重新拉取（仅在"滚动窗口"模式下生效；年度模式自成年份维度）
+watch(
+  () => props.months,
+  () => {
+    if (trendMode.value === "recent") void loadTrend();
+  },
+);
+
 /** 拉取当前视图的月度数据（滚动窗口或某年 12 个月） */
 async function loadTrend() {
   if (trendMode.value === "recent") {
-    monthly.value = await api.monthlySummary(REPORT_MONTHS);
+    monthly.value = await api.monthlySummary(props.months);
   } else {
     monthly.value = await api.yearlySummary(trendYear.value);
   }
@@ -140,7 +160,7 @@ const maxMetric = computed(() =>
   Math.max(1, ...monthly.value.map(metricValue)),
 );
 
-const slot = (CHART_W - PAD_L) / Math.max(1, monthly.value.length || REPORT_MONTHS);
+const slot = (CHART_W - PAD_L) / Math.max(1, monthly.value.length || windowMonths.value);
 const barW = Math.min(44, slot * 0.55);
 
 function barX(i: number) {
@@ -217,14 +237,14 @@ onUnmounted(() => {
   <div class="report-grid" v-if="monthly.length">
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>{{ trendMode === "recent" ? `月度趋势（近 ${REPORT_MONTHS} 月）` : `年度趋势（${trendYear} 年）` }}</h3>
+        <h3>{{ trendMode === "recent" ? `月度趋势（近 ${windowMonths} 月）` : `年度趋势（${trendYear} 年）` }}</h3>
         <div style="display: flex; gap: 8px; align-items: center">
           <!-- v0.11：滚动窗口 / 年度切换 + 年份选择 -->
           <select v-if="trendMode === 'yearly'" v-model.number="trendYear" class="input" style="width: 92px; padding: 3px 6px; font-size: 12px" title="切换年份" @change="switchTrendYear(trendYear)">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }} 年</option>
           </select>
           <div class="metric-toggle" role="tablist" aria-label="趋势视图切换">
-            <button role="tab" :class="{ active: trendMode === 'recent' }" @click="switchTrendMode('recent')">近 {{ REPORT_MONTHS }} 月</button>
+            <button role="tab" :class="{ active: trendMode === 'recent' }" @click="switchTrendMode('recent')">近 {{ windowMonths }} 月</button>
             <button role="tab" :class="{ active: trendMode === 'yearly' }" @click="switchTrendMode('yearly')">年度</button>
           </div>
           <!-- 功能深化 3：张数/金额双指标切换 -->
@@ -292,7 +312,7 @@ onUnmounted(() => {
 
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>{{ trendMode === "recent" ? `状态分布（近 ${REPORT_MONTHS} 月）` : `状态分布（${trendYear} 年）` }}</h3>
+        <h3>{{ trendMode === "recent" ? `状态分布（近 ${windowMonths} 月）` : `状态分布（${trendYear} 年）` }}</h3>
         <span class="dist-sum" v-if="dist.total">
           合计 {{ dist.total }} 张 · ¥{{ fmtAmount(dist.amount) }}
         </span>
@@ -321,7 +341,7 @@ onUnmounted(() => {
         </template>
         <div v-else class="empty-state" style="padding: 32px">
           <div class="es-icon"><FluentIcon name="chart" :size="42" /></div>
-          <div class="es-title">{{ trendMode === "recent" ? `近 ${REPORT_MONTHS} 月暂无凭证` : `${trendYear} 年暂无凭证` }}</div>
+          <div class="es-title">{{ trendMode === "recent" ? `近 ${windowMonths} 月暂无凭证` : `${trendYear} 年暂无凭证` }}</div>
           <div class="es-desc">导入图片后这里会出现统计图表</div>
         </div>
       </div>

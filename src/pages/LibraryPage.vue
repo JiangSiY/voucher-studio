@@ -44,6 +44,7 @@ const loading = ref(false);
 
 /** 高级筛选（对应"未填金额 / 待识别 / 从未导出"等待办的精确下钻） */
 const amountEmpty = ref(false);
+const counterpartyEmpty = ref(false);
 const ocrStatus = ref<string>("");
 const exported = ref<string>("");
 const sort = ref<string>("date_desc");
@@ -55,6 +56,7 @@ function query() {
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null,
     amountEmpty: amountEmpty.value,
+    counterpartyEmpty: counterpartyEmpty.value,
     ocrStatus: ocrStatus.value || null,
     exported: (exported.value || null) as "never" | "any" | null,
     sort: sort.value,
@@ -99,6 +101,7 @@ function readQuery() {
   dateFrom.value = (q.dateFrom as string) ?? "";
   dateTo.value = (q.dateTo as string) ?? "";
   amountEmpty.value = q.amountEmpty === "1" || q.amountEmpty === "true";
+  counterpartyEmpty.value = q.counterpartyEmpty === "1";
   ocrStatus.value = (q.ocrStatus as string) ?? "";
   exported.value = (q.exported as string) ?? "";
   sort.value = (q.sort as string) ?? "date_desc";
@@ -111,6 +114,8 @@ const activeFilters = computed(() => {
   if (dateFrom.value || dateTo.value)
     out.push({ label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`, clear: () => ((dateFrom.value = ""), (dateTo.value = "")) });
   if (amountEmpty.value) out.push({ label: "金额未填", clear: () => (amountEmpty.value = false) });
+  if (counterpartyEmpty.value)
+    out.push({ label: "对方未填", clear: () => (counterpartyEmpty.value = false) });
   if (ocrStatus.value)
     out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
   if (exported.value)
@@ -335,7 +340,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, ocrStatus, exported, sort], () => {
+watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
 });
@@ -377,6 +382,9 @@ watch(keyword, () => {
       </select>
       <label class="inline-check" title="只看金额未填的凭证">
         <input v-model="amountEmpty" type="checkbox" /> 金额未填
+      </label>
+      <label class="inline-check" title="只看对方账户未填的凭证">
+        <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
       </label>
       <select v-model="sort" class="input" style="max-width: 150px" title="排序">
         <option value="date_desc">日期（新→旧）</option>

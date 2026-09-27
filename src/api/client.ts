@@ -114,6 +114,8 @@ export interface VoucherQuery {
   amountTo?: number | null;
   /** v0.18：只筛"金额为空"（对应"未填金额"待办） */
   amountEmpty?: boolean;
+  /** v0.18：只筛"对方账户未填"（对应月度透视里的「(未填)」行） */
+  counterpartyEmpty?: boolean;
   /** v0.18：附件 OCR 状态（pending / running / done / failed） */
   ocrStatus?: string | null;
   /** v0.18：导出覆盖度 never | any */

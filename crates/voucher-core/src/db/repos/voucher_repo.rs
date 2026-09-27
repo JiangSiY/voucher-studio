@@ -37,6 +37,8 @@ pub struct VoucherQuery {
     pub amount_to: Option<i64>,
     /// 只筛金额为空的凭证（对应"未填金额"待办）
     pub amount_empty: bool,
+    /// 只筛对方账户未填的凭证（对应月度透视里的「(未填)」行）
+    pub counterparty_empty: bool,
     /// 附件 OCR 状态：`pending` / `running` / `done` / `failed`（对应"待识别"待办）
     pub ocr_status: Option<String>,
     /// 导出覆盖度：`never`（从未导出）| `any`（导出过）
@@ -343,7 +345,9 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
             ph.join(",")
         ));
     }
-    if let Some(cp) = q
+    if q.counterparty_empty {
+        where_clauses.push("TRIM(COALESCE(counterparty,'')) = ''".to_string());
+    } else if let Some(cp) = q
         .counterparty
         .as_deref()
         .map(str::trim)

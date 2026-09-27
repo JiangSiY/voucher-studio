@@ -400,6 +400,16 @@ fn voucher_query_supports_precise_filters() -> Result<()> {
         0
     );
 
+    // 对方未填（透视里的「(未填)」行要能精确下钻）
+    assert_eq!(
+        count(VoucherQuery {
+            counterparty_empty: true,
+            ..Default::default()
+        })?,
+        0,
+        "本例三张都填了对方"
+    );
+
     // 金额区间与"金额为空"
     assert_eq!(
         count(VoucherQuery {

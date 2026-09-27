@@ -9,17 +9,82 @@
  * 口径说明（设计正本 §3）：本页各块**各自标注口径**；统一时间窗控制器在与面板
  * 的内部窗口合并后再上线（面板当前自带窗口：月度 6 个月 / 排行全历史前 10）。
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import TrendPanel from "../components/dashboard/TrendPanel.vue";
 import TopListsPanel from "../components/dashboard/TopListsPanel.vue";
 import ReconcilePanel from "../components/dashboard/ReconcilePanel.vue";
 import FluentIcon from "../components/FluentIcon.vue";
-import { api, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
+import { api, type BreakdownRow, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
 import { toast, toastError } from "../stores/toast";
-import { fmtSize } from "../composables/format";
+import { fmtAmount, fmtSize } from "../composables/format";
+import {
+  RANGE_PRESETS,
+  rangeLabel,
+  rangeOfPreset,
+  type DateRange,
+  type RangePreset,
+} from "../composables/dateRange";
 
 const router = useRouter();
+
+// ---------- 统一口径控制器（全页唯一真源；与资料库共用同一套时间窗预设） ----------
+
+const today = new Date();
+const preset = ref<RangePreset>("last6");
+const range = ref<DateRange>(rangeOfPreset("last6", today) as DateRange);
+/** 预设 → 趋势面板的滚动月数（1 / 3 / 6；"今年"与"自定义"用日期区间，面板仍按月展示 12 个月） */
+const trendMonths = computed(() => {
+  if (preset.value === "thisMonth") return 1;
+  if (preset.value === "last3") return 3;
+  return 6;
+});
+const scopeLabel = computed(() => rangeLabel(range.value, "全部状态"));
+
+function applyPreset(p: RangePreset) {
+  preset.value = p;
+  const r = rangeOfPreset(p, today);
+  if (r) {
+    range.value = r;
+    void loadWindowed();
+  }
+}
+
+// ---------- 月度透视（月份 × 对方 / 标签）与台账 ----------
+
+const dim = ref<"counterparty" | "tag">("counterparty");
+const breakdown = ref<BreakdownRow[]>([]);
+
+async function loadWindowed() {
+  try {
+    [coverage.value, breakdown.value] = await Promise.all([
+      api.exportCoverage(range.value.dateFrom, range.value.dateTo),
+      api.monthlyBreakdown(range.value.dateFrom, range.value.dateTo, dim.value, 5),
+    ]);
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+function switchDim(d: "counterparty" | "tag") {
+  dim.value = d;
+  void loadWindowed();
+}
+
+/** 透视行 → 资料库（**精确**筛选：对方整串相等 / 标签精确；批次 5 的维度） */
+function drillDown(row: BreakdownRow) {
+  if (row.key === "(未填)") {
+    void router.push({ path: "/vouchers", query: { counterpartyEmpty: "1" } });
+    return;
+  }
+  const q: Record<string, string> = {
+    dateFrom: `${row.month}-01`,
+    dateTo: `${row.month}-31`,
+  };
+  if (dim.value === "tag") q.tags = row.key;
+  else q.counterparty = row.key;
+  void router.push({ path: "/vouchers", query: q });
+}
 const reconcileReport = ref<ReconcileReport | null>(null);
 const reconcileBusy = ref(false);
 
@@ -30,7 +95,7 @@ const storageBytesBusy = ref(false);
 
 async function loadLedgers() {
   try {
-    [coverage.value, storage.value] = await Promise.all([api.exportCoverage(), api.storageUsage(false)]);
+    storage.value = await api.storageUsage(false);
   } catch (e) {
     toastError(e);
   }
@@ -48,7 +113,9 @@ async function loadEnhancedBytes() {
   }
 }
 
-onMounted(loadLedgers);
+onMounted(async () => {
+  await Promise.all([loadWindowed(), loadLedgers()]);
+});
 
 async function runReconcile() {
   if (reconcileBusy.value) return;
@@ -66,13 +133,31 @@ async function runReconcile() {
     reconcileBusy.value = false;
   }
 }
+/** 透视结果按月分组（后端已按金额倒序，这里只做展示分组） */
+function monthsOf(rows: BreakdownRow[]): string[] {
+  return [...new Set(rows.map((r) => r.month))].sort().reverse();
+}
+function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
+  return rows.filter((r) => r.month === month);
+}
 </script>
 
 <template>
   <div class="insights">
     <header class="head">
       <h2>洞察</h2>
-      <span class="scope">趋势与排行各块自带窗口（统一口径控制器随后端透视接口一并接入）</span>
+      <div class="range-presets">
+        <button
+          v-for="p in RANGE_PRESETS"
+          :key="p.key"
+          class="seg"
+          :class="{ active: preset === p.key }"
+          @click="applyPreset(p.key)"
+        >
+          {{ p.label }}
+        </button>
+      </div>
+      <span class="scope">{{ scopeLabel }}（趋势 / 透视 / 覆盖度共用此口径；存储占用为全库）</span>
       <span class="flex-1"></span>
       <button class="btn" :disabled="reconcileBusy" title="选账单 CSV 与库内凭证对账（只读，不改数据）" @click="runReconcile">
         <FluentIcon name="chart" :size="14" /> {{ reconcileBusy ? "对账中…" : "账单对账" }}
@@ -134,7 +219,34 @@ async function runReconcile() {
       </section>
     </div>
 
-    <TrendPanel />
+    <!-- 月度透视：月份 × 对方/标签，点一行**精确下钻**到资料库（批次 5 的精确维度） -->
+    <section class="panel">
+      <header class="sh">
+        <h3>月度透视</h3>
+        <div class="segmented" role="tablist">
+          <button class="seg-item" role="tab" :aria-selected="dim === 'counterparty'"
+            :class="{ active: dim === 'counterparty' }" @click="switchDim('counterparty')">按对方账户</button>
+          <button class="seg-item" role="tab" :aria-selected="dim === 'tag'"
+            :class="{ active: dim === 'tag' }" @click="switchDim('tag')">按标签</button>
+        </div>
+        <span class="scope">每月前 5 项 · 按金额倒序</span>
+      </header>
+      <div v-if="breakdown.length" class="breakdown">
+        <div v-for="m in monthsOf(breakdown)" :key="m" class="bd-month">
+          <div class="bd-title">{{ m }}</div>
+          <button v-for="row in rowsOf(breakdown, m)" :key="row.key" class="bd-row" @click="drillDown(row)">
+            <span class="bd-key">{{ row.key }}</span>
+            <span class="bd-count">{{ row.count }} 张</span>
+            <span class="flex-1"></span>
+            <span class="bd-amount">{{ fmtAmount(row.amountCents) }}</span>
+            <FluentIcon name="chevronRight" :size="12" />
+          </button>
+        </div>
+      </div>
+      <p v-else class="muted">该口径下暂无数据。</p>
+    </section>
+
+    <TrendPanel :months="trendMonths" />
     <TopListsPanel />
     <ReconcilePanel v-if="reconcileReport" :report="reconcileReport" @close="reconcileReport = null" />
   </div>
@@ -160,4 +272,16 @@ async function runReconcile() {
 .muted { color: var(--label-tertiary); font: var(--type-caption); }
 .link { border: none; background: none; color: var(--accent); font: var(--type-caption); cursor: default; }
 .link:hover { text-decoration: underline; }
+.range-presets { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--separator); border-radius: var(--radius-control); overflow: hidden; }
+.seg { height: var(--control-h-sm); padding: 0 var(--s-3); border: none; background: transparent; color: var(--label-secondary); font: var(--type-caption); flex: 0 0 auto; white-space: nowrap; cursor: default; }
+.seg + .seg { border-left: 1px solid var(--separator); }
+.seg.active { background: var(--bg-selection); color: var(--label-primary); font-weight: 600; }
+.breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s-3); }
+.bd-month { display: flex; flex-direction: column; gap: 2px; }
+.bd-title { font: var(--type-caption); font-weight: 600; color: var(--label-secondary); margin-bottom: 2px; }
+.bd-row { display: flex; align-items: baseline; gap: var(--s-2); width: 100%; padding: 6px var(--s-2); border: none; border-radius: var(--radius-small); background: transparent; text-align: left; cursor: default; }
+.bd-row:hover { background: var(--bg-selection); }
+.bd-key { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
+.bd-count { font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; }
+.bd-amount { font: var(--type-body); font-variant-numeric: tabular-nums; color: var(--label-primary); }
 </style>
