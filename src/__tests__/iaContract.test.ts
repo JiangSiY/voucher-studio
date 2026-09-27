@@ -45,6 +45,18 @@ describe("主骨架：收件箱驱动", () => {
     expect(layoutSrc).toContain("useInboxStore");
   });
 
+  it("窗口拖动区用 deep（bare 只在直点元素本身时生效，点标题会拖不动）", () => {
+    // 依据：tauri/src/window/scripts/drag.js —— 无值只认 composedPath[0]，"deep" 才认整棵子树
+    const dragRegions = [...layoutSrc.matchAll(/data-tauri-drag-region(="([^"]*)")?/g)];
+    expect(dragRegions.length, "至少要有工具栏这一处拖动区").toBeGreaterThan(0);
+    for (const m of dragRegions) {
+      expect(m[2], "拖动区必须写 deep（写无值/true 会因点在子元素上而失效）").toBe("deep");
+    }
+    // 工具栏与侧栏顶部都应可拖（macOS 惯例：交通灯那条也能拖）
+    expect(layoutSrc).toMatch(/class="unified-toolbar" data-tauri-drag-region="deep"/);
+    expect(layoutSrc).toMatch(/class="sidebar-header" data-tauri-drag-region="deep"/);
+  });
+
   it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {
     expect(paletteSrc).toMatch(/router\.push\("\/inbox"\)/);
     expect(paletteSrc).toContain("全部凭证");

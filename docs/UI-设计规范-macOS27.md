@@ -128,7 +128,15 @@
 
 **窗口装饰**：`titleBarStyle: "Overlay"` + `hiddenTitle: true` + `trafficLightPosition: {x:14, y:18}`
 （Spike M 已验证）；自绘工具栏需要 `core:window:allow-start-dragging` 权限（**不在 `core:default` 中**，
-已加进 `capabilities/default.json`）；工具栏左侧固定留 84px 给交通灯。
+已加进 `capabilities/default.json`）；工具栏高 **52px**（`--toolbar-h`），宽度＝窗口宽 − 侧栏宽
+（侧栏 220–400 可调，默认 260），其中**左侧固定留 84px** 给交通灯。
+
+**拖动区的写法（踩过坑，必须照写）**：`data-tauri-drag-region` 无值/`"true"` 时，Tauri 的注入脚本
+只认"直接点在该元素本身"（`el === composedPath[0]`，见 `tauri/src/window/scripts/drag.js`）；
+工具栏中间是 `flex: 1` 的 `<h1>` 标题，点它属于点子元素 → **拖不动**（2026-09-27 用户报"经常拖动失败"）。
+因此拖动区一律写 **`data-tauri-drag-region="deep"`**（子树任意位置可拖），其中的
+`button`/`input`/`select`/`a` 等可点元素会自动阻止拖拽，按钮点击不受影响。
+当前拖动区：**统一工具栏 + 侧栏顶部（交通灯那条）**；由 `iaContract.test.ts` 断言锁住。
 
 ### 1.5 控件规格（速查）
 

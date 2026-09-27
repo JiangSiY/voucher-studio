@@ -91,7 +91,8 @@ function openPalette() {
 <template>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="sidebar-header">
+      <!-- 侧栏顶部同样可拖（交通灯就在这条上；里面没有可点元素，deep 不会误吞点击） -->
+      <div class="sidebar-header" data-tauri-drag-region="deep">
         <div class="sidebar-logo">
           <span class="badge">VS</span>
           <span>
@@ -136,9 +137,17 @@ function openPalette() {
 
     <div class="main-area">
       <!-- 统一工具栏（自绘）：整条可拖动窗口、双击最大化；左侧 84px 给交通灯留白
-           （trafficLightPosition 14,18）。拖拽依赖 `core:window:allow-start-dragging`
-           权限——它不在 core:default 里，见 capabilities/default.json。 -->
-      <header class="unified-toolbar" data-tauri-drag-region>
+           （trafficLightPosition 14,18）。
+
+           ⚠️ 必须是 `data-tauri-drag-region="deep"`：Tauri 的注入脚本（tauri/src/window/scripts/drag.js）
+           对**无值/`"true"`** 的写法只认"直接点在这个元素本身"（`el === composedPath[0]`），
+           而本行中间是 `<h1>` 标题（flex:1，占绝大部分宽度）→ 点标题就落在子元素上、拖不动。
+           `"deep"` 表示**子树任意位置**都可拖；其中的按钮/输入框等可点元素（button/input/select/a、
+           或带 role=button/tabindex）会**自动阻止拖拽**，所以工具按钮照常点击。
+
+           拖拽还依赖 `core:window:allow-start-dragging` 权限——它不在 core:default 里，
+           见 src-tauri/capabilities/default.json。 -->
+      <header class="unified-toolbar" data-tauri-drag-region="deep">
         <h1 class="toolbar-title">{{ pageTitle }}</h1>
         <div class="toolbar-actions">
           <button class="toolbar-btn" title="命令面板（⌘K）" @click="openPalette">
