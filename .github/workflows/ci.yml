@@ -12,14 +12,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 最小权限：默认只读仓库；依赖审计 job 需要写 checks/issues（见该 job 的 permissions）
+permissions:
+  contents: read
+
 jobs:
   frontend:
     name: Frontend (vue-tsc + vite build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -40,11 +44,40 @@ jobs:
       - name: Build
         run: npm run build
 
+  # 依赖漏洞扫描（2026-09-27 批次 6 引入；挂账 #10/#27④ 的"缺自动化"收口）。
+  #
+  # **非阻塞**：上游 advisory 更新频繁，一上来就卡门禁会让"与本项目无关的告警"阻断提交。
+  # 先观察一段时间，再决定是否收紧为阻塞（那时的动作是去掉两处 continue-on-error）。
+  # 每个 step 也各自 continue-on-error：任何一步失败都不影响本 job 状态判定为"允许失败"，
+  # 但日志与 check 仍会标出来（RustSec 会创建 check run；调度触发时才开 issue）。
+  deps-audit:
+    name: Dependency audit (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # 只查 Cargo.lock 里已解析的版本（无需编译；RustSec advisory DB 由 action 自带拉取）
+      - name: Rust advisory scan
+        continue-on-error: true
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 只看生产依赖（--omit=dev）：开发链路（vitest/eslint/vite）的告警不进来
+      - name: npm advisory scan (prod only)
+        continue-on-error: true
+        run: npm audit --omit=dev
+
   rust:
     name: Rust (fmt + clippy + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # opencv-rust 0.100 通过 pkg-config 探测系统 OpenCV 4.x；
       # clang/libclang 供 bindgen 生成绑定；libssl-dev 供 reqwest 默认 TLS；
@@ -70,18 +103,18 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable（分支引用，2026-09-27 时点）
         with:
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Format check
         run: cargo fmt --all --check
 
       # Q-28：clippy 覆盖全 workspace（含 src-tauri 命令层）
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       # B2 #11 / 2026-09-27 审计：命令层越层门禁——GUI 壳不得直连 db 层（仓储类型、
       # db::connection::open、Database::new、rusqlite），查询经 services::query 门面、
@@ -99,7 +132,7 @@ jobs:
       # --no-fail-fast：单个测试目标失败不中止其余目标。cargo test 默认遇错即停，
       # 会让排在失败目标之后的测试目标根本不执行——加此参数一次跑出完整失败清单
       - name: Test
-        run: cargo test --workspace --no-fail-fast -- --include-ignored
+        run: cargo test --workspace --locked --no-fail-fast -- --include-ignored
 
   # 2026-09-23 审计残余⑥：双平台矩阵的 macOS 一侧。
   #
@@ -117,9 +150,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -129,7 +162,7 @@ jobs:
 
       - name: Cache OpenCV 4.10
         id: opencv-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           # 改下面的构建参数时请 bump 末尾版本号，否则会命中旧缓存（静默用旧产物）。
           # 刻意不用 `hashFiles(本文件)`：那会让任何 CI 文案改动都触发 20 分钟重建。
@@ -183,20 +216,20 @@ jobs:
           v=$(pkg-config --modversion opencv4)
           [ "$v" = "4.10.0" ] || { echo "预期 4.10.0，实际 $v（brew 的 opencv/opencv@4 会破坏绑定生成，勿安装）"; exit 1; }
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable（分支引用，2026-09-27 时点）
         with:
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Format check
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test --workspace --no-fail-fast -- --include-ignored
+        run: cargo test --workspace --locked --no-fail-fast -- --include-ignored
 
       - name: Install frontend dependencies
         run: npm ci

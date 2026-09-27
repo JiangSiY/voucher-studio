@@ -5,8 +5,10 @@
 # 输出分节摘要：[OK] / [WARN] / [FAIL] + 计数。默认始终退出 0（便于本地看全貌）；
 # 加 `--strict` 时出现 FAIL 则退出码 1（便于后续接 CI）。
 #
-# 用法：bash scripts/audit.sh [--strict] [--fast]
+# 用法：bash scripts/audit.sh [--strict] [--fast] [--deps]
 #   --fast  跳过门禁（前端四门 + Rust 三门），只跑静态检查（本地迭代用）
+#   --deps  额外跑依赖漏洞扫描（cargo audit / npm audit --omit=dev；需网络与工具，
+#           默认**不跑**——避免离线环境把它变成长期 WARN 噪声）
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,11 +16,13 @@ cd "${REPO_ROOT}"
 
 STRICT=0
 FAST=0
+DEPS=0
 for arg in "$@"; do
   case "${arg}" in
     --strict) STRICT=1 ;;
     --fast) FAST=1 ;;
-    *) echo "未知参数：${arg}（可用：--strict / --fast）" >&2; exit 2 ;;
+    --deps) DEPS=1 ;;
+    *) echo "未知参数：${arg}（可用：--strict / --fast / --deps）" >&2; exit 2 ;;
   esac
 done
 
@@ -245,8 +249,36 @@ for f in docs/voucher-studio-*.md; do
   fi
 done
 
-# ---------- 8. 平台与打包抽查 ----------
-section "8. 平台与打包"
+# ---------- 8. 依赖漏洞扫描（可选，--deps 启用） ----------
+if [ "${DEPS}" -eq 1 ]; then
+  section "8. 依赖漏洞扫描（--deps）"
+  # Rust：cargo-audit 需要联网拉 RustSec advisory DB；未安装则提示装法，不计 WARN
+  if command -v cargo-audit >/dev/null 2>&1; then
+    if out=$(cargo audit 2>&1); then
+      ok "cargo audit：未发现已知漏洞"
+    else
+      warn "cargo audit 有输出（需人工判断是否影响本项目）：$(printf '%s' "${out}" | tail -3 | tr '\n' ' ')"
+    fi
+  else
+    ok "cargo audit 未安装（装法：cargo install cargo-audit --locked；CI 侧由 rustsec/audit-check 覆盖）"
+  fi
+  # 前端：只看生产依赖（开发链路的告警不进来）
+  if command -v npm >/dev/null 2>&1; then
+    if out=$(npm audit --omit=dev 2>&1); then
+      ok "npm audit --omit=dev：未发现生产依赖漏洞"
+    else
+      warn "npm audit --omit=dev 有输出（同上，需人工判断）：$(printf '%s' "${out}" | tail -3 | tr '\n' ' ')"
+    fi
+  else
+    ok "npm 不可用，跳过前端依赖扫描"
+  fi
+else
+  section "8. 依赖漏洞扫描（未启用）"
+  ok "未启用（加 --deps 运行；CI 侧由 deps-audit job 非阻塞覆盖）"
+fi
+
+# ---------- 9. 平台与打包抽查 ----------
+section "9. 平台与打包"
 if [ -f package-macos.sh ]; then
   for key in "自包含检查" "部署目标" "codesign"; do
     grep -q "${key}" package-macos.sh && ok "package-macos.sh 含 ${key} 自检" || warn "package-macos.sh 缺 ${key} 自检"
