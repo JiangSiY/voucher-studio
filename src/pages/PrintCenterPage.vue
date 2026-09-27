@@ -452,7 +452,7 @@ onUnmounted(() => {
             <div
               style="display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid #d8d8d8; padding-bottom: 4px; margin-bottom: 8px">
               <span style="font-weight: 700; font-size: 13px">{{ date }}</span>
-              <span style="font-size: 11px; color: #8e8e8e">{{ dayVouchers.length }} 张凭证 · 日报含汇总表与合计行</span>
+              <span class="muted-small">{{ dayVouchers.length }} 张凭证 · 日报含汇总表与合计行</span>
             </div>
             <div class="print-grid cols-2">
               <VoucherCard v-for="v in dayVouchers.slice(0, 4)" :key="v.id" :voucher="v" :style="'clean'" :title="title" />
@@ -469,10 +469,11 @@ onUnmounted(() => {
             :style="cardStyle" :title="title" />
         </div>
 
-        <div v-else class="muted-center">
-          勾选左侧凭证后在此预览打印效果
+        <div v-else class="preview-empty">
+          <FluentIcon name="print" :size="16" />
+          <span>勾选左侧凭证后，这里按实际排版显示预览（高度随内容自适应）</span>
         </div>
-        <div v-if="!groupByDay && previewVouchers.length > cardsPerPage" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 8px">
+        <div v-if="!groupByDay && previewVouchers.length > cardsPerPage" class="muted-center small">
           仅预览第 1 页（共 {{ Math.ceil(previewVouchers.length / cardsPerPage) }} 页），PDF 中完整输出
         </div>
 
@@ -495,9 +496,7 @@ onUnmounted(() => {
           </div>
         </template>
       </div>
-      <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
-        预览仅供参考，实际打印以 PDF 输出为准
-      </div>
+      <div class="muted-center small">预览仅供参考，实际打印以 PDF 输出为准</div>
     </div>
   </div>
   </div>
@@ -545,6 +544,24 @@ onUnmounted(() => {
 .line2 { display: flex; align-items: center; gap: var(--s-2); font: var(--type-caption); color: var(--label-tertiary); min-width: 0; }
 .dot { color: var(--label-quaternary); }
 .pick-more { padding: var(--s-2); text-align: center; font: var(--type-caption); color: var(--label-tertiary); }
+
+/* 预览面板：由内容决定高度（自适应）；预览区给"纸面"观感但不撑高容器 */
+.preview-panel { align-self: start; }
+.preview-panel .fluent-panel-body {
+  display: block;            /* 不用 flex:1 —— 否则空态会被拉满整列高度 */
+  padding: var(--s-3);
+}
+.preview-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px dashed var(--separator-strong);
+  border-radius: var(--radius-control);
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
+.muted-small { font: var(--type-caption); color: var(--label-tertiary); }
 
 /* 原先写死 #8e8e8e 的说明文字 → 语义令牌（深浅两色自动适配） */
 .muted-center { text-align: center; color: var(--label-tertiary); padding: var(--s-8) 0; font: var(--type-body); }

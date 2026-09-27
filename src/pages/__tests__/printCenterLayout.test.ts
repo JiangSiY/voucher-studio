@@ -46,6 +46,18 @@ describe("打印中心：选择列表", () => {
     expect(line2).toContain("STATUS_META");
   });
 
+  it("预览面板高度跟随内容（不设 min-height / flex:1 拉满整列）", () => {
+    const styleIdx = src.indexOf("<style");
+    const css = src.slice(styleIdx);
+    // 预览面板的 body 必须是普通块（内容多高就多高）
+    expect(css).toMatch(/\.preview-panel \.fluent-panel-body \{[^}]*display:\s*block/);
+    // 空态是紧凑提示，不是大块占位
+    expect(src).toContain("preview-empty");
+    expect(css).toMatch(/\.preview-empty \{[^}]*padding:\s*var\(--s-3\)/);
+    // 预览面板不得被拉伸：右栏容器不应给 min-height
+    expect(css).not.toMatch(/\.preview-panel[^}]*min-height/);
+  });
+
   it("导出格式只有一个入口（顶部操作条），右栏不再重复一份", () => {
     const occurrences = [...src.matchAll(/exportFormat\s*=\s*'(pdf|xlsx|csv)'/g)].length;
     expect(occurrences, "导出格式的分段控件只应出现在顶部操作条").toBeLessThanOrEqual(3);
