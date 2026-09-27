@@ -245,8 +245,39 @@ fn todos_stale_draft_threshold() -> Result<()> {
     Ok(())
 }
 
+/// 轻量计数 vs 核查队列派生值：逐项相等（口径一致性的唯一判据）。
+///
+/// 返回轻量计数，便于调用方继续断言具体数值。任何一步处置之后都应调用它——
+/// 两条 SQL（`pending_count` 的高置信度对 + 逐组扣减）与队列（`review_queue` 逐对证据）
+/// 是三套实现，只有用例能钉住它们不漂移。
+fn assert_count_matches_queue(ctx: &CoreContext, step: &str) -> Result<dup_review::PendingCount> {
+    let light = dup_review::pending_count(ctx)?;
+    let queue = dup_review::review_queue(ctx)?;
+    let heavy_pairs: u32 = queue.iter().map(|g| g.pending.len() as u32).sum();
+    let heavy_high: u32 = queue
+        .iter()
+        .flat_map(|g| g.pending.iter())
+        .filter(|p| p.evidence.level == dup_review::EvidenceLevel::High)
+        .count() as u32;
+    assert_eq!(
+        light.groups,
+        queue.len() as u32,
+        "[{step}] 组数须与队列一致"
+    );
+    assert_eq!(light.pairs, heavy_pairs, "[{step}] 对数须与队列一致");
+    assert_eq!(
+        light.high_pairs, heavy_high,
+        "[{step}] 高置信度对数须与队列逐对算出的结果一致"
+    );
+    Ok(light)
+}
+
 /// 口径一致性（审计新增的守卫）：轻量计数必须等于核查队列派生出的数字——
-/// 否则侧栏徽标与核查页会互相打架（旧实现的教训）
+/// 否则侧栏徽标与核查页会互相打架（旧实现的教训）。
+///
+/// 审计 A-8（2026-09-27）把它扩成**判定矩阵**：初始态 → 判定一对 → **删除一张**（旧用例
+/// 完全没覆盖的路径，也是最容易分叉的一步：删完之后组从 3 张缩成 2 张，两条计数口径
+/// 各按自己的方式重算）。
 #[test]
 fn pending_count_matches_queue() -> Result<()> {
     let (_dir, ctx) = test_ctx();
@@ -260,33 +291,79 @@ fn pending_count_matches_queue() -> Result<()> {
     mk(&ctx, "记-004", "2026-09-01", Some(20_000), "丁", "杂费")?;
     mk(&ctx, "记-005", "2026-09-01", Some(20_000), "戊", "耗材")?;
 
-    let light = dup_review::pending_count(&ctx)?;
-    let queue = dup_review::review_queue(&ctx)?;
-    let heavy_groups = queue.len() as u32;
-    let heavy_pairs: u32 = queue.iter().map(|g| g.pending.len() as u32).sum();
-    let heavy_high: u32 = queue
-        .iter()
-        .flat_map(|g| g.pending.iter())
-        .filter(|p| p.evidence.level == dup_review::EvidenceLevel::High)
-        .count() as u32;
-
-    assert_eq!(light.groups, heavy_groups, "组数必须与队列一致");
-    assert_eq!(light.pairs, heavy_pairs, "对数必须与队列一致");
+    let light = assert_count_matches_queue(&ctx, "初始")?;
+    assert_eq!(light.groups, 2, "两个组：0805 三张 + 0901 两张");
+    assert_eq!(light.pairs, 4, "C(3,2) + C(2,2) = 3 + 1");
     assert_eq!(
-        light.high_pairs, heavy_high,
-        "高置信度对数必须与队列逐对算出的结果一致"
+        light.high_pairs, 2,
+        "a-b 同图、a-c 同对方同摘要（b-c 无共同证据）"
     );
 
-    // 判定一对后两边同步下降
+    // ① 判定一对（不删凭证）后两边同步下降
     dup_review::resolve_pair(&ctx, a, b, "同图但确实是两笔")?;
-    let light2 = dup_review::pending_count(&ctx)?;
-    let queue2 = dup_review::review_queue(&ctx)?;
-    assert_eq!(light2.groups, queue2.len() as u32);
+    let after_resolve = assert_count_matches_queue(&ctx, "判定 a-b 后")?;
+    assert_eq!(after_resolve.pairs, light.pairs - 1, "判定一对后应少一对");
     assert_eq!(
-        light2.pairs,
-        queue2.iter().map(|g| g.pending.len() as u32).sum::<u32>()
+        after_resolve.high_pairs,
+        light.high_pairs - 1,
+        "a-b 是高置信度对"
     );
-    assert_eq!(light2.pairs, light.pairs - 1, "判定一对后应少一对");
+
+    // ② 删除一张（确认重复）后依然逐项一致——旧用例未覆盖的路径
+    dup_review::remove_duplicate(&ctx, a, c, "同对方同摘要，保留 a")?;
+    let after_remove = assert_count_matches_queue(&ctx, "删除 c 后")?;
+    // c 消失后 0805 组只剩 a、b，而 a-b 已判定 → 该组再无未判定对，整组退出统计
+    assert_eq!(after_remove.groups, 1, "0805 组已无未判定对");
+    assert_eq!(after_remove.pairs, 1, "只剩 0901 组那一对");
+    assert_eq!(after_remove.high_pairs, 0, "剩余的那对只有同额（弱证据）");
+    Ok(())
+}
+
+/// 弱证据组：只有同额（无同图/无同对方同摘要）时高置信度对为 0，
+/// 且依然满足 `high_pairs <= pairs`（这正是旧实现那句"一定不会超过"注释所指的情形）
+#[test]
+fn high_pairs_stays_within_pairs_when_evidence_is_weak() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    // 4 张同日期同金额，彼此没有任何强证据
+    for (no, cp, desc) in [
+        ("记-001", "甲", "租金"),
+        ("记-002", "乙", "水电"),
+        ("记-003", "丙", "差旅"),
+        ("记-004", "丁", "杂费"),
+    ] {
+        mk(&ctx, no, "2026-08-05", Some(50_000), cp, desc)?;
+    }
+    let light = assert_count_matches_queue(&ctx, "纯弱证据组")?;
+    assert_eq!(light.groups, 1);
+    assert_eq!(light.pairs, 6, "C(4,2)");
+    assert_eq!(light.high_pairs, 0, "没有任何一张图或对方+摘要成对");
+
+    // 再叠两张同图的（强证据）：只多出 1 对高置信度，组维度的对数不变
+    let x = mk(&ctx, "记-005", "2026-08-05", Some(50_000), "戊", "耗材")?;
+    let y = mk(&ctx, "记-006", "2026-08-05", Some(50_000), "己", "办公")?;
+    attach(&ctx, x, "hash-img-x")?;
+    attach(&ctx, y, "hash-img-x")?;
+    let light2 = assert_count_matches_queue(&ctx, "叠加同图两张")?;
+    assert_eq!(light2.pairs, 15, "C(6,2)");
+    assert_eq!(light2.high_pairs, 1, "只有 x-y 这一对同图");
+    Ok(())
+}
+
+/// 整组判完 → 组与对都归零；同日期同金额的另一组不受影响
+#[test]
+fn pending_count_matches_queue_when_group_fully_decided() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let a = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
+    let b = mk(&ctx, "记-002", "2026-08-05", Some(10_000), "乙", "水电")?;
+    mk(&ctx, "记-003", "2026-09-01", Some(20_000), "丙", "差旅")?;
+    mk(&ctx, "记-004", "2026-09-01", Some(20_000), "丁", "杂费")?;
+
+    let before = assert_count_matches_queue(&ctx, "两组各一对")?;
+    assert_eq!((before.groups, before.pairs), (2, 2));
+
+    dup_review::resolve_pair(&ctx, a, b, "两张独立费用")?;
+    let after = assert_count_matches_queue(&ctx, "0805 组判完")?;
+    assert_eq!((after.groups, after.pairs), (1, 1), "只剩 0901 那一组");
     Ok(())
 }
 
@@ -476,7 +553,8 @@ fn voucher_query_supports_precise_filters() -> Result<()> {
     Ok(())
 }
 
-/// 排序：默认与历史一致（日期倒序）；金额排序把"金额为空"排在最后
+/// 排序：默认与历史一致（日期倒序）；金额排序把"金额为空"排在最后；
+/// 五个 sort 取值全覆盖（含 `updated_desc`，2026-09-27 批次 2 补）
 #[test]
 fn voucher_query_sort_variants() -> Result<()> {
     use voucher_core::services::query::VoucherQuery;
@@ -521,6 +599,41 @@ fn voucher_query_sort_variants() -> Result<()> {
             ..Default::default()
         })?,
         vec!["记-001", "记-003", "记-002"]
+    );
+    // 「最近修改」：唯一按 updated_at 排序的分支（覆盖缺口，2026-09-27 批次 2 补齐）。
+    // 新建的三张 updated_at 可能落在同一秒，故显式写入可区分的时间戳
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE vouchers SET updated_at = CASE voucher_no
+                 WHEN '记-001' THEN '2026-09-02T10:00:00.000Z'
+                 WHEN '记-002' THEN '2026-09-01T10:00:00.000Z'
+                 ELSE '2026-09-03T10:00:00.000Z' END",
+            [],
+        )?;
+        Ok(())
+    })?;
+    assert_eq!(
+        ids(VoucherQuery {
+            sort: Some("updated_desc".into()),
+            ..Default::default()
+        })?,
+        vec!["记-003", "记-001", "记-002"]
+    );
+    // 取 id（跨页全选的基础）**不受排序影响**——显示顺序变了，选中集合与顺序都不变，
+    // 否则"全选后批量处理"会随下拉里的排序悄悄改变处理顺序
+    let all_ids = |sort: &str| -> Result<Vec<i64>> {
+        voucher_core::services::query::voucher_ids(
+            &ctx,
+            &VoucherQuery {
+                sort: Some(sort.into()),
+                ..Default::default()
+            },
+        )
+    };
+    assert_eq!(
+        all_ids("amount_desc")?,
+        all_ids("date_desc")?,
+        "取 id 固定按日期倒序，不随 sort 变化"
     );
     Ok(())
 }

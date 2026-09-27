@@ -302,10 +302,33 @@ pub fn pending_count(ctx: &CoreContext) -> Result<PendingCount> {
         Ok(PendingCount {
             groups,
             pairs,
-            // 高置信度对一定落在"有未判定对的组"里，故不会超过 pairs
-            high_pairs: high_pairs.min(pairs),
+            high_pairs: clamp_high_pairs(high_pairs, pairs),
         })
     })
+}
+
+/// 高置信度对的防御性收口（审计 A-8，2026-09-27）。
+///
+/// 不变式：高置信度对必然落在"同日期同金额"的某个组内，而该组只要还有未判定对就会计入
+/// [`PendingCount::pairs`]，故 `high_pairs <= pairs` 应恒成立（由 `dashboard_flow.rs` 的
+/// 判定矩阵用例锁定：初始态 / 判定一对 / 删除一张 / 整组判完 / 只有弱证据）。
+///
+/// 旧实现是 `.min(pairs)` + 一句"一定不会超过"的注释——注释与代码互斥：不变式成立时
+/// 夹紧是死代码，不成立时它把偏小的数字**静默**喂给侧栏徽标。现在越界会留痕：
+/// 测试环境由 `debug_assert!` 直接炸出来（矩阵用例可当场发现漂移），release 下告警并夹紧
+/// （不让界面出现"高置信度对 > 待处理对"这种自相矛盾的数）。
+fn clamp_high_pairs(high_pairs: u32, pairs: u32) -> u32 {
+    debug_assert!(
+        high_pairs <= pairs,
+        "两条计数口径已漂移：high_pairs({high_pairs}) > pairs({pairs})"
+    );
+    if high_pairs > pairs {
+        log::warn!(
+            "高置信度对数（{high_pairs}）超过待处理对数（{pairs}）——dup_review 的两条 SQL 口径漂移，已夹紧；请对照 dashboard_flow.rs 的判定矩阵用例排查"
+        );
+        return pairs;
+    }
+    high_pairs
 }
 
 /// 轻量待处理计数结果
@@ -442,4 +465,29 @@ pub fn undecided_suspects(
         .collect();
     out.sort_by_key(|(_, ev)| ev.level.rank());
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_high_pairs;
+
+    /// 不变式成立时原样返回（夹紧不得成为"静默改数"的暗箱）
+    #[test]
+    fn clamp_high_pairs_passes_through_within_invariant() {
+        assert_eq!(clamp_high_pairs(0, 0), 0);
+        assert_eq!(clamp_high_pairs(2, 5), 2);
+        assert_eq!(
+            clamp_high_pairs(5, 5),
+            5,
+            "相等是合法边界（高置信度对可以占满）"
+        );
+    }
+
+    /// 越界即炸（审计 A-8）：这条路径若被走到，说明两条 SQL 口径已漂移——
+    /// 测试环境必须立刻发现，而不是把偏小的数字喂给侧栏徽标
+    #[test]
+    #[should_panic(expected = "两条计数口径已漂移")]
+    fn clamp_high_pairs_panics_on_drift() {
+        let _ = clamp_high_pairs(6, 5);
+    }
 }
