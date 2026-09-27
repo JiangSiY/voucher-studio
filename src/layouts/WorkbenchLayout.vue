@@ -32,6 +32,7 @@ const navGroups = computed(() => [
     items: [
       { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0 },
       { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
+      { to: "/insights", icon: "chart", label: "洞察", badge: 0 },
       { to: "/print", icon: "print", label: "打印与导出", badge: 0 },
       { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
     ],

@@ -20,6 +20,7 @@ export const router = createRouter({
         { path: "vouchers/:id", name: "voucher-edit", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "编辑凭证", reading: true } },
         { path: "search", name: "search", component: () => import("../pages/SearchPage.vue"), meta: { title: "搜索" } },
         { path: "print", name: "print", component: () => import("../pages/PrintCenterPage.vue"), meta: { title: "打印中心" } },
+        { path: "insights", name: "insights", component: () => import("../pages/InsightsPage.vue"), meta: { title: "洞察" } },
         { path: "exports", name: "exports", component: () => import("../pages/ExportHistoryPage.vue"), meta: { title: "导出历史" } },
         { path: "settings", name: "settings", component: () => import("../pages/SettingsPage.vue"), meta: { title: "设置", reading: true } },
         { path: "restore", name: "restore", component: () => import("../pages/RestorePage.vue"), meta: { title: "备份与恢复" } },

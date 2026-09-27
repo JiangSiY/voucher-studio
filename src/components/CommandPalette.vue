@@ -30,6 +30,7 @@ const commands: Command[] = [
   { key: "nav:duplicates", label: "前往 重复核查", hint: "疑似重复的比对与处置", icon: "duplicate", run: () => router.push("/duplicates") },
   { key: "nav:new", label: "新建凭证", hint: "选图建卡 + OCR", icon: "plus", run: () => router.push("/vouchers/new") },
   { key: "nav:search", label: "前往 全文搜索", hint: "编号 / 摘要 / OCR 文本", icon: "search", run: () => router.push("/search") },
+  { key: "nav:insights", label: "前往 洞察", hint: "趋势 / 排行 / 对账", icon: "chart", run: () => router.push("/insights") },
   { key: "nav:print", label: "前往 打印与导出", hint: "PDF / Excel / CSV", icon: "print", run: () => router.push("/print") },
   { key: "nav:exports", label: "前往 导出历史", hint: "批次反查", icon: "file", run: () => router.push("/exports") },
   { key: "nav:restore", label: "前往 备份与恢复", hint: "备份列表 / 演练", icon: "save", run: () => router.push("/restore") },

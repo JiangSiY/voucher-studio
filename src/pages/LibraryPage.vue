@@ -22,6 +22,7 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
+import { centsToYuanInput, parseTags, parseYuanToCents } from "../composables/money";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
 import { toast, toastError } from "../stores/toast";
 
@@ -59,8 +60,19 @@ async function load() {
     items.value = res.items;
     total.value = res.total;
     thumbs.value = res.thumbs;
-    if (!items.value.some((v) => v.id === selectedId.value)) {
-      selectedId.value = items.value[0]?.id ?? null;
+    // 选中项若已不在本页（翻页/筛选变化）→ 落到第一行；否则保持选中并同步编辑缓冲
+    const stillHere = items.value.find((v) => v.id === selectedId.value);
+    if (!stillHere) {
+      // 落到第一行：连详情一起加载（附件/快照要它，否则检视器只有字段没有图）
+      const first = items.value[0];
+      if (first) await select(first);
+      else {
+        selectedId.value = null;
+        detail.value = null;
+        resetEdit(null);
+      }
+    } else {
+      resetEdit(stillHere);
     }
   } catch (e) {
     toastError(e);
@@ -110,11 +122,76 @@ const detail = ref<VoucherDetail | null>(null);
 const detailBusy = ref(false);
 const detailStep = ref(0);
 
+// ---------- 就地编辑（检视器内改常用字段，不必跳编辑页） ----------
+
+const edit = ref<{ amount: string; description: string; counterparty: string; tags: string; note: string } | null>(null);
+const savingEdit = ref(false);
+
+/** 选中项变化 → 重置编辑缓冲（避免把上一张的值改到这一张上） */
+function resetEdit(v: Voucher | null) {
+  edit.value = v
+    ? {
+        amount: centsToYuanInput(v.amountCents),
+        description: v.description ?? "",
+        counterparty: v.counterparty ?? "",
+        tags: (v.tags ?? []).join("、"),
+        note: v.note ?? "",
+      }
+    : null;
+}
+
+const dirty = computed(() => {
+  const v = selected.value;
+  const e = edit.value;
+  if (!v || !e) return false;
+  return (
+    (parseYuanToCents(e.amount).ok ? (parseYuanToCents(e.amount) as { cents: number | null }).cents : v.amountCents) !== v.amountCents ||
+    e.description.trim() !== (v.description ?? "") ||
+    e.counterparty.trim() !== (v.counterparty ?? "") ||
+    e.note.trim() !== (v.note ?? "") ||
+    parseTags(e.tags).join("、") !== (v.tags ?? []).join("、")
+  );
+});
+
+/** 保存就地编辑：只提交改动的字段；金额空串 → 显式清空（clearAmount） */
+async function saveEdit() {
+  const v = selected.value;
+  const e = edit.value;
+  if (!v || !e) return;
+  const parsed = parseYuanToCents(e.amount);
+  if (!parsed.ok) {
+    toast.warning(parsed.reason);
+    return;
+  }
+  savingEdit.value = true;
+  try {
+    const saved = await api.updateVoucher(v.id, {
+      amountCents: parsed.cents,
+      clearAmount: parsed.cents == null,
+      description: e.description.trim(),
+      counterparty: e.counterparty.trim(),
+      tags: parseTags(e.tags),
+      note: e.note.trim(),
+    });
+    // 就地更新列表行与检视器（不整页重载，保持滚动位置与选中项）
+    const idx = items.value.findIndex((x) => x.id === saved.id);
+    if (idx >= 0) items.value.splice(idx, 1, saved);
+    if (detail.value) detail.value = { ...detail.value, voucher: saved };
+    resetEdit(saved);
+    toast.success("已保存修改");
+  } catch (err) {
+    toastError(err);
+  } finally {
+    savingEdit.value = false;
+  }
+}
+
 const selected = computed(() => items.value.find((v) => v.id === selectedId.value) ?? null);
 
 async function select(v: Voucher) {
   selectedId.value = v.id;
   detailStep.value = 0;
+  resetEdit(v);
   detailBusy.value = true;
   try {
     detail.value = await api.getVoucher(v.id);
@@ -160,8 +237,29 @@ function onKeydown(e: KeyboardEvent) {
 
 // ---------- 批量操作（保持既有能力） ----------
 
+// 跨页选择集：**不随翻页/筛选清空**（旧实现每次 load 都 clear，导致"勾了 3 页只剩最后 1 页"），
+// 只由用户显式清除、或批量操作后重置。
 const selectedIds = ref<Set<number>>(new Set());
 const confirmDelete = ref(false);
+const selectingAll = ref(false);
+
+/** 按**当前筛选**全选（走只读的 list_voucher_ids，不把 N 条对象拉回前端） */
+async function selectAllMatching() {
+  selectingAll.value = true;
+  try {
+    const ids = await api.listVoucherIds(query());
+    selectedIds.value = new Set(ids);
+    toast.info(`已选中当前筛选下的 ${ids.length} 张`);
+  } catch (e) {
+    toastError(e);
+  } finally {
+    selectingAll.value = false;
+  }
+}
+
+function clearSelection() {
+  selectedIds.value = new Set();
+}
 const batchStatus = ref<VoucherStatus>("reviewed");
 
 /** 批量状态流转（单事务逐张快照，后端保证；迁自旧列表页） */
@@ -170,7 +268,7 @@ async function applyBatchStatus() {
   try {
     const n = await api.batchUpdateStatus([...selectedIds.value], batchStatus.value);
     toast.success(`已把 ${n} 张改为「${STATUS_META[batchStatus.value].label}」`);
-    selectedIds.value = new Set();
+    clearSelection();
     await load();
   } catch (e) {
     toastError(e);
@@ -189,7 +287,8 @@ async function removeSelected() {
   try {
     const n = await api.deleteVouchers([...selectedIds.value]);
     toast.success(`已删除 ${n} 张`);
-    selectedIds.value = new Set();
+    clearSelection();
+    detail.value = null;
     await load();
   } catch (e) {
     toastError(e);
@@ -249,14 +348,20 @@ watch(keyword, () => {
       <span class="flex-1"></span>
       <span class="count">{{ total }} 张</span>
       <template v-if="selectedIds.size">
+        <span class="sel-count">已选 {{ selectedIds.size }} 张</span>
         <select v-model="batchStatus" class="input" style="max-width: 150px" title="批量改状态">
           <option v-for="(meta, key) in STATUS_META" :key="key" :value="key">{{ meta.label }}</option>
         </select>
         <button class="btn" @click="applyBatchStatus()">应用</button>
         <button class="btn" @click="confirmDelete = true">
-          <FluentIcon name="delete" :size="14" /> 删除 {{ selectedIds.size }}
+          <FluentIcon name="delete" :size="14" /> 删除
         </button>
+        <button class="btn" title="清除选择" @click="clearSelection()">清除</button>
       </template>
+      <button v-else class="btn" :disabled="selectingAll" title="按当前筛选选中全部（跨页生效）"
+        @click="selectAllMatching()">
+        {{ selectingAll ? "选择中…" : `按筛选全选 ${total} 张` }}
+      </button>
       <button class="btn btn-primary" @click="router.push('/vouchers/new')">
         <FluentIcon name="plus" :size="14" /> 新建
       </button>
@@ -327,19 +432,46 @@ watch(keyword, () => {
           </div>
         </div>
 
-        <dl class="ins-fields">
+        <!-- 就地编辑：常用字段直接改，保存后列表行同步更新（不必进编辑页） -->
+        <div v-if="edit" class="ins-edit">
+          <label class="ins-row">
+            <span>金额</span>
+            <input v-model="edit.amount" class="input" placeholder="空 = 未填" />
+          </label>
+          <label class="ins-row">
+            <span>摘要</span>
+            <input v-model="edit.description" class="input" />
+          </label>
+          <label class="ins-row">
+            <span>对方</span>
+            <input v-model="edit.counterparty" class="input" />
+          </label>
+          <label class="ins-row">
+            <span>标签</span>
+            <input v-model="edit.tags" class="input" placeholder="用、或,分隔" />
+          </label>
+          <label class="ins-row">
+            <span>备注</span>
+            <input v-model="edit.note" class="input" />
+          </label>
+          <div class="ins-ops">
+            <button class="btn btn-primary" :disabled="!dirty || savingEdit" @click="saveEdit()">
+              {{ savingEdit ? "保存中…" : "保存" }}
+            </button>
+            <button class="btn" :disabled="!dirty || savingEdit" @click="resetEdit(selected)">还原</button>
+            <span class="flex-1"></span>
+            <span v-if="dirty" class="dirty-hint">有未保存的修改</span>
+          </div>
+        </div>
+
+        <dl class="ins-meta">
           <div><dt>日期</dt><dd>{{ selected.voucherDate }}</dd></div>
-          <div><dt>金额</dt><dd class="amount">{{ fmtAmount(selected.amountCents) }}</dd></div>
-          <div><dt>摘要</dt><dd>{{ selected.description || "—" }}</dd></div>
-          <div><dt>对方账户</dt><dd>{{ selected.counterparty || "—" }}</dd></div>
-          <div><dt>标签</dt><dd>{{ selected.tags?.length ? selected.tags.join("、") : "—" }}</dd></div>
-          <div><dt>备注</dt><dd>{{ selected.note || "—" }}</dd></div>
           <div><dt>状态</dt><dd><span class="tag" :class="STATUS_META[selected.status].tag">{{ STATUS_META[selected.status].label }}</span></dd></div>
           <div><dt>最后修改</dt><dd>{{ fmtDate(selected.updatedAt) }}</dd></div>
         </dl>
 
         <p class="ins-hint">
-          就地核对：看大图与字段是否一致；要改字段请点右上「编辑」（或双击列表行）。
+          就地核对与修改：改完点「保存」即生效；改日期/编号/状态等其余字段请点右上「编辑」（或双击列表行）。
         </p>
       </aside>
     </div>
@@ -436,10 +568,17 @@ watch(keyword, () => {
 }
 .ins-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .ins-image-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--label-quaternary); font: var(--type-caption); }
-.ins-fields { display: flex; flex-direction: column; gap: 6px; margin: 0; }
-.ins-fields > div { display: grid; grid-template-columns: 84px 1fr; gap: var(--s-2); align-items: baseline; }
-.ins-fields dt { color: var(--label-tertiary); font: var(--type-caption); }
-.ins-fields dd { margin: 0; font: var(--type-body); color: var(--label-primary); overflow-wrap: anywhere; }
+.ins-edit { display: flex; flex-direction: column; gap: var(--s-2); }
+.ins-row { display: grid; grid-template-columns: 56px 1fr; gap: var(--s-2); align-items: center; }
+.ins-row > span { color: var(--label-tertiary); font: var(--type-caption); }
+.ins-row .input { padding: 5px 8px; }
+.ins-ops { display: flex; align-items: center; gap: var(--s-2); }
+.dirty-hint { color: var(--warning); font: var(--type-caption); }
+.ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.ins-meta > div { display: grid; grid-template-columns: 56px 1fr; gap: var(--s-2); align-items: baseline; }
+.ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); }
+.ins-meta dd { margin: 0; font: var(--type-body); color: var(--label-primary); overflow-wrap: anywhere; }
+.sel-count { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
 .ins-hint { margin: 0; font: var(--type-caption); color: var(--label-tertiary); }
 
 @media (max-width: 1100px) {

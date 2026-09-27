@@ -52,6 +52,12 @@ describe("主骨架：收件箱驱动", () => {
     expect(paletteSrc).not.toContain("仪表盘");
   });
 
+  it("资料库组的「洞察」三处登记一致（趋势/排行/对账有了归属页）", () => {
+    expect(routerSrc).toMatch(/path:\s*"insights",\s*name:\s*"insights"/);
+    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/insights"[^}]*label:\s*"洞察"/);
+    expect(paletteSrc).toMatch(/router\.push\("\/insights"\)/);
+  });
+
   it("收件箱页消费的数据源是待办聚合（不是旧的全量扫描）", () => {
     const inbox = repoFile("src/pages/InboxPage.vue");
     expect(inbox).toContain("useInboxStore");
