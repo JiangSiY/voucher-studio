@@ -207,20 +207,25 @@ done
 # ---------- 7. 文档纪律抽查 ----------
 section "7. 文档纪律抽查"
 # 7.1 最新 bump 提交是否有开发日志条目
-last_bump=$(git log --oneline -1 --grep='bump [0-9]' 2>/dev/null || echo "")
+# 只扫标题：--grep 会连提交正文一起命中（正文里提到 bump 的文档提交会被误当成 bump 提交）
+last_bump=$(git log --format='%h %s' 2>/dev/null | awk '/bump/ && /[0-9]+\.[0-9]+\.[0-9]+/ {print; exit}' || true)
 if [ -n "${last_bump}" ]; then
-  ver=$(echo "${last_bump}" | grep -oE 'bump [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
-  if grep -q "v${ver}" docs/开发日志.md; then
+  ver=$(printf '%s' "${last_bump}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  if [ -z "${ver}" ]; then
+    warn "最近一笔 bump 提交标题里没解析出版本号：${last_bump}"
+  elif grep -q "v${ver}" docs/开发日志.md; then
     ok "bump ${ver} 有对应开发日志条目"
   else
     fail "bump ${ver} 无开发日志条目（违反 AGENTS.md 开发日志纪律①）"
   fi
 fi
 # 7.2 注释时效：过期措辞扫描（命中需人工确认是否已实装）
-stale=$(grep -rnE '(待补|尚未实装|下一步待做|未实装)' src --include='*.vue' --include='*.ts' | grep -v '__tests__' | wc -l | tr -d ' ')
+# 排除「审计已登记」的待补项（那是合法挂账；未登记的才算注释漂移）
+stale=$(grep -rnE '(待补|尚未实装|下一步待做|未实装)' src --include='*.vue' --include='*.ts' \
+  | grep -v '__tests__' | grep -v '审计' | wc -l | tr -d ' ')
 if [ "${stale}" -eq 0 ]; then ok "无「待补/未实装」类过期措辞"; else warn "有 ${stale} 处「待补/未实装」措辞，需确认是否已过期"; fi
 # 7.3 挂账表条目数
-n=$(sed -n '/^# 三、当前挂账/,${p}' docs/开发日志.md | grep -cE '^\| [0-9]+ \|')
+n=$(awk '/^# 三、当前挂账/{f=1} f' docs/开发日志.md | grep -cE '^\| [0-9]+ \|' || true)
 printf '  [OK]   挂账表条目数：%s（新发现应登记为下一条）\n' "${n}"
 # 7.4 快照类文档是否只有头部注记（正文不该改动：只查是否有注记）
 for f in docs/voucher-studio-health-check-2026-09.md docs/voucher-studio-project-analysis-2026-09-09.md \
