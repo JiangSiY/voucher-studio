@@ -263,6 +263,28 @@ function onKeydown(e: KeyboardEvent) {
 
 // 跨页选择集：**不随翻页/筛选清空**（旧实现每次 load 都 clear，导致"勾了 3 页只剩最后 1 页"），
 // 只由用户显式清除、或批量操作后重置。
+/** 高级筛选是否展开（默认收起，避免工具栏拥挤） */
+const showMore = ref(false);
+/** 生效中的高级筛选数量（>0 时筛选行自动展开且按钮高亮） */
+const advancedCount = computed(
+  () =>
+    (dateFrom.value ? 1 : 0) +
+    (dateTo.value ? 1 : 0) +
+    (ocrStatus.value ? 1 : 0) +
+    (exported.value ? 1 : 0) +
+    (amountEmpty.value ? 1 : 0) +
+    (counterpartyEmpty.value ? 1 : 0),
+);
+
+function clearAllFilters() {
+  dateFrom.value = "";
+  dateTo.value = "";
+  ocrStatus.value = "";
+  exported.value = "";
+  amountEmpty.value = false;
+  counterpartyEmpty.value = false;
+}
+
 const selectedIds = ref<Set<number>>(new Set());
 const confirmDelete = ref(false);
 const selectingAll = ref(false);
@@ -408,11 +430,37 @@ watch(keyword, () => {
       </template>
       <button v-else class="btn" :disabled="selectingAll" title="按当前筛选选中全部（跨页生效）"
         @click="selectAllMatching()">
-        {{ selectingAll ? "选择中…" : `按筛选全选 ${total} 张` }}
+        {{ selectingAll ? "选择中…" : "全选筛选结果" }}
       </button>
       <button class="btn btn-primary" @click="router.push('/vouchers/new')">
         <FluentIcon name="plus" :size="14" /> 新建
       </button>
+    </div>
+
+    <!-- 高级筛选（默认收起；有生效项时自动展开并高亮，见 advancedCount） -->
+    <div v-if="showMore || advancedCount > 0" class="filter-bar advanced">
+      <span class="scope">日期</span>
+      <input v-model="dateFrom" class="input" type="date" style="max-width: 150px" title="起始日期" />
+      <span class="scope">至</span>
+      <input v-model="dateTo" class="input" type="date" style="max-width: 150px" title="结束日期" />
+      <select v-model="ocrStatus" class="input" style="max-width: 140px" title="按 OCR 状态筛选">
+        <option value="">OCR 状态</option>
+        <option value="pending">待识别</option>
+        <option value="failed">识别失败</option>
+        <option value="done">已识别</option>
+      </select>
+      <select v-model="exported" class="input" style="max-width: 140px" title="按导出覆盖度筛选">
+        <option value="">导出覆盖</option>
+        <option value="never">从未导出</option>
+        <option value="any">导出过</option>
+      </select>
+      <label class="inline-check" title="只看金额未填的凭证">
+        <input v-model="amountEmpty" type="checkbox" /> 金额未填
+      </label>
+      <label class="inline-check" title="只看对方账户未填的凭证">
+        <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
+      </label>
+      <button v-if="advancedCount" class="btn" @click="clearAllFilters()">清除高级筛选</button>
     </div>
 
     <!-- 主体：左列表（双行）+ 右检视器 -->
@@ -539,6 +587,9 @@ watch(keyword, () => {
 .library { display: flex; flex-direction: column; gap: var(--s-3); height: 100%; }
 
 .filter-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+/* 高级筛选行：与主行用一条细分隔线分开，视觉上"次级" */
+.filter-bar.advanced { padding-top: var(--s-2); border-top: 1px solid var(--separator); }
+.scope { font: var(--type-caption); color: var(--label-tertiary); }
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
@@ -618,14 +669,14 @@ watch(keyword, () => {
 .ins-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .ins-image-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--label-quaternary); font: var(--type-caption); }
 .ins-edit { display: flex; flex-direction: column; gap: var(--s-2); }
-.ins-row { display: grid; grid-template-columns: 56px 1fr; gap: var(--s-2); align-items: center; }
-.ins-row > span { color: var(--label-tertiary); font: var(--type-caption); }
+.ins-row { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: center; }
+.ins-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
 .ins-row .input { padding: 5px 8px; }
 .ins-ops { display: flex; align-items: center; gap: var(--s-2); }
 .dirty-hint { color: var(--warning); font: var(--type-caption); }
 .ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
-.ins-meta > div { display: grid; grid-template-columns: 56px 1fr; gap: var(--s-2); align-items: baseline; }
-.ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); }
+.ins-meta > div { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: baseline; }
+.ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
 .ins-meta dd { margin: 0; font: var(--type-body); color: var(--label-primary); overflow-wrap: anywhere; }
 .sel-count { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
 .ins-hint { margin: 0; font: var(--type-caption); color: var(--label-tertiary); }

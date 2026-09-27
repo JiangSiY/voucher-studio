@@ -118,9 +118,9 @@ describe("资料库：双行列表与检视器", () => {
 });
 
 describe("资料库：跨页选择集", () => {
-  it("「按筛选全选」走只读 id 接口并显示已选数量", async () => {
+  it("「全选筛选结果」走只读 id 接口并显示已选数量", async () => {
     const w = await mountPage();
-    await w.findAll("button").find((b) => b.text().includes("按筛选全选"))!.trigger("click");
+    await w.findAll("button").find((b) => b.text().includes("全选筛选结果"))!.trigger("click");
     await flushPromises();
     expect(mockApi.listVoucherIds).toHaveBeenCalled();
     expect(w.text()).toContain("已选 2 张");

@@ -8,6 +8,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { pickCandidate } from "../composables/useAttachmentFallback";
 import { api, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -130,6 +131,14 @@ const previewThumbRows = computed(() =>
  * 扫描件用增强版（5 步矫正后更清晰可印），截图/未识别用原图（截图增强版仅 OCR 用）。
  * 预览即所见即所得，用户在预览里看到的图就是 PDF 附录里印出来的图。
  */
+/** 选择列表的缩略图（比 PDF 附录简单：直接取首附件，缺失走占位） */
+function rowThumbUrl(v: Voucher): string | null {
+  const t = thumbs.value[v.id];
+  if (!t) return null;
+  const abs = pickCandidate(t, 0);
+  return abs ? convertFileSrc(abs) : null;
+}
+
 function appendixThumbUrl(t: VoucherThumb): string {
   // 地址用后端拼好的绝对路径（不要在前端拼分隔符）
   const abs =
@@ -270,7 +279,7 @@ onUnmounted(() => {
     <div>
       <div class="fluent-panel">
         <div class="fluent-panel-header">
-          <h3>选择凭证（已选 {{ selected.size }} / 筛选 {{ filteredVouchers.length }} / 共 {{ vouchers.length }}）</h3>
+          <h3>选择凭证</h3>
         </div>
         <!-- 筛选器 -->
         <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
@@ -289,9 +298,8 @@ onUnmounted(() => {
             <button class="btn btn-subtle" @click="clearFilters">清除筛选</button>
           </div>
           <div style="display: flex; gap: 4px; margin-top: 8px">
-            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="selectAll">全选筛选结果</button>
-            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="selectNone">清空选择</button>
-            <button class="btn btn-subtle" style="padding: 4px 10px; font-size: 12px" @click="invertSelection">反选</button>
+            <!-- 全选/清空已在顶部操作条；这里只留"反选"这个局部操作 -->
+            <button class="btn" @click="invertSelection">反选</button>
           </div>
         </div>
         <div class="fluent-panel-body print-selected-list" style="padding: 0">
@@ -305,6 +313,10 @@ onUnmounted(() => {
               @click="toggle(v.id)"
             >
               <input type="checkbox" class="cb" :checked="selected.has(v.id)" @click.stop="toggle(v.id)" />
+              <div class="pick-thumb">
+                <img v-if="rowThumbUrl(v)" :src="rowThumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
+                <FluentIcon v-else name="image" :size="16" />
+              </div>
               <div class="pick-main">
                 <div class="line1">
                   <span class="desc">{{ v.description || "（无摘要）" }}</span>
@@ -331,15 +343,9 @@ onUnmounted(() => {
       <div class="fluent-panel">
         <div class="fluent-panel-header"><h3>{{ exportFormat === "pdf" ? "打印选项" : "导出选项" }}</h3></div>
         <div class="fluent-panel-body">
-          <!-- v0.10：导出格式（PDF 走打印流水线；Excel/CSV 走表格式导出） -->
-          <div class="field">
-            <label>导出格式</label>
-            <div class="filter-chips">
-              <button class="fchip" :class="{ active: exportFormat === 'pdf' }" @click="exportFormat = 'pdf'">PDF（打印归档）</button>
-              <button class="fchip" :class="{ active: exportFormat === 'xlsx' }" @click="exportFormat = 'xlsx'">Excel</button>
-              <button class="fchip" :class="{ active: exportFormat === 'csv' }" @click="exportFormat = 'csv'">CSV</button>
-            </div>
-            <div class="desc" v-if="exportFormat !== 'pdf'">表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 标签 / 备注 + 合计行），适合对账与导入记账软件</div>
+          <!-- v0.18：导出格式已提到顶部操作条（唯一入口），此处不再重复 -->
+          <div class="desc" v-if="exportFormat !== 'pdf'">
+            表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 标签 / 备注 + 合计行），适合对账与导入记账软件
           </div>
           <template v-if="exportFormat === 'pdf'">
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 12px">
@@ -496,3 +502,51 @@ onUnmounted(() => {
   </div>
   </div>
 </template>
+
+<style scoped>
+/* v0.18：本页此前**没有 style 块**（样式散在 base.css 与内联 style 里），
+   新增的双行选择列表因此毫无样式、渲染成一堆块级元素——补上这一节。 */
+.print-page { display: flex; flex-direction: column; gap: var(--s-3); }
+
+.action-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.action-bar .scope { font: var(--type-caption); color: var(--label-tertiary); }
+.flex-1 { flex: 1; }
+
+.pick-rows { list-style: none; margin: 0; padding: var(--s-2); display: flex; flex-direction: column; gap: 2px; }
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 8px var(--s-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: default;
+}
+.pick-row:hover { background: var(--bg-selection); }
+.pick-row.on { background: var(--bg-selection); border-color: var(--accent); }
+.pick-thumb {
+  width: 36px;
+  height: 46px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+  color: var(--label-quaternary);
+  overflow: hidden;
+}
+.pick-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.line1 { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
+.desc { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.amount { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; }
+.line2 { display: flex; align-items: center; gap: var(--s-2); font: var(--type-caption); color: var(--label-tertiary); min-width: 0; }
+.dot { color: var(--label-quaternary); }
+.pick-more { padding: var(--s-2); text-align: center; font: var(--type-caption); color: var(--label-tertiary); }
+
+/* 原先写死 #8e8e8e 的说明文字 → 语义令牌（深浅两色自动适配） */
+.muted-center { text-align: center; color: var(--label-tertiary); padding: var(--s-8) 0; font: var(--type-body); }
+.muted-center.small { padding: 4px 0 0; font: var(--type-caption); }
+</style>
