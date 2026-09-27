@@ -17,7 +17,6 @@ import { useRouter } from "vue-router";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
 import { api, type ExportBatch, type Voucher, type VoucherStats } from "../api/client";
-import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtDate } from "../composables/format";
 import { useInboxStore } from "../stores/inbox";
@@ -31,24 +30,32 @@ const recentDrafts = ref<Voucher[]>([]);
 const batches = ref<ExportBatch[]>([]);
 const busy = ref<"ocr" | null>(null);
 
-/** 流水线阶段：每个阶段一句话说明"为什么在这里、点了会怎样" */
-const stages = computed(() => {
+/**
+ * **待办清单（单一来源）**：把流水线阶段与数据质量项合成一份列表，
+ * **count 为 0 的一律不渲染**（用户要求："以待办显示，完成之后就隐藏，提高空间利用率"）。
+ * 顺序固定（先流程、后质量），便于形成肌肉记忆。
+ */
+const todoItems = computed(() => {
   const t = inbox.todos;
   const s = stats.value;
-  return [
+  type Item = {
+    key: string;
+    icon: string;
+    title: string;
+    count: number;
+    unit: string;
+    hint: string;
+    action: { label: string; run: () => void; disabled?: boolean };
+  };
+  const all: Item[] = [
     {
       key: "ocr",
       icon: "sparkle",
       title: "待识别",
       count: t?.ocrPending ?? 0,
-      unit: "张附件",
-      why: t?.ocrPending ? "识别后可自动填单（日期/金额/对方/摘要）" : "没有等待识别的图片",
-      action: {
-        label: busy.value === "ocr" ? "识别中…" : "开始识别",
-        run: runOcr,
-        disabled: !t?.ocrPending || busy.value === "ocr",
-      },
-      secondary: null as { label: string; run: () => void } | null,
+      unit: "张",
+      hint: "识别后可自动填单（日期 / 金额 / 对方 / 摘要）",
+      action: { label: busy.value === "ocr" ? "识别中…" : "开始识别", run: runOcr, disabled: busy.value === "ocr" },
     },
     {
       key: "review",
@@ -56,98 +63,67 @@ const stages = computed(() => {
       title: "待核对",
       count: s?.draft ?? 0,
       unit: "张草稿",
-      why: s?.draft ? "草稿尚未复核；核对后可送打印导出" : "没有待核对的草稿",
-      action: {
-        label: "继续核对",
-        run: () => router.push({ path: "/vouchers", query: { status: "draft" } }),
-        disabled: !s?.draft,
-      },
-      secondary: recentDrafts.value.length
-        ? { label: `最近一张：${recentDrafts.value[0].voucherNo}`, run: () => openVoucher(recentDrafts.value[0].id) }
-        : null,
+      hint: recentDrafts.value.length
+        ? `最近一张：${recentDrafts.value[0].voucherNo}（点击右侧"继续核对"进入核对序列）`
+        : "草稿尚未复核",
+      action: { label: "继续核对", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
     },
     {
       key: "print",
       icon: "print",
       title: "待打印 / 导出",
-      count: stats.value?.reviewed ?? 0,
+      count: s?.reviewed ?? 0,
       unit: "张已复核",
-      why: stats.value?.reviewed ? "已复核但还没出 PDF/表格，可批量打印归档" : "没有待打印的凭证",
-      action: {
-        label: "去打印",
-        run: () => router.push("/print"),
-        disabled: !stats.value?.reviewed,
-      },
-      secondary: null,
+      hint: "已复核但还没出 PDF / 表格",
+      action: { label: "去打印", run: () => router.push("/print") },
     },
     {
       key: "dup",
       icon: "duplicate",
       title: "疑似重复待处置",
-      count: inbox.todos?.dupPairs ?? 0,
+      count: t?.dupPairs ?? 0,
       unit: "对",
-      why: inbox.todos?.dupHighPairs
-        ? `其中 ${inbox.todos.dupHighPairs} 对证据较强（同图或同对方同摘要）`
-        : "同日期同金额的对，需人工判定",
-      action: {
-        label: "去核查",
-        run: () => router.push("/duplicates"),
-        disabled: !inbox.todos?.dupPairs,
-      },
-      secondary: null,
+      hint: t?.dupHighPairs ? `其中 ${t.dupHighPairs} 对证据较强（同图或同对方同摘要）` : "同日期同金额，需人工判定",
+      action: { label: "去核查", run: () => router.push("/duplicates") },
     },
-  ];
-});
-
-/** 健康项（不阻断流程，但会影响数据质量） */
-const health = computed(() => {
-  const t = inbox.todos;
-  if (!t) return [];
-  const items: { key: string; label: string; count: number; hint: string; run: () => void }[] = [
     {
       key: "amount",
-      label: "未填金额",
-      count: t.amountMissing,
-      hint: "金额为空的凭证（不参与统计与重复判定）",
-      run: () => router.push({ path: "/vouchers", query: { status: "draft" } }),
+      icon: "edit",
+      title: "未填金额",
+      count: t?.amountMissing ?? 0,
+      unit: "张",
+      hint: "金额为空（不参与统计与重复判定）",
+      action: { label: "去补填", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
     },
     {
       key: "stale",
-      label: `超过 ${t.staleDraftDays} 天没动的草稿`,
-      count: t.staleDrafts,
+      icon: "info",
+      title: `超过 ${t?.staleDraftDays ?? 7} 天没动的草稿`,
+      count: t?.staleDrafts ?? 0,
+      unit: "张",
       hint: "长期挂着的草稿，建议复核或删除",
-      run: () => router.push({ path: "/vouchers", query: { status: "draft" } }),
+      action: { label: "去看看", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
     },
     {
       key: "unlock",
-      label: "未封账的往月",
-      count: t.unlockedMonths,
+      icon: "lock",
+      title: "未封账的往月",
+      count: t?.unlockedMonths ?? 0,
+      unit: "个月",
       hint: "有凭证但未锁定会计期间",
-      run: () => router.push("/settings?tab=naming"),
+      action: { label: "去封账", run: () => router.push("/settings?tab=naming") },
     },
     {
       key: "backup",
-      label: "备份",
-      count: t.backupStale ? 1 : 0,
-      hint: t.latestBackup
-        ? `最近备份 ${fmtDate(t.latestBackup.modifiedAt)}`
-        : "尚无任何备份",
-      run: () => router.push("/restore"),
+      icon: "save",
+      title: "该备份了",
+      count: t?.backupStale ? 1 : 0,
+      unit: "项",
+      hint: t?.latestBackup ? `最近备份 ${fmtDate(t.latestBackup.modifiedAt)}` : "尚无任何备份",
+      action: { label: "去备份", run: () => router.push("/restore") },
     },
   ];
-  return items;
-});
-
-/** 本地全部处理完了？给一个明确的"清零"状态，而不是空白页 */
-const allClear = computed(() => {
-  const t = inbox.todos;
-  if (!t) return false;
-  return (
-    t.ocrPending === 0 &&
-    t.dupPairs === 0 &&
-    (stats.value?.draft ?? 0) === 0 &&
-    (stats.value?.reviewed ?? 0) === 0
-  );
+  return all.filter((i) => i.count > 0);
 });
 
 async function runOcr() {
@@ -223,52 +199,30 @@ onUnmounted(() => {
       </button>
     </header>
 
-    <!-- 流水线：四个阶段，能就地推进 -->
-    <section class="stages">
-      <article v-for="s in stages" :key="s.key" class="stage" :class="{ done: s.count === 0 }">
-        <div class="stage-top">
-          <FluentIcon :name="s.icon" :size="18" />
-          <span class="stage-title">{{ s.title }}</span>
-          <span class="flex-1"></span>
-          <span class="stage-count">{{ s.count }}</span>
-          <span class="stage-unit">{{ s.unit }}</span>
-        </div>
-        <p class="stage-why">{{ s.why }}</p>
-        <div class="stage-ops">
-          <button class="btn btn-primary" :disabled="s.action.disabled" @click="s.action.run()">
-            {{ s.action.label }}
-          </button>
-          <button v-if="s.secondary" class="btn" @click="s.secondary.run()">{{ s.secondary.label }}</button>
-        </div>
-      </article>
-    </section>
-
-    <!-- 全部处理完：明确说清"没有待办"，并给下一步建议 -->
-    <EmptyState
-      v-if="allClear"
-      icon="checkCircle"
-      title="待办都清空了"
-      desc="没有待识别的图片、待核对的草稿、待打印的已复核凭证，也没有未处置的疑似重复。可以去「资料库」查看趋势与排行。"
-    >
-      <button class="btn" @click="router.push('/vouchers')">打开资料库</button>
-    </EmptyState>
-
-    <!-- 健康项：不阻断流程，但影响数据质量 -->
-    <section v-if="health.some((h) => h.count > 0)" class="health">
-      <h3>数据质量</h3>
+    <!-- 待办清单：count 为 0 的项不渲染；全部清零时整块消失（空间让给资料） -->
+    <section v-if="todoItems.length" class="todos">
       <ul>
-        <li v-for="h in health.filter((x) => x.count > 0)" :key="h.key">
-          <button class="health-item" @click="h.run()">
-            <span class="health-count">{{ h.count }}</span>
-            <span class="health-text">
-              <b>{{ h.label }}</b>
-              <small>{{ h.hint }}</small>
-            </span>
+        <li v-for="i in todoItems" :key="i.key">
+          <button class="todo" :disabled="i.action.disabled" @click="i.action.run()">
+            <span class="todo-icon"><FluentIcon :name="i.icon" :size="17" /></span>
+            <span class="todo-title">{{ i.title }}</span>
+            <span class="todo-count">{{ i.count }}<small>{{ i.unit }}</small></span>
+            <span class="todo-hint">{{ i.hint }}</span>
+            <span class="flex-1"></span>
+            <span class="todo-action">{{ i.action.label }}</span>
             <FluentIcon name="chevronRight" :size="13" />
           </button>
         </li>
       </ul>
     </section>
+
+    <!-- 全部处理完：只留一条细横幅，不占版面 -->
+    <div v-else-if="inbox.todos" class="all-clear">
+      <FluentIcon name="checkCircle" :size="17" />
+      <span>待办都清空了 —— 没有待识别的图片、待核对的草稿、待打印的凭证，也没有未处置的疑似重复。</span>
+      <span class="flex-1"></span>
+      <button class="link" @click="router.push('/vouchers')">打开资料库</button>
+    </div>
 
     <!-- 最近活动（次要信息，放最后） -->
     <div class="activity">
@@ -318,38 +272,36 @@ onUnmounted(() => {
 .inbox-head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: calc(20px * var(--font-scale)); }
 .flex-1 { flex: 1; }
 
-.stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s-3); }
-.stage {
-  display: flex; flex-direction: column; gap: var(--s-2);
-  padding: var(--s-4);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--bg-content);
-}
-/* 已清零的阶段弱化，但不隐藏——用户要能确认"确实没有" */
-.stage.done { opacity: 0.55; }
-.stage-top { display: flex; align-items: baseline; gap: var(--s-2); color: var(--label-secondary); }
-.stage-title { font: var(--type-body); font-weight: 600; color: var(--label-primary); }
-.stage-count { font-size: calc(26px * var(--font-scale)); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; }
-.stage-unit { font: var(--type-caption); color: var(--label-tertiary); }
-.stage-why { margin: 0; font: var(--type-caption); color: var(--label-secondary); }
-.stage-ops { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: auto; }
-
-.health h3, .section-head h3 { font: var(--type-title); color: var(--label-primary); margin: 0; }
-.health ul { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s-2); }
-.health-item {
-  display: flex; align-items: center; gap: var(--s-2); width: 100%;
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
+/* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间 */
+.todos ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.todo {
+  display: flex; align-items: center; gap: var(--s-3); width: 100%;
+  padding: 10px var(--s-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: var(--bg-content);
   text-align: left; cursor: default;
 }
-.health-item:hover { background: var(--bg-selection); }
-.health-count { font-size: calc(18px * var(--font-scale)); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; }
-.health-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.health-text b { font: var(--type-body); font-weight: 500; color: var(--label-primary); }
-.health-text small { font: var(--type-caption); color: var(--label-tertiary); }
+.todo:hover { background: var(--bg-selection); border-color: var(--separator); }
+.todo:disabled { opacity: 0.6; }
+.todo-icon { color: var(--label-secondary); display: inline-flex; }
+.todo-title { font: var(--type-body); font-weight: 600; color: var(--label-primary); white-space: nowrap; }
+.todo-count { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.todo-count small { margin-left: 3px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
+.todo-hint { font: var(--type-caption); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.todo-action { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
+
+.all-clear {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--bg-content);
+  color: var(--label-secondary);
+  font: var(--type-body);
+}
+
+.section-head h3 { font: var(--type-title); color: var(--label-primary); margin: 0; }
 
 .activity { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s-3); }
 .panel { padding: var(--s-3); border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--bg-content); }
