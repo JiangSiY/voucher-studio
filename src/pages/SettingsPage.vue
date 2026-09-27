@@ -70,8 +70,17 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="tab-nav">
-    <button v-for="t in tabs" :key="t.key" class="tab-item" :class="{ active: tab === t.key }" @click="tab = t.key">
+  <!-- v0.18：设置的分区切换改用分段控件（规范 §1.5；macOS 的设置/视图切换惯例） -->
+  <div class="segmented" role="tablist">
+    <button
+      v-for="t in tabs"
+      :key="t.key"
+      class="seg-item"
+      role="tab"
+      :aria-selected="tab === t.key"
+      :class="{ active: tab === t.key }"
+      @click="tab = t.key"
+    >
       {{ t.label }}
     </button>
   </div>
