@@ -7,6 +7,7 @@ import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type Recover
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { useDupStore } from "./stores/dup";
+import { useInboxStore } from "./stores/inbox";
 import { useUiStore } from "./stores/ui";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
@@ -15,6 +16,7 @@ import CommandPalette from "./components/CommandPalette.vue";
 
 const configStore = useConfigStore();
 const dupStore = useDupStore();
+const inboxStore = useInboxStore();
 const router = useRouter();
 
 // v0.13：全局命令面板（Ctrl+K）
@@ -99,6 +101,7 @@ onMounted(async () => {
   });
   unlistenImportDone = await safeListen<ImportSummary>("import:done", (e) => {
     importing.value = false;
+    void inboxStore.refresh(); // 导入即产生"待识别/待核对"，侧栏待办徽标随之刷新
     const s = e.payload;
     const parts: string[] = [];
     if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张图片，各建一张凭证`);
@@ -119,11 +122,16 @@ onMounted(async () => {
     toast.danger(`导入失败：${e.payload}`);
   });
 
+
   // v0.16 疑似重复：启动拉一次待处理数（侧栏徽标 / 仪表盘面板共用），
   // 任意页面处置后由后端 dup:changed 驱动刷新（含仪表盘的面板与徽标）
+  // 侧栏两个徽标：疑似重复（dupStore）与待处理项数（inboxStore）——启动各拉一次，
+  // 之后由事件驱动刷新（导入/备份/处置都会改变待办构成）
   void dupStore.refresh();
+  void inboxStore.refresh();
   unlistenDupChanged = await safeListen("dup:changed", () => {
     void dupStore.refresh();
+    void inboxStore.refresh();
   });
 });
 

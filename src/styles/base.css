@@ -88,13 +88,52 @@ body {
 }
 
 .sidebar-nav .nav-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  border: none;
+  background: transparent;
   font-size: 12.6px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-4);
-  padding: var(--s-3) var(--s-3) var(--s-1);
+  padding: var(--s-3) var(--s-2) var(--s-1);
+  cursor: default;
+  text-align: left;
+  font-family: var(--font);
 }
+
+.sidebar-nav .nav-group:hover { color: var(--text-3); }
+
+/* 箭头：展开时向下（90°），收起时向右；时长取令牌，尊重"减少动效" */
+.sidebar-nav .nav-group .fluent-icon {
+  transition: transform var(--motion-fast) var(--motion-curve);
+  transform: rotate(90deg);
+}
+
+.sidebar-nav .nav-group.collapsed .fluent-icon { transform: rotate(0deg); }
+
+/* 收起时在组标题上显示组内徽标合计 */
+.sidebar-nav .nav-group-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+/* 折叠：用类名而不是 v-show 的内联 display，好让窄窗图标栏能覆盖它 */
+.sidebar-nav a.nav-item-collapsed { display: none; }
 
 .sidebar-nav a {
   display: flex;
@@ -1923,6 +1962,11 @@ select.input {
 
   .sidebar-nav .nav-group {
     display: none;
+  }
+
+  /* 图标栏模式下忽略折叠：56px 宽只剩图标，再套一层折叠就没有可点的东西了 */
+  .sidebar-nav a.nav-item-collapsed {
+    display: flex;
   }
 
   .sidebar-nav a {
