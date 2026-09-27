@@ -5,3 +5,4 @@ pub mod crypto;
 pub mod file_lock;
 pub mod jsonio;
 pub mod paths;
+pub mod timing;

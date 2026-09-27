@@ -102,18 +102,43 @@ pub(crate) const COLS: &str =
     "id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at";
 
 /// 行 → Voucher 唯一映射（vouchers 表结构变更只需改这一处）
+///
+/// 两处降级都是**容错但留痕**（审计 A-9，2026-09-27）：`tags` 列由本仓写入时必定是合法 JSON
+/// （写入侧一律 `serde_json::to_string`），`status` 列还有 `CHECK` 约束；真走到降级分支说明
+/// 库被外部工具改过或迁移出错。旧实现在这里静默吞掉（`unwrap_or_default`），于是"标签筛不出
+/// 东西"会被当成功能问题查——现在会写一条告警日志（含凭证 id 与原因）。
+///
+/// 注意签名是 `rusqlite::Result`（`serde_json::Error` 塞不进 `?` 链），故只能降级 + 告警；
+/// 硬失败需要改签名并波及所有行映射调用点，收益不抵成本。
 pub(crate) fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Voucher> {
+    let id: i64 = row.get(0)?;
     let tags_json: String = row.get(7)?;
     let status: String = row.get(6)?;
     Ok(Voucher {
-        id: row.get(0)?,
+        id,
         voucher_no: row.get(1)?,
         voucher_date: row.get(2)?,
         description: row.get(3)?,
         counterparty: row.get(4)?,
         amount_cents: row.get(5)?,
-        status: VoucherStatus::parse(&status).unwrap_or(VoucherStatus::Draft),
-        tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+        status: match VoucherStatus::parse(&status) {
+            Some(s) => s,
+            None => {
+                log::warn!(
+                    "凭证 {id} 的 status 无法识别（'{status}'）——按草稿处理；库可能被外部工具改过"
+                );
+                VoucherStatus::Draft
+            }
+        },
+        tags: match serde_json::from_str::<Vec<String>>(&tags_json) {
+            Ok(tags) => tags,
+            Err(e) => {
+                log::warn!(
+                    "凭证 {id} 的 tags 不是合法 JSON 数组（{e}）——按空标签处理；标签精确筛选与重复判定证据会因此少一个维度"
+                );
+                Vec::new()
+            }
+        },
         note: row.get(8)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,

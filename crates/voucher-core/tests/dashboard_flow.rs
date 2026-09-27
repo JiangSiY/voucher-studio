@@ -9,7 +9,7 @@ mod common;
 use common::*;
 use voucher_core::models::enums::VoucherStatus;
 use voucher_core::models::{NewAttachment, NewVoucher};
-use voucher_core::services::{dashboard, dup_review, period, voucher_mgr};
+use voucher_core::services::{dashboard, dup_review, period, reports, voucher_mgr};
 use voucher_core::{CoreContext, Result};
 
 fn mk(
@@ -316,6 +316,65 @@ fn pending_count_matches_queue() -> Result<()> {
     assert_eq!(after_remove.groups, 1, "0805 组已无未判定对");
     assert_eq!(after_remove.pairs, 1, "只剩 0901 组那一对");
     assert_eq!(after_remove.high_pairs, 0, "剩余的那对只有同额（弱证据）");
+    Ok(())
+}
+
+/// 脏数据口径统一（审计 A-9，2026-09-27）：外部工具把 `tags` 写成非法 JSON 之后——
+/// 列表仍可用（该行按空标签处理）、标签透视不得抛错、报告页与洞察页表现一致。
+///
+/// 修前的真实病灶不在 `row_to_voucher` 本身，而在 **两处 SQL 口径不一致**：
+/// `reports.rs` 的 `tag_stats` 有 `json_valid` 兜底、`dashboard.rs` 的
+/// `monthly_breakdown(dim="tag")` 没有——同一个坏值，报告页降级、洞察页直接报 `db` 错误。
+///
+/// （`status` 列有 CHECK 约束，注入不了非法值，故那条告警分支只能靠代码评审保证。）
+#[test]
+fn dirty_tags_degrade_consistently_across_aggregations() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    let good = mk(&ctx, "记-001", "2026-08-05", Some(1_000), "甲", "租金")?;
+    let dirty = mk(&ctx, "记-002", "2026-08-05", Some(2_000), "乙", "水电")?;
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE vouchers SET tags=?1 WHERE id=?2",
+            rusqlite::params!["[\"办公\"]", good],
+        )?;
+        conn.execute(
+            "UPDATE vouchers SET tags=?1 WHERE id=?2",
+            rusqlite::params!["{不是 JSON", dirty],
+        )?;
+        Ok(())
+    })?;
+
+    // ① 行映射降级但不失败：坏值按空标签处理，其余字段照常读出
+    let listed = voucher_mgr::list(&ctx, &VoucherQuery::default())?.0;
+    let dirty_row = listed
+        .iter()
+        .find(|v| v.id == dirty)
+        .expect("脏数据行仍应能读出");
+    assert!(
+        dirty_row.tags.is_empty(),
+        "非法 JSON 按空标签处理（不是把整行读失败）"
+    );
+    assert_eq!(dirty_row.status, VoucherStatus::Draft, "状态列正常");
+
+    // ② 标签透视（洞察页）不得报错，且脏数据行不产生任何键
+    let breakdown = dashboard::monthly_breakdown(&ctx, None, None, "tag", 10)?;
+    let keys: Vec<&str> = breakdown.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        vec!["办公"],
+        "只有合法标签进透视；脏数据行被兜底成空数组"
+    );
+    assert_eq!(breakdown[0].count, 1);
+
+    // ③ 报告页 tag_stats 与之一致（同一条脏数据在两条 SQL 路径上表现相同）
+    let tags = reports::tag_stats(&ctx, 12, 10)?;
+    let names: Vec<&str> = tags.iter().map(|t| t.tag.as_str()).collect();
+    assert!(names.contains(&"办公"), "合法标签应在报告页出现：{names:?}");
+    assert!(
+        names.iter().all(|n| !n.contains("不是")),
+        "脏数据不得进统计：{names:?}"
+    );
     Ok(())
 }
 

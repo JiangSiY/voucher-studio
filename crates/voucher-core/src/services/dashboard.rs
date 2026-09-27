@@ -174,7 +174,8 @@ pub fn overview(
     date_to: Option<String>,
     status: Option<VoucherStatus>,
 ) -> Result<Overview> {
-    ctx.db.with_conn(|conn| {
+    let started = std::time::Instant::now();
+    let out = ctx.db.with_conn(|conn| {
         let (count, amount_cents) =
             window_totals(conn, date_from.as_deref(), date_to.as_deref(), status)?;
 
@@ -234,7 +235,9 @@ pub fn overview(
             attachments,
             this_month,
         })
-    })
+    })?;
+    crate::utils::timing::log_elapsed("dashboard.overview", started);
+    Ok(out)
 }
 
 /// 待办与健康度（全部为轻量计数；不含需要全表 stat 的项）
@@ -407,14 +410,19 @@ pub fn monthly_breakdown(
     per_month: u32,
 ) -> Result<Vec<BreakdownRow>> {
     let per_month = per_month.clamp(1, 50);
-    ctx.db.with_conn(|conn| {
+    let started = std::time::Instant::now();
+    let out = ctx.db.with_conn(|conn| {
         let (where_sql, bind) = window_where(date_from.as_deref(), date_to.as_deref(), None);
         let sql = match dim {
             "tag" => format!(
+                // `json_valid` 兜底与 reports.rs 的 tag_stats 同口径（2026-09-27 审计 A-9）：
+                // 同一个坏 tags 值，报告页能降级到"未分类"，这里却会抛 db 错误——
+                // 一处静默一处硬报错，比两边都坏更难查
                 "WITH per AS (
                      SELECT substr(v.voucher_date,1,7) AS month, je.value AS key,
                             COUNT(*) AS count, COALESCE(SUM(v.amount_cents),0) AS amount
-                     FROM vouchers v, json_each(v.tags) je
+                     FROM vouchers v,
+                          json_each(CASE WHEN json_valid(v.tags) THEN v.tags ELSE '[]' END) je
                      {where_sql}
                      GROUP BY month, key
                  )
@@ -452,7 +460,9 @@ pub fn monthly_breakdown(
             });
         }
         Ok(out)
-    })
+    })?;
+    crate::utils::timing::log_elapsed("dashboard.monthly_breakdown", started);
+    Ok(out)
 }
 
 /// 导出格式分布（一批一行，或一批多格式时按批次计）
@@ -484,7 +494,8 @@ pub fn export_coverage(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<ExportCoverage> {
-    ctx.db.with_conn(|conn| {
+    let started = std::time::Instant::now();
+    let out = ctx.db.with_conn(|conn| {
         let (where_sql, bind) = window_where(date_from.as_deref(), date_to.as_deref(), None);
         let total: u64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM vouchers {where_sql}"),
@@ -522,7 +533,9 @@ pub fn export_coverage(
             never_exported: never,
             by_format,
         })
-    })
+    })?;
+    crate::utils::timing::log_elapsed("dashboard.export_coverage", started);
+    Ok(out)
 }
 
 /// 存储占用：**原图体积走 SQL**（`attachments.file_size` 已落库）；
@@ -546,6 +559,7 @@ pub struct StorageUsage {
 }
 
 pub fn storage_usage(ctx: &CoreContext, with_enhanced_bytes: bool) -> Result<StorageUsage> {
+    let started = std::time::Instant::now();
     let (original_count, original_bytes, enhanced_count, screenshot, scan, unknown, cache_rows) =
         ctx.db.with_conn(|conn| {
             let (oc, ob): (i64, Option<i64>) = conn.query_row(
@@ -589,6 +603,7 @@ pub fn storage_usage(ctx: &CoreContext, with_enhanced_bytes: bool) -> Result<Sto
         None
     };
 
+    crate::utils::timing::log_elapsed("dashboard.storage_usage", started);
     Ok(StorageUsage {
         original_count,
         original_bytes,

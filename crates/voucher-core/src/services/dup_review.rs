@@ -158,6 +158,7 @@ fn evidence_of(a: &Voucher, b: &Voucher, hashes: &HashMap<i64, String>) -> PairE
 
 /// 待核查队列：只返回**还有未判定对**的组；组内未判定的对按置信度排序。
 pub fn review_queue(ctx: &CoreContext) -> Result<Vec<ReviewGroup>> {
+    let started = std::time::Instant::now();
     let (groups, hashes, decided) = ctx.db.with_conn(|conn| {
         let groups = dedup::scan_groups(conn)?;
         let ids: Vec<i64> = groups
@@ -202,6 +203,7 @@ pub fn review_queue(ctx: &CoreContext) -> Result<Vec<ReviewGroup>> {
             decided_pairs,
         });
     }
+    crate::utils::timing::log_elapsed("dup_review.review_queue", started);
     Ok(out)
 }
 
@@ -229,7 +231,8 @@ pub fn pending_summary(ctx: &CoreContext) -> Result<PendingSummary> {
 /// 判定口径本身不变（同日期 + 同金额）；这里只是把"还剩多少、其中多少证据较强"用一条
 /// SQL 算出来，供侧栏徽标与工作台待办卡使用——旧实现是跑完整个 `review_queue` 再取长度。
 pub fn pending_count(ctx: &CoreContext) -> Result<PendingCount> {
-    ctx.db.with_conn(|conn| {
+    let started = std::time::Instant::now();
+    let out = ctx.db.with_conn(|conn| {
         // 1) 高置信度对数：同图 ∨ (同对方 ∧ 同摘要)，且排除已判定的对
         let high_pairs: u32 = conn.query_row(
             "SELECT COUNT(*) FROM (
@@ -304,7 +307,9 @@ pub fn pending_count(ctx: &CoreContext) -> Result<PendingCount> {
             pairs,
             high_pairs: clamp_high_pairs(high_pairs, pairs),
         })
-    })
+    })?;
+    crate::utils::timing::log_elapsed("dup_review.pending_count", started);
+    Ok(out)
 }
 
 /// 高置信度对的防御性收口（审计 A-8，2026-09-27）。
