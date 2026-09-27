@@ -5,6 +5,10 @@
 
 ## 关键命令
 
+**预览验证一律用开发模式，不要打包**（2026-09-27 用户要求）：改完代码后让用户
+`npm run tauri dev` 看效果（前端改动热更新生效；**Rust / `tauri.conf.json` / capabilities 改动需重启 dev**）。
+只在发布点打包：版本号 bump、发 Release，或用户明确说"打包"——打包只走 `bash package-macos.sh`（见 README「构建」）。
+
 ```bash
 npm run typecheck && npm run lint && npm run test && npm run build   # 前端四门
 cargo fmt --all --check
