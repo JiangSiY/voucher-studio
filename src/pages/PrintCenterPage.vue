@@ -12,6 +12,7 @@ import { api, type ExportBatch, type Voucher, type VoucherStatus, type VoucherTh
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import VoucherCard from "../components/VoucherCard.vue";
+import { STATUS_META, fmtAmount } from "../composables/format";
 import { useConfigStore } from "../stores/config";
 import { toast, toastError } from "../stores/toast";
 
@@ -244,6 +245,26 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <div class="print-page">
+    <!-- 顶部操作条（v0.18）：一眼看到"选了几张 / 导出什么格式 / 去哪导出" -->
+    <div class="action-bar">
+      <div class="segmented" role="tablist">
+        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'pdf'"
+          :class="{ active: exportFormat === 'pdf' }" @click="exportFormat = 'pdf'">PDF（打印归档）</button>
+        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'xlsx'"
+          :class="{ active: exportFormat === 'xlsx' }" @click="exportFormat = 'xlsx'">Excel</button>
+        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'csv'"
+          :class="{ active: exportFormat === 'csv' }" @click="exportFormat = 'csv'">CSV</button>
+      </div>
+      <span class="scope">已选 {{ selected.size }} 张 · 筛选出 {{ filteredVouchers.length }} 张 · 共 {{ vouchers.length }} 张</span>
+      <span class="flex-1"></span>
+      <button class="btn" :disabled="!selected.size" @click="selectAll">全选筛选结果</button>
+      <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
+      <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
+        <FluentIcon name="print" :size="15" /> {{ busy ? "导出中…" : (exportFormat === "pdf" ? "生成 PDF" : `导出 ${exportFormat.toUpperCase()}`) }}
+      </button>
+    </div>
+
   <div class="print-split">
     <!-- 左：选择 + 选项 -->
     <div>
@@ -274,34 +295,36 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="fluent-panel-body print-selected-list" style="padding: 0">
-          <div class="dtable-wrap" v-if="filteredVouchers.length">
-            <table class="dtable">
-              <thead>
-                <tr>
-                  <th style="width: 32px"><input type="checkbox" class="cb" :checked="filteredVouchers.length > 0 && filteredVouchers.every(v => selected.has(v.id))" :indeterminate="filteredVouchers.some(v => selected.has(v.id)) && !filteredVouchers.every(v => selected.has(v.id))" @change="($event.target as HTMLInputElement).checked ? selectAll() : selectNone()" /></th>
-                  <th>编号</th>
-                  <th>日期</th>
-                  <th>摘要</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="v in visibleRows" :key="v.id">
-                  <td><input type="checkbox" class="cb" :checked="selected.has(v.id)" @change="toggle(v.id)" /></td>
-                  <td><span class="mono">{{ v.voucherNo }}</span></td>
-                  <td>{{ v.voucherDate }}</td>
-                  <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
-                  <td><span :class="['status-tag', v.status]">{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</span></td>
-                </tr>
-                <tr v-if="truncated > 0">
-                  <td colspan="5" class="muted" style="text-align: center; padding: 8px">
-                    仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到凭证列表页导入或新建' : '试试调整筛选条件'" />
+          <!-- v0.18：与资料库一致的**双行列表**（表格 5 列在放大字号下太挤；这里只需要"挑哪几张"） -->
+          <ul class="pick-rows" v-if="filteredVouchers.length">
+            <li
+              v-for="v in visibleRows"
+              :key="v.id"
+              class="pick-row"
+              :class="{ on: selected.has(v.id) }"
+              @click="toggle(v.id)"
+            >
+              <input type="checkbox" class="cb" :checked="selected.has(v.id)" @click.stop="toggle(v.id)" />
+              <div class="pick-main">
+                <div class="line1">
+                  <span class="desc">{{ v.description || "（无摘要）" }}</span>
+                  <span class="flex-1"></span>
+                  <span class="amount">{{ fmtAmount(v.amountCents) }}</span>
+                </div>
+                <div class="line2">
+                  <span class="mono">{{ v.voucherNo }}</span>
+                  <span class="dot">·</span>
+                  <span>{{ v.voucherDate }}</span>
+                  <span class="flex-1"></span>
+                  <span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span>
+                </div>
+              </div>
+            </li>
+            <li v-if="truncated > 0" class="pick-more">
+              仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
+            </li>
+          </ul>
+          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到资料库导入或新建' : '试试调整筛选条件'" />
         </div>
       </div>
 
@@ -403,10 +426,10 @@ onUnmounted(() => {
             </tbody>
           </table>
         </div>
-        <div v-else style="text-align: center; color: #8e8e8e; padding: 48px 0; font-size: 13px">
+        <div v-else class="muted-center">
           勾选左侧凭证后预览导出内容
         </div>
-        <div v-if="previewVouchers.length > 12" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+        <div v-if="previewVouchers.length > 12" class="muted-center small">
           仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
         </div>
         <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
@@ -428,7 +451,7 @@ onUnmounted(() => {
             <div class="print-grid cols-2">
               <VoucherCard v-for="v in dayVouchers.slice(0, 4)" :key="v.id" :voucher="v" :style="'clean'" :title="title" />
             </div>
-            <div v-if="dayVouchers.length > 4" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+            <div v-if="dayVouchers.length > 4" class="muted-center small">
               当日其余 {{ dayVouchers.length - 4 }} 张在 PDF 汇总表中完整输出
             </div>
           </div>
@@ -440,7 +463,7 @@ onUnmounted(() => {
             :style="cardStyle" :title="title" />
         </div>
 
-        <div v-else style="text-align: center; color: #8e8e8e; padding: 48px 0; font-size: 13px">
+        <div v-else class="muted-center">
           勾选左侧凭证后在此预览打印效果
         </div>
         <div v-if="!groupByDay && previewVouchers.length > cardsPerPage" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 8px">
@@ -461,7 +484,7 @@ onUnmounted(() => {
               </figcaption>
             </figure>
           </div>
-          <div v-if="previewThumbRows.length > 8" style="text-align: center; color: #8e8e8e; font-size: 11px; margin-top: 4px">
+          <div v-if="previewThumbRows.length > 8" class="muted-center small">
             其余 {{ previewThumbRows.length - 8 }} 张图片在 PDF 附录中完整输出
           </div>
         </template>
@@ -470,5 +493,6 @@ onUnmounted(() => {
         预览仅供参考，实际打印以 PDF 输出为准
       </div>
     </div>
+  </div>
   </div>
 </template>

@@ -511,7 +511,7 @@ onUnmounted(() => {
 .btn-mini.danger {
   background: rgba(220, 38, 38, 0.1);
   border-color: rgba(220, 38, 38, 0.4);
-  color: #dc2626;
+  color: var(--danger);
   font-weight: 600;
   animation: d2-pulse 1.2s ease-in-out infinite;
 }
@@ -521,12 +521,12 @@ onUnmounted(() => {
 }
 /* 释放空间按钮（危险加强版；与期间解锁按钮保持一致） */
 .btn.btn-danger {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  border-color: #b91c1c;
-  color: #fff;
+  background: var(--bg-control);
+  border-color: var(--danger-soft);
+  color: var(--danger);
 }
 .btn.btn-danger:hover:not(:disabled) {
-  background: linear-gradient(135deg, #b91c1c, #991b1b);
+  background: var(--danger-soft);
 }
 
 /* .enhance-hit-bar 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
@@ -592,7 +592,7 @@ onUnmounted(() => {
 .ht-day.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--label-on-accent);
 }
 .ht-chart {
   display: flex;
@@ -620,9 +620,9 @@ onUnmounted(() => {
   min-height: 0;
   transition: height 0.25s ease;
 }
-.ht-seg.seg-ocr    { background: #6366f1; }
-.ht-seg.seg-export { background: #0ea5e9; }
-.ht-seg.seg-viewer { background: #94a3b8; }
+.ht-seg.seg-ocr    { background: var(--accent); }
+.ht-seg.seg-export { background: var(--success); }
+.ht-seg.seg-viewer { background: var(--label-tertiary); }
 .ht-day-label {
   font-size: 9px;
   color: var(--text-3);

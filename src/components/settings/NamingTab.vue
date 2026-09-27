@@ -212,11 +212,13 @@ onMounted(() => {
 
 /* 解锁按钮（危险加强版；与扫描矫正 Tab 保持一致） */
 .btn.btn-danger {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  border-color: #b91c1c;
-  color: #fff;
+  /* v0.18：不再自绘红色渐变（Fluent 时代遗留）——改用统一的危险按钮语言：
+     文字红 + hover 淡红底，由 base.css 的 .btn-danger 提供 */
+  background: var(--bg-control);
+  border-color: var(--danger-soft);
+  color: var(--danger);
 }
 .btn.btn-danger:hover:not(:disabled) {
-  background: linear-gradient(135deg, #b91c1c, #991b1b);
+  background: var(--danger-soft);
 }
 </style>
