@@ -109,8 +109,11 @@ fn thousands(mut n: u64) -> String {
         n /= 1000;
     }
     parts.reverse();
-    let first = parts.first().unwrap();
-    let first = first.trim_start_matches('0');
+    // `n == 0` 已在上面早退，故 parts 必非空；用 let-else 消掉 panic 路径（审计：生产 unwrap 清零）
+    let Some(first_raw) = parts.first() else {
+        return "0".to_string();
+    };
+    let first = first_raw.trim_start_matches('0');
     let mut s = String::from(if first.is_empty() { "0" } else { first });
     for p in parts.iter().skip(1) {
         s.push(',');

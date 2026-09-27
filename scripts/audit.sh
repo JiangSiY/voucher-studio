@@ -125,10 +125,13 @@ while IFS= read -r f; do
   n=$(head -n $((cut - 1)) "${f}" | grep -cE '\.unwrap\(\)|\.expect\(' || true)
   prod_unwrap=$((prod_unwrap + n))
 done < <(find crates/voucher-core/src src-tauri/src -name '*.rs')
-if [ "${prod_unwrap}" -lt 12 ]; then
-  ok "生产 unwrap/expect 共 ${prod_unwrap} 处（逐处确认是否可消除）"
+# 基线：批次 4（2026-09-27）把生产 unwrap/expect 从 7 处清到 **1 处**——仅剩
+# `src-tauri/src/main.rs` 的启动 `expect`（main 无返回错误的调用方，有意保留，见该处注释）。
+# 超出基线即视为回归，需逐处复核。
+if [ "${prod_unwrap}" -le 1 ]; then
+  ok "生产 unwrap/expect 共 ${prod_unwrap} 处（基线 ≤1：仅启动 expect 有意保留）"
 else
-  warn "生产 unwrap/expect 共 ${prod_unwrap} 处（建议逐处复核）"
+  warn "生产 unwrap/expect 共 ${prod_unwrap} 处（超出基线 1，逐处复核是否可消除）"
 fi
 
 n=$(grep -rcE '\bpanic!\(' crates/voucher-core/src src-tauri/src 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')

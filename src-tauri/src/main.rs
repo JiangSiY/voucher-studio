@@ -330,6 +330,9 @@ fn main() {
             commands::enhance_hit_trend,
         ])
         .build(tauri::generate_context!())
+        // 唯一保留的 expect（2026-09-27 批次 4 评估）：`main` 没有返回错误的调用方，
+        // 改成 `-> Result<_, Box<dyn Error>>` 会让系统打印英文栈、丢掉这句中文文案——
+        // 这里失败即"进程根本起不来"，用户看到哪句话都不影响结论，故有意保留
         .expect("Voucher Studio 启动失败")
         .run(|app, event| {
             // 2026-09-23 审计 A3：macOS 的 ⌘Q / 菜单「退出」走 `terminate:`，**不经过**

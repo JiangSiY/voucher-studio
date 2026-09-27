@@ -12,6 +12,15 @@ use crate::{CoreContext, CoreError, Result};
 /// WebDAV 上传总尝试次数（失败重试 2 次，指数退避）
 const UPLOAD_ATTEMPTS: u32 = 3;
 
+/// 构造 WebDAV 扩展方法（`MKCOL` / `PROPFIND` 不在 reqwest 的标准方法里）。
+///
+/// 入参都是编译期字面量、不可能构造失败，但**不用 `unwrap`**（2026-09-27 批次 4：
+/// 生产代码不留 panic 路径）——失败按 `Invalid` 上抛（语义就是"方法名不合法"）。
+fn dav_method(name: &'static str) -> Result<reqwest::Method> {
+    reqwest::Method::from_bytes(name.as_bytes())
+        .map_err(|e| CoreError::Invalid(format!("构造 WebDAV 方法 {name} 失败：{e}")))
+}
+
 /// 上传备份到 WebDAV（设置 → 备份与同步）；带指数退避重试，成功后清理远端超额备份。
 /// 未启用时静默跳过（Ok）。
 ///
@@ -300,6 +309,11 @@ fn put_with_retry(
 /// `/dav/a`、`/dav/a/b`、`/dav/a/b/c`）。已存在（405）视为成功；
 /// 单级失败返回 false（中间目录缺失时单级 MKCOL 必然 409，逐级才能真正建出深路径）。
 fn mkcol_all(client: &reqwest::blocking::Client, base: &str, user: &str, password: &str) -> bool {
+    // 字面量构造不会失败；真走到这里就按"建目录失败"处理（调用方已有回退逻辑）
+    let Ok(mkcol) = dav_method("MKCOL") else {
+        log::warn!("WebDAV 方法 MKCOL 构造失败——跳过建目录");
+        return false;
+    };
     let Some(scheme_at) = base.find("://") else {
         return false;
     };
@@ -314,7 +328,7 @@ fn mkcol_all(client: &reqwest::blocking::Client, base: &str, user: &str, passwor
     {
         cur = format!("{cur}/{seg}");
         let r = client
-            .request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), &cur)
+            .request(mkcol.clone(), &cur)
             .basic_auth(user, Some(password))
             .send();
         match r {
@@ -391,7 +405,7 @@ fn cleanup_webdav(
     keep: u32,
 ) -> Result<()> {
     let resp = client
-        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), base)
+        .request(dav_method("PROPFIND")?, base)
         .basic_auth(user, Some(password))
         .header("Depth", "1")
         .send()?
@@ -499,7 +513,7 @@ fn propfind_all_names(
     password: &str,
 ) -> Result<Vec<String>> {
     let resp = client
-        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), base)
+        .request(dav_method("PROPFIND")?, base)
         .basic_auth(user, Some(password))
         .header("Depth", "1")
         .send()?
@@ -694,7 +708,7 @@ fn webdav_target(ctx: &CoreContext) -> Result<WebdavTarget> {
 fn propfind_backup_names(t: &WebdavTarget) -> Result<Vec<String>> {
     let resp = t
         .client
-        .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &t.base)
+        .request(dav_method("PROPFIND")?, &t.base)
         .basic_auth(&t.username, Some(&t.password))
         .header("Depth", "1")
         .send()?;

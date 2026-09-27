@@ -219,14 +219,11 @@ pub fn import_images(
                     attach_done = true; // 附加模式：该凭证已满
                 }
                 // v0.6 C 步：写入增强版路径 + 来源分类（事务外；失败仅告警）
-                if enhanced_rel.is_some() {
-                    if let Err(e) = ctx.db.with_conn(|conn| {
-                        attachment_repo::set_enhanced(
-                            conn,
-                            attachment.id,
-                            enhanced_rel.as_ref().unwrap(),
-                        )
-                    }) {
+                if let Some(rel) = enhanced_rel.as_ref() {
+                    if let Err(e) = ctx
+                        .db
+                        .with_conn(|conn| attachment_repo::set_enhanced(conn, attachment.id, rel))
+                    {
                         log::warn!("写入增强版路径失败（附件 {}）: {e}", attachment.id);
                     }
                 }
