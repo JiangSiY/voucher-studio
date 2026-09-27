@@ -240,7 +240,7 @@ onUnmounted(() => {
         <h3>{{ trendMode === "recent" ? `月度趋势（近 ${windowMonths} 月）` : `年度趋势（${trendYear} 年）` }}</h3>
         <div style="display: flex; gap: 8px; align-items: center">
           <!-- v0.11：滚动窗口 / 年度切换 + 年份选择 -->
-          <select v-if="trendMode === 'yearly'" v-model.number="trendYear" class="input" style="width: 92px; padding: 3px 6px; font-size: 12px" title="切换年份" @change="switchTrendYear(trendYear)">
+          <select v-if="trendMode === 'yearly'" v-model.number="trendYear" class="input" style="width: 96px" title="切换年份" @change="switchTrendYear(trendYear)">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }} 年</option>
           </select>
           <div class="metric-toggle" role="tablist" aria-label="趋势视图切换">

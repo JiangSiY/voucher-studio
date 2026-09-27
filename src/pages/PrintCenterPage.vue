@@ -270,7 +270,7 @@ onUnmounted(() => {
       <button class="btn" :disabled="!selected.size" @click="selectAll">全选筛选结果</button>
       <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
       <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
-        <FluentIcon name="print" :size="15" /> {{ busy ? "导出中…" : (exportFormat === "pdf" ? "生成 PDF" : `导出 ${exportFormat.toUpperCase()}`) }}
+        <FluentIcon v-if="!busy" name="print" :size="15" /> {{ generateLabel }}
       </button>
     </div>
 
@@ -350,8 +350,8 @@ onUnmounted(() => {
           <template v-if="exportFormat === 'pdf'">
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 12px">
             <div>
-              <div style="font-size: 13px; font-weight: 600">按天分组导出</div>
-              <div style="font-size: 12px; color: var(--text-3)">每个日期一份「凭证日报」PDF（汇总表 + 图片附录），便于按日归档</div>
+              <div class="field-strong">按天分组导出</div>
+              <div class="muted-small">每个日期一份「凭证日报」PDF（汇总表 + 图片附录），便于按日归档</div>
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="groupByDay" />
@@ -385,7 +385,7 @@ onUnmounted(() => {
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
             <div>
               <div style="font-size: 13px; font-weight: 600">附带附件图片页</div>
-              <div style="font-size: 12px; color: var(--text-3)">{{ groupByDay ? "在日报汇总表后追加当日图片附录（每页 2×2）" : "在凭证卡片后追加图片附录（每页 2×2）" }}</div>
+              <div class="muted-small">{{ groupByDay ? "在日报汇总表后追加当日图片附录（每页 2×2）" : "在凭证卡片后追加图片附录（每页 2×2）" }}</div>
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="includeImages" />
@@ -393,10 +393,7 @@ onUnmounted(() => {
             </label>
           </div>
           </template>
-          <button class="btn btn-primary" style="width: 100%; justify-content: center; padding: 8px" :disabled="busy"
-            @click="generate">
-            <FluentIcon v-if="!busy" name="print" :size="15" />{{ generateLabel }}
-          </button>
+          <!-- v0.18：导出主操作已提到顶部操作条（唯一入口），此处不再重复 -->
           <button v-if="lastBatches.length" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
             @click="openLastPdf">
             打开上一次生成的文件（{{ lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报` }}）
@@ -544,6 +541,8 @@ onUnmounted(() => {
 .line2 { display: flex; align-items: center; gap: var(--s-2); font: var(--type-caption); color: var(--label-tertiary); min-width: 0; }
 .dot { color: var(--label-quaternary); }
 .pick-more { padding: var(--s-2); text-align: center; font: var(--type-caption); color: var(--label-tertiary); }
+
+.field-strong { font: var(--type-body); font-weight: 600; color: var(--label-primary); }
 
 /* 预览面板：由内容决定高度（自适应）；预览区给"纸面"观感但不撑高容器 */
 .preview-panel { align-self: start; }

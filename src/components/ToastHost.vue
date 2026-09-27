@@ -26,7 +26,7 @@ function runAction(t: ToastItem) {
       <button v-if="t.action" class="btn btn-sm toast-action" @click="runAction(t)">
         {{ t.action.label }}
       </button>
-      <button class="btn-icon" style="width: 20px; height: 20px" aria-label="关闭"
+      <button class="btn-icon" style="width: var(--control-h-xs); height: var(--control-h-xs)" aria-label="关闭"
         @click="store.dismiss(t.id)"><FluentIcon name="close" :size="11" /></button>
     </div>
   </div>

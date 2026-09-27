@@ -367,9 +367,12 @@ body {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--s-2);
-  min-height: var(--control-h-md);
-  padding: 6px 14px;
+  /* 与输入框同一高度来源（截图里的"大小不一致"主要就是这两类对不齐） */
+  box-sizing: border-box;
+  height: var(--control-h-md);
+  padding: 0 14px;
   border-radius: var(--radius-control);
   border: 1px solid var(--separator-strong);
   font: var(--type-body);
@@ -435,13 +438,17 @@ body {
 }
 
 .btn-sm {
-  padding: 3px 8px;
-  font-size: 13.8px;
+  /* 小按钮同样从高度令牌派生（此前靠 padding + 字号各自算高度） */
+  height: var(--control-h-sm);
+  padding: 0 8px;
+  font: var(--type-caption);
+  font-weight: 500;
 }
 
 .btn-icon {
-  width: 28px;
-  height: 28px;
+  box-sizing: border-box;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -621,15 +628,20 @@ body {
 }
 
 .input {
+  /* 高度唯一来源：`--control-h-md`（含 border，box-sizing: border-box）。
+     垂直方向不再用 padding 撑——否则原生控件（下拉/日期）会各自算一套高度。 */
+  box-sizing: border-box;
   width: 100%;
-  padding: 7px 10px;
+  height: var(--control-h-md);
+  padding: 0 10px;
   border: 1px solid var(--separator-strong);
-  border-radius: var(--radius-small);
-  font-size: 14.9px;
+  border-radius: var(--radius-control);
+  font: var(--type-body);
   font-family: var(--font);
-  background: var(--surface);
-  color: var(--text);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  background: var(--bg-control);
+  color: var(--label-primary);
+  transition: border-color var(--motion-fast) var(--motion-curve),
+    box-shadow var(--motion-fast) var(--motion-curve);
 }
 
 .input:focus {
@@ -647,6 +659,14 @@ body {
   color: var(--text-disabled);
 }
 
+/* 日期框：WebKit 默认带自有内边距与最小高度，显式收口到统一高度 */
+input[type="date"].input {
+  box-sizing: border-box;
+  height: var(--control-h-md);
+  padding: 0 8px;
+  line-height: normal;
+}
+
 textarea.input {
   resize: vertical;
   min-height: 56px;
@@ -654,6 +674,8 @@ textarea.input {
 
 select.input {
   appearance: none;
+  /* 原生下拉的箭头位置随高度变化 → 与输入框同高后重设内边距 */
+  line-height: normal;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L2 4h8z' fill='%23606060'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;

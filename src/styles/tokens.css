@@ -64,6 +64,7 @@ html[data-theme="light"] {
   --radius-small: 4px;
 
   /* ===== 新语义层：控件高度（大字号基线：行内 26 / 常规 32 / 主操作 36）===== */
+  --control-h-xs: calc(20px * var(--font-scale));
   --control-h-sm: calc(26px * var(--font-scale));
   --control-h-md: calc(32px * var(--font-scale));
   --control-h-lg: calc(36px * var(--font-scale));
