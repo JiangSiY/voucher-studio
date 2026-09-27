@@ -56,21 +56,23 @@ else
   warn "跳过门禁（--fast）"
 fi
 
-section "2. 两道 grep 门禁"
-if grep -rnE 'db::repos|\.with_(conn|tx)\(' src-tauri/src >/dev/null 2>&1; then
-  fail "越层门禁：命令层出现 db::repos / 裸 with_conn(tx)"
+section "2. 两道 grep 门禁（scripts/guards.sh 单一真源，CI 同源）"
+# 守卫定义只在 scripts/guards.sh 一处（此前 CI 与本脚本各一份且已漂移）
+if bash scripts/guards.sh layering >/dev/null 2>&1; then
+  ok "越层门禁（命令层无 db:: / Database / rusqlite / 裸 with_conn(tx)）"
 else
-  ok "越层门禁（命令层不直连仓储）"
+  fail "越层门禁：命令层出现 db 层直连（含 db::connection::open、Database::new、db::{…}、rusqlite 四种历史盲区）"
 fi
-if grep -rnE '#\[cfg\(windows\)\]|cfg\(target_os = "windows"\)' crates/*/src crates/*/tests src-tauri/src >/dev/null 2>&1; then
-  fail "平台门禁：出现 Windows 条件编译"
+if bash scripts/guards.sh platform >/dev/null 2>&1; then
+  ok "平台范围门禁（仅 macOS：无 Windows cfg / 平台配置 / .ps1）"
 else
-  ok "平台范围门禁（仅 macOS）"
+  fail "平台门禁：Windows 条件编译、平台配置或 .ps1 回归"
 fi
-if find . -name '*.ps1' -not -path './node_modules/*' -not -path './target/*' | grep -q .; then
-  fail "平台门禁：仓库内出现 .ps1"
+# 守卫自身可证：合成样本必须命中（正向），注释类历史叙述必须放行（反向）
+if bash scripts/guards.sh --selftest >/dev/null 2>&1; then
+  ok "守卫自测（合成样本：越层 7 命中 + 平台 3 命中，历史叙述不误报）"
 else
-  ok "平台门禁（无 Windows 脚本）"
+  fail "守卫自测失败：模式可能已失效——跑 bash scripts/guards.sh --selftest 看是哪条"
 fi
 
 # ---------- 3. 用例数三处口径 ----------
@@ -198,6 +200,8 @@ EXPECTED_GUARDS=(
   "src/__tests__/controlSizeContract.test.ts:控件尺寸统一走令牌"
   "src/__tests__/iaContract.test.ts:信息架构与拖动区"
   "src/__tests__/duplicateReviewContract.test.ts:重复核查三处登记"
+  "src/__tests__/registrationContract.test.ts:全量路由登记（router↔侧栏↔面板）"
+  "scripts/guards.sh:两道 grep 门禁的单一真源（layering/platform/--selftest）"
 )
 for item in "${EXPECTED_GUARDS[@]}"; do
   f="${item%%:*}"; desc="${item#*:}"
