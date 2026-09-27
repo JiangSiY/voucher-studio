@@ -55,6 +55,11 @@ function applyPreset(p: RangePreset) {
 const dim = ref<"counterparty" | "tag">("counterparty");
 const breakdown = ref<BreakdownRow[]>([]);
 
+// 台账（导出覆盖度 / 存储占用）
+const coverage = ref<ExportCoverage | null>(null);
+const storage = ref<StorageUsage | null>(null);
+const storageBytesBusy = ref(false);
+
 async function loadWindowed() {
   try {
     [coverage.value, breakdown.value] = await Promise.all([
@@ -71,27 +76,30 @@ function switchDim(d: "counterparty" | "tag") {
   void loadWindowed();
 }
 
-/** 透视行 → 资料库（**精确**筛选：对方整串相等 / 标签精确；批次 5 的维度） */
+/**
+ * 透视行 → 资料库（**精确**筛选）。
+ *
+ * 参数写成**一个显式字面量**（而不是拼在变量上）有两个原因：
+ * ① 读代码的人一眼看清"这一行到底带什么条件"；
+ * ② 静态守卫 `drilldownContract.test.ts` 靠解析这个字面量来校验
+ *    "推出去的每个键，资料库都读得懂"——拼在变量上会让守卫失明（上一版正是如此，
+ *    于是 `counterparty`/`tags` 漏读没被发现）。
+ */
 function drillDown(row: BreakdownRow) {
-  if (row.key === "(未填)") {
-    void router.push({ path: "/vouchers", query: { counterpartyEmpty: "1" } });
-    return;
-  }
-  const q: Record<string, string> = {
-    dateFrom: `${row.month}-01`,
-    dateTo: `${row.month}-31`,
-  };
-  if (dim.value === "tag") q.tags = row.key;
-  else q.counterparty = row.key;
-  void router.push({ path: "/vouchers", query: q });
+  const isUnfilled = row.key === "(未填)";
+  void router.push({
+    path: "/vouchers",
+    query: {
+      // 月份窗口（闭区间；月末用 -31 不影响字符串比较口径）
+      dateFrom: `${row.month}-01`,
+      dateTo: `${row.month}-31`,
+      // 精确维度：未填行走 counterpartyEmpty；否则按当前维度用 tags 或 counterparty
+      ...(isUnfilled ? { counterpartyEmpty: "1" } : {}),
+      ...(!isUnfilled && dim.value === "tag" ? { tags: row.key } : {}),
+      ...(!isUnfilled && dim.value === "counterparty" ? { counterparty: row.key } : {}),
+    },
+  });
 }
-const reconcileReport = ref<ReconcileReport | null>(null);
-const reconcileBusy = ref(false);
-
-// 导出覆盖度与存储占用（批次 5 新增的台账口径；界面必须标注口径）
-const coverage = ref<ExportCoverage | null>(null);
-const storage = ref<StorageUsage | null>(null);
-const storageBytesBusy = ref(false);
 
 async function loadLedgers() {
   try {
@@ -116,6 +124,10 @@ async function loadEnhancedBytes() {
 onMounted(async () => {
   await Promise.all([loadWindowed(), loadLedgers()]);
 });
+
+// 对账（只读：选账单 CSV 与库内凭证比对，报告仅在会话内保留）
+const reconcileReport = ref<ReconcileReport | null>(null);
+const reconcileBusy = ref(false);
 
 async function runReconcile() {
   if (reconcileBusy.value) return;

@@ -45,6 +45,10 @@ const loading = ref(false);
 /** 高级筛选（对应"未填金额 / 待识别 / 从未导出"等待办的精确下钻） */
 const amountEmpty = ref(false);
 const counterpartyEmpty = ref(false);
+/** 精确筛选：对方账户（整串相等）——洞察的月度透视下钻会带这个参数 */
+const counterpartyExact = ref("");
+/** 精确筛选：标签（逗号/顿号分隔，任一命中）——同上 */
+const tagsText = ref("");
 const ocrStatus = ref<string>("");
 const exported = ref<string>("");
 const sort = ref<string>("date_desc");
@@ -57,6 +61,8 @@ function query() {
     dateTo: dateTo.value || null,
     amountEmpty: amountEmpty.value,
     counterpartyEmpty: counterpartyEmpty.value,
+    counterparty: counterpartyExact.value.trim() || null,
+    tags: parseTags(tagsText.value),
     ocrStatus: ocrStatus.value || null,
     exported: (exported.value || null) as "never" | "any" | null,
     sort: sort.value,
@@ -105,6 +111,9 @@ function readQuery() {
   ocrStatus.value = (q.ocrStatus as string) ?? "";
   exported.value = (q.exported as string) ?? "";
   sort.value = (q.sort as string) ?? "date_desc";
+  // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
+  counterpartyExact.value = (q.counterparty as string) ?? "";
+  tagsText.value = (q.tags as string) ?? "";
 }
 
 const activeFilters = computed(() => {
@@ -116,6 +125,10 @@ const activeFilters = computed(() => {
   if (amountEmpty.value) out.push({ label: "金额未填", clear: () => (amountEmpty.value = false) });
   if (counterpartyEmpty.value)
     out.push({ label: "对方未填", clear: () => (counterpartyEmpty.value = false) });
+  if (counterpartyExact.value)
+    out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
+  if (tagsText.value)
+    out.push({ label: `标签：${tagsText.value}`, clear: () => (tagsText.value = "") });
   if (ocrStatus.value)
     out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
   if (exported.value)
@@ -273,10 +286,14 @@ const advancedCount = computed(
     (ocrStatus.value ? 1 : 0) +
     (exported.value ? 1 : 0) +
     (amountEmpty.value ? 1 : 0) +
-    (counterpartyEmpty.value ? 1 : 0),
+    (counterpartyEmpty.value ? 1 : 0) +
+    (counterpartyExact.value ? 1 : 0) +
+    (tagsText.value ? 1 : 0),
 );
 
 function clearAllFilters() {
+  counterpartyExact.value = "";
+  tagsText.value = "";
   dateFrom.value = "";
   dateTo.value = "";
   ocrStatus.value = "";
@@ -348,21 +365,33 @@ function gotoPage(p: number) {
 }
 
 let unlistenImport: UnlistenFn | null = null;
+let queryWatcher: (() => void) | null = null;
 
 onMounted(async () => {
   readQuery();
   await load();
+  // 同一路由内 query 变化（再次从洞察/收件箱下钻）也要重读并重查——
+  // 原来只在 onMounted 读一次，导致"已在列表页再点别的下钻"不生效
+  queryWatcher = watch(
+    () => route.query,
+    () => {
+      readQuery();
+      page.value = 1;
+      void load();
+    },
+  );
   unlistenImport = await safeListen("import:done", () => load());
   window.addEventListener("keydown", onKeydown);
 });
 
 onUnmounted(() => {
   unlistenImport?.();
+  queryWatcher?.();
   window.removeEventListener("keydown", onKeydown);
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, ocrStatus, exported, sort], () => {
+watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
 });
@@ -408,6 +437,10 @@ watch(keyword, () => {
       <label class="inline-check" title="只看对方账户未填的凭证">
         <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
       </label>
+      <input v-model="counterpartyExact" class="input" style="max-width: 170px"
+        placeholder="对方账户（精确）" title="对方账户整串相等（区别于搜索框的模糊匹配）" />
+      <input v-model="tagsText" class="input" style="max-width: 170px"
+        placeholder="标签（逗号分隔）" title="标签精确匹配，多个用、或,分隔（任一命中）" />
       <select v-model="sort" class="input" style="max-width: 150px" title="排序">
         <option value="date_desc">日期（新→旧）</option>
         <option value="date_asc">日期（旧→新）</option>
