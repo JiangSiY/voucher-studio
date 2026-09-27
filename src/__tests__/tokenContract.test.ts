@@ -1,18 +1,16 @@
 // @vitest-environment node
 /**
- * CSS 令牌契约守卫：**被引用的自定义属性必须有定义**（或有 fallback）。
+ * CSS 令牌契约守卫：**被引用的自定义属性必须有定义**（或有 fallback），且**旧命名不得回归**。
  *
- * 背景（2026-09-23 审计 A6）：命令面板、裁剪框、联想下拉等组件引用了
+ * 历史（2026-09-23 审计 A6）：命令面板、裁剪框、联想下拉等组件引用了
  * `--bg-1` / `--bg-2` / `--bg-3` / `--surface-1` / `--text-1` / `--border` 这批早期命名，
  * 而 `tokens.css` 里从未定义过它们——有 fallback 的地方恒取浅色（深色模式下命令面板
- * 成了 #fff 白底 + 继承来的白字 = 完全不可读），无 fallback 的（如 `--border`）
- * 退化成 `currentColor`。修复方式是在 tokens.css 末尾加**单向别名**（新命名仍是唯一真源）。
+ * 成了 #fff 白底 + 继承来的白字 = 完全不可读），无 fallback 的（如 `--border`）退化成
+ * `currentColor`。当时先加**单向别名**兜住；2026-09-27（批次 7）把 24 处引用按别名目标
+ * 等价替换为语义令牌并**删除了别名块**，同时在此加**禁名断言**：旧名再出现即变红。
  *
- * 本测试是**回归锁**：把「谁被引用、谁有定义」固化成断言，防止再出现未定义令牌。
- *
- * ⚠️ **已知盲区**：它对 `var(--bg-1, #fff)` 这类「有 fallback 但 fallback 与主题无关」
- * 的写法不敏感（那正是 A6 的原始形态）。要覆盖这类，需要"fallback 不得是字面量颜色"级别的
- * 约定，会误伤大量合理用法，故本测试只守"完全没有定义"这一档。
+ * ⚠️ **已知盲区**：本测试对 `var(--x, #fff)` 这类"有 fallback 但 fallback 与主题无关"的写法
+ * 不敏感（那正是 A6 的原始形态）；现在的防线是禁名断言 + 语义令牌本身不带字面量 fallback。
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -57,6 +55,29 @@ function usedTokens(): Map<string, string[]> {
   return out;
 }
 
+/**
+ * 已收编的旧命名：2026-09-23 的兼容别名已随引用迁移一并删除（批次 7）。
+ * 这些名字**不得再出现在 src 里**（新增引用会让深色主题与主题切换重新出现 A6 类问题）。
+ */
+const RETIRED_TOKENS = [
+  "--bg-1", "--bg-2", "--bg-3", "--surface-1", "--text-1", "--border",
+];
+
+/** 全量 var() 引用（含带 fallback 的写法——禁名判据不能漏掉它们） */
+function allVarReferences(): string[] {
+  const root = new URL("../../src", import.meta.url);
+  const files = readdirSync(root, { recursive: true })
+    .map((f) => String(f))
+    .filter((f) => /\.(vue|css|ts)$/.test(f) && !f.includes("__tests__"));
+  const out: string[] = [];
+  for (const rel of files) {
+    for (const m of repoFile(`src/${rel}`).matchAll(/var\(\s*(--[A-Za-z0-9-]+)/g)) {
+      out.push(`${m[1]} @ src/${rel}`);
+    }
+  }
+  return out;
+}
+
 describe("CSS 令牌契约（引用必须有定义）", () => {
   const defined = definedTokens();
   const used = usedTokens();
@@ -75,6 +96,17 @@ describe("CSS 令牌契约（引用必须有定义）", () => {
       missing.push(`${name}（${[...new Set(files)].slice(0, 3).join(", ")}）`);
     }
     expect(missing, `以下令牌被引用但从未定义：\n${missing.join("\n")}`).toEqual([]);
+  });
+
+  it("已收编的旧命名不得再被引用（禁名断言）", () => {
+    const offenders = allVarReferences().filter((r) =>
+      RETIRED_TOKENS.some((name) => r.startsWith(`${name} `)),
+    );
+    expect(
+      offenders,
+      `以下位置引用了已收编的旧令牌（请改用语义令牌：--surface / --surface-3 / --text / --stroke）：\n` +
+        offenders.join("\n"),
+    ).toEqual([]);
   });
 
   it("别名链的目标也有定义（`--x: var(--y)` 的 --y 不能悬空）", () => {

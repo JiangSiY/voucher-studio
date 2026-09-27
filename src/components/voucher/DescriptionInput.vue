@@ -115,8 +115,8 @@ function onDescKeydown(e: KeyboardEvent) {
   top: 100%;
   z-index: 30;
   margin-top: 4px;
-  background: var(--bg-1, #fff);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   max-height: 240px;
@@ -136,11 +136,11 @@ function onDescKeydown(e: KeyboardEvent) {
   cursor: pointer;
   font-size: 13px;
   text-align: left;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .desc-option.active {
-  background: var(--bg-3, rgba(0, 0, 0, 0.06));
+  background: var(--surface-3);
 }
 
 .desc-text {

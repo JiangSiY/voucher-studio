@@ -282,7 +282,7 @@ onUnmounted(() => {
           <h3>选择凭证</h3>
         </div>
         <!-- 筛选器 -->
-        <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
+        <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--stroke)">
           <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
             <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" />
             <span style="color: var(--text-3); font-size: 12px">至</span>

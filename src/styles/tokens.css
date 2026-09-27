@@ -186,20 +186,12 @@ html[data-theme="dark"] {
   --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
-/* 兼容别名（2026-09-23 审计 A6）：命令面板、裁剪框、联想下拉等组件用了
-   `--bg-1` / `--bg-2` / `--bg-3` / `--surface-1` / `--text-1` / `--border` 这批早期命名，
-   而 tokens 里从未定义 —— 有 fallback 的地方恒取浅色（深色模式下命令面板成了 #fff 白底 +
-   继承来的白字 = 完全不可读），无 fallback 的（如 `--border`）退化成 currentColor。
-   这里做**单向别名**：新命名仍是唯一真源，主题切换自动跟随（`:root` 上的别名在
-   深色主题下解析到的就是深色值）。 */
-:root {
-  --bg-1: var(--surface);
-  --bg-2: var(--surface-2);
-  --bg-3: var(--surface-3);
-  --surface-1: var(--surface);
-  --text-1: var(--text);
-  --border: var(--stroke);
-}
+/* 早期命名的兼容别名块已于 2026-09-27（审计剩余项批次 7）**删除**：
+   `--bg-1` / `--bg-2` / `--bg-3` / `--surface-1` / `--text-1` / `--border` 曾在这里做单向别名
+   （2026-09-23 审计 A6 引入），24 处引用已全部按别名目标等价替换为语义令牌
+   （`--bg-1`/`--surface-1` → `--surface`，`--bg-3` → `--surface-3`，`--text-1` → `--text`，
+   `--border` → `--stroke`），故别名不再需要。**禁止再引入这批旧名**——
+   `tokenContract.test.ts` 有禁名断言（新增引用会直接让测试变红）。 */
 
 /* 首帧兜底：主题属性由 JS 写入（`stores/config.ts`），写入前若系统是深色，
    基础令牌的浅色值会闪一下。CSP 禁内联脚本，故用纯 CSS 跟随系统——

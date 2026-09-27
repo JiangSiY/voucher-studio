@@ -204,7 +204,7 @@ watch(
 
 .cp-panel {
   width: min(560px, 92vw);
-  background: var(--bg-1, #fff);
+  background: var(--surface);
   border-radius: 10px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
   overflow: hidden;
@@ -215,7 +215,7 @@ watch(
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--stroke);
   color: var(--text-3);
 }
 
@@ -225,7 +225,7 @@ watch(
   outline: none;
   font-size: 14px;
   background: transparent;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .cp-esc {
@@ -252,7 +252,7 @@ watch(
   background: none;
   cursor: pointer;
   text-align: left;
-  color: var(--text-1);
+  color: var(--text);
   font-size: 13px;
 }
 

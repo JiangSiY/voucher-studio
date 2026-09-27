@@ -288,7 +288,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 }
 
 .crop-dialog {
-  background: var(--bg-1, #fff);
+  background: var(--surface);
   border-radius: 10px;
   padding: 16px 20px 14px;
   max-width: 92vw;
@@ -314,7 +314,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   user-select: none;
   background:
     repeating-conic-gradient(#eee 0% 25%, #fafafa 0% 50%) 0 0 / 16px 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--stroke);
   cursor: move;
   overflow: hidden;
 }

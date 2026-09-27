@@ -188,7 +188,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--stroke);
   border-radius: 6px;
 }
 
@@ -202,7 +202,7 @@ onMounted(() => {
   align-items: center;
   gap: 5px;
   font-size: 13px;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .period-row.locked .period-label {

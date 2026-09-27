@@ -455,7 +455,7 @@ onBeforeUnmount(() => {
 .dup-sub { font-size: 12px; color: var(--text-3); font-weight: 400; max-width: 62ch; }
 .dup-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .dup-stat { font-size: 13px; color: var(--text-2); }
-.dup-num { font-weight: 600; color: var(--text-1); }
+.dup-num { font-weight: 600; color: var(--text); }
 .dup-tabs { display: flex; gap: 8px; align-items: center; }
 .dup-loading { padding: 24px; text-align: center; color: var(--text-3); }
 
@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
 .dup-later { font-size: 11px; color: var(--text-3); }
 
 .dup-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-.dup-side { border: 1px solid var(--border, transparent); border-radius: 8px; padding: 8px; }
+.dup-side { border: 1px solid var(--stroke); border-radius: 8px; padding: 8px; }
 .dup-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .dup-img { height: 220px; display: flex; align-items: center; justify-content: center; background: var(--surface-2, rgba(0, 0, 0, 0.02)); border-radius: 6px; overflow: hidden; }
 .dup-img img { max-width: 100%; max-height: 100%; object-fit: contain; }

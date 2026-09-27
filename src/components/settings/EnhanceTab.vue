@@ -487,7 +487,7 @@ onUnmounted(() => {
 .stat-num {
   font-size: 20px;
   font-weight: 600;
-  color: var(--text-1);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
   margin-right: 4px;
 }
@@ -519,7 +519,7 @@ onUnmounted(() => {
 .btn-mini:hover {
   background: var(--surface-3);
   border-color: var(--accent);
-  color: var(--text-1);
+  color: var(--text);
 }
 .btn-mini.danger {
   background: rgba(220, 38, 38, 0.1);
@@ -571,7 +571,7 @@ onUnmounted(() => {
   border-radius: 6px;
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--surface-1);
+  background: var(--surface);
 }
 .ht-head {
   display: flex;
@@ -599,7 +599,7 @@ onUnmounted(() => {
   transition: all 0.12s ease;
 }
 .ht-day:hover {
-  color: var(--text-1);
+  color: var(--text);
   border-color: var(--accent);
 }
 .ht-day.on {
@@ -671,7 +671,7 @@ onUnmounted(() => {
   border-radius: 6px;
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--surface-1);
+  background: var(--surface);
 }
 .cs-title {
   font-size: 12px;
@@ -704,7 +704,7 @@ onUnmounted(() => {
   border: 1px solid var(--stroke);
   border-radius: 3px;
   background: var(--surface-2);
-  color: var(--text-1);
+  color: var(--text);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -718,7 +718,7 @@ onUnmounted(() => {
   border: 1px solid var(--stroke);
   border-radius: 6px;
   padding: 12px;
-  background: var(--surface-1);
+  background: var(--surface);
 }
 .re-title {
   font-size: 12px;
@@ -742,7 +742,7 @@ onUnmounted(() => {
 .re-table td {
   padding: 6px 8px;
   border-bottom: 1px solid var(--stroke);
-  color: var(--text-1);
+  color: var(--text);
   vertical-align: middle;
 }
 .re-table tr:last-child td { border-bottom: none; }

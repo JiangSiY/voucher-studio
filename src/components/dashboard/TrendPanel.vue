@@ -384,7 +384,7 @@ onUnmounted(() => {
 
 .q-count {
   font-size: 13px;
-  color: var(--text-1);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
