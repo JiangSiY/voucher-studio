@@ -1,0 +1,62 @@
+// @vitest-environment node
+/**
+ * 信息架构守卫（v0.18 收件箱驱动重构）。
+ *
+ * 背景：用户要求的是**结构重做**（"不是在旧布局上增删改"）——主骨架从
+ * 「仪表盘 / 凭证管理 / 数据与设置」三组 + 以统计为中心，改为
+ * 「收件箱 / 资料库 / 设置」三组 + 以**流程**为中心（收件箱即首页）。
+ *
+ * 这类改动最容易在后续迭代里被悄悄改回去（比如有人把仪表盘加回导航），
+ * 故把不变量固化成断言：首页是收件箱、侧栏只有这三组、命令面板入口与侧栏一致、
+ * 旧的 /dashboard 只保留重定向。
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+function repoFile(rel: string): string {
+  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+}
+
+const routerSrc = repoFile("src/router/index.ts");
+const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
+const paletteSrc = repoFile("src/components/CommandPalette.vue");
+
+describe("主骨架：收件箱驱动", () => {
+  it("首页是收件箱；/dashboard 只作重定向保留（旧链接不 404，但页面已不存在）", () => {
+    expect(routerSrc).toMatch(/\{\s*path:\s*"",\s*redirect:\s*"\/inbox"\s*\}/);
+    expect(routerSrc).toMatch(
+      /path:\s*"inbox",\s*name:\s*"inbox",\s*component:\s*\(\)\s*=>\s*import\("\.\.\/pages\/InboxPage\.vue"\)/,
+    );
+    expect(routerSrc).toMatch(/\{\s*path:\s*"dashboard",\s*redirect:\s*"\/inbox"\s*\}/);
+    // 旧仪表盘页面文件必须已删除（不留无人引用的死页面）
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    expect(existsSync(`${root}src/pages/DashboardPage.vue`)).toBe(false);
+  });
+
+  it("侧栏固定三组：收件箱 / 资料库 / 设置", () => {
+    const groups = [...layoutSrc.matchAll(/group:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(groups).toEqual(["收件箱", "资料库", "设置"]);
+  });
+
+  it("侧栏入口与「待处理」徽标同源（inbox store），重复核查徽标沿用 dup store", () => {
+    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/inbox"[^}]*badge:\s*inboxStore\.pendingCount\s*\}/);
+    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/duplicates"[^}]*badge:\s*dupStore\.pending\.groups\s*\}/);
+    expect(layoutSrc).toContain("useInboxStore");
+  });
+
+  it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {
+    expect(paletteSrc).toMatch(/router\.push\("\/inbox"\)/);
+    expect(paletteSrc).toContain("全部凭证");
+    expect(paletteSrc).toContain("打印与导出");
+    expect(paletteSrc).not.toContain("仪表盘");
+  });
+
+  it("收件箱页消费的数据源是待办聚合（不是旧的全量扫描）", () => {
+    const inbox = repoFile("src/pages/InboxPage.vue");
+    expect(inbox).toContain("useInboxStore");
+    expect(inbox).toContain("api.voucherStats");
+    expect(inbox).not.toContain("api.scanDuplicates");
+    expect(inbox).not.toContain("api.scanDuplicateReview");
+  });
+});

@@ -44,6 +44,27 @@ fn apply_effect(window: WebviewWindow, kind: String) -> Result<String, String> {
         .map_err(|e| format!("set_effects({kind}) 失败：{e}"))
 }
 
+/// M2：应用 macOS 26+ 的 Liquid Glass（`NSGlassEffectView`）；`.interactive(true)` 需 macOS 27+
+#[tauri::command]
+fn apply_liquid_glass_effect(window: WebviewWindow) -> Result<String, String> {
+    use window_vibrancy::{apply_liquid_glass, LiquidGlassOptions, NSGlassEffectViewStyle};
+    let opts = LiquidGlassOptions::new(NSGlassEffectViewStyle::Clear)
+        .radius(12.0)
+        .opaque(false)
+        .interactive(true);
+    apply_liquid_glass(&window, opts)
+        .map(|_| "liquid_glass(Clear, radius=12, opaque=false, interactive=true)".to_string())
+        .map_err(|e| format!("apply_liquid_glass 失败：{e}"))
+}
+
+/// M2：清除玻璃（回到 windowEffects 的 VisualEffect 材质，便于 A/B 对比）
+#[tauri::command]
+fn clear_liquid_glass_effect(window: WebviewWindow) -> Result<String, String> {
+    window_vibrancy::clear_liquid_glass(&window)
+        .map(|_| "已清除 Liquid Glass".to_string())
+        .map_err(|e| format!("clear_liquid_glass 失败：{e}"))
+}
+
 /// 读取系统强调色 / 高亮色（M6）。
 ///
 /// 走 `defaults read -g`（只读系统偏好）而非 objc 绑定：spike 阶段不值得为一行颜色
@@ -90,6 +111,8 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             apply_effect,
+            apply_liquid_glass_effect,
+            clear_liquid_glass_effect,
             read_accent,
             write_report
         ])

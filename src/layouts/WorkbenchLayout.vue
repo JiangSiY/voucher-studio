@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
+import { useInboxStore } from "../stores/inbox";
 import { useUiStore } from "../stores/ui";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
@@ -11,6 +12,7 @@ const route = useRoute();
 const configStore = useConfigStore();
 const dupStore = useDupStore();
 const ui = useUiStore();
+const inboxStore = useInboxStore();
 
 // 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
 const isReading = computed(() => route.meta.reading === true);
@@ -19,24 +21,23 @@ const version = computed(() => configStore.appInfo?.version ?? "…");
 
 const navGroups = computed(() => [
   {
-    group: "概览",
+    group: "收件箱",
     items: [
-      { to: "/dashboard", icon: "dashboard", label: "仪表盘", badge: 0 },
-      { to: "/search", icon: "search", label: "搜索", badge: 0 },
+      // v0.18 收件箱驱动：首页即"今天要处理什么"，badge 显示待处理项数
+      { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount },
     ],
   },
   {
-    group: "凭证管理",
+    group: "资料库",
     items: [
-      { to: "/vouchers", icon: "list", label: "凭证列表", badge: 0 },
-      // v0.16：待核查的疑似重复组数（0 不显示；处置后由 dup:changed 刷新）
+      { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0 },
       { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
-      { to: "/print", icon: "print", label: "打印中心", badge: 0 },
+      { to: "/print", icon: "print", label: "打印与导出", badge: 0 },
       { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
     ],
   },
   {
-    group: "数据与设置",
+    group: "设置",
     items: [
       { to: "/settings", icon: "settings", label: "设置", badge: 0 },
       { to: "/restore", icon: "save", label: "备份与恢复", badge: 0 },

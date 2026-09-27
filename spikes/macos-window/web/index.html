@@ -77,6 +77,16 @@
     </div>
 
     <div class="panel">
+      <div><b>M2 · Liquid Glass（macOS 26+ 的 NSGlassEffectView；interactive 需 27+）</b></div>
+      <div class="row">
+        <button id="lg-on">应用 Liquid Glass</button>
+        <button id="lg-off">清除（回 VisualEffect）</button>
+      </div>
+      <div class="kv" id="lg-result">未应用</div>
+      <div class="note">这一块是 macOS 27 当前的原生玻璃；主应用已接到同一条 API（失败自动回退 VisualEffect）。</div>
+    </div>
+
+    <div class="panel">
       <div><b>M4 · 透明窗口下的 CSS backdrop-filter</b></div>
       <div class="blur-demo" id="blur">这块用 backdrop-filter 模糊背后的内容</div>
       <div class="note">若此块看起来**没有**模糊（只是一层半透明灰），即证实"透明窗口与 CSS backdrop-filter 冲突"——材质只能走原生路线。</div>
@@ -164,6 +174,27 @@
       return a;
     }
 
+    async function probeLiquidGlass() {
+      const out = document.getElementById("lg-result");
+      try {
+        const ok = await invoke("apply_liquid_glass_effect");
+        out.textContent = "✅ " + ok;
+        result.liquidGlass = { ok: true, detail: ok };
+      } catch (e) {
+        out.textContent = "❌ " + String(e);
+        result.liquidGlass = { ok: false, error: String(e) };
+      }
+    }
+
+    document.getElementById("lg-on").onclick = probeLiquidGlass;
+    document.getElementById("lg-off").onclick = async () => {
+      try {
+        document.getElementById("lg-result").textContent = "已清除：" + (await invoke("clear_liquid_glass_effect"));
+      } catch (e) {
+        document.getElementById("lg-result").textContent = "清除失败：" + String(e);
+      }
+    };
+
     async function collect() {
       result.mediaQueries = mq();
       result.accent = await readAccent();
@@ -189,7 +220,8 @@
 
     renderButtons();
     mq();
-    readAccent().then(collect);
+    // 启动即探一次 Liquid Glass（把成功/失败写进报告，供无头核对）
+    probeLiquidGlass().then(() => readAccent().then(collect));
     // 系统设置变化时刷新读数（浅色/深色、减少透明度都会触发）
     window.matchMedia("(prefers-reduced-transparency: reduce)").addEventListener("change", collect);
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", collect);

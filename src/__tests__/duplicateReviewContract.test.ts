@@ -93,14 +93,15 @@ describe("重复核查页与后端契约", () => {
 });
 
 describe("三处提示都指向处置（不再「只提示不处理」）", () => {
-  const dashboardSrc = repoFile("src/pages/DashboardPage.vue");
+  // v0.18：旧仪表盘已由收件箱页取代（见 iaContract.test.ts）
+  const dashboardSrc = repoFile("src/pages/InboxPage.vue");
   const formSrc = repoFile("src/pages/VoucherFormPage.vue");
   const appSrc = repoFile("src/App.vue");
 
-  it("工作台只消费**未处置计数**（不得退回全量扫描，也不得在工作台跑重活）", () => {
-    // v0.18：工作台的疑似重复取自 `dashboardTodos`（内部走轻量计数，口径与核查队列一致，
+  it("收件箱只消费**未处置计数**（不得退回全量扫描，也不得在首页跑重活）", () => {
+    // v0.18：疑似重复取自 `dashboardTodos`（经 inbox store；内部走轻量计数，口径与核查队列一致，
     // 由 Rust 用例 `pending_count_matches_queue` 锁定）——旧实现是"跑完整个队列再取长度"。
-    expect(dashboardSrc).toContain("api.dashboardTodos");
+    expect(dashboardSrc).toContain("useInboxStore");
     expect(dashboardSrc).not.toContain("api.scanDuplicates");
     expect(dashboardSrc).not.toContain("api.scanDuplicateReview");
     // 仍然要能一键去核查
@@ -119,9 +120,10 @@ describe("三处提示都指向处置（不再「只提示不处理」）", () =
     expect(dupStoreSrc).toMatch(/const notified = new Set<string>\(\)/);
   });
 
-  it("待处理数是共用 store（侧栏徽标与仪表盘不得各查一次）", () => {
+  it("待处理数是共用 store（侧栏徽标与首页不得各查一次）", () => {
+    // 疑似重复徽标：侧栏读 dupStore；收件箱的"待处置对数"读 inboxStore（两者都不各自查库）
     expect(layoutSrc).toContain("useDupStore");
-    expect(dashboardSrc).toContain("useDupStore");
+    expect(dashboardSrc).toContain("useInboxStore");
     expect(appSrc).toMatch(/dupStore\.refresh\(\)/);
     expect(appSrc).toMatch(/safeListen\("dup:changed"/);
   });

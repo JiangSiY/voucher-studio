@@ -25,12 +25,12 @@ type Command = {
 
 /** 快速动作（异步动作用 toast 反馈，面板即关） */
 const commands: Command[] = [
-  { key: "nav:dash", label: "前往 仪表盘", hint: "统计与趋势", icon: "dashboard", run: () => router.push("/") },
-  { key: "nav:list", label: "前往 凭证列表", hint: "筛选 / 批量操作", icon: "list", run: () => router.push("/vouchers") },
+  { key: "nav:inbox", label: "前往 待处理", hint: "今天要办的事（流程）", icon: "inbox", run: () => router.push("/inbox") },
+  { key: "nav:list", label: "前往 全部凭证", hint: "筛选 / 批量操作", icon: "list", run: () => router.push("/vouchers") },
   { key: "nav:duplicates", label: "前往 重复核查", hint: "疑似重复的比对与处置", icon: "duplicate", run: () => router.push("/duplicates") },
   { key: "nav:new", label: "新建凭证", hint: "选图建卡 + OCR", icon: "plus", run: () => router.push("/vouchers/new") },
   { key: "nav:search", label: "前往 全文搜索", hint: "编号 / 摘要 / OCR 文本", icon: "search", run: () => router.push("/search") },
-  { key: "nav:print", label: "前往 打印中心", hint: "PDF / Excel / CSV 导出", icon: "print", run: () => router.push("/print") },
+  { key: "nav:print", label: "前往 打印与导出", hint: "PDF / Excel / CSV", icon: "print", run: () => router.push("/print") },
   { key: "nav:exports", label: "前往 导出历史", hint: "批次反查", icon: "file", run: () => router.push("/exports") },
   { key: "nav:restore", label: "前往 备份与恢复", hint: "备份列表 / 演练", icon: "save", run: () => router.push("/restore") },
   { key: "nav:settings", label: "前往 设置", hint: "参数 / 密钥 / 期间管理", icon: "settings", run: () => router.push("/settings") },

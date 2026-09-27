@@ -44,6 +44,11 @@ fn main() {
                 .build(),
         )
         .setup(|app| {
+            // 0. 窗口材质：Liquid Glass（macOS 26+）优先，失败回退 windowEffects
+            if let Some(w) = app.get_webview_window("main") {
+                platform::apply_macos_material(&w);
+            }
+
             // 1. 落位待恢复备份（restore 命令重启生效机制）
             // 数据目录覆盖：`VOUCHER_DATA_DIR`（开发/真机验证用）——便于在隔离目录里
             // 跑恢复等破坏性流程而不碰真实数据；未设置时按平台约定（ProjectDirs）。

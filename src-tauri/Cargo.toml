@@ -25,6 +25,11 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-log = "2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS 26+ 的 Liquid Glass（NSGlassEffectView）与旧版 vibrancy（NSVisualEffectView）。
+# 只在 macOS 目标下编译——Linux（CI 快门禁）不构建本依赖，cfg 门控的调用点也为空实现。
+window-vibrancy = "0.8"
+
 [features]
 default = []
 # 生产模式：内嵌打包好的前端（dist/），双击即可离线运行，不依赖开发服务器

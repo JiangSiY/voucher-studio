@@ -63,7 +63,8 @@ describe("assetProtocol scope ↔ 附件目录一致性（单平台）", () => {
   it("前端一律消费后端下发的绝对路径（不得自行拼分隔符）", () => {
     const sources = [
       "src/components/voucher/AttachmentPanel.vue",
-      "src/pages/VoucherListPage.vue",
+      // v0.18：旧 10 列凭证列表已由「资料库」（双行列表 + 检视器）取代，二者都必须只消费绝对路径
+      "src/pages/LibraryPage.vue",
       "src/pages/PrintCenterPage.vue",
       "src/composables/useAttachmentFallback.ts",
     ];

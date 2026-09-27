@@ -8,9 +8,12 @@ export const router = createRouter({
       path: "/",
       component: WorkbenchLayout,
       children: [
-        { path: "", redirect: "/dashboard" },
-        { path: "dashboard", name: "dashboard", component: () => import("../pages/DashboardPage.vue"), meta: { title: "仪表盘" } },
-        { path: "vouchers", name: "vouchers", component: () => import("../pages/VoucherListPage.vue"), meta: { title: "凭证列表" } },
+        { path: "", redirect: "/inbox" },
+        // v0.18：收件箱成为首页（流程为中心）；旧 /dashboard 链接重定向保留
+        { path: "inbox", name: "inbox", component: () => import("../pages/InboxPage.vue"), meta: { title: "收件箱" } },
+        { path: "dashboard", redirect: "/inbox" },
+        // v0.18：资料库 = 双行列表 + 检视器（取代旧 10 列表格）；旧 /vouchers 仍指到这里
+        { path: "vouchers", name: "vouchers", component: () => import("../pages/LibraryPage.vue"), meta: { title: "全部凭证" } },
         // v0.16 疑似重复核查（静态段须在 vouchers/:id 之前，避免被动态段吃掉）
         { path: "duplicates", name: "duplicates", component: () => import("../pages/DuplicateReviewPage.vue"), meta: { title: "重复核查" } },
         { path: "vouchers/new", name: "voucher-new", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "新建凭证", reading: true } },
