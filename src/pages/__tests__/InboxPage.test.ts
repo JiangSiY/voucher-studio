@@ -24,6 +24,7 @@ vi.mock("../../api/client", () => ({
     voucherStats: vi.fn(),
     listVouchers: vi.fn(),
     listExportBatches: vi.fn(),
+    exportCoverage: vi.fn(),
     runOcrPending: vi.fn(),
   },
 }));
@@ -71,6 +72,13 @@ beforeEach(() => {
   });
   mockApi.listVouchers.mockResolvedValue({ items: [], total: 0, thumbs: {} });
   mockApi.listExportBatches.mockResolvedValue([]);
+  // 「待打印/导出」的计数来自"从未导出"（审计 P1-3 修的口径），不是 stats.reviewed
+  mockApi.exportCoverage.mockResolvedValue({
+    total: 10,
+    exported: 3,
+    neverExported: 7,
+    byFormat: [],
+  });
 });
 
 afterEach(() => {
@@ -91,6 +99,10 @@ describe("收件箱待办清单", () => {
     expect(text).toContain("待核对");
     expect(text).toContain("4"); // 来自 voucher_stats.draft
     expect(text).toContain("未填金额");
+    // 审计 P1-3：待打印/导出用"从未导出"口径（exportCoverage.neverExported），不再用 stats.reviewed
+    expect(text).toContain("待打印 / 导出");
+    expect(text).toContain("7");
+    expect(text).toContain("去看清单");
   });
 
   it("**数量为 0 的项不渲染**（不是变灰保留）", async () => {
@@ -104,11 +116,13 @@ describe("收件箱待办清单", () => {
       attachments: 1,
       thisMonth: 1,
     });
+    // 「待打印」的计数来自"从未导出"（审计 P1-3 改的口径）
+    mockApi.exportCoverage.mockResolvedValue({ total: 1, exported: 1, neverExported: 0, byFormat: [] });
     const w = await mountPage();
     const text = w.text();
     expect(text).toContain("待识别");
     expect(text).not.toContain("疑似重复"); // dupPairs = 0 → 整行消失
-    expect(text).not.toContain("待打印"); // reviewed = 0 → 整行消失
+    expect(text).not.toContain("待打印"); // neverExported = 0 → 整行消失
     expect(text).not.toContain("未填金额");
     expect(text).not.toContain("未封账");
     expect(text).not.toContain("该备份了"); // backupStale = false
@@ -127,17 +141,41 @@ describe("收件箱待办清单", () => {
       attachments: 5,
       thisMonth: 0,
     });
+    mockApi.exportCoverage.mockResolvedValue({ total: 5, exported: 5, neverExported: 0, byFormat: [] });
     const w = await mountPage();
     expect(w.text()).toContain("待办都清空了");
     expect(w.find(".todo").exists()).toBe(false);
     expect(w.text()).toContain("打开资料库");
   });
 
-  it("点某一行执行它的动作（待核对 → 带草稿筛选进资料库）", async () => {
+  it("点「待核对」→ 带草稿筛选进资料库", async () => {
     const w = await mountPage();
     const row = w.findAll(".todo").find((b) => b.text().includes("待核对"))!;
     await row.trigger("click");
+    // 待核对 = 全部草稿（不带 staleDays；陈旧口径在"陈旧草稿"那一行，见下一个用例）
     expect(push).toHaveBeenCalledWith({ path: "/vouchers", query: { status: "draft" } });
+  });
+
+  it("点「陈旧草稿」→ 必须带 staleDays（否则列出全部草稿，审计 P1-2）", async () => {
+    // 该行只在 staleDrafts > 0 时渲染（count==0 不渲染是既定行为）
+    mockApi.dashboardTodos.mockResolvedValue(todos({ staleDrafts: 3, staleDraftDays: 7 }));
+    const w = await mountPage();
+    const row = w.findAll(".todo").find((b) => b.text().includes("天没动的草稿"))!;
+    await row.trigger("click");
+    expect(push).toHaveBeenCalledWith({
+      path: "/vouchers",
+      query: { status: "draft", staleDays: "7" },
+    });
+  });
+
+  it("「查看待识别」下钻带多值状态（pending,failed，审计 P1-1）", async () => {
+    const w = await mountPage();
+    const link = w.findAll(".todo-secondary").find((b) => b.text().includes("查看待识别"))!;
+    await link.trigger("click");
+    expect(push).toHaveBeenCalledWith({
+      path: "/vouchers",
+      query: { ocrStatus: "pending,failed" },
+    });
   });
 
   it("待识别行使按钮就绪并可触发批量识别", async () => {

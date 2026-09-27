@@ -16,7 +16,13 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, type ExportBatch, type Voucher, type VoucherStats } from "../api/client";
+import {
+  api,
+  type ExportBatch,
+  type ExportCoverage,
+  type Voucher,
+  type VoucherStats,
+} from "../api/client";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtDate } from "../composables/format";
 import { useInboxStore } from "../stores/inbox";
@@ -28,6 +34,8 @@ const inbox = useInboxStore();
 const stats = ref<VoucherStats | null>(null);
 const recentDrafts = ref<Voucher[]>([]);
 const batches = ref<ExportBatch[]>([]);
+/** 导出覆盖度（「从未导出」口径）——「待打印/导出」待办用它，而不是「全库已复核张数」 */
+const coverage = ref<ExportCoverage | null>(null);
 const busy = ref<"ocr" | null>(null);
 
 /**
@@ -57,8 +65,12 @@ const todoItems = computed(() => {
       unit: "张",
       hint: "识别后可自动填单（日期 / 金额 / 对方 / 摘要）",
       action: { label: busy.value === "ocr" ? "识别中…" : "开始识别", run: runOcr, disabled: busy.value === "ocr" },
-      // 精确下钻：只看"待识别/失败"的附件所在凭证（批次 5 的 ocrStatus 维度）
-      secondary: { label: "查看待识别", run: () => router.push({ path: "/vouchers", query: { ocrStatus: "pending" } }) },
+      // 精确下钻：与上面计数**同口径**（计数含 pending + failed，下钻必须带两者，
+      // 否则"待识别 3 张"点进去只看到 1 张——2026-09-27 审计 P1-1）
+      secondary: {
+        label: "查看待识别",
+        run: () => router.push({ path: "/vouchers", query: { ocrStatus: "pending,failed" } }),
+      },
     },
     {
       key: "review",
@@ -75,10 +87,15 @@ const todoItems = computed(() => {
       key: "print",
       icon: "print",
       title: "待打印 / 导出",
-      count: s?.reviewed ?? 0,
-      unit: "张已复核",
-      hint: "已复核但还没出 PDF / 表格",
-      action: { label: "去打印", run: () => router.push("/print") },
+      // 口径：**从未导出**（export_items 无记录，含已归档）——与洞察「导出覆盖度」同口径。
+      // 此前用 stats.reviewed（全库已复核张数）冒充「待导出」，两者不是一回事（审计 P1-3）。
+      count: coverage.value?.neverExported ?? 0,
+      unit: "张",
+      hint: "从未导出过 PDF / 表格（点进去可批量补出）",
+      action: {
+        label: "去看清单",
+        run: () => router.push({ path: "/vouchers", query: { exported: "never" } }),
+      },
     },
     {
       key: "dup",
@@ -106,7 +123,15 @@ const todoItems = computed(() => {
       count: t?.staleDrafts ?? 0,
       unit: "张",
       hint: "长期挂着的草稿，建议复核或删除",
-      action: { label: "去看看", run: () => router.push({ path: "/vouchers", query: { status: "draft", sort: "updated_desc" } }) },
+      // 精确下钻：与计数同口径（"超过 N 天没动"必须带 staleDays，否则列出全部草稿——审计 P1-2）
+      action: {
+        label: "去看看",
+        run: () =>
+          router.push({
+            path: "/vouchers",
+            query: { status: "draft", staleDays: String(t?.staleDraftDays ?? 7) },
+          }),
+      },
     },
     {
       key: "unlock",
@@ -152,14 +177,16 @@ async function load() {
     inbox.refresh(),
     (async () => {
       try {
-        const [s, drafts, bs] = await Promise.all([
+        const [s, drafts, bs, cov] = await Promise.all([
           api.voucherStats(),
           api.listVouchers({ status: "draft", page: 1, pageSize: 3 }),
           api.listExportBatches(3),
+          api.exportCoverage(), // 全窗口：与「从未导出」待办同口径
         ]);
         stats.value = s;
         recentDrafts.value = drafts.items;
         batches.value = bs.slice(0, 3);
+        coverage.value = cov;
       } catch (e) {
         toastError(e);
       }

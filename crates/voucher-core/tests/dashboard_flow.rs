@@ -634,3 +634,170 @@ fn storage_usage_counts_and_lazy_bytes() -> Result<()> {
     assert_eq!(u.ocr_cache_count, 0);
     Ok(())
 }
+
+// ---------- 2026-09-27 审计 P1：**待办计数必须等于对应筛选的列表**（口径等价交叉用例） ----------
+//
+// 背景：审计发现三处"计数与点进去的列表不一致"——两类 SQL 各写各的、没人比对。
+// 这批用例把"计数 == 该筛选下的 list total"变成断言，任何一边改动而另一边没跟上都会红。
+
+/// P1-1：待识别计数 = pending + failed，故下钻必须带**多值**状态
+#[test]
+fn ocr_pending_count_matches_list_with_multi_status() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    let a = mk(&ctx, "记-001", "2026-08-05", Some(1_000), "甲", "租金")?;
+    let b = mk(&ctx, "记-002", "2026-08-06", Some(2_000), "乙", "水电")?;
+    let c = mk(&ctx, "记-003", "2026-08-07", Some(3_000), "丙", "差旅")?;
+    attach(&ctx, a, "hash-ocr-a")?; // pending（默认）
+    attach(&ctx, b, "hash-ocr-b")?; // 下面标成 failed
+    attach(&ctx, c, "hash-ocr-c")?; // 下面标成 done
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE attachments SET ocr_status='failed' WHERE voucher_id=?1",
+            [b],
+        )?;
+        conn.execute(
+            "UPDATE attachments SET ocr_status='done' WHERE voucher_id=?1",
+            [c],
+        )?;
+        Ok(())
+    })?;
+
+    let todos = dashboard::todos(&ctx)?;
+    assert_eq!(todos.ocr_pending, 2, "待识别 = pending(1) + failed(1)");
+
+    // 多值筛选：与计数同口径
+    let both = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            ocr_status: Some("pending,failed".into()),
+            ..Default::default()
+        },
+    )?
+    .1;
+    assert_eq!(
+        both as u64, todos.ocr_pending,
+        "计数必须等于「pending,failed」的列表总数"
+    );
+
+    // 单值会少算——正是审计里"待识别 3 张、点进去 1 张"的成因，用例固定住这个差异
+    let only_pending = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            ocr_status: Some("pending".into()),
+            ..Default::default()
+        },
+    )?
+    .1;
+    assert_eq!(only_pending, 1, "只带 pending 会漏掉 failed 那张");
+    Ok(())
+}
+
+/// P1-2：陈旧草稿计数 = `draft` 且 `updated_at < 现在−7 天`，故下钻必须带 `staleDays`
+#[test]
+fn stale_draft_count_matches_list_with_stale_days() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    let old_draft = mk(&ctx, "记-001", "2026-08-05", Some(1_000), "甲", "租金")?;
+    let old_reviewed = mk(&ctx, "记-002", "2026-08-06", Some(2_000), "乙", "水电")?;
+    mk(&ctx, "记-003", "2026-08-07", Some(3_000), "丙", "差旅")?; // 新建草稿（不陈旧）
+    let old_ts = (chrono::Local::now() - chrono::Duration::days(10))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE vouchers SET updated_at=?1 WHERE id IN (?2, ?3)",
+            rusqlite::params![old_ts, old_draft, old_reviewed],
+        )?;
+        conn.execute(
+            "UPDATE vouchers SET status='reviewed' WHERE id=?1",
+            [old_reviewed],
+        )?;
+        Ok(())
+    })?;
+
+    let todos = dashboard::todos(&ctx)?;
+    assert_eq!(todos.stale_drafts, 1, "只有那张 10 天没动的草稿算陈旧");
+
+    let listed = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            status: Some(VoucherStatus::Draft),
+            stale_days: Some(todos.stale_draft_days),
+            ..Default::default()
+        },
+    )?
+    .1;
+    assert_eq!(
+        listed as u64, todos.stale_drafts,
+        "计数必须等于同口径列表总数"
+    );
+
+    // 不带 staleDays 的"全部草稿"会是 2 张——正是审计里"陈旧 1 张、点进去 2 张"的成因
+    let all_drafts = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            status: Some(VoucherStatus::Draft),
+            ..Default::default()
+        },
+    )?
+    .1;
+    assert_eq!(all_drafts, 2);
+    Ok(())
+}
+
+/// P1-4：`export_coverage.never_exported` 必须等于 `exported=never` 的列表总数
+/// （此前只测了"谁都没导出"与"any=0"，**"已导出必须被 never 排除"这一分支无人覆盖**）
+#[test]
+fn never_exported_matches_list_after_an_export() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    let exported = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
+    mk(&ctx, "记-002", "2026-08-06", Some(20_000), "乙", "水电")?;
+    mk(&ctx, "记-003", "2026-08-07", Some(30_000), "丙", "差旅")?;
+
+    // 造一条成功批次并包含 记-001
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO export_batches (batch_no, voucher_count, pdf_path, status, created_at, format)
+             VALUES ('EXP-AUDIT-1', 1, '/tmp/a.pdf', 'done', '2026-08-05T10:00:00', 'pdf')",
+            [],
+        )?;
+        let batch_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO export_items (batch_id, voucher_id, sort_order) VALUES (?1, ?2, 0)",
+            rusqlite::params![batch_id, exported],
+        )?;
+        Ok(())
+    })?;
+
+    let cov = dashboard::export_coverage(&ctx, None, None)?;
+    let never_listed = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            exported: Some("never".into()),
+            ..Default::default()
+        },
+    )?
+    .1 as u64;
+    let any_listed = voucher_mgr::list(
+        &ctx,
+        &VoucherQuery {
+            exported: Some("any".into()),
+            ..Default::default()
+        },
+    )?
+    .1 as u64;
+
+    assert_eq!(
+        cov.never_exported, never_listed,
+        "聚合与筛选两条 SQL 必须同口径"
+    );
+    assert_eq!(cov.exported, any_listed, "「导出过」也要同口径");
+    assert_eq!(
+        (cov.total, cov.never_exported, cov.exported),
+        (3, 2, 1),
+        "已导出的那张必须被 never 排除"
+    );
+    Ok(())
+}

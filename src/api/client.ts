@@ -116,8 +116,10 @@ export interface VoucherQuery {
   amountEmpty?: boolean;
   /** v0.18：只筛"对方账户未填"（对应月度透视里的「(未填)」行） */
   counterpartyEmpty?: boolean;
-  /** v0.18：附件 OCR 状态（pending / running / done / failed） */
+  /** v0.18：附件 OCR 状态（**支持多值**，逗号分隔，任一命中；如 `pending,failed`） */
   ocrStatus?: string | null;
+  /** v0.18：只筛"陈旧"凭证（updated_at 早于 现在−N 天），与收件箱"陈旧草稿"计数同口径 */
+  staleDays?: number | null;
   /** v0.18：导出覆盖度 never | any */
   exported?: "never" | "any" | null;
   /** v0.18：排序 date_desc（默认）| date_asc | updated_desc | amount_desc | amount_asc */

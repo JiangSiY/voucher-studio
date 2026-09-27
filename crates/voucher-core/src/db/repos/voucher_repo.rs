@@ -39,7 +39,12 @@ pub struct VoucherQuery {
     pub amount_empty: bool,
     /// 只筛对方账户未填的凭证（对应月度透视里的「(未填)」行）
     pub counterparty_empty: bool,
-    /// 附件 OCR 状态：`pending` / `running` / `done` / `failed`（对应"待识别"待办）
+    /// 只筛"陈旧"凭证：`updated_at` 早于「现在 − N 天」（对应收件箱的"陈旧草稿"待办，
+    /// 与 `dashboard_todos.stale_drafts` 同口径；2026-09-27 审计 P1-2）
+    pub stale_days: Option<u32>,
+    /// 附件 OCR 状态：`pending` / `running` / `done` / `failed`（对应"待识别"待办）。
+    /// **支持多值**（逗号分隔，任一命中）——收件箱的"待识别"计数含 `pending + failed`，
+    /// 下钻必须能带上两者，否则「计数 3 张、点进去 1 张」（2026-09-27 审计 P1-1）。
     pub ocr_status: Option<String>,
     /// 导出覆盖度：`never`（从未导出）| `any`（导出过）
     pub exported: Option<String>,
@@ -368,17 +373,38 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
             bind.push(to.to_string());
         }
     }
-    if let Some(st) = q
+    // OCR 状态：逗号分隔的多值（任一命中即算）——与"待识别"计数的口径对齐
+    let statuses: Vec<String> = q
         .ocr_status
         .as_deref()
+        .unwrap_or("")
+        .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-    {
+        .map(str::to_string)
+        .collect();
+    if !statuses.is_empty() {
+        let ph: Vec<String> = statuses
+            .iter()
+            .map(|s| {
+                bind.push(s.clone());
+                format!("?{}", bind.len())
+            })
+            .collect();
         where_clauses.push(format!(
-            "EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id AND a.ocr_status = ?{})",
-            bind.len() + 1
+            "EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id AND a.ocr_status IN ({}))",
+            ph.join(",")
         ));
-        bind.push(st.to_string());
+    }
+
+    // 陈旧草稿：`updated_at` 早于"当前时刻 − N 天"（收件箱的"陈旧草稿"计数同口径）
+    if let Some(days) = q.stale_days.filter(|d| *d > 0) {
+        where_clauses.push(format!("updated_at < ?{}", bind.len() + 1));
+        bind.push(
+            (chrono::Local::now() - chrono::Duration::days(i64::from(days)))
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
+        );
     }
     match q.exported.as_deref() {
         Some("never") => where_clauses.push(

@@ -9,8 +9,8 @@
  *   双击或回车才进全宽编辑页（专注录入/改字段时用它）。
  * - 列表与检视器共享同一份数据，选中行为与键盘上下键联动（↑↓ 移动选择）。
  *
- * 待补（下一步）：跨页选择集、按筛选全选、检视器内就地改常用字段（保存按钮）、
- * 列表虚拟滚动（量级上千时）。当前保持既有批量操作能力不变。
+ * 已实装：跨页选择集、按筛选全选、检视器内就地改常用字段（金额/摘要/对方/标签/备注）。
+ * 待补（审计 2026-09-27 登记）：列表虚拟滚动（量级上千时）。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -45,6 +45,8 @@ const loading = ref(false);
 /** 高级筛选（对应"未填金额 / 待识别 / 从未导出"等待办的精确下钻） */
 const amountEmpty = ref(false);
 const counterpartyEmpty = ref(false);
+/** 陈旧天数（对应收件箱"陈旧草稿"待办；与 dashboard_todos 同口径） */
+const staleDays = ref<number | null>(null);
 /** 精确筛选：对方账户（整串相等）——洞察的月度透视下钻会带这个参数 */
 const counterpartyExact = ref("");
 /** 精确筛选：标签（逗号/顿号分隔，任一命中）——同上 */
@@ -61,6 +63,7 @@ function query() {
     dateTo: dateTo.value || null,
     amountEmpty: amountEmpty.value,
     counterpartyEmpty: counterpartyEmpty.value,
+    staleDays: staleDays.value,
     counterparty: counterpartyExact.value.trim() || null,
     tags: parseTags(tagsText.value),
     ocrStatus: ocrStatus.value || null,
@@ -108,6 +111,8 @@ function readQuery() {
   dateTo.value = (q.dateTo as string) ?? "";
   amountEmpty.value = q.amountEmpty === "1" || q.amountEmpty === "true";
   counterpartyEmpty.value = q.counterpartyEmpty === "1";
+  const sd = Number(q.staleDays);
+  staleDays.value = Number.isFinite(sd) && sd > 0 ? sd : null;
   ocrStatus.value = (q.ocrStatus as string) ?? "";
   exported.value = (q.exported as string) ?? "";
   sort.value = (q.sort as string) ?? "date_desc";
@@ -125,6 +130,7 @@ const activeFilters = computed(() => {
   if (amountEmpty.value) out.push({ label: "金额未填", clear: () => (amountEmpty.value = false) });
   if (counterpartyEmpty.value)
     out.push({ label: "对方未填", clear: () => (counterpartyEmpty.value = false) });
+  if (staleDays.value) out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
   if (counterpartyExact.value)
     out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
   if (tagsText.value)
@@ -288,10 +294,12 @@ const advancedCount = computed(
     (amountEmpty.value ? 1 : 0) +
     (counterpartyEmpty.value ? 1 : 0) +
     (counterpartyExact.value ? 1 : 0) +
-    (tagsText.value ? 1 : 0),
+    (tagsText.value ? 1 : 0) +
+    (staleDays.value ? 1 : 0),
 );
 
 function clearAllFilters() {
+  staleDays.value = null;
   counterpartyExact.value = "";
   tagsText.value = "";
   dateFrom.value = "";
@@ -391,7 +399,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, ocrStatus, exported, sort], () => {
+watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, staleDays, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
 });
@@ -422,8 +430,9 @@ watch(keyword, () => {
       </template>
       <select v-model="ocrStatus" class="input" style="max-width: 140px" title="按 OCR 状态筛选">
         <option value="">OCR 状态</option>
-        <option value="pending">待识别</option>
-        <option value="failed">识别失败</option>
+        <option value="pending,failed">待识别（含失败）</option>
+        <option value="pending">仅待识别</option>
+        <option value="failed">仅识别失败</option>
         <option value="done">已识别</option>
       </select>
       <select v-model="exported" class="input" style="max-width: 140px" title="按导出覆盖度筛选">
