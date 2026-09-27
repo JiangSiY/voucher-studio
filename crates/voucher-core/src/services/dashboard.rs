@@ -379,3 +379,224 @@ mod tests {
         assert!(sql.is_empty(), "无口径时不应产生 WHERE");
     }
 }
+
+// ---------- v0.18 批次 5：洞察与台账所需的只读聚合 ----------
+
+/// 透视行：某月 × 某个键（对方/标签）的张数与金额
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakdownRow {
+    /// `YYYY-MM`
+    pub month: String,
+    pub key: String,
+    pub count: u64,
+    pub amount_cents: i64,
+}
+
+/// 月度透视：**月份 × 对方账户**（`dim="counterparty"`）或 **月份 × 标签**（`dim="tag"`）。
+///
+/// 口径：
+/// - 只统计窗口内的凭证；金额为空的不计入金额合计（但计入张数）；
+/// - 每月只返回前 `per_month` 个键（按金额倒序）——避免月份多、对方多时把界面撑爆；
+/// - 标签用 `json_each` 展开：**一张凭证的多个标签会分别计数**（与 `tag_stats` 同口径）。
+pub fn monthly_breakdown(
+    ctx: &CoreContext,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    dim: &str,
+    per_month: u32,
+) -> Result<Vec<BreakdownRow>> {
+    let per_month = per_month.clamp(1, 50);
+    ctx.db.with_conn(|conn| {
+        let (where_sql, bind) = window_where(date_from.as_deref(), date_to.as_deref(), None);
+        let sql = match dim {
+            "tag" => format!(
+                "WITH per AS (
+                     SELECT substr(v.voucher_date,1,7) AS month, je.value AS key,
+                            COUNT(*) AS count, COALESCE(SUM(v.amount_cents),0) AS amount
+                     FROM vouchers v, json_each(v.tags) je
+                     {where_sql}
+                     GROUP BY month, key
+                 )
+                 SELECT month, key, count, amount FROM (
+                     SELECT *, ROW_NUMBER() OVER (PARTITION BY month ORDER BY amount DESC, count DESC) AS rn
+                     FROM per
+                 ) WHERE rn <= {per_month}
+                 ORDER BY month DESC, amount DESC"
+            ),
+            // 默认：对方账户（空对方归为"未填"，便于发现数据缺口）
+            _ => format!(
+                "WITH per AS (
+                     SELECT substr(voucher_date,1,7) AS month,
+                            CASE WHEN TRIM(COALESCE(counterparty,'')) = '' THEN '(未填)' ELSE TRIM(counterparty) END AS key,
+                            COUNT(*) AS count, COALESCE(SUM(amount_cents),0) AS amount
+                     FROM vouchers {where_sql}
+                     GROUP BY month, key
+                 )
+                 SELECT month, key, count, amount FROM (
+                     SELECT *, ROW_NUMBER() OVER (PARTITION BY month ORDER BY amount DESC, count DESC) AS rn
+                     FROM per
+                 ) WHERE rn <= {per_month}
+                 ORDER BY month DESC, amount DESC"
+            ),
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(bind.iter()))?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next()? {
+            out.push(BreakdownRow {
+                month: r.get(0)?,
+                key: r.get(1)?,
+                count: r.get::<_, i64>(2)? as u64,
+                amount_cents: r.get(3)?,
+            });
+        }
+        Ok(out)
+    })
+}
+
+/// 导出格式分布（一批一行，或一批多格式时按批次计）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatCount {
+    pub format: String,
+    pub batches: u64,
+    pub vouchers: u64,
+}
+
+/// 导出覆盖度：窗口内"已导出 / 从未导出"台账。
+///
+/// 口径（**界面须标注**）：
+/// - `never_exported` 指 `export_items` 里**没有任何该凭证的记录**（含已归档凭证；
+///   历史遗留的归档件若从未经过导出批次，会计入此项——这正是要暴露的数据缺口）；
+/// - `by_format` 按批次统计（`export_batches.format`，v0.12 起落库）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCoverage {
+    pub total: u64,
+    pub exported: u64,
+    pub never_exported: u64,
+    pub by_format: Vec<FormatCount>,
+}
+
+pub fn export_coverage(
+    ctx: &CoreContext,
+    date_from: Option<String>,
+    date_to: Option<String>,
+) -> Result<ExportCoverage> {
+    ctx.db.with_conn(|conn| {
+        let (where_sql, bind) = window_where(date_from.as_deref(), date_to.as_deref(), None);
+        let total: u64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM vouchers {where_sql}"),
+            rusqlite::params_from_iter(bind.iter()),
+            |r| r.get::<_, i64>(0),
+        )? as u64;
+        let never: u64 = conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM vouchers {where_sql} {} NOT EXISTS
+                   (SELECT 1 FROM export_items ei WHERE ei.voucher_id = vouchers.id)",
+                if where_sql.is_empty() { "WHERE" } else { "AND" }
+            ),
+            rusqlite::params_from_iter(bind.iter()),
+            |r| r.get::<_, i64>(0),
+        )? as u64;
+
+        let mut by_format = Vec::new();
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(format,'pdf') AS f, COUNT(*) AS batches,
+                    COALESCE(SUM(voucher_count),0) AS vouchers
+             FROM export_batches WHERE status = 'done' GROUP BY f ORDER BY vouchers DESC",
+        )?;
+        let mut rows = stmt.query([])?;
+        while let Some(r) = rows.next()? {
+            by_format.push(FormatCount {
+                format: r.get(0)?,
+                batches: r.get::<_, i64>(1)? as u64,
+                vouchers: r.get::<_, i64>(2)? as u64,
+            });
+        }
+
+        Ok(ExportCoverage {
+            total,
+            exported: total.saturating_sub(never),
+            never_exported: never,
+            by_format,
+        })
+    })
+}
+
+/// 存储占用：**原图体积走 SQL**（`attachments.file_size` 已落库）；
+/// 增强版体积 DB 里没有（可重建缓存，刻意不落列）→ 默认只报条数与来源分布，
+/// 需要真实体积时传 `with_enhanced_bytes=true` 才逐文件 `stat`（慢，且仅界面主动点开时用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageUsage {
+    pub original_count: u64,
+    pub original_bytes: u64,
+    /// 已增强的附件数（`enhanced_path` 非空）
+    pub enhanced_count: u64,
+    /// 增强版来源分布：截图 / 扫描件 / 未识别
+    pub enhanced_screenshot: u64,
+    pub enhanced_scan: u64,
+    pub enhanced_unknown: u64,
+    /// 增强版实际体积（仅在 `with_enhanced_bytes` 时计算，否则 None）
+    pub enhanced_bytes: Option<u64>,
+    /// OCR 缓存条数（缓存是纯加速用途，条数即可说明规模）
+    pub ocr_cache_count: u64,
+}
+
+pub fn storage_usage(ctx: &CoreContext, with_enhanced_bytes: bool) -> Result<StorageUsage> {
+    let (original_count, original_bytes, enhanced_count, screenshot, scan, unknown, cache_rows) =
+        ctx.db.with_conn(|conn| {
+            let (oc, ob): (i64, Option<i64>) = conn.query_row(
+                "SELECT COUNT(*), SUM(file_size) FROM attachments",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            let (ec, ss, sc, uk): (i64, i64, i64, i64) = conn.query_row(
+                "SELECT SUM(CASE WHEN enhanced_path IS NOT NULL THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='screenshot' THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='scan' THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN enhanced_path IS NOT NULL AND enhanced_source='unknown' THEN 1 ELSE 0 END)
+                 FROM attachments",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+            let cc: i64 = conn.query_row("SELECT COUNT(*) FROM ocr_cache", [], |r| r.get(0))?;
+            Ok((oc as u64, ob.unwrap_or(0) as u64, ec as u64, ss as u64, sc as u64, uk as u64, cc as u64))
+        })?;
+
+    // 增强版体积：DB 无该列（见规范：增强版是"可重建缓存"，不落体积）
+    let enhanced_bytes = if with_enhanced_bytes {
+        let mut total = 0u64;
+        let rels: Vec<String> = ctx.db.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT enhanced_path FROM attachments WHERE enhanced_path IS NOT NULL")?;
+            let mut rows = stmt.query([])?;
+            let mut out = Vec::new();
+            while let Some(r) = rows.next()? {
+                out.push(r.get::<_, String>(0)?);
+            }
+            Ok(out)
+        })?;
+        for rel in rels {
+            if let Ok(meta) = std::fs::metadata(ctx.paths.attachment_abs(&rel)) {
+                total += meta.len();
+            }
+        }
+        Some(total)
+    } else {
+        None
+    };
+
+    Ok(StorageUsage {
+        original_count,
+        original_bytes,
+        enhanced_count,
+        enhanced_screenshot: screenshot,
+        enhanced_scan: scan,
+        enhanced_unknown: unknown,
+        enhanced_bytes,
+        ocr_cache_count: cache_rows,
+    })
+}

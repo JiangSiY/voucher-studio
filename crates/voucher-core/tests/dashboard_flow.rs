@@ -329,3 +329,298 @@ fn list_ids_matches_list_order_and_filter() -> Result<()> {
     assert_ne!(a, b);
     Ok(())
 }
+
+// ---------- v0.18 批次 5：精确筛选（VoucherQuery 扩维）与台账聚合 ----------
+
+/// 精确筛选：标签（任一命中）/ 对方（整串相等）/ 金额区间 / 金额为空 / OCR 状态 / 导出覆盖
+#[test]
+fn voucher_query_supports_precise_filters() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    let a = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲物业", "租金")?;
+    let b = mk(&ctx, "记-002", "2026-08-06", Some(20_000), "乙公司", "水电")?;
+    let _c = mk(&ctx, "记-003", "2026-08-07", None, "甲物业", "杂费")?;
+    attach(&ctx, a, "hash-q-1")?; // 默认 pending
+    attach(&ctx, b, "hash-q-2")?; // b 之后被标成 done（附件行必须先存在）
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE attachments SET ocr_status='done' WHERE voucher_id=?1",
+            [b],
+        )?;
+        conn.execute(
+            "UPDATE vouchers SET tags=json_array('差旅','报销') WHERE id=?1",
+            [a],
+        )?;
+        conn.execute(
+            "UPDATE vouchers SET tags=json_array('差旅') WHERE id=?1",
+            [b],
+        )?;
+        Ok(())
+    })?;
+
+    let count = |q: VoucherQuery| -> Result<usize> { Ok(voucher_mgr::list(&ctx, &q)?.0.len()) };
+
+    // 标签精确：'差旅' 命中 a、b（c 无标签）；'报销' 只命中 a
+    assert_eq!(
+        count(VoucherQuery {
+            tags: vec!["差旅".into()],
+            ..Default::default()
+        })?,
+        2
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            tags: vec!["报销".into()],
+            ..Default::default()
+        })?,
+        1
+    );
+    // 多标签是"或"：差旅 ∪ 报销 = a、b
+    assert_eq!(
+        count(VoucherQuery {
+            tags: vec!["差旅".into(), "报销".into()],
+            ..Default::default()
+        })?,
+        2
+    );
+
+    // 对方精确：'甲物业' 命中 a、c；模糊串 '甲' 不命中（与 keyword 的模糊匹配区分开）
+    assert_eq!(
+        count(VoucherQuery {
+            counterparty: Some("甲物业".into()),
+            ..Default::default()
+        })?,
+        2
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            counterparty: Some("甲".into()),
+            ..Default::default()
+        })?,
+        0
+    );
+
+    // 金额区间与"金额为空"
+    assert_eq!(
+        count(VoucherQuery {
+            amount_from: Some(15_000),
+            ..Default::default()
+        })?,
+        1
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            amount_to: Some(15_000),
+            ..Default::default()
+        })?,
+        1
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            amount_empty: true,
+            ..Default::default()
+        })?,
+        1
+    );
+    // amount_empty 优先于区间（两者同给时按空金额筛）
+    assert_eq!(
+        count(VoucherQuery {
+            amount_empty: true,
+            amount_from: Some(0),
+            ..Default::default()
+        })?,
+        1
+    );
+
+    // OCR 状态：只 a 是 pending
+    assert_eq!(
+        count(VoucherQuery {
+            ocr_status: Some("pending".into()),
+            ..Default::default()
+        })?,
+        1
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            ocr_status: Some("done".into()),
+            ..Default::default()
+        })?,
+        1
+    );
+
+    // 导出覆盖：谁都没导出过 → 全部 never，any 为空
+    assert_eq!(
+        count(VoucherQuery {
+            exported: Some("never".into()),
+            ..Default::default()
+        })?,
+        3
+    );
+    assert_eq!(
+        count(VoucherQuery {
+            exported: Some("any".into()),
+            ..Default::default()
+        })?,
+        0
+    );
+    Ok(())
+}
+
+/// 排序：默认与历史一致（日期倒序）；金额排序把"金额为空"排在最后
+#[test]
+fn voucher_query_sort_variants() -> Result<()> {
+    use voucher_core::services::query::VoucherQuery;
+    let (_dir, ctx) = test_ctx();
+    mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
+    mk(&ctx, "记-002", "2026-08-20", Some(20_000), "乙", "水电")?;
+    mk(&ctx, "记-003", "2026-08-10", None, "丙", "杂费")?;
+
+    let ids = |q: VoucherQuery| -> Result<Vec<String>> {
+        Ok(voucher_mgr::list(&ctx, &q)?
+            .0
+            .into_iter()
+            .map(|v| v.voucher_no)
+            .collect())
+    };
+
+    // 默认：日期倒序（历史行为，不得改）
+    assert_eq!(
+        ids(VoucherQuery::default())?,
+        vec!["记-002", "记-003", "记-001"]
+    );
+    // 金额倒序：200 元 → 100 元 → 空金额最后
+    assert_eq!(
+        ids(VoucherQuery {
+            sort: Some("amount_desc".into()),
+            ..Default::default()
+        })?,
+        vec!["记-002", "记-001", "记-003"]
+    );
+    // 金额升序：空金额同样排在最后（NULL 不应被当成"最小"顶到最前）
+    assert_eq!(
+        ids(VoucherQuery {
+            sort: Some("amount_asc".into()),
+            ..Default::default()
+        })?,
+        vec!["记-001", "记-002", "记-003"]
+    );
+    // 日期升序
+    assert_eq!(
+        ids(VoucherQuery {
+            sort: Some("date_asc".into()),
+            ..Default::default()
+        })?,
+        vec!["记-001", "记-003", "记-002"]
+    );
+    Ok(())
+}
+
+/// 月度透视：月份 × 对方 / 月份 × 标签（每月前 N 个键，按金额倒序）
+#[test]
+fn monthly_breakdown_by_counterparty_and_tag() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    mk(&ctx, "记-001", "2026-08-05", Some(30_000), "甲物业", "租金")?;
+    mk(&ctx, "记-002", "2026-08-06", Some(10_000), "乙公司", "水电")?;
+    mk(&ctx, "记-003", "2026-09-02", Some(50_000), "甲物业", "租金")?;
+    // 空对方账户 → 透视里应归为「(未填)」，暴露数据缺口
+    mk(&ctx, "记-004", "2026-09-03", None, "", "杂费")?;
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE vouchers SET tags=json_array('差旅') WHERE voucher_no='记-003'",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE vouchers SET tags=json_array('差旅','报销') WHERE voucher_no='记-004'",
+            [],
+        )?;
+        Ok(())
+    })?;
+
+    let rows = dashboard::monthly_breakdown(&ctx, None, None, "counterparty", 2)?;
+    // 9 月在前：甲物业 50000 / (未填) 0；8 月：甲物业 30000 / 乙公司 10000
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0].month, "2026-09");
+    assert_eq!(rows[0].key, "甲物业");
+    assert_eq!((rows[0].count, rows[0].amount_cents), (1, 50_000));
+    assert!(
+        rows.iter()
+            .any(|r| r.month == "2026-09" && r.key == "(未填)"),
+        "空对方应归为(未填)"
+    );
+
+    // 每月只取前 1 个 → 每月只剩金额最大的甲物业（8 月 30000 / 9 月 50000）
+    let top1 = dashboard::monthly_breakdown(&ctx, None, None, "counterparty", 1)?;
+    assert_eq!(top1.len(), 2);
+    assert!(top1.iter().all(|r| r.key == "甲物业"));
+
+    // 标签透视：一张多标签分别计数（与 tag_stats 同口径）
+    let tags = dashboard::monthly_breakdown(&ctx, None, None, "tag", 5)?;
+    let sep: Vec<_> = tags.iter().filter(|r| r.month == "2026-09").collect();
+    assert_eq!(sep.len(), 2, "9 月两个标签各一行（差旅 / 报销）");
+    // 一张凭证的多个标签**分别计数**（与 tag_stats 同口径）：记-003 差旅、记-004 差旅+报销
+    let df = sep.iter().find(|r| r.key == "差旅").expect("差旅行");
+    let bx = sep.iter().find(|r| r.key == "报销").expect("报销行");
+    assert_eq!((df.count, bx.count), (2, 1));
+    Ok(())
+}
+
+/// 导出覆盖度：从未导出的口径（含归档）与格式分布
+#[test]
+fn export_coverage_reports_never_exported() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let a = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
+    mk(&ctx, "记-002", "2026-08-06", Some(20_000), "乙", "水电")?;
+
+    let before = dashboard::export_coverage(&ctx, None, None)?;
+    assert_eq!(
+        (before.total, before.exported, before.never_exported),
+        (2, 0, 2)
+    );
+    assert!(before.by_format.is_empty(), "还没有批次");
+
+    // 造一条导出批次 + 明细（模拟已导出 a）
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO export_batches (batch_no, voucher_count, pdf_path, status, created_at, format)
+             VALUES ('EXP-1', 1, '/tmp/x.pdf', 'done', '2026-08-05T10:00:00', 'pdf')",
+            [],
+        )?;
+        let batch_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO export_items (batch_id, voucher_id, sort_order) VALUES (?1, ?2, 0)",
+            rusqlite::params![batch_id, a],
+        )?;
+        Ok(())
+    })?;
+
+    let after = dashboard::export_coverage(&ctx, None, None)?;
+    assert_eq!(
+        (after.total, after.exported, after.never_exported),
+        (2, 1, 1)
+    );
+    assert_eq!(after.by_format.len(), 1);
+    assert_eq!(after.by_format[0].format, "pdf");
+    assert_eq!(after.by_format[0].vouchers, 1);
+
+    // 窗口收窄到只有"从未导出"的那张的日期 → 覆盖度随之变化（口径与窗口联动）
+    let windowed =
+        dashboard::export_coverage(&ctx, Some("2026-08-06".into()), Some("2026-08-31".into()))?;
+    assert_eq!((windowed.total, windowed.never_exported), (1, 1));
+    Ok(())
+}
+
+/// 存储占用：原图体积走 SQL；增强版体积默认不计算（需显式开启）
+#[test]
+fn storage_usage_counts_and_lazy_bytes() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let a = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
+    attach(&ctx, a, "hash-s-1")?;
+
+    let u = dashboard::storage_usage(&ctx, false)?;
+    assert_eq!(u.original_count, 1);
+    assert_eq!(u.original_bytes, 10, "attach() 写入 file_size=10");
+    assert_eq!(u.enhanced_count, 0);
+    assert!(u.enhanced_bytes.is_none(), "未显式请求时不逐文件 stat");
+    assert_eq!(u.ocr_cache_count, 0);
+    Ok(())
+}

@@ -6,12 +6,12 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-09-24 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-09-24（v0.18 工作台批）**：`voucher-core` 测试 **247 个**（src 内联 **132** + tests/ 集成 **115**，含
-> backup_flow 11 / **dashboard_flow 8** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
+> 截至 **2026-09-27（v0.18 洞察批）**：`voucher-core` 测试 **252 个**（src 内联 **132** + tests/ 集成 **120**，含
+> backup_flow 11 / **dashboard_flow 13** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / spike_a_print 5 / **voucher_flow 42** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
 > 合法待恢复库正常落位）；前端 vitest **22 文件 143 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试与 `dateRange.test.ts` 13 例时间窗口径用例）。
-> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（245 通过 + 5 `#[ignore]` = 250）。
+> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（250 通过 + 5 `#[ignore]` = 255）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），

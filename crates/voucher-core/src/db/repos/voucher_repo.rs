@@ -24,6 +24,39 @@ pub struct VoucherQuery {
     /// 从 1 开始
     pub page: u32,
     pub page_size: u32,
+
+    // ---- v0.18 扩维：把"待办卡/图表"精确下钻所需的维度补齐 ----
+    // 此前只能按状态/关键词/日期筛，标签与对方只能模糊匹配、金额与 OCR 状态无法筛，
+    // 于是"未填金额 3 张"这类待办点进去只能给一个近似列表。
+    /// **精确**标签筛选：命中其中**任一**标签（多选为"或"；与关键词的模糊匹配区分开）
+    pub tags: Vec<String>,
+    /// **精确**对方账户筛选（整串相等）
+    pub counterparty: Option<String>,
+    /// 金额区间（分）；`amount_empty=true` 时优先按"金额为空"筛，忽略区间
+    pub amount_from: Option<i64>,
+    pub amount_to: Option<i64>,
+    /// 只筛金额为空的凭证（对应"未填金额"待办）
+    pub amount_empty: bool,
+    /// 附件 OCR 状态：`pending` / `running` / `done` / `failed`（对应"待识别"待办）
+    pub ocr_status: Option<String>,
+    /// 导出覆盖度：`never`（从未导出）| `any`（导出过）
+    pub exported: Option<String>,
+    /// 排序：`date_desc`（默认，与历史一致）| `date_asc` | `updated_desc` | `amount_desc` | `amount_asc`
+    pub sort: Option<String>,
+}
+
+impl VoucherQuery {
+    /// ORDER BY 子句（默认与历史行为完全一致：日期倒序 + id 倒序作稳定次序）
+    fn order_by(&self) -> &'static str {
+        match self.sort.as_deref() {
+            Some("date_asc") => "ORDER BY voucher_date ASC, id ASC",
+            // 金额为空的排在最后（NULL 在 SQLite 的 ASC 里最小，DESC 里最大 → 显式处理）
+            Some("amount_desc") => "ORDER BY amount_cents IS NULL, amount_cents DESC, id DESC",
+            Some("amount_asc") => "ORDER BY amount_cents IS NULL, amount_cents ASC, id DESC",
+            Some("updated_desc") => "ORDER BY updated_at DESC, id DESC",
+            _ => "ORDER BY voucher_date DESC, id DESC",
+        }
+    }
 }
 
 impl VoucherQuery {
@@ -200,7 +233,8 @@ pub fn list(conn: &Connection, q: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> 
     let page = q.page().max(1);
     let offset = ((page - 1) * page_size) as i64;
     let sql = format!(
-        "SELECT {COLS} FROM vouchers {where_sql} ORDER BY voucher_date DESC, id DESC LIMIT {page_size} OFFSET {offset}"
+        "SELECT {COLS} FROM vouchers {where_sql} {} LIMIT {page_size} OFFSET {offset}",
+        q.order_by()
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(rusqlite::params_from_iter(bind.iter()))?;
@@ -288,6 +322,69 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
     if let Some(d) = &q.date_to {
         where_clauses.push(format!("voucher_date <= ?{}", bind.len() + 1));
         bind.push(d.clone());
+    }
+    // 精确标签：tags 是 JSON 数组文本，用 json_each 展开后等值匹配（任一命中即算）
+    let tags: Vec<String> = q
+        .tags
+        .iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if !tags.is_empty() {
+        let ph: Vec<String> = tags
+            .iter()
+            .map(|t| {
+                bind.push(t.clone());
+                format!("?{}", bind.len())
+            })
+            .collect();
+        where_clauses.push(format!(
+            "EXISTS (SELECT 1 FROM json_each(vouchers.tags) je WHERE je.value IN ({}))",
+            ph.join(",")
+        ));
+    }
+    if let Some(cp) = q
+        .counterparty
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        where_clauses.push(format!("TRIM(counterparty) = ?{}", bind.len() + 1));
+        bind.push(cp.to_string());
+    }
+    if q.amount_empty {
+        where_clauses.push("amount_cents IS NULL".to_string());
+    } else {
+        if let Some(from) = q.amount_from {
+            where_clauses.push(format!("amount_cents >= ?{}", bind.len() + 1));
+            bind.push(from.to_string());
+        }
+        if let Some(to) = q.amount_to {
+            where_clauses.push(format!("amount_cents <= ?{}", bind.len() + 1));
+            bind.push(to.to_string());
+        }
+    }
+    if let Some(st) = q
+        .ocr_status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        where_clauses.push(format!(
+            "EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id AND a.ocr_status = ?{})",
+            bind.len() + 1
+        ));
+        bind.push(st.to_string());
+    }
+    match q.exported.as_deref() {
+        Some("never") => where_clauses.push(
+            "NOT EXISTS (SELECT 1 FROM export_items ei WHERE ei.voucher_id = vouchers.id)"
+                .to_string(),
+        ),
+        Some("any") => where_clauses.push(
+            "EXISTS (SELECT 1 FROM export_items ei WHERE ei.voucher_id = vouchers.id)".to_string(),
+        ),
+        _ => {}
     }
 
     let where_sql = if where_clauses.is_empty() {

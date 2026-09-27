@@ -105,6 +105,21 @@ export interface VoucherQuery {
   keyword?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
+  /** v0.18：**精确**标签筛选（任一命中）；与 keyword 的模糊匹配区分 */
+  tags?: string[];
+  /** v0.18：**精确**对方账户（整串相等） */
+  counterparty?: string | null;
+  /** v0.18：金额区间（分） */
+  amountFrom?: number | null;
+  amountTo?: number | null;
+  /** v0.18：只筛"金额为空"（对应"未填金额"待办） */
+  amountEmpty?: boolean;
+  /** v0.18：附件 OCR 状态（pending / running / done / failed） */
+  ocrStatus?: string | null;
+  /** v0.18：导出覆盖度 never | any */
+  exported?: "never" | "any" | null;
+  /** v0.18：排序 date_desc（默认）| date_asc | updated_desc | amount_desc | amount_asc */
+  sort?: string | null;
   /** 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后翻张与搜索结果同口径） */
   includeOcr?: boolean;
   page: number;
@@ -353,6 +368,41 @@ export interface DashboardTodos {
   dupPairs: number;
   dupHighPairs: number;
   dupGroups: number;
+}
+
+/** v0.18：月度透视行（月份 × 对方/标签；每月只取前 N 个键） */
+export interface BreakdownRow {
+  month: string;
+  key: string;
+  count: number;
+  amountCents: number;
+}
+
+/** v0.18：导出格式分布 */
+export interface FormatCount {
+  format: string;
+  batches: number;
+  vouchers: number;
+}
+
+/** v0.18：导出覆盖度（口径：`neverExported` 含已归档；界面须标注"含归档"） */
+export interface ExportCoverage {
+  total: number;
+  exported: number;
+  neverExported: number;
+  byFormat: FormatCount[];
+}
+
+/** v0.18：存储占用（原图体积走 SQL；`enhancedBytes` 仅在显式请求时计算） */
+export interface StorageUsage {
+  originalCount: number;
+  originalBytes: number;
+  enhancedCount: number;
+  enhancedScreenshot: number;
+  enhancedScan: number;
+  enhancedUnknown: number;
+  enhancedBytes: number | null;
+  ocrCacheCount: number;
 }
 
 /** v0.18：疑似重复轻量计数（徽标 / 待办卡；与核查队列口径一致，第 3 位为高置信度对数） */
@@ -671,6 +721,15 @@ export const api = {
   duplicatePendingCount: () => invoke<DupPendingCount>("duplicate_pending_count"),
   /** 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集；顺序同列表） */
   listVoucherIds: (query: VoucherQuery) => invoke<number[]>("list_voucher_ids", { query }),
+  /** v0.18：月度透视（dim = counterparty | tag；每月前 perMonth 个键，按金额倒序） */
+  monthlyBreakdown: (dateFrom?: string | null, dateTo?: string | null, dim?: "counterparty" | "tag", perMonth?: number) =>
+    invoke<BreakdownRow[]>("monthly_breakdown", { dateFrom, dateTo, dim, perMonth }),
+  /** v0.18：导出覆盖度（已导出 / 从未导出 + 格式分布） */
+  exportCoverage: (dateFrom?: string | null, dateTo?: string | null) =>
+    invoke<ExportCoverage>("export_coverage", { dateFrom, dateTo }),
+  /** v0.18：存储占用（withEnhancedBytes 开启才逐文件 stat，较慢） */
+  storageUsage: (withEnhancedBytes?: boolean) =>
+    invoke<StorageUsage>("storage_usage", { withEnhancedBytes }),
 
   /** v0.11：会计期间锁（period = YYYY-MM；锁定月凭证禁止增删改） */
   listPeriodLocks: () => invoke<PeriodLock[]>("list_period_locks"),

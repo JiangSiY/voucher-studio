@@ -46,7 +46,10 @@ pub use crate::services::dup_review::{EvidenceLevel, PairEvidence, PendingSummar
 pub use crate::models::dup_decision::DupDecision;
 
 /// v0.18 工作台（仪表盘）只读聚合：窗口概览 / 待办与健康度 / 轻量重复计数
-pub use crate::services::dashboard::{Overview as DashboardOverview, Todos as DashboardTodos};
+pub use crate::services::dashboard::{
+    BreakdownRow, ExportCoverage, FormatCount, Overview as DashboardOverview, StorageUsage,
+    Todos as DashboardTodos,
+};
 pub use crate::services::dup_review::PendingCount as DupPendingCount;
 
 // ---- 命令 DTO（原定义在命令层，现收敛到 core，JSON 契约不变） ----
@@ -158,6 +161,31 @@ pub fn dashboard_todos(ctx: &CoreContext) -> Result<DashboardTodos> {
 /// 口径与核查队列一致（有用例锁定）。
 pub fn duplicate_pending_count(ctx: &CoreContext) -> Result<DupPendingCount> {
     dup_review::pending_count(ctx)
+}
+
+/// v0.18 批次 5：月度透视（月份 × 对方 / 月份 × 标签，每月前 N 个键）
+pub fn monthly_breakdown(
+    ctx: &CoreContext,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    dim: String,
+    per_month: Option<u32>,
+) -> Result<Vec<BreakdownRow>> {
+    dashboard::monthly_breakdown(ctx, date_from, date_to, &dim, per_month.unwrap_or(6))
+}
+
+/// v0.18 批次 5：导出覆盖度（窗口内"已导出 / 从未导出"台账 + 格式分布）
+pub fn export_coverage(
+    ctx: &CoreContext,
+    date_from: Option<String>,
+    date_to: Option<String>,
+) -> Result<ExportCoverage> {
+    dashboard::export_coverage(ctx, date_from, date_to)
+}
+
+/// v0.18 批次 5：存储占用（原图体积走 SQL；增强版体积需显式开启逐文件 stat）
+pub fn storage_usage(ctx: &CoreContext, with_enhanced_bytes: bool) -> Result<StorageUsage> {
+    dashboard::storage_usage(ctx, with_enhanced_bytes)
 }
 
 /// 按当前筛选**只取 id**（列表页跨页全选）；顺序与列表一致。

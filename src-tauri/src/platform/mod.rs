@@ -233,6 +233,36 @@ fn clear_stale_pending(paths: &voucher_core::utils::paths::AppPaths) {
     }
 }
 
+/// 应用 macOS 窗口材质（v0.18）：
+///
+/// **优先 Liquid Glass**（macOS 26+ 的 `NSGlassEffectView`，即 macOS 27 当前的原生玻璃），
+/// 失败（系统过旧 / 系统拒绝）则**回退**到 `tauri.conf.json` 里配置的 `windowEffects`
+/// （`NSVisualEffectView`，Spike M 已验证可用）。
+///
+/// `.interactive(true)` 需要 **macOS 27+**：玻璃会随点击产生轻微回弹（crate 在更旧系统上
+/// 静默忽略该选项）。透明窗口与材质的前置条件见 `tauri.conf.json`（`transparent` +
+/// `macOSPrivateApi`）与设计正本 §1.4。
+pub fn apply_macos_material(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{apply_liquid_glass, LiquidGlassOptions, NSGlassEffectViewStyle};
+        let opts = LiquidGlassOptions::new(NSGlassEffectViewStyle::Clear)
+            .radius(12.0)
+            .opaque(false)
+            .interactive(true);
+        match apply_liquid_glass(window, opts) {
+            Ok(()) => log::info!("窗口材质：已应用 macOS Liquid Glass（NSGlassEffectView）"),
+            Err(e) => log::warn!(
+                "窗口材质：Liquid Glass 不可用（需 macOS 26+），沿用 windowEffects 的 VisualEffect 材质：{e}"
+            ),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use voucher_core::utils::paths::AppPaths;
@@ -336,35 +366,5 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
-    }
-}
-
-/// 应用 macOS 窗口材质（v0.18）：
-///
-/// **优先 Liquid Glass**（macOS 26+ 的 `NSGlassEffectView`，即 macOS 27 当前的原生玻璃），
-/// 失败（系统过旧 / 系统拒绝）则**回退**到 `tauri.conf.json` 里配置的 `windowEffects`
-/// （`NSVisualEffectView`，Spike M 已验证可用）。
-///
-/// `.interactive(true)` 需要 **macOS 27+**：玻璃会随点击产生轻微回弹（crate 在更旧系统上
-/// 静默忽略该选项）。透明窗口与材质的前置条件见 `tauri.conf.json`（`transparent` +
-/// `macOSPrivateApi`）与设计正本 §1.4。
-pub fn apply_macos_material(window: &tauri::WebviewWindow) {
-    #[cfg(target_os = "macos")]
-    {
-        use window_vibrancy::{apply_liquid_glass, LiquidGlassOptions, NSGlassEffectViewStyle};
-        let opts = LiquidGlassOptions::new(NSGlassEffectViewStyle::Clear)
-            .radius(12.0)
-            .opaque(false)
-            .interactive(true);
-        match apply_liquid_glass(window, opts) {
-            Ok(()) => log::info!("窗口材质：已应用 macOS Liquid Glass（NSGlassEffectView）"),
-            Err(e) => log::warn!(
-                "窗口材质：Liquid Glass 不可用（需 macOS 26+），沿用 windowEffects 的 VisualEffect 材质：{e}"
-            ),
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = window;
     }
 }

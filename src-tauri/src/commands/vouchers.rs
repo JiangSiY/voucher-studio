@@ -253,6 +253,46 @@ pub fn duplicate_pending_count(ctx: Ctx) -> std::result::Result<qsvc::DupPending
     err_api(qsvc::duplicate_pending_count(&ctx))
 }
 
+/// v0.18 批次 5：月度透视（`dim` = counterparty | tag；每月前 N 个键，按金额倒序）
+#[tauri::command]
+pub fn monthly_breakdown(
+    ctx: Ctx,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    dim: Option<String>,
+    per_month: Option<u32>,
+) -> std::result::Result<Vec<qsvc::BreakdownRow>, ApiError> {
+    err_api(qsvc::monthly_breakdown(
+        &ctx,
+        date_from,
+        date_to,
+        dim.unwrap_or_else(|| "counterparty".into()),
+        per_month,
+    ))
+}
+
+/// v0.18 批次 5：导出覆盖度（已导出 / 从未导出 + 格式分布）
+#[tauri::command]
+pub fn export_coverage(
+    ctx: Ctx,
+    date_from: Option<String>,
+    date_to: Option<String>,
+) -> std::result::Result<qsvc::ExportCoverage, ApiError> {
+    err_api(qsvc::export_coverage(&ctx, date_from, date_to))
+}
+
+/// v0.18 批次 5：存储占用（`withEnhancedBytes` 开启时才逐文件 stat，较慢）
+#[tauri::command]
+pub fn storage_usage(
+    ctx: Ctx,
+    with_enhanced_bytes: Option<bool>,
+) -> std::result::Result<qsvc::StorageUsage, ApiError> {
+    err_api(qsvc::storage_usage(
+        &ctx,
+        with_enhanced_bytes.unwrap_or(false),
+    ))
+}
+
 /// 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集）
 #[tauri::command]
 pub fn list_voucher_ids(ctx: Ctx, query: VoucherQuery) -> std::result::Result<Vec<i64>, ApiError> {

@@ -42,12 +42,22 @@ const page = ref(1);
 const pageSize = 50;
 const loading = ref(false);
 
+/** 高级筛选（对应"未填金额 / 待识别 / 从未导出"等待办的精确下钻） */
+const amountEmpty = ref(false);
+const ocrStatus = ref<string>("");
+const exported = ref<string>("");
+const sort = ref<string>("date_desc");
+
 function query() {
   return {
     status: status.value === "all" ? null : status.value,
     keyword: keyword.value.trim() || null,
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null,
+    amountEmpty: amountEmpty.value,
+    ocrStatus: ocrStatus.value || null,
+    exported: (exported.value || null) as "never" | "any" | null,
+    sort: sort.value,
     page: page.value,
     pageSize,
   };
@@ -88,6 +98,10 @@ function readQuery() {
   keyword.value = (q.keyword as string) ?? "";
   dateFrom.value = (q.dateFrom as string) ?? "";
   dateTo.value = (q.dateTo as string) ?? "";
+  amountEmpty.value = q.amountEmpty === "1" || q.amountEmpty === "true";
+  ocrStatus.value = (q.ocrStatus as string) ?? "";
+  exported.value = (q.exported as string) ?? "";
+  sort.value = (q.sort as string) ?? "date_desc";
 }
 
 const activeFilters = computed(() => {
@@ -96,6 +110,11 @@ const activeFilters = computed(() => {
   if (keyword.value) out.push({ label: `关键词：${keyword.value}`, clear: () => (keyword.value = "") });
   if (dateFrom.value || dateTo.value)
     out.push({ label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`, clear: () => ((dateFrom.value = ""), (dateTo.value = "")) });
+  if (amountEmpty.value) out.push({ label: "金额未填", clear: () => (amountEmpty.value = false) });
+  if (ocrStatus.value)
+    out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
+  if (exported.value)
+    out.push({ label: exported.value === "never" ? "从未导出" : "已导出过", clear: () => (exported.value = "") });
   return out;
 });
 
@@ -316,7 +335,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo], () => {
+watch([status, dateFrom, dateTo, amountEmpty, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
 });
@@ -345,6 +364,27 @@ watch(keyword, () => {
           {{ f.label }} <FluentIcon name="close" :size="12" />
         </button>
       </template>
+      <select v-model="ocrStatus" class="input" style="max-width: 140px" title="按 OCR 状态筛选">
+        <option value="">OCR 状态</option>
+        <option value="pending">待识别</option>
+        <option value="failed">识别失败</option>
+        <option value="done">已识别</option>
+      </select>
+      <select v-model="exported" class="input" style="max-width: 140px" title="按导出覆盖度筛选">
+        <option value="">导出覆盖</option>
+        <option value="never">从未导出</option>
+        <option value="any">导出过</option>
+      </select>
+      <label class="inline-check" title="只看金额未填的凭证">
+        <input v-model="amountEmpty" type="checkbox" /> 金额未填
+      </label>
+      <select v-model="sort" class="input" style="max-width: 150px" title="排序">
+        <option value="date_desc">日期（新→旧）</option>
+        <option value="date_asc">日期（旧→新）</option>
+        <option value="updated_desc">最近修改</option>
+        <option value="amount_desc">金额（大→小）</option>
+        <option value="amount_asc">金额（小→大）</option>
+      </select>
       <span class="flex-1"></span>
       <span class="count">{{ total }} 张</span>
       <template v-if="selectedIds.size">
@@ -493,6 +533,7 @@ watch(keyword, () => {
 .filter-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
+.inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
 .search {
   display: flex; align-items: center; gap: var(--s-2);
   padding: 0 var(--s-2);

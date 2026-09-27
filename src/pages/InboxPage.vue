@@ -46,6 +46,7 @@ const todoItems = computed(() => {
     unit: string;
     hint: string;
     action: { label: string; run: () => void; disabled?: boolean };
+    secondary?: { label: string; run: () => void };
   };
   const all: Item[] = [
     {
@@ -56,6 +57,8 @@ const todoItems = computed(() => {
       unit: "张",
       hint: "识别后可自动填单（日期 / 金额 / 对方 / 摘要）",
       action: { label: busy.value === "ocr" ? "识别中…" : "开始识别", run: runOcr, disabled: busy.value === "ocr" },
+      // 精确下钻：只看"待识别/失败"的附件所在凭证（批次 5 的 ocrStatus 维度）
+      secondary: { label: "查看待识别", run: () => router.push({ path: "/vouchers", query: { ocrStatus: "pending" } }) },
     },
     {
       key: "review",
@@ -93,7 +96,8 @@ const todoItems = computed(() => {
       count: t?.amountMissing ?? 0,
       unit: "张",
       hint: "金额为空（不参与统计与重复判定）",
-      action: { label: "去补填", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
+      // 精确下钻：只列"金额为空"的凭证（批次 5 的 amountEmpty 维度）
+      action: { label: "去补填", run: () => router.push({ path: "/vouchers", query: { amountEmpty: "1" } }) },
     },
     {
       key: "stale",
@@ -102,7 +106,7 @@ const todoItems = computed(() => {
       count: t?.staleDrafts ?? 0,
       unit: "张",
       hint: "长期挂着的草稿，建议复核或删除",
-      action: { label: "去看看", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
+      action: { label: "去看看", run: () => router.push({ path: "/vouchers", query: { status: "draft", sort: "updated_desc" } }) },
     },
     {
       key: "unlock",
@@ -209,6 +213,9 @@ onUnmounted(() => {
             <span class="todo-count">{{ i.count }}<small>{{ i.unit }}</small></span>
             <span class="todo-hint">{{ i.hint }}</span>
             <span class="flex-1"></span>
+            <span v-if="i.secondary" class="todo-secondary" @click.stop="i.secondary.run()">
+              {{ i.secondary.label }}
+            </span>
             <span class="todo-action">{{ i.action.label }}</span>
             <FluentIcon name="chevronRight" :size="13" />
           </button>
@@ -290,6 +297,8 @@ onUnmounted(() => {
 .todo-count small { margin-left: 3px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
 .todo-hint { font: var(--type-caption); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .todo-action { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
+.todo-secondary { font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; }
+.todo-secondary:hover { color: var(--accent); text-decoration: underline; }
 
 .all-clear {
   display: flex; align-items: center; gap: var(--s-2);
