@@ -49,5 +49,5 @@ cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI �
 
 - 中文 conventional commits：`feat(scope):` / `fix(scope):` / `docs:` / `test:` / `refactor:` / `chore:` / `ci:`；scope 常用 `core` / `frontend` / `tauri` / `test` / `ci`。
 - 一个逻辑变更一笔提交；文档与代码**分开提交**。
-- 提交前确保：`git status` 无意外文件混入；上表四门 + Rust 三门 + CI 的越层/平台范围两道 grep 门禁通过（本地环境见上文 macOS 段）。
+- 提交前确保：`git status` 无意外文件混入；上表四门 + Rust 三门 + 两道 grep 门禁通过（本地环境见上文 macOS 段）。门禁的**唯一真源**是 `scripts/guards.sh`（`bash scripts/guards.sh layering` / `platform`，`--selftest` 可自证模式有效；CI 与 `scripts/audit.sh` 都调它，不得再各自内联一份——2026-09-27 审计发现两处定义已漂移）。
 - **推送前先 `git fetch`**，确认与 `origin/main` 的关系再推（历史上出现过"本地领先/落后各若干"的分叉情形）。
