@@ -26,7 +26,7 @@ cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI �
 ## 文档纪律（三条）
 
 1. **改动代码后**：`README.md` 与 `docs/开发方案.md` 中与之相关的数字/描述必须同步（尤其用例数、依赖版本、文件路径、功能开关）。规范类文档**以代码实况为准**直接改写；涉及历史决策处保留「（原 X，自 vY 起改为 Z）」形式，不抹演进痕迹。
-2. **`docs/voucher-studio-health-check-*`、`-project-analysis-*`、`-fix-status-*` 等报告是时点快照**：**正文永不修改**。需要更新时只在文件头部追加「校正注记」，并在其中指向当前真源。
+2. **`docs/voucher-studio-*` 报告是时点快照**（`-health-check-*`、`-project-analysis-*`、`-fix-status-*`、`-status-audit-*`、`-audit-*` 五族）：**正文永不修改**。需要更新时只在文件头部追加「校正注记」，并在其中指向当前真源。审计报告统一命名 `docs/voucher-studio-audit-YYYY-MM-DD.md`（日期粒度，模板见 `docs/审计指南.md`）；自动核对：`bash scripts/audit.sh` 第 7.4 节按 glob 检查全部快照是否带头部注记。
 3. **用例数只有一个口径**：`#[test]` 静态计数（单元 = `crates/voucher-core/src`，集成 = `crates/voucher-core/tests`）。它同时出现在 `README.md` 测试命令段、`docs/验收基线/清单1-非GUI测试映射.md` 修订注记、`docs/开发日志.md` 即时条目——三处必须一致。**前端 vitest 用例数同样适用**（文件数 + `it(` 计数写进 `清单1` 与开发日志条目；2026-09-27 审计补充：此前只管 Rust，前端计数已漂移 1 例）。自动核对：`bash scripts/audit.sh`（见 `docs/审计指南.md`）。
 
 ## 开发日志纪律（强制）

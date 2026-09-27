@@ -227,11 +227,11 @@ if [ "${stale}" -eq 0 ]; then ok "无「待补/未实装」类过期措辞"; els
 # 7.3 挂账表条目数
 n=$(awk '/^# 三、当前挂账/{f=1} f' docs/开发日志.md | grep -cE '^\| [0-9]+ \|' || true)
 printf '  [OK]   挂账表条目数：%s（新发现应登记为下一条）\n' "${n}"
-# 7.4 快照类文档是否只有头部注记（正文不该改动：只查是否有注记）
-for f in docs/voucher-studio-health-check-2026-09.md docs/voucher-studio-project-analysis-2026-09-09.md \
-         docs/voucher-studio-fix-status-vs-analysis-2026-09-09.md docs/voucher-studio-status-audit-2026-09-17.md; do
+# 7.4 快照类文档是否只有头部注记（正文不该改动：只查是否有注记块）
+# 用 glob 覆盖全部 docs/voucher-studio-*.md（含新出的审计报告），不再写死清单
+for f in docs/voucher-studio-*.md; do
   [ -f "${f}" ] || continue
-  if head -20 "${f}" | grep -q '校正注记\|平台范围注记'; then
+  if head -20 "${f}" | grep -qE '^> .*(校正注记|平台范围注记|时点快照|审计报告)'; then
     ok "快照有头部注记：$(basename "${f}")"
   else
     warn "快照未见头部注记：$(basename "${f}")"
