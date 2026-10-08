@@ -455,7 +455,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 <style scoped>
 .editor { display: flex; flex-direction: column; gap: var(--s-3); }
 .editor-form { display: flex; flex-direction: column; gap: var(--s-2); }
-.ed-row { display: grid; grid-template-columns: 76px 1fr; gap: var(--s-2); align-items: center; }
+/* 标签列用 max-content：字号可调（默认已偏大），固定 px 会让「金额（元）」这类长标签
+   在放大后溢出、压到输入框上 */
+.ed-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s-2); align-items: center; }
 .ed-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
 .ed-row .input { width: 100%; }
 .ed-grow { min-width: 0; }
