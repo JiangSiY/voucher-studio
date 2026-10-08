@@ -201,7 +201,8 @@ function showTrace(d: DupDecision) {
 
 function openVoucher(id: number | null | undefined) {
   if (id == null) return;
-  router.push(`/vouchers/${id}`);
+  // v0.19：编辑在资料库右栏——带 focus 深链过去并聚焦该张
+  router.push({ path: "/vouchers", query: { focus: String(id) } });
 }
 
 // ---------- 深链：?pair=a-b（保存提示的「去核查」直接定位到那一对） ----------

@@ -17,7 +17,13 @@ export const router = createRouter({
         // v0.16 疑似重复核查（静态段须在 vouchers/:id 之前，避免被动态段吃掉）
         { path: "duplicates", name: "duplicates", component: () => import("../pages/DuplicateReviewPage.vue"), meta: { title: "重复核查" } },
         { path: "vouchers/new", name: "voucher-new", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "新建凭证", reading: true } },
-        { path: "vouchers/:id", name: "voucher-edit", component: () => import("../pages/VoucherFormPage.vue"), meta: { title: "编辑凭证", reading: true } },
+        // v0.19（2026-09-28）：编辑页已并入资料库右栏（components/voucher/VoucherEditor.vue）。
+        // 旧链接/书签 `/vouchers/:id` 保留为**重定向**：跳到资料库并聚焦该张（不 404）。
+        // 注意路径顺序：静态段 `vouchers/new` 必须排在本条之前，否则会被动态段吃掉。
+        {
+          path: "vouchers/:id",
+          redirect: (to) => ({ path: "/vouchers", query: { focus: String(to.params.id) } }),
+        },
         { path: "search", name: "search", component: () => import("../pages/SearchPage.vue"), meta: { title: "搜索" } },
         { path: "print", name: "print", component: () => import("../pages/PrintCenterPage.vue"), meta: { title: "打印中心" } },
         { path: "insights", name: "insights", component: () => import("../pages/InsightsPage.vue"), meta: { title: "洞察" } },

@@ -112,7 +112,8 @@ onMounted(async () => {
       toast.success(parts.join(" · "), {
         label: "开始核对",
         onClick: () => {
-          if (s.vouchers.length) router.push(`/vouchers/${s.vouchers[0].voucherId}`);
+          if (s.vouchers.length)
+            router.push({ path: "/vouchers", query: { focus: String(s.vouchers[0].voucherId) } });
         },
       });
     }

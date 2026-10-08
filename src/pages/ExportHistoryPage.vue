@@ -48,10 +48,10 @@ async function showVouchers(batch: ExportBatch) {
   }
 }
 
-/** 凭证行 → 编辑页（批次详情是临时上下文，编辑页返回回列表页） */
+/** 凭证行 → 资料库并聚焦该张（v0.19：编辑在右栏；批次详情是临时上下文，关掉再过去） */
 function openVoucher(id: number) {
   detailVisible.value = false;
-  router.push(`/vouchers/${id}`);
+  router.push({ path: "/vouchers", query: { focus: String(id) } });
 }
 
 onMounted(load);

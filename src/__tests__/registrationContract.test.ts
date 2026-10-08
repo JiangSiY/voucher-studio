@@ -12,7 +12,8 @@
  *   1. 每个静态叶子路由都必须登记在**命令面板**（面板 = 全量入口）；
  *   2. 侧栏是精选子集，**未登记侧栏的静态路由必须恰好是下列两条**——新增豁免要改本文件，
  *      因此会在 code review 里被看见；
- *   3. 动态路由（`:id`）由搜索结果模板化跳转承载，不做静态入口；
+ *   3. 动态路由已全部收编（编辑页并入右栏后不再有 `:id` 路由）；搜索命中等"去看某一张"
+ *      一律走 `/vouchers?focus=<id>` 深链（由下钻契约守卫 `drilldownContract` 保证被读取）；
  *   4. 侧栏/面板用到的图标名必须在 FluentIcon.ICONS 里定义；
  *   5. 动态段必须写在静态兄弟之后（否则 /vouchers/new 会被 /vouchers/:id 吃掉）。
  *
@@ -87,13 +88,18 @@ describe("页面登记：router ↔ 侧栏 ↔ 命令面板", () => {
     ).toEqual([...SIDEBAR_OPTIONAL].sort());
   });
 
-  it("动态路由由搜索结果模板化跳转承载（不做静态入口）", () => {
-    expect(dynamicRoutes, "新增动态路由须一并设计入口，并在此处登记").toEqual(["/vouchers/:id"]);
-    const unhandled = dynamicRoutes.filter((r) => {
-      const prefix = r.slice(0, r.indexOf("/:"));
-      return !paletteSrc.includes("router.push(`" + prefix + "/${");
-    });
-    expect(unhandled, `动态路由缺模板化跳转：\n${unhandled.join("\n")}`).toEqual([]);
+  it("动态路由已全部收编：`/vouchers/:id` 编辑页并入右栏后不再有 :id 路由", () => {
+    expect(
+      dynamicRoutes,
+      "新增动态路由须一并设计入口，并在此处登记（v0.19 起编辑页已并入资料库右栏）",
+    ).toEqual([]);
+  });
+
+  it("「去看某一张」一律走 `/vouchers?focus=` 深链（编辑页入口的替代通道）", () => {
+    // 命令面板的搜索结果是最容易出现"跳过去但没落点"的一处，这里点名它
+    expect(paletteSrc, "搜索结果应带 focus 深链到资料库").toMatch(
+      /router\.push\(\{\s*path:\s*"\/vouchers",\s*query:\s*\{\s*focus:/,
+    );
   });
 
   it("侧栏与面板用到的图标名都在 FluentIcon 里定义", () => {

@@ -55,7 +55,7 @@ const router = useRouter();
               <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ b.subject || "—" }}（{{ b.direction }}，需补拍图或录入）</td>
             </tr>
             <tr v-for="v in report.voucherOnly" :key="`vo-${v.id}`" style="cursor: pointer"
-              @click="router.push(`/vouchers/${v.id}`)">
+              @click="router.push({ path: '/vouchers', query: { focus: String(v.id) } })">
               <td><span class="tag tag-muted">🔴 凭证无账单</span></td>
               <td>{{ v.voucherDate }}</td>
               <td class="num">{{ fmtAmount(v.amountCents) }}</td>

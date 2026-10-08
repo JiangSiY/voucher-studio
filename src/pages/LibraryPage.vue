@@ -1,28 +1,32 @@
 <script setup lang="ts">
 /**
- * 全部凭证（资料库）—— v0.18 重构：**双行列表（邮件式）+ 右侧检视器**。
+ * 全部凭证（资料库）—— v0.18 重构：**双行列表（邮件式）+ 右侧检视器**；v0.19：**右栏即编辑器**。
  *
  * 与旧「凭证列表」的区别（用户要求的是结构重做，不是换皮）：
  * - 行形态从"10 列表格"改为**两行信息块**：上行 = 缩略图 + 摘要 + 金额（眼睛先看这两样），
  *   下行 = 编号 · 日期 · 对方 · 状态。信息层次按"核对时真正要看的顺序"排，而不是按字段表排。
- * - **选中即在右侧看大图与字段**（检视器），不再"点进去、返回再重新筛选"；
- *   双击或回车才进全宽编辑页（专注录入/改字段时用它）。
- * - 列表与检视器共享同一份数据，选中行为与键盘上下键联动（↑↓ 移动选择）。
+ * - **选中即在右侧看大图与字段**（检视器），不再"点进去、返回再重新筛选"。
+ * - v0.19（2026-09-28 用户决定）：原 `/vouchers/:id` 独立编辑页与右栏"便捷修改"合并为
+ *   **右栏唯一编辑器**（`components/voucher/VoucherEditor.vue`，承载原编辑页全部能力）。
+ *   双击列表行 / 回车 = **展开编辑区并聚焦**（不再跳页）；`/vouchers/:id` 改为重定向。
+ *   新建向导仍保留独立页（`/vouchers/new`，多步流程）。
  *
- * 已实装：跨页选择集、按筛选全选、检视器内就地改常用字段（金额/摘要/对方/标签/备注）。
+ * 已实装：跨页选择集、按筛选全选、右栏完整编辑（7 字段 + 换图/识别/裁剪/提取填入/快照）、
+ * `focus` 深链（其他页面跳来并聚焦某张）。
  * 待补（审计 2026-09-27 登记）：列表虚拟滚动（量级上千时）。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, type Attachment, type Voucher, type VoucherDetail, type VoucherStatus } from "../api/client";
+import { api, type Voucher, type VoucherDetail, type VoucherStatus } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
+import VoucherEditor from "../components/voucher/VoucherEditor.vue";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
-import { centsToYuanInput, parseTags, parseYuanToCents } from "../composables/money";
+import { parseTags } from "../composables/money";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
 import { toast, toastError } from "../stores/toast";
 
@@ -81,25 +85,45 @@ async function load() {
     items.value = res.items;
     total.value = res.total;
     thumbs.value = res.thumbs;
-    // 选中项若已不在本页（翻页/筛选变化）→ 落到第一行；否则保持选中并同步编辑缓冲
+
+    // 深链优先：其他页面"去看这一张"（处理完把它从 URL 摘掉，避免后续筛选变化时重复聚焦）
+    if (pendingFocus != null) {
+      const target = pendingFocus;
+      pendingFocus = null;
+      await showFocused(target);
+      stripFocusFromUrl();
+      return;
+    }
+
     const stillHere = items.value.find((v) => v.id === selectedId.value);
-    if (!stillHere) {
-      // 落到第一行：连详情一起加载（附件/快照要它，否则检视器只有字段没有图）
-      const first = items.value[0];
-      if (first) await select(first);
-      else {
-        selectedId.value = null;
-        detail.value = null;
-        resetEdit(null);
-      }
-    } else {
-      resetEdit(stillHere);
+    if (stillHere) {
+      // 行数据可能已被保存更新：同步右栏展示对象（编辑器自身按 updatedAt 合并表单）
+      shown.value = stillHere;
+      return;
+    }
+    // 右栏展示的是"不在本页"的凭证（深链聚焦后用户改了筛选）：保留它，不抢选中
+    if (shown.value && shown.value.id === selectedId.value) return;
+
+    const first = items.value[0];
+    if (first) await select(first);
+    else {
+      selectedId.value = null;
+      shown.value = null;
+      detail.value = null;
     }
   } catch (e) {
     toastError(e);
   } finally {
     loading.value = false;
   }
+}
+
+/** 把 `focus` 从 URL 摘掉（保留其余筛选键）：深链是一次性动作，不该留在地址栏里 */
+function stripFocusFromUrl() {
+  if (route.query.focus == null) return;
+  const q = { ...route.query };
+  delete q.focus;
+  void router.replace({ query: q });
 }
 
 /** 从 URL 读筛选（收件箱/趋势下钻过来时带回显） */
@@ -119,6 +143,9 @@ function readQuery() {
   // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
   counterpartyExact.value = (q.counterparty as string) ?? "";
   tagsText.value = (q.tags as string) ?? "";
+  // v0.19：`focus` = 其他页面"去看这一张"（深链聚焦，不参与筛选；见 load() 里的处理）
+  const f = Number(q.focus);
+  pendingFocus = Number.isFinite(f) && f > 0 ? f : null;
 }
 
 const activeFilters = computed(() => {
@@ -161,114 +188,130 @@ function onThumbError(v: Voucher) {
 }
 
 const selectedId = ref<number | null>(null);
+/** 右栏当前展示的凭证：通常来自本页列表；`focus` 深链指向不在本页的凭证时也在此 */
+const shown = ref<Voucher | null>(null);
 const detail = ref<VoucherDetail | null>(null);
-const detailBusy = ref(false);
-const detailStep = ref(0);
+/** 展开编辑区（窄栏 ⇄ 宽栏）：双击行/回车会展开并聚焦第一个字段 */
+const wide = ref(false);
+const editorRef = ref<InstanceType<typeof VoucherEditor> | null>(null);
+/** 待处理的 `focus` 深链目标（来自其他页面"去看这一张"） */
+let pendingFocus: number | null = null;
 
-// ---------- 就地编辑（检视器内改常用字段，不必跳编辑页） ----------
+// ---------- 右栏编辑器（v0.19：全应用唯一编辑处） ----------
 
-const edit = ref<{ amount: string; description: string; counterparty: string; tags: string; note: string } | null>(null);
-const savingEdit = ref(false);
-
-/** 选中项变化 → 重置编辑缓冲（避免把上一张的值改到这一张上） */
-function resetEdit(v: Voucher | null) {
-  edit.value = v
-    ? {
-        amount: centsToYuanInput(v.amountCents),
-        description: v.description ?? "",
-        counterparty: v.counterparty ?? "",
-        tags: (v.tags ?? []).join("、"),
-        note: v.note ?? "",
-      }
-    : null;
+/** 保存成功：就地更新列表行与右栏（不整页重载，保持滚动位置与选中项） */
+function onEditorSaved(saved: Voucher) {
+  const idx = items.value.findIndex((x) => x.id === saved.id);
+  if (idx >= 0) items.value.splice(idx, 1, saved);
+  if (shown.value?.id === saved.id) shown.value = saved;
+  if (detail.value?.voucher.id === saved.id) detail.value = { ...detail.value, voucher: saved };
 }
 
-const dirty = computed(() => {
-  const v = selected.value;
-  const e = edit.value;
-  if (!v || !e) return false;
-  return (
-    (parseYuanToCents(e.amount).ok ? (parseYuanToCents(e.amount) as { cents: number | null }).cents : v.amountCents) !== v.amountCents ||
-    e.description.trim() !== (v.description ?? "") ||
-    e.counterparty.trim() !== (v.counterparty ?? "") ||
-    e.note.trim() !== (v.note ?? "") ||
-    parseTags(e.tags).join("、") !== (v.tags ?? []).join("、")
-  );
-});
+/** 编辑器内部操作（换图/识别/裁剪）产生的新详情 */
+function onEditorDetail(d: VoucherDetail) {
+  if (shown.value?.id !== d.voucher.id) return;
+  detail.value = d;
+}
 
-/** 保存就地编辑：只提交改动的字段；金额空串 → 显式清空（clearAmount） */
-async function saveEdit() {
-  const v = selected.value;
-  const e = edit.value;
-  if (!v || !e) return;
-  const parsed = parseYuanToCents(e.amount);
-  if (!parsed.ok) {
-    toast.warning(parsed.reason);
+/** 保存并下一张：本页下一行；到页尾且还有下一页则翻页取第一条 */
+async function onEditorNext() {
+  const idx = items.value.findIndex((v) => v.id === selectedId.value);
+  const next = idx >= 0 ? items.value[idx + 1] : items.value[0];
+  if (next) {
+    await select(next);
     return;
   }
-  savingEdit.value = true;
-  try {
-    const saved = await api.updateVoucher(v.id, {
-      amountCents: parsed.cents,
-      clearAmount: parsed.cents == null,
-      description: e.description.trim(),
-      counterparty: e.counterparty.trim(),
-      tags: parseTags(e.tags),
-      note: e.note.trim(),
-    });
-    // 就地更新列表行与检视器（不整页重载，保持滚动位置与选中项）
-    const idx = items.value.findIndex((x) => x.id === saved.id);
-    if (idx >= 0) items.value.splice(idx, 1, saved);
-    if (detail.value) detail.value = { ...detail.value, voucher: saved };
-    resetEdit(saved);
-    toast.success("已保存修改");
-  } catch (err) {
-    toastError(err);
-  } finally {
-    savingEdit.value = false;
+  if (page.value < totalPages.value) {
+    gotoPage(page.value + 1);
+    await nextTick();
+    const first = items.value[0];
+    if (first) await select(first);
+    return;
   }
+  toast.info("当前筛选内没有更多凭证了");
 }
 
+/** 双击行 / 回车：展开编辑区并把焦点送进第一个可编辑字段（不再跳页） */
+async function focusEditor(v: Voucher) {
+  await select(v);
+  wide.value = true;
+  await nextTick();
+  editorRef.value?.focusFirst();
+}
+
+function toggleWide() {
+  wide.value = !wide.value;
+  if (wide.value) void nextTick(() => editorRef.value?.focusFirst());
+}
+
+/** 本页列表里选中的那一行（用于行高亮；`focus` 深链指向不在本页时可能为 null） */
 const selected = computed(() => items.value.find((v) => v.id === selectedId.value) ?? null);
+
+/**
+ * 选中一张：更新高亮、右栏展示对象，并拉取详情（附件/快照）。
+ * 请求序号守卫（沿用 2026-09-23 审计 B3 的做法）：连续 ↑↓ / 翻张时会有多个 `get_voucher`
+ * 在途，旧响应若无条件写入，会出现"字段是 A、附件是 B"的错配。
+ */
+let detailSeq = 0;
 
 async function select(v: Voucher) {
   selectedId.value = v.id;
-  detailStep.value = 0;
-  resetEdit(v);
-  detailBusy.value = true;
+  shown.value = v;
+  detail.value = null;
+  const my = ++detailSeq;
   try {
-    detail.value = await api.getVoucher(v.id);
+    const d = await api.getVoucher(v.id);
+    if (my !== detailSeq) return;
+    detail.value = d;
+    shown.value = d.voucher;
   } catch (e) {
+    if (my !== detailSeq) return;
     toastError(e);
-    detail.value = null;
-  } finally {
-    detailBusy.value = false;
   }
 }
 
-/** 检视器里的大图（增强版 → 原图 → 占位） */
-const inspectorImage = computed<string | null>(() => {
-  const att: Attachment | undefined = detail.value?.attachments[0];
-  if (!att) return null;
-  const abs = pickCandidate(att, detailStep.value);
-  return abs ? convertFileSrc(abs) : null;
-});
-
-function onInspectorError() {
-  const att = detail.value?.attachments[0];
-  if (!att) return;
-  detailStep.value = nextFallbackStep(detailStep.value, candidatePaths(att).length);
+/** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */ 
+async function showFocused(id: number) {
+  const inPage = items.value.find((v) => v.id === id);
+  if (inPage) {
+    await select(inPage);
+    // 目标就在本页：滚动到该行，长列表里别让用户自己找
+    await nextTick();
+    document.querySelector(`[data-row-id="${id}"]`)?.scrollIntoView?.({ block: "nearest" });
+    return;
+  }
+  selectedId.value = id;
+  const my = ++detailSeq;
+  try {
+    const d = await api.getVoucher(id);
+    if (my !== detailSeq) return;
+    shown.value = d.voucher;
+    detail.value = d;
+  } catch (e) {
+    if (my !== detailSeq) return;
+    toastError(e); // 例如凭证已被删除
+  }
 }
 
-function openEditor(id: number) {
-  router.push(`/vouchers/${id}`);
-}
-
-/** ↑↓ 移动选择（macOS 列表的常规操作） */
+/** 键盘动线：↑↓ 移动选择（macOS 列表的常规操作）；回车 = 展开编辑区；⌘⇧E 切换展宽 */
 function onKeydown(e: KeyboardEvent) {
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
+    e.preventDefault();
+    toggleWide();
+    return;
+  }
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "Enter") {
+    const row = selected.value;
+    if (row) {
+      e.preventDefault();
+      void focusEditor(row);
+    }
+    return;
+  }
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const idx = items.value.findIndex((v) => v.id === selectedId.value);
   if (idx < 0) return;
   const next = e.key === "ArrowDown" ? Math.min(idx + 1, items.value.length - 1) : Math.max(idx - 1, 0);
@@ -505,8 +548,8 @@ watch(keyword, () => {
       <button v-if="advancedCount" class="btn" @click="clearAllFilters()">清除高级筛选</button>
     </div>
 
-    <!-- 主体：左列表（双行）+ 右检视器 -->
-    <div class="split">
+    <!-- 主体：左列表（双行）+ 右编辑器（v0.19：右栏即编辑器；双击/回车展开） -->
+    <div class="split" :class="{ 'split--wide': wide }">
       <section class="list-pane">
         <div v-if="loading" class="hint">加载中…</div>
         <EmptyState v-else-if="!items.length" icon="folder" title="没有符合条件的凭证"
@@ -518,8 +561,9 @@ watch(keyword, () => {
             :key="v.id"
             class="row"
             :class="{ sel: v.id === selectedId }"
+            :data-row-id="v.id"
             @click="select(v)"
-            @dblclick="openEditor(v.id)"
+            @dblclick="focusEditor(v)"
           >
             <input class="row-check" type="checkbox" :checked="selectedIds.has(v.id)" @click.stop="toggle(v)" />
             <div class="row-thumb">
@@ -552,65 +596,35 @@ watch(keyword, () => {
         </div>
       </section>
 
-      <!-- 检视器：选中即看，不跳页 -->
-      <aside class="inspector" v-if="selected">
+      <!-- 右栏：编辑器（v0.19 起全应用唯一的凭证编辑处；双击行/回车会展开） -->
+      <aside class="inspector" v-if="shown">
         <header class="ins-head">
-          <span class="mono">{{ selected.voucherNo }}</span>
+          <span class="mono">{{ shown.voucherNo }}</span>
           <span class="flex-1"></span>
-          <button class="btn" title="在编辑页打开（双击列表行同效）" @click="openEditor(selected.id)">
-            <FluentIcon name="edit" :size="14" /> 编辑
+          <button class="btn" :title="wide ? '收起编辑区（⌘⇧E）' : '展开编辑区（⌘⇧E）'" @click="toggleWide()">
+            <FluentIcon :name="wide ? 'flex-shrink' : 'display'" :size="14" /> {{ wide ? "收起" : "展开" }}
           </button>
         </header>
 
-        <div class="ins-image">
-          <img v-if="inspectorImage" :src="inspectorImage" :alt="selected.voucherNo" @error="onInspectorError" />
-          <div v-else class="ins-image-empty">
-            <FluentIcon name="image" :size="22" />
-            <span>{{ detailBusy ? "加载中…" : "无附件或图片不可显示" }}</span>
-          </div>
-        </div>
+        <!-- 深链聚焦到"不在当前筛选结果里"的凭证：说明来源，避免误以为筛选坏了 -->
+        <p v-if="!selected" class="ins-hint">
+          该凭证不在当前筛选结果中（来自页外跳转）；
+          <button class="link" @click="items[0] && select(items[0])">回到列表第一张</button>
+        </p>
 
-        <!-- 就地编辑：常用字段直接改，保存后列表行同步更新（不必进编辑页） -->
-        <div v-if="edit" class="ins-edit">
-          <label class="ins-row">
-            <span>金额</span>
-            <input v-model="edit.amount" class="input" placeholder="空 = 未填" />
-          </label>
-          <label class="ins-row">
-            <span>摘要</span>
-            <input v-model="edit.description" class="input" />
-          </label>
-          <label class="ins-row">
-            <span>对方</span>
-            <input v-model="edit.counterparty" class="input" />
-          </label>
-          <label class="ins-row">
-            <span>标签</span>
-            <input v-model="edit.tags" class="input" placeholder="用、或,分隔" />
-          </label>
-          <label class="ins-row">
-            <span>备注</span>
-            <input v-model="edit.note" class="input" />
-          </label>
-          <div class="ins-ops">
-            <button class="btn btn-primary" :disabled="!dirty || savingEdit" @click="saveEdit()">
-              {{ savingEdit ? "保存中…" : "保存" }}
-            </button>
-            <button class="btn" :disabled="!dirty || savingEdit" @click="resetEdit(selected)">还原</button>
-            <span class="flex-1"></span>
-            <span v-if="dirty" class="dirty-hint">有未保存的修改</span>
-          </div>
-        </div>
+        <VoucherEditor
+          ref="editorRef"
+          :voucher="shown"
+          :detail="detail"
+          :dense="!wide"
+          @saved="onEditorSaved"
+          @detail="onEditorDetail"
+          @next="onEditorNext"
+        />
 
         <dl class="ins-meta">
-          <div><dt>日期</dt><dd>{{ selected.voucherDate }}</dd></div>
-          <div><dt>状态</dt><dd><span class="tag" :class="STATUS_META[selected.status].tag">{{ STATUS_META[selected.status].label }}</span></dd></div>
-          <div><dt>最后修改</dt><dd>{{ fmtDate(selected.updatedAt) }}</dd></div>
+          <div><dt>最后修改</dt><dd>{{ fmtDate(shown.updatedAt) }}</dd></div>
         </dl>
-
-        <p class="ins-hint">
-          就地核对与修改：改完点「保存」即生效；改日期/编号/状态等其余字段请点右上「编辑」（或双击列表行）。
-        </p>
       </aside>
     </div>
 
@@ -648,6 +662,8 @@ watch(keyword, () => {
 }
 
 .split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: var(--s-3); align-items: start; }
+/* 展宽（⌘⇧E / 双击行）：编辑区取得大部分宽度，列表仍在左侧保留上下文 */
+.split--wide { grid-template-columns: minmax(300px, 0.7fr) minmax(560px, 1.6fr); }
 .list-pane { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .hint { color: var(--label-tertiary); font: var(--type-body); padding: var(--s-4); }
 
@@ -691,21 +707,12 @@ watch(keyword, () => {
   border-radius: var(--radius-panel);
   background: var(--bg-content);
   position: sticky; top: 0;
+  /* 右栏自成一个滚动区：字段多了（v0.19 起含图片/表单/快照）也不把整页拖长 */
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
 }
 .ins-head { display: flex; align-items: center; gap: var(--s-2); }
-.ins-image {
-  height: 260px; display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--separator); border-radius: var(--radius-control);
-  background: var(--surface-2); overflow: hidden;
-}
-.ins-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.ins-image-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--label-quaternary); font: var(--type-caption); }
-.ins-edit { display: flex; flex-direction: column; gap: var(--s-2); }
-.ins-row { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: center; }
-.ins-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
-.ins-row .input { padding: 5px 8px; }
-.ins-ops { display: flex; align-items: center; gap: var(--s-2); }
-.dirty-hint { color: var(--warning); font: var(--type-caption); }
+.link { background: none; border: none; padding: 0; color: var(--accent); font: var(--type-caption); cursor: pointer; text-decoration: underline; }
 .ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
 .ins-meta > div { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: baseline; }
 .ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }

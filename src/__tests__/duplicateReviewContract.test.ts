@@ -95,7 +95,8 @@ describe("重复核查页与后端契约", () => {
 describe("三处提示都指向处置（不再「只提示不处理」）", () => {
   // v0.18：旧仪表盘已由收件箱页取代（见 iaContract.test.ts）
   const dashboardSrc = repoFile("src/pages/InboxPage.vue");
-  const formSrc = repoFile("src/pages/VoucherFormPage.vue");
+  // v0.19：编辑能力（含保存后的疑似重复提示）已从独立编辑页搬到右栏编辑器
+  const editorSrc = repoFile("src/components/voucher/VoucherEditor.vue");
   const appSrc = repoFile("src/App.vue");
 
   it("收件箱只消费**未处置计数**（不得退回全量扫描，也不得在首页跑重活）", () => {
@@ -109,14 +110,14 @@ describe("三处提示都指向处置（不再「只提示不处理」）", () =
   });
 
   it("保存提示带「去核查」动作 + 深链到那一对", () => {
-    expect(formSrc).toMatch(/label:\s*"去核查"/);
-    expect(formSrc).toMatch(/path:\s*"\/duplicates"/);
-    expect(formSrc).toContain("pairKey");
+    expect(editorSrc).toMatch(/label:\s*"去核查"/);
+    expect(editorSrc).toMatch(/path:\s*"\/duplicates"/);
+    expect(editorSrc).toContain("pairKey");
   });
 
   it("本次会话内同一对只提示一次（连续保存同一张不重复弹）", () => {
-    expect(formSrc).toContain("wasNotified");
-    expect(formSrc).toContain("markNotified");
+    expect(editorSrc).toContain("wasNotified");
+    expect(editorSrc).toContain("markNotified");
     expect(dupStoreSrc).toMatch(/const notified = new Set<string>\(\)/);
   });
 

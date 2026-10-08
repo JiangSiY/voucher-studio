@@ -87,7 +87,7 @@ const items = computed(() => {
     kind: "voucher" as const,
     key: `v-${h.voucher.id}`,
     hit: h,
-    run: () => router.push(`/vouchers/${h.voucher.id}`),
+    run: () => router.push({ path: "/vouchers", query: { focus: String(h.voucher.id) } }),
   }));
   return [...cmds, ...vols];
 });

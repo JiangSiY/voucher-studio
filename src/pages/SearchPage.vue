@@ -81,10 +81,9 @@ async function search() {
   }
 }
 
-/** 结果行 → 编辑页（带搜索上下文：编辑页返回回搜索页、翻张按搜索结果顺序） */
+/** 结果行 → 资料库（带关键词筛选 + focus 聚焦该张；v0.19 起编辑在右栏，不再有独立编辑页） */
 function openHit(id: number) {
-  const q: Record<string, string> = { keyword: keyword.value.trim(), from: "search" };
-  router.push({ path: `/vouchers/${id}`, query: q });
+  router.push({ path: "/vouchers", query: { keyword: keyword.value.trim(), focus: String(id) } });
 }
 
 // 已出结果后发生拖放入库，自动重跑当前关键词，避免结果陈旧

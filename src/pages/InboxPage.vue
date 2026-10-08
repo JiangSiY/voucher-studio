@@ -169,7 +169,8 @@ async function runOcr() {
 }
 
 function openVoucher(id: number) {
-  router.push(`/vouchers/${id}`);
+  // v0.19：编辑在资料库右栏（不再有独立编辑页）——带 focus 深链过去并聚焦该张
+  router.push({ path: "/vouchers", query: { focus: String(id) } });
 }
 
 async function load() {
