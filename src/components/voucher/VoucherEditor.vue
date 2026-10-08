@@ -400,7 +400,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       <div class="ed-row" data-field="description">
         <span>摘要</span>
         <div class="ed-grow">
-          <DescriptionInput v-model="form.description" :templates="descTemplates" />
+          <!-- 本组件已提供「摘要」标签（保证与其它行同列对齐），故隐藏其自带的那一枚 -->
+          <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
         </div>
       </div>
       <label class="ed-row" data-field="counterparty">
@@ -454,17 +455,28 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 <style scoped>
 .editor { display: flex; flex-direction: column; gap: var(--s-3); }
-.editor-form { display: flex; flex-direction: column; gap: var(--s-2); }
-/* 标签列用 max-content：字号可调（默认已偏大），固定 px 会让「金额（元）」这类长标签
-   在放大后溢出、压到输入框上 */
-.ed-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s-2); align-items: center; }
+
+/* 表单是**一个**网格：标签列全局共用一条（宽度 = 最宽标签），因此每行的输入框左边缘对齐。
+   反面案例：把 `max-content` 写在每一行上 → 每行各算各的宽度（"状态"两字窄、"金额（元）"五字宽），
+   输入框左边缘参差不齐（用户 2026-09-28 截图报）。
+   标签列用 max-content 而非固定 px：字号可调（默认已偏大），固定值会让长标签溢出压到输入框。 */
+.editor-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s-2) var(--s-3);
+  align-items: center;
+}
+/* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
+.ed-row { display: contents; }
+/* 备注是多行控件：标签对齐顶部更自然（display:contents 后按 DOM 选择器定位即可） */
+.ed-row[data-field="note"] > span { align-self: start; margin-top: 7px; }
 .ed-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
 .ed-row .input { width: 100%; }
 .ed-grow { min-width: 0; }
 .ed-ops { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 .flex-1 { flex: 1; }
 .dirty-hint { color: var(--warning); font: var(--type-caption); white-space: nowrap; }
-/* 备注是多行：标签对齐顶部更自然 */
-.ed-row:has(textarea) { align-items: start; }
-.ed-row:has(textarea) > span { padding-top: 6px; }
+/* 摘要行隐藏子组件自带标签（见模板注释）。
+   DescriptionInput 的根元素本身就是 `.field`，类名会落到同一个元素上，故用后代 label 选择器 */
+.desc-no-label :deep(label) { display: none; }
 </style>
