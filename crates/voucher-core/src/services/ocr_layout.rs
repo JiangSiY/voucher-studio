@@ -186,7 +186,11 @@ fn pair_label_value(
             let Some(idx) = line.text.find(*label) else {
                 continue;
             };
-            let rest = &line.text[idx + label.len()..];
+            // 子标签处理（v0.20 评测修复）：复合标签（收款方备注…）本次命中作废；
+            // 名称类子标签（收款人全称：…）剥掉后取余下为值
+            let Some(rest) = ocr_fields::strip_sub_label(&line.text[idx + label.len()..]) else {
+                continue;
+            };
 
             // 形态 2：行内冒号（无几何佐证——值就在标签行里）
             let colon_stripped = rest
@@ -340,7 +344,8 @@ fn uppercase_amount_in(lines: &[OcrLine]) -> Option<i64> {
     ocr_fields::parse_uppercase_amount(&text)
 }
 
-/// 清洗为名称候选：去标点/空白前缀、截掉金额尾巴
+/// 清洗为名称候选：去标点/空白前缀、截掉金额尾巴；界面噪音词（户名/账号/备注…）→ 空串
+/// （v0.20：版面配对也可能抓到相邻的界面标签，此处是两条路径共同的最后关口）
 fn clean_name(s: &str, max: usize) -> String {
     let cleaned = s
         .trim()
@@ -351,6 +356,9 @@ fn clean_name(s: &str, max: usize) -> String {
         .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
         .collect();
     let name = name.trim();
+    if ocr_fields::is_value_noise(name) {
+        return String::new();
+    }
     name.chars().take(max).collect()
 }
 
@@ -484,6 +492,18 @@ mod tests {
         ];
         let f = extract_with_layout(&noise);
         assert_eq!(f.date, None);
+        assert_eq!(f.counterparty, None);
+    }
+
+    /// v0.20 评测修复：右邻是界面标签词（户名/账号…）→ 不作为对方值
+    #[test]
+    fn ui_label_right_neighbor_rejected() {
+        let lines = vec![
+            line("收款方", 40.0, 100.0, 110.0, 130.0),
+            line("户名", 160.0, 100.0, 210.0, 130.0),
+            line("合计：45.00元", 40.0, 400.0, 300.0, 430.0),
+        ];
+        let f = extract_with_layout(&lines);
         assert_eq!(f.counterparty, None);
     }
 

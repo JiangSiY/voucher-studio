@@ -90,9 +90,14 @@ pub fn extract(text: &str) -> ExtractedFields {
         .map(|(m, labeled)| (Some(m), labeled))
         .unwrap_or((None, false));
     let cp_by_label = extract_counterparty(text);
+    // 微信/支付宝截图专属模式（标签缺失时的第二顺位；实测截图无「收款方」标签）
+    let cp_transfer = extract_transfer_target(text);
     // 对方账户回退：收款场景标签（收款方/商户…）缺失时，商家即实际收款对象——
     // 发票「销售方」与小票顶部店名都满足此语义（购买方是记账人自己，不算对方）
-    let counterparty = cp_by_label.clone().or_else(|| merchant.clone());
+    let counterparty = cp_by_label
+        .clone()
+        .or(cp_transfer.clone())
+        .or_else(|| merchant.clone());
     let date = extract_date(text);
 
     let mut confidence = FieldConfidence::default();
@@ -104,8 +109,8 @@ pub fn extract(text: &str) -> ExtractedFields {
         });
     }
     if counterparty.is_some() {
-        // 标签命中 Medium；商家回退沿用商家档（标签 Medium / 首行启发式 Low）
-        confidence.counterparty = Some(if cp_by_label.is_some() {
+        // 标签命中 Medium；「转给」模式 Medium；商家回退沿用商家档（标签 Medium / 首行启发式 Low）
+        confidence.counterparty = Some(if cp_by_label.is_some() || cp_transfer.is_some() {
             Confidence::Medium
         } else {
             confidence.merchant.unwrap_or(Confidence::Low)
@@ -420,13 +425,130 @@ pub(crate) fn parse_uppercase_amount(text: &str) -> Option<i64> {
     None
 }
 
-/// 对方账户：标签后同行内容（去除标点/空白，截断到 30 字符）
+/// 主标签命中后，处理紧跟其后的「子标签」（v0.20 评测发现：微信/银行截图里
+/// 「收款方备注」「收款方全称」这类复合标签会把主标签截胡，值被抽成「备注」「全称」等界面词）。
+///
+/// - 子标签是**名称类**（全称/简称/户名/名称）→ 剥掉，余下才是值（「收款人全称：张三」→ 张三）
+/// - 子标签是**异字段**（备注/账号/卡号/单号/记账日…）→ 主标签只是复合词的前半 → 放弃本次命中
+/// - 其余情况原样返回（含空串——版面路径的「跨行取值」形态还要用空判定）
+pub(crate) fn strip_sub_label(rest: &str) -> Option<&str> {
+    const NAME_SUBS: [&str; 4] = ["全称", "简称", "户名", "名称"];
+    const OTHER_FIELDS: [&str; 11] = [
+        "备注",
+        "账号",
+        "卡号",
+        "单号",
+        "單号",
+        "序号",
+        "记账日",
+        "交易日",
+        "明细",
+        "开户行",
+        "开户银行",
+    ];
+    let trimmed = rest.trim_start_matches(['：', ':', ' ', '　', '-']);
+    // 「子标签后紧跟分隔符或行尾」才算复合词（「备注夹」这种就按普通文本处理）
+    let is_compound = |word: &str| {
+        trimmed.starts_with(word)
+            && trimmed[word.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| matches!(c, '：' | ':' | ' ' | '　'))
+    };
+    if OTHER_FIELDS.iter().any(|w| is_compound(w)) {
+        return None; // 复合词是别的字段（收款方备注/账户单号…），本次命中作废
+    }
+    if let Some(w) = NAME_SUBS.iter().find(|w| is_compound(w)) {
+        return Some(trimmed[w.len()..].trim_start_matches(['：', ':', ' ', '　']));
+    }
+    Some(trimmed)
+}
+
+/// 界面文字黑名单：截图/短信里的 UI 标签词被当「值」抽出时一律丢弃
+/// （2026-10-09 评测两轮：微信/银行截图实填错误全为这类词；第二轮补 服务/开户行）
+const VALUE_NOISE: [&str; 22] = [
+    "户名",
+    "账号",
+    "卡号",
+    "备注",
+    "全称",
+    "简称",
+    "单号",
+    "單号",
+    "序号",
+    "记账日",
+    "交易日",
+    "明细",
+    "交易详情",
+    "账单详情",
+    "支付成功",
+    "交易成功",
+    "当前状态",
+    "转账说明",
+    "收款方备注",
+    "服务",
+    "开户行",
+    "开户银行",
+];
+
+/// 值是否是界面噪音词或残片：
+/// - 等值命中黑名单（服务/开户行…）；
+/// - 以「的」开头的残片（「商户的交易」被截出的「的交易」）；
+/// - 以字段标签词开头（「收款方开户行」整串被当名字——第三轮评测同型 5 例）
+pub(crate) fn is_value_noise(s: &str) -> bool {
+    const LABEL_PREFIX: [&str; 12] = [
+        "收款方",
+        "收款人",
+        "对方账户",
+        "商户",
+        "销售方",
+        "购买方",
+        "户名",
+        "账号",
+        "卡号",
+        "开户行",
+        "备注",
+        "全称",
+    ];
+    let t = s.trim();
+    VALUE_NOISE.contains(&t) || t.starts_with('的') || LABEL_PREFIX.iter().any(|w| t.starts_with(w))
+}
+
+/// 微信/支付宝截图的对方提法：「转账-转给XXX」「扫二维码付款-给XXX」——
+/// 这比标签路径更贴近用户账面（实测截图里没有「收款方」标签，只有这两个模式）。
+/// 返回名字 + 是否命中。
+fn extract_transfer_target(text: &str) -> Option<String> {
+    const MARKERS: [&str; 2] = ["转给", "付款-给"];
+    for line in text.lines() {
+        for marker in MARKERS {
+            if let Some(idx) = line.find(marker) {
+                let rest = &line[idx + marker.len()..];
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| !matches!(c, '／' | '/' | ' ' | '\t' | '，' | ',' | '。' | '|'))
+                    .collect();
+                let name = name.trim();
+                // 至少 1 个名称性字符（微信昵称可单字，如「冰」；纯数字/标点残片拒绝）
+                if !name.is_empty() && name.chars().any(|c| c.is_alphabetic()) {
+                    return Some(name.chars().take(30).collect());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 对方账户：标签后同行内容（去除标点/空白，截断到 30 字符）；
+/// 标签不中 → 微信/支付宝「转给」模式；再回退商家。
 fn extract_counterparty(text: &str) -> Option<String> {
     for label in COUNTERPARTY_LABELS {
         for line in text.lines() {
             if let Some(idx) = line.find(label) {
                 let rest = &line[idx + label.len()..];
-                let cleaned = rest
+                let Some(start) = strip_sub_label(rest) else {
+                    continue; // 复合标签是别的字段（收款方备注…）→ 换下一处
+                };
+                let cleaned = start
                     .trim()
                     .trim_start_matches(['：', ':', ' ', '　', '-'])
                     .trim();
@@ -436,7 +558,7 @@ fn extract_counterparty(text: &str) -> Option<String> {
                     .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
                     .collect();
                 let name = name.trim();
-                if !name.is_empty() {
+                if !name.is_empty() && !is_value_noise(name) {
                     return Some(name.chars().take(30).collect());
                 }
             }
@@ -452,7 +574,10 @@ fn extract_merchant_with_source(text: &str) -> Option<(String, bool)> {
         for line in text.lines() {
             if let Some(idx) = line.find(label) {
                 let rest = &line[idx + label.len()..];
-                let cleaned = rest
+                let Some(start) = strip_sub_label(rest) else {
+                    continue; // 复合标签（销售方备注…）→ 换下一处
+                };
+                let cleaned = start
                     .trim()
                     .trim_start_matches(['：', ':', ' ', '　', '-'])
                     .trim();
@@ -463,21 +588,29 @@ fn extract_merchant_with_source(text: &str) -> Option<(String, bool)> {
                     .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
                     .collect();
                 let name = name.trim();
-                if name.chars().count() >= 2 {
+                if name.chars().count() >= 2 && !is_value_noise(name) {
                     return Some((name.chars().take(30).collect(), true));
                 }
             }
         }
     }
-    // 兜底：首个「以中文开头且长度≥4」的行视为店名（小票顶部布局）
+    // 兜底：首个「以中文开头且长度≥4」的行视为店名（小票顶部布局）。
+    // 行首是字段标签或界面噪音词的行不算店名（「收款方备注 …」曾被当成店名、
+    // 再经商家回退污染对方账户——2026-09 基准评测同型）
     for line in text.lines() {
         let t = line.trim();
+        let starts_with_label = COUNTERPARTY_LABELS
+            .iter()
+            .chain(MERCHANT_LABELS.iter())
+            .any(|w| t.starts_with(w));
         if t.chars().count() >= 4
             && t.chars()
                 .next()
                 .is_some_and(|c| c.is_alphabetic() && !c.is_ascii())
             && !t.contains('：')
             && !t.contains(':')
+            && !starts_with_label
+            && !VALUE_NOISE.iter().any(|w| t.starts_with(w))
         {
             // 去掉金额尾巴（「出租车票 45.00元」→「出租车票」）——
             // 商家会回退为对方账户，带金额会污染凭证字段
@@ -486,7 +619,7 @@ fn extract_merchant_with_source(text: &str) -> Option<(String, bool)> {
                 .take_while(|c| !c.is_ascii_digit() && *c != '¥' && *c != '￥')
                 .collect();
             let name = name.trim();
-            if name.chars().count() >= 2 {
+            if name.chars().count() >= 2 && !is_value_noise(name) {
                 return Some((name.chars().take(30).collect(), false));
             }
         }
@@ -999,5 +1132,60 @@ mod tests {
         assert_eq!(ok.confidence.amount, Some(Confidence::High));
         let bad = extract_validated("（大写）壹佰元整\n合计：¥113.00");
         assert_eq!(bad.amount_cents, None);
+    }
+
+    // ---------- v0.20 评测修复：复合标签 / 界面噪音词 / 微信「转给」模式 ----------
+
+    #[test]
+    fn compound_label_not_hijacked() {
+        // 「收款方备注」是别的字段——不得把主标签的后半截（备注）当对方名
+        // （2026-09 基准评测：50 例实填错误全是这一模式）
+        let f = extract("收款方备注 二维码收款\n金额：35.00元");
+        assert_eq!(f.counterparty, None);
+        // 「对方账户单号」同理
+        let f2 = extract("对方账户单号：12345\n合计：45.00元");
+        assert_eq!(f2.counterparty, None);
+        // 第二轮（评测 #143/#158 同型）：「收款方开户行」也是复合词
+        let f3 = extract("收款方开户行：中国银行\n合计：45.00元");
+        assert_eq!(f3.counterparty, None);
+    }
+
+    #[test]
+    fn name_sub_label_stripped() {
+        // 名称类子标签（全称/名称）剥掉后，余下才是值
+        let f = extract("收款人全称：张三\n合计：50.00元");
+        assert_eq!(f.counterparty, Some("张三".into()));
+        let f2 = extract("销售方名称：肯德基有限公司\n合计：45.00元");
+        assert_eq!(f2.merchant, Some("肯德基有限公司".into()));
+    }
+
+    #[test]
+    fn ui_noise_value_rejected() {
+        // 抽出的「值」是界面标签词本身（户名/账号…）→ 丢弃，不是真名字
+        let f = extract("收款方：户名\n合计：45.00元");
+        assert_eq!(f.counterparty, None);
+        let f2 = extract("商户：账号\n合计：45.00元");
+        assert_eq!(f2.counterparty, None);
+        // 等值判定不让真名字受害
+        assert!(is_value_noise("户名"));
+        assert!(is_value_noise(" 账号 "));
+        assert!(is_value_noise("服务"));
+        assert!(is_value_noise("开户行"));
+        assert!(is_value_noise("的交易")); // 「商户的交易」被截出的残片
+        assert!(is_value_noise("收款方开户行")); // 整串界面词被当名字（第三轮评测同型）
+        assert!(is_value_noise("户名张")); // 以标签词开头同样拒
+        assert!(!is_value_noise("肯德基"));
+        assert!(!is_value_noise("服务部"));
+        assert!(!is_value_noise("招商银行"));
+    }
+
+    #[test]
+    fn wechat_transfer_target_extracted() {
+        // 微信转账截图（基准里的主要凭证形态）：无「收款方」标签，用「转给」模式
+        let f = extract("转账-转给AA001保利盛钢管～丁圆辉\n-5760.00\n当前状态\n等待对方确认收钱");
+        assert_eq!(f.counterparty, Some("AA001保利盛钢管～丁圆辉".into()));
+        assert_eq!(f.confidence.counterparty, Some(Confidence::Medium));
+        let f2 = extract("扫二维码付款-给冰\n-2000.00\n支付成功");
+        assert_eq!(f2.counterparty, Some("冰".into()));
     }
 }
