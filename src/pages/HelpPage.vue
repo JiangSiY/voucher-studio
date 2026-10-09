@@ -51,7 +51,7 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "…");
   <div class="fluent-panel">
     <div class="fluent-panel-body" style="font-size: 12px; color: var(--text-3)">
       Voucher Studio v{{ version }} · Tauri 2 + Rust + Vue 3 重写版（完全无包袱重写，不迁移旧版数据）。
-      本地 OCR（离线识别）已内置：RapidOCR PP-OCRv4 模型，G1 Spike B 实测字符准确率 99.9%。
+      本地 OCR（离线识别）已内置：RapidOCR PP-OCRv5 模型，识别全程在本机完成。
     </div>
   </div>
 </template>

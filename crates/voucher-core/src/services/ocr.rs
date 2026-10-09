@@ -1,6 +1,6 @@
 //! OCR 服务（对应 v4.3 的 `ocr.py`）
 //!
-//! - 本地（默认）：ort + RapidOCR PP-OCRv4，完全离线（G1 Spike B 实测字符准确率 99.9%）
+//! - 本地（默认）：ort + RapidOCR PP-OCRv5，完全离线（2026-10-09 由 v4 升级，评测基线见开发日志）
 //! - 云端：通用 HTTP API（配置地址 + API Key 走系统凭据库）
 //! - 结果以附件内容哈希为键落缓存（ocr_cache 表），同一张图不重复识别
 
@@ -206,7 +206,7 @@ fn engine_for(engine: &str) -> Result<Box<dyn OcrEngine>> {
     }
 }
 
-/// 本地识别（G1 Spike B 验证路线：ort + RapidOCR PP-OCRv4，完全离线）
+/// 本地识别（ort + RapidOCR PP-OCRv5，完全离线）
 /// v5：返回版面数据（每行文本 + 置信度 + 坐标框），不再丢坐标。
 fn local_recognize(
     ctx: &CoreContext,

@@ -6,7 +6,7 @@
 
 - **凭证管理**：编号自动生成（命名规则可配置）、状态流转（草稿/已复核/已导出/已归档）、快照历史、标签
 - **图片导入**：拖放/文件选择导入，MD5 自动去重，支持 BMP/JPEG/PNG/WebP
-- **OCR 识别**：本地引擎（PP-OCRv4 det + cls + rec，完全离线，数据不出本机，字符准确率 99.9%）与云端引擎（HTTP API）可切换；识别结果缓存、批量补识别
+- **OCR 识别**：本地引擎（PP-OCRv5 det + cls + rec，完全离线，数据不出本机；准确度基线见 `crates/voucher-core/tests/ocr_eval.rs` 评测）与云端引擎（HTTP API）可切换；识别结果缓存、批量补识别
 - **智能记账**：OCR 识别结果结构化抽取（日期/金额/对方账户/商户），凭证表单一键填入
 - **批量操作**：批量状态流转、批量编辑（日期/备注/标签）、批量导出 PDF
 - **收件箱驱动**（v0.18 起的主骨架）：首页是**待办流水线**——待识别 → 待核对 → 待打印 → 疑似重复，每项可就地推进；完成的项自动隐藏（不给已完成的事留版面），全部清零时给明确状态
@@ -33,7 +33,7 @@
 |---|---|
 | 业务核心 | Rust（`crates/voucher-core`，不依赖 Tauri，可独立测试） |
 | 桌面壳 | Tauri 2（单实例、对话框、日志、opener 插件） |
-| 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv4 模型 |
+| 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv5 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
 | UI | macOS 原生观感：**Liquid Glass 窗口材质**（macOS 26+ 的 `NSGlassEffectView`，失败回退 VisualEffect）、系统字体与语义色、统一工具栏 + 自绘窗口拖拽、可折叠侧栏、**界面字号三档可调（默认偏大）**；**自 v0.17.0 起仅支持 macOS**。设计正本见 [`docs/UI-设计规范-macOS27.md`](docs/UI-设计规范-macOS27.md) |
@@ -60,7 +60,7 @@ npm run tauri dev  # 启动开发模式（自动编译 Rust + 前端热更新）
 ```bash
 npm run typecheck          # 前端类型检查
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：147 单元 + 129 集成，共 276 用例；加 src-tauri 3 用例共 279；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：148 单元 + 129 集成，共 277 用例；加 src-tauri 3 用例共 280；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
@@ -83,7 +83,7 @@ macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对�
 ├── crates/voucher-core/   # 业务核心（models / db / services / utils）
 ├── src-tauri/             # Tauri 壳（commands / platform）
 ├── src/                   # Vue 3 前端（pages / components / stores）
-├── assets/ocr-models/     # 本地 OCR 模型（PP-OCRv4）
+├── assets/ocr-models/     # 本地 OCR 模型（PP-OCRv5）
 ├── spikes/ocr-poc/        # G1 Spike B 验证工程（24 张合成凭证，报告见 report.json）
 └── docs/开发方案.md        # 开发方案（阶段计划 / 评审门 / 风险登记）
 ```

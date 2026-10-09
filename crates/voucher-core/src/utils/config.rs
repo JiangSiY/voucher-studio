@@ -94,7 +94,7 @@ impl Default for NamingConfig {
     }
 }
 
-/// OCR：本地（ort + PP-OCRv4，离线）优先；云端（HTTP API）备选
+/// OCR：本地（ort + PP-OCRv5，离线）优先；云端（HTTP API）备选
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OcrConfig {

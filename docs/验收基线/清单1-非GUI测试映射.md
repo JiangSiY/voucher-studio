@@ -6,7 +6,7 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-09-24 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-09（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 置信度门控批 + 评测 harness + 对方抽取加固）**：`voucher-core` 测试 **276 个**（src 内联 **147** + tests/ 集成 **129**，含
+> 截至 **2026-10-09（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 置信度门控批 + 评测 harness + 对方抽取加固）**：`voucher-core` 测试 **277 个**（src 内联 **148** + tests/ 集成 **129**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 42** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
@@ -18,7 +18,8 @@
 > 同日新增评测 harness `tests/ocr_eval.rs`（1 例，`VOUCHER_OCR_EVAL=<基准集目录>` 门控，跑生产同款链路：增强→本地 OCR→抽取→门控填单，
 > 与 2026-09 基准 102 张逐字段比对），集成 128 → **129**；
 > 同日评测驱动加固新增 5 例（复合标签不截胡 / 名称类子标签剥离 / 界面噪音词拒收 / 微信「转给」模式 / 版面右邻噪音拒收——首轮评测 50 例对方实填错误全为「户名/账号/备注」类界面词），内联 142 → **147**；
-> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（274 通过 + 5 `#[ignore]` = 279）。
+> 2026-10-09 换 PP-OCRv5 模型批新增 1 例（`pinned_model_files_intact`：随包三模型逐字节 SHA256 锁定，防静默换模/损坏），内联 147 → **148**；
+> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（275 通过 + 5 `#[ignore]` = 280）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），

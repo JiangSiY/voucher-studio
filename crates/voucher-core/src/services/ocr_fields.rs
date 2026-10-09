@@ -465,8 +465,9 @@ pub(crate) fn strip_sub_label(rest: &str) -> Option<&str> {
 }
 
 /// 界面文字黑名单：截图/短信里的 UI 标签词被当「值」抽出时一律丢弃
-/// （2026-10-09 评测两轮：微信/银行截图实填错误全为这类词；第二轮补 服务/开户行）
-const VALUE_NOISE: [&str; 22] = [
+/// （2026-10-09 评测两轮：微信/银行截图实填错误全为这类词；第二轮补 服务/开户行；
+/// 换 PP-OCRv5 后补**繁体变体**——v5 词表含繁体字，会把「備註」等认出来）
+const VALUE_NOISE: [&str; 30] = [
     "户名",
     "账号",
     "卡号",
@@ -489,6 +490,14 @@ const VALUE_NOISE: [&str; 22] = [
     "服务",
     "开户行",
     "开户银行",
+    "備註",
+    "備注",
+    "戶名",
+    "帳號",
+    "卡號",
+    "全稱",
+    "簡稱",
+    "開戶行",
 ];
 
 /// 值是否是界面噪音词或残片：
@@ -1174,6 +1183,10 @@ mod tests {
         assert!(is_value_noise("的交易")); // 「商户的交易」被截出的残片
         assert!(is_value_noise("收款方开户行")); // 整串界面词被当名字（第三轮评测同型）
         assert!(is_value_noise("户名张")); // 以标签词开头同样拒
+                                           // 繁体变体（换 PP-OCRv5 后评测 #207 同型：v5 词表含繁体，「備註」被当名字）
+        assert!(is_value_noise("備註"));
+        assert!(is_value_noise("戶名"));
+        assert!(is_value_noise("帳號"));
         assert!(!is_value_noise("肯德基"));
         assert!(!is_value_noise("服务部"));
         assert!(!is_value_noise("招商银行"));

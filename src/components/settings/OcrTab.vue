@@ -83,20 +83,20 @@ onUnmounted(() => {
           <option value="local" :disabled="!localOcr?.installed">本地（离线 · 推荐）</option>
           <option value="cloud">云端（HTTP API）</option>
         </select>
-        <div class="desc">本地引擎完全离线运行，数据不出本机（PP-OCRv4，Spike B 实测字符准确率 99.9%）。</div>
+        <div class="desc">本地引擎完全离线运行，数据不出本机（PP-OCRv5）。</div>
       </div>
       <div v-if="localOcr?.installed" class="callout success" style="margin: 0 0 16px">
         <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
         <div class="ct">
           <strong>本地模型已安装</strong>
           <span v-if="localOcr.files.length">（{{ localOcr.files.length }} 个文件，约 {{ (localOcr.totalSize / 1048576).toFixed(1) }} MB）</span>
-          ：RapidOCR PP-OCRv4 检测 + 方向分类 + 识别，首次识别时加载约 0.2 秒。
+          ：RapidOCR PP-OCRv5 检测 + 方向分类 + 识别，首次识别时加载约 0.2 秒。
         </div>
       </div>
       <div v-else class="callout warning" style="margin: 0 0 16px">
         <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
-          <strong>本地模型未安装</strong>——将模型文件（ch_PP-OCRv4_det_infer.onnx 等 3 个）放入
+          <strong>本地模型未安装</strong>——将模型文件（ch_PP-OCRv5_mobile_det.onnx 等 3 个）放入
           <code>{{ localOcr?.modelsDir || "数据目录/models" }}</code> 后重启应用即可启用。
         </div>
       </div>

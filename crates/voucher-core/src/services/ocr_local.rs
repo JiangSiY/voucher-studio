@@ -1,10 +1,16 @@
-//! 本地 OCR 引擎（G1 Spike B 验证路线：ort + RapidOCR PP-OCRv4）
+//! 本地 OCR 引擎（ort + RapidOCR PP-OCRv5 mobile；2026-10-09 由 PP-OCRv4 升级）
 //!
-//! 与 rapidocr_onnxruntime 1.4.4 逐参数对齐（模型文件同源）：
+//! 与 rapidocr（v3.4.0 发布物）逐参数对齐（模型文件同源，SHA256 见下）：
 //! - Det  limit_side_len=736(min) / 均值方差 0.5 / thresh=0.3 / box_thresh=0.5 / unclip=1.6 / 2×2 膨胀
-//! - Cls  3×48×192 / softmax 后阈值 0.9 判 180° 翻转
-//! - Rec  3×48×动态宽（右侧补零到 320 或实际比例宽）/ CTC 解码 / 词表内嵌于 rec 模型元数据
+//! - Cls  3×48×192 / softmax 后阈值 0.9 判 180° 翻转（沿用 v2.0 模型，v5 官方管线同样沿用）
+//! - Rec  3×48×动态宽（右侧补零到 320 或实际比例宽）/ CTC 解码 / 词表内嵌于 rec 模型元数据（18383 字）
 //! - 汇总 rec 置信度 ≥ 0.5（text_score）保留；框按「先上下、同行先左右」排序
+//!
+//! v5 与 v4 的差异只在模型文件：输入输出约定、归一化、后处理参数全部一致
+//! （换模型=换文件，`voucher-ocr-eval` 评测确认无参数漂移）。
+//! 模型 SHA256（对齐 RapidAI/RapidOCR v3.4.0 default_models.yaml）：
+//! - det `4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae`
+//! - rec `5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5`
 //!
 //! DB 后处理用「连通域 + 轴对齐外接矩形 + 矩形 unclip 近似」替代
 //! cv2.findContours + pyclipper（对水平文本等效，RapidOCR 语义保留）。
@@ -18,8 +24,8 @@ use ort::value::Tensor;
 
 use crate::{CoreError, Result};
 
-pub const DET_MODEL: &str = "ch_PP-OCRv4_det_infer.onnx";
-pub const REC_MODEL: &str = "ch_PP-OCRv4_rec_infer.onnx";
+pub const DET_MODEL: &str = "ch_PP-OCRv5_mobile_det.onnx";
+pub const REC_MODEL: &str = "ch_PP-OCRv5_rec_mobile_infer.onnx";
 pub const CLS_MODEL: &str = "ch_ppocr_mobile_v2.0_cls_infer.onnx";
 pub const MODEL_FILES: [&str; 3] = [DET_MODEL, REC_MODEL, CLS_MODEL];
 
@@ -518,5 +524,40 @@ mod source_tests {
             );
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 2026-10-09（换 PP-OCRv5 时补）：随包模型必须**逐字节锁定**。
+    /// 模型被误替换/损坏时，原先的表现是识别质量静默变化（引擎照跑、测试照过），
+    /// 只有评测跑分才能看出——本用例把「发布的是哪个模型」变成断言。
+    /// SHA256 对齐 RapidAI/RapidOCR v3.4.0 default_models.yaml。
+    #[test]
+    fn pinned_model_files_intact() {
+        use sha2::{Digest, Sha256};
+        const PINNED: [(&str, &str); 3] = [
+            (
+                DET_MODEL,
+                "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+            ),
+            (
+                REC_MODEL,
+                "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+            ),
+            (
+                CLS_MODEL,
+                "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+            ),
+        ];
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
+        if !dir.is_dir() {
+            eprintln!("跳过：assets/ocr-models 不存在（精简环境）");
+            return;
+        }
+        for (name, want) in PINNED {
+            let path = dir.join(name);
+            assert!(path.is_file(), "模型缺失：{}", path.display());
+            let bytes = std::fs::read(&path).expect("读模型文件");
+            let got = format!("{:x}", Sha256::digest(&bytes));
+            assert_eq!(got, want, "模型 {name} 与锁定版本不一致（被替换或损坏？）");
+        }
     }
 }
