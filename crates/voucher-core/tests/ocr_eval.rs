@@ -342,7 +342,7 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
     println!("  （对方近似命中 {filled_cp_near} 例）");
     println!("凭证类型分布（按张数降序；金额命中=抽取层与基准一致）：");
     let mut kinds: Vec<_> = kind_stats.iter().collect();
-    kinds.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    kinds.sort_by_key(|(_, (n, ..))| std::cmp::Reverse(*n));
     for (k, (n, amt_ok, amt_bad, date_ok, cp_ok)) in kinds {
         println!(
             "  {k:<8} {n} 张｜金额 {amt_ok}/{}（错 {amt_bad}）｜日期命中 {date_ok}｜对方命中 {cp_ok}",
