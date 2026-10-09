@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use common::*;
 use serde::Deserialize;
 use voucher_core::services::ocr_fields::Confidence;
+use voucher_core::services::ocr_layout::DocKind;
 use voucher_core::services::{ingestion, ocr_fields, ocr_layout, voucher_mgr};
 use voucher_core::Result;
 
@@ -137,6 +138,10 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
     let mut wrong_date_cases: Vec<String> = Vec::new();
     let mut wrong_cp_cases: Vec<String> = Vec::new();
     let mut low_amount_samples: Vec<String> = Vec::new();
+    // 凭证类型 → (张数, 金额命中, 金额错, 日期命中, 对方命中)——④版式模板的决策依据
+    let mut kind_stats: BTreeMap<&'static str, (usize, usize, usize, usize, usize)> =
+        BTreeMap::new();
+    let mut unknown_samples: Vec<String> = Vec::new();
     // 抽取层金额置信档 →（对, 错）——看「拦下的都是什么档」，为提档找方向
     let mut amount_conf_dist: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     // 导入默认 = 今天（未填则保持）——落库层凭此区分「没填」与「填错」
@@ -288,6 +293,32 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
             }
         }
 
+        // 类型统计（④版式模板决策依据）：金额/日期/对方 命中共用抽取层口径
+        let kind = ocr_layout::classify_text(text);
+        let slot = kind_stats.entry(kind.label()).or_default();
+        slot.0 += 1;
+        if let (Some(got), Some(want)) = (fields.amount_cents, e.expected.amount_cents) {
+            if got == want {
+                slot.1 += 1;
+            } else {
+                slot.2 += 1;
+            }
+        }
+        if let (Some(got), Some(want)) = (fields.date.as_deref(), exp_date.as_deref()) {
+            if got == want {
+                slot.3 += 1;
+            }
+        }
+        if let (Some(got), Some(want)) = (fields.counterparty.as_deref(), exp_cp.as_deref()) {
+            if got == want {
+                slot.4 += 1;
+            }
+        }
+        if matches!(kind, DocKind::Unknown) && unknown_samples.len() < 8 {
+            let snippet: String = text.chars().take(50).collect();
+            unknown_samples.push(format!("#{}｜{}", e.id, snippet.replace('\n', " ／ ")));
+        }
+
         done += 1;
         if (n + 1) % 10 == 0 {
             println!("  … 已评测 {}", n + 1);
@@ -309,6 +340,21 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
     println!("{}", filled_date.line("日期"));
     println!("{}", filled_cp.line("对方"));
     println!("  （对方近似命中 {filled_cp_near} 例）");
+    println!("凭证类型分布（按张数降序；金额命中=抽取层与基准一致）：");
+    let mut kinds: Vec<_> = kind_stats.iter().collect();
+    kinds.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    for (k, (n, amt_ok, amt_bad, date_ok, cp_ok)) in kinds {
+        println!(
+            "  {k:<8} {n} 张｜金额 {amt_ok}/{}（错 {amt_bad}）｜日期命中 {date_ok}｜对方命中 {cp_ok}",
+            amt_ok + amt_bad
+        );
+    }
+    if !unknown_samples.is_empty() {
+        println!("未识别类型样本（看分类规则要不要补关键词）：");
+        for c in &unknown_samples {
+            println!("  {c}");
+        }
+    }
     if wrong_amount_cases.is_empty() {
         println!("金额落库错误：0 例 ✅（宁空勿错成立）");
     } else {

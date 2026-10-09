@@ -14,9 +14,9 @@ use crate::models::OcrLine;
 
 use super::ocr_fields::{self, Confidence, FieldConfidence};
 
-/// 文档类型（关键词 + 版面特征分类，供抽取策略选择）
+/// 文档类型（关键词 + 版面特征分类，供抽取策略选择 / 评测报表统计）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DocKind {
+pub enum DocKind {
     /// 增值税发票：价税合计 / 购买方 / 销售方 / 发票代码
     VatInvoice,
     /// 定额/卷式发票：发票代码 + 无合计标签（金额即票面大字）
@@ -31,13 +31,23 @@ enum DocKind {
     Unknown,
 }
 
-fn classify(lines: &[OcrLine]) -> DocKind {
-    let all: String = lines
-        .iter()
-        .map(|l| l.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let has = |k: &str| all.contains(k);
+impl DocKind {
+    /// 报表用中文名（评测报表按类型统计用）
+    pub fn label(self) -> &'static str {
+        match self {
+            DocKind::VatInvoice => "增值税发票",
+            DocKind::QuotaInvoice => "定额/卷式发票",
+            DocKind::Receipt => "收银小票",
+            DocKind::Taxi => "出租车票",
+            DocKind::Transfer => "转账/支付截图",
+            DocKind::Unknown => "未识别",
+        }
+    }
+}
+
+/// 按识别文本判文档类型（纯文本关键词规则；版面路径与评测报表共用同一实现）
+pub fn classify_text(text: &str) -> DocKind {
+    let has = |k: &str| text.contains(k);
     if has("价税合计") || (has("购买方") && has("销售方")) || (has("发票代码") && has("税率"))
     {
         DocKind::VatInvoice
@@ -52,6 +62,15 @@ fn classify(lines: &[OcrLine]) -> DocKind {
     } else {
         DocKind::Unknown
     }
+}
+
+fn classify(lines: &[OcrLine]) -> DocKind {
+    let all: String = lines
+        .iter()
+        .map(|l| l.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    classify_text(&all)
 }
 
 /// 有版面数据的字段抽取（入口）。置信度随字段返回；
