@@ -342,7 +342,7 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
         }
     }
     if !low_amount_samples.is_empty() {
-        println!("被拦下的「唯一兜底」低档金额样本（其实全对）：");
+        println!("低档「唯一兜底」金额样本（2026-10-09 用户拍板后已放开自动填）：");
         for c in &low_amount_samples {
             println!("  {c}");
         }

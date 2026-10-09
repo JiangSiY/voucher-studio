@@ -322,18 +322,18 @@ function applyExtractedField(field: "date" | "amount" | "counterparty" | "mercha
   else if (field === "merchant" && f.merchant) form.value.description = f.merchant;
 }
 
-/** 全部填入：金额仅"标签命中"自动填；低置信字段留待用户单点（与旧编辑页同策略） */
+/** 全部填入：与后端自动填单同政策（金额放开——「唯一兜底」档经评测≈98% 正确，
+ *  2026-10-09 用户拍板；日期/对方/商家 Low 档留待单点）。 */
 function applyAllExtracted() {
   const f = extracted.value;
   if (!f) return;
   const low = (c: "high" | "medium" | "low" | null) => c === "low";
-  if (f.date) form.value.date = f.date;
-  const amountTrusted = f.amountCents != null && f.amountSource === "labeled" && !low(f.confidence?.amount);
-  if (amountTrusted) form.value.amount = (f.amountCents! / 100).toFixed(2);
+  if (f.date && !low(f.confidence?.date)) form.value.date = f.date;
+  if (f.amountCents != null) form.value.amount = (f.amountCents / 100).toFixed(2);
   if (f.counterparty && !low(f.confidence?.counterparty)) form.value.counterparty = f.counterparty;
   if (f.merchant && !low(f.confidence?.merchant)) form.value.description = f.merchant;
   const skipped: string[] = [];
-  if (f.amountCents != null && !amountTrusted) skipped.push("金额");
+  if (f.date && low(f.confidence?.date)) skipped.push("日期");
   if (f.counterparty && low(f.confidence?.counterparty)) skipped.push("对方账户");
   if (f.merchant && low(f.confidence?.merchant)) skipped.push("商家");
   toast.info(`已填入表单，核对后点「保存」生效${skipped.length ? `（${skipped.join("、")}为低置信未自动填，可单独点「填」）` : ""}`);

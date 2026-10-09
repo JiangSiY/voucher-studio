@@ -5,8 +5,9 @@
 //!
 //! v0.20 自动填写门控（宁空勿错落地，`should_autofill`）：
 //! - **只自动填 日期 / 金额 / 对方账户 三个字段**，摘要永远人工填写
-//! - 金额最严：只填 High（大写互验 / 多数互验升级后才算）；中低置信进识别结果卡等人工点
-//! - 日期 / 对方：Medium 及以上填，Low 不填
+//! - 金额：只要抽出就填——低档「唯一兜底」经 2026-09 基准实测 ≈98% 正确（多为转账截图），
+//!   用户 2026-10-09 拍板放开
+//! - 日期 / 对方：Medium 及以上填，Low 不填（留识别结果卡人工确认）
 
 use std::path::Path;
 
@@ -671,17 +672,28 @@ pub fn apply_for_attachment(
     Ok(())
 }
 
-/// 自动填写门控（v0.20「宁空勿错」落地）。
+/// 门控字段（金额与 日期/对方 的政策不同，见 `should_autofill`）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FillField {
+    Amount,
+    Date,
+    Counterparty,
+}
+
+/// 自动填写门控（「宁空勿错」的落地政策；2026-10-09 用户拍板后的版本）。
 ///
-/// - `strict`（金额）：只填 High——大写互验 / 标签行多数互验升级后才自动填，
-///   中低置信一律不填（识别结果卡里人工点「填入」仍可补）；
-/// - 非 strict（日期 / 对方）：Medium 及以上填，Low 不填；
-/// - `None`（纯文本路径未抽出以外的缺失态）不填。
-pub(crate) fn should_autofill(conf: Option<Confidence>, strict: bool) -> bool {
-    match conf {
-        Some(Confidence::High) => true,
-        Some(Confidence::Medium) => !strict,
-        Some(Confidence::Low) | None => false,
+/// - **金额：只要抽出就填**。低档「唯一兜底」（无标签、全文唯一金额）在 2026-09 基准
+///   102 张上实测 57 例 56 对（≈98%；唯一错例为 0.00 元退化样本），且这批票多为
+///   微信/转账截图——唯一金额即票面金额。用户明确选择放开；识别结果卡仍按置信度
+///   徽标展示供复核；
+/// - **日期 / 对方：Medium 及以上填**，Low（启发式兜底）不填——留给识别结果卡人工确认；
+/// - `None`（字段未抽出）不填。
+pub(crate) fn should_autofill(field: FillField, conf: Option<Confidence>) -> bool {
+    match field {
+        FillField::Amount => conf.is_some(),
+        FillField::Date | FillField::Counterparty => {
+            matches!(conf, Some(Confidence::High) | Some(Confidence::Medium))
+        }
     }
 }
 
@@ -707,18 +719,20 @@ fn apply_fields(
             FillMode::Import => {
                 // 新导入：OCR 先于用户编辑，但只填过门控的三字段
                 if let Some(d) = &fields.date {
-                    if *d != current.voucher_date && should_autofill(fields.confidence.date, false)
+                    if *d != current.voucher_date
+                        && should_autofill(FillField::Date, fields.confidence.date)
                     {
                         update.voucher_date = Some(d.clone());
                         date_refilled = true;
                     }
                 }
-                if fields.amount_cents.is_some() && should_autofill(fields.confidence.amount, true)
+                if fields.amount_cents.is_some()
+                    && should_autofill(FillField::Amount, fields.confidence.amount)
                 {
                     update.amount_cents = fields.amount_cents;
                 }
                 if let Some(c) = &fields.counterparty {
-                    if should_autofill(fields.confidence.counterparty, false) {
+                    if should_autofill(FillField::Counterparty, fields.confidence.counterparty) {
                         update.counterparty = Some(c.clone());
                     }
                 }
@@ -727,20 +741,21 @@ fn apply_fields(
                 // 事后识别：只填空字段，绝不覆盖已录入内容；同样过门控
                 if current.voucher_date.is_empty()
                     && fields.date.is_some()
-                    && should_autofill(fields.confidence.date, false)
+                    && should_autofill(FillField::Date, fields.confidence.date)
                 {
                     update.voucher_date = fields.date.clone();
                     date_refilled = true;
                 }
                 if current.amount_cents.is_none()
                     && fields.amount_cents.is_some()
-                    && should_autofill(fields.confidence.amount, true)
+                    && should_autofill(FillField::Amount, fields.confidence.amount)
                 {
                     update.amount_cents = fields.amount_cents;
                 }
                 if current.counterparty.is_empty() {
                     if let Some(c) = &fields.counterparty {
-                        if should_autofill(fields.confidence.counterparty, false) {
+                        if should_autofill(FillField::Counterparty, fields.confidence.counterparty)
+                        {
                             update.counterparty = Some(c.clone());
                         }
                     }
@@ -1109,16 +1124,19 @@ mod tests {
 
     #[test]
     fn autofill_gate_matrix() {
-        // 金额（strict）：只有 High 自动填——中低置信进识别结果卡人工确认
-        assert!(should_autofill(Some(Confidence::High), true));
-        assert!(!should_autofill(Some(Confidence::Medium), true));
-        assert!(!should_autofill(Some(Confidence::Low), true));
-        assert!(!should_autofill(None, true));
-        // 日期/对方（非 strict）：Medium 及以上填，Low 不填
-        assert!(should_autofill(Some(Confidence::High), false));
-        assert!(should_autofill(Some(Confidence::Medium), false));
-        assert!(!should_autofill(Some(Confidence::Low), false));
-        assert!(!should_autofill(None, false));
+        use FillField::*;
+        // 金额（2026-10-09 用户拍板放开「唯一兜底」档）：抽出即填
+        assert!(should_autofill(Amount, Some(Confidence::High)));
+        assert!(should_autofill(Amount, Some(Confidence::Medium)));
+        assert!(should_autofill(Amount, Some(Confidence::Low)));
+        assert!(!should_autofill(Amount, None));
+        // 日期 / 对方：Medium 及以上填，Low 不填
+        for f in [Date, Counterparty] {
+            assert!(should_autofill(f, Some(Confidence::High)));
+            assert!(should_autofill(f, Some(Confidence::Medium)));
+            assert!(!should_autofill(f, Some(Confidence::Low)));
+            assert!(!should_autofill(f, None));
+        }
     }
 
     #[test]
