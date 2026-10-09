@@ -6,7 +6,7 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-09-24 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-09-27（v0.18 洞察批 + 审计剩余项批次 2–7）**：`voucher-core` 测试 **262 个**（src 内联 **134** + tests/ 集成 **128**，含
+> 截至 **2026-10-08（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 置信度门控批）**：`voucher-core` 测试 **270 个**（src 内联 **142** + tests/ 集成 **128**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / spike_a_print 5 / **voucher_flow 42** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
@@ -14,7 +14,8 @@
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
-> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（260 通过 + 5 `#[ignore]` = 265）。
+> 2026-10-08 OCR 置信度门控批新增 8 例（纯文本路径置信度标档 / 填单门控矩阵 / 大写金额解析 / 大写互验扩展至纯文本路径），内联 134 → **142**；
+> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（268 通过 + 5 `#[ignore]` = 273）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），

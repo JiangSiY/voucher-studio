@@ -5,10 +5,10 @@
 //! 解决纯字符串 find 的「内容与字段不符」问题（左右分栏、错行文本被
 //! 当成标签值等）。无版面（云端引擎 / 旧数据）回退 ocr_fields。
 //!
-//! 置信度分级（前端展示 + 低置信不自动填）：
-//! - High  ：几何 KV 配对 / 标签命中 + 版面佐证
+//! 置信度分级（v0.20 起自动填单按此门控，`ocr_fields::should_autofill`）：
+//! - High  ：几何 KV 配对 / 标签命中 + 版面佐证 / 大小写金额互验一致
 //! - Medium：纯文本标签命中（无几何佐证）
-//! - Low   ：启发式兜底（首行店名、全文唯一金额）
+//! - Low   ：启发式兜底（首行店名、全文唯一金额）——不自动填，仅识别结果卡人工确认
 
 use crate::models::OcrLine;
 
@@ -329,73 +329,15 @@ fn all_dates(lines: &[OcrLine]) -> Vec<String> {
     out
 }
 
-/// 大写金额识别与转换（壹贰叁…元 / 角 / 分），OCR 错认时返回 None
+/// 大写金额识别与转换：逐行解析（实现收在 ocr_fields::parse_uppercase_amount，
+/// 与纯文本互验共用，保证两条路径口径一致）。OCR 错认时返回 None。
 fn uppercase_amount_in(lines: &[OcrLine]) -> Option<i64> {
-    const DIGITS: [(&str, u32); 10] = [
-        ("零", 0),
-        ("壹", 1),
-        ("贰", 2),
-        ("叁", 3),
-        ("肆", 4),
-        ("伍", 5),
-        ("陆", 6),
-        ("柒", 7),
-        ("捌", 8),
-        ("玖", 9),
-    ];
-    const UNITS: [(&str, u64); 4] = [("拾", 10), ("佰", 100), ("仟", 1000), ("万", 10_000)];
-
-    for l in lines {
-        let t = l.text.trim();
-        // 候选：含「元整」或「元」结尾且以大写数字开头
-        let has_upper = DIGITS.iter().any(|(d, _)| t.contains(d));
-        if !has_upper || !t.contains('元') {
-            continue;
-        }
-        // 截取大写金额段（到「元」/「整」/「正」为止）
-        let end = t.find('元').map(|i| i + 1).unwrap_or(t.len());
-        let seg: String = t.chars().take(end).collect();
-        // 解析：整数部分到「元」，角分在小数位
-        let chars: Vec<char> = seg.chars().collect();
-        let mut total: u64 = 0;
-        let mut current: u64 = 0;
-        let mut ok = true;
-        for c in &chars {
-            if let Some((_, v)) = DIGITS.iter().find(|(d, _)| d.starts_with(*c)) {
-                current = *v as u64;
-            } else if let Some((_, u)) = UNITS.iter().find(|(d, _)| d.starts_with(*c)) {
-                // 万位：清零累计
-                if *u == 10_000 {
-                    total = (total + current) * 10_000;
-                } else {
-                    total += current.max(1) * u;
-                }
-                current = 0;
-            } else if *c == '元' {
-                total += current;
-                break;
-            } else {
-                ok = false;
-                break;
-            }
-        }
-        if !ok || total == 0 {
-            continue;
-        }
-        let mut cents = (total as i64) * 100;
-        // 角分：「元」后的「X角Y分」
-        let rest: String = chars.iter().skip(end).collect::<String>();
-        for (label, mult) in [("角", 10i64), ("分", 1)] {
-            if let Some(pos) = rest.find(label) {
-                let before: String = rest.chars().take(pos).collect();
-                if let Some((_, v)) = DIGITS.iter().find(|(d, _)| before.contains(d)) {
-                    cents += *v as i64 * mult;
-                }
-            }
-        }
-        return Some(cents);
-    }
-    None
+    let text: String = lines
+        .iter()
+        .map(|l| l.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    ocr_fields::parse_uppercase_amount(&text)
 }
 
 /// 清洗为名称候选：去标点/空白前缀、截掉金额尾巴

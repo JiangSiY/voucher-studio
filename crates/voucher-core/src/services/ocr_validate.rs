@@ -2,18 +2,19 @@
 //!
 //! 在抽取（extract / extract_with_layout）之后对 `ExtractedFields` 做后验：
 //! - **日期**：年份窗口（当前年 ±3）——超窗降置信度（票据上的打印年份/有效期干扰）
-//! - **金额**：小写金额多处互验——标签行出现 ≥2 个不同金额时，选定值须与多数一致，
-//!   否则降级；一致则提置信
+//! - **金额**：大写金额互验（v0.20 扩展到纯文本路径）——一致升 High，不一致丢弃小写；
+//!   小写多处互验——标签行出现 ≥2 个不同金额时，选定值须与多数一致，否则降级
 //! - **对方账户**：银行账号模式（16–19 位数字）命中 → 置信度上调；
 //!   纯符号/单字符 → 降级为噪声
 //!
 //! 输出统一改写 `fields.confidence`；不轻易清空字段（宁可低置信提示用户复核）。
 
-use crate::services::ocr_fields::{Confidence, ExtractedFields};
+use crate::services::ocr_fields::{parse_uppercase_amount, Confidence, ExtractedFields};
 
-/// 应用全部校验（extract_with_layout 末尾调用）。`now_year` 便于测试注入。
+/// 应用全部校验（extract / extract_with_layout 末尾调用）。`now_year` 便于测试注入。
 pub fn apply(text: &str, fields: &mut ExtractedFields, now_year: i32) {
     validate_date(fields, now_year);
+    validate_amount_uppercase(text, fields);
     validate_amount(text, fields);
     validate_counterparty(fields);
 }
@@ -36,6 +37,26 @@ fn validate_date(fields: &mut ExtractedFields, now_year: i32) {
             // 两次降到底仍超窗：宁可丢弃也不填错（日期错档号全错）
             fields.date = None;
         }
+    }
+}
+
+/// 大写金额互验（v0.20 扩展到纯文本路径，与版面路径同口径）：
+/// 文中有可解析的大写金额时——与小写一致 → High（双重来源互证）；
+/// 不一致 → 丢弃小写（其一必被 OCR 读错，宁空勿错）。
+/// 无大写金额时不动（中低档置信由门控拦住）。
+fn validate_amount_uppercase(text: &str, fields: &mut ExtractedFields) {
+    let Some(chosen) = fields.amount_cents else {
+        return;
+    };
+    let Some(cap_cents) = parse_uppercase_amount(text) else {
+        return;
+    };
+    if cap_cents == chosen {
+        fields.confidence.amount = Some(Confidence::High);
+    } else {
+        fields.amount_cents = None;
+        fields.amount_source = None;
+        fields.confidence.amount = None;
     }
 }
 
@@ -247,5 +268,51 @@ mod tests {
         assert_eq!(moneys_in("合计 1,234.56"), vec![123456]);
         assert_eq!(moneys_in("实付：¥99"), vec![9900]);
         assert_eq!(moneys_in("账号 6222020200112233"), Vec::<i64>::new());
+    }
+
+    // ---------- v0.20：大写金额互验（纯文本路径） ----------
+
+    #[test]
+    fn uppercase_match_upgrades_to_high() {
+        let mut f = fields(None, Some(11300), None);
+        f.confidence.amount = Some(Confidence::Medium);
+        validate_amount_uppercase("价税合计（大写）：壹佰壹拾叁元整", &mut f);
+        assert_eq!(f.amount_cents, Some(11300));
+        assert_eq!(f.confidence.amount, Some(Confidence::High));
+    }
+
+    #[test]
+    fn uppercase_mismatch_drops_amount() {
+        // 其一必被 OCR 读错：宁可丢弃也不填错金额
+        let mut f = fields(None, Some(11300), None);
+        f.amount_source = Some(crate::services::ocr_fields::AmountSource::Labeled);
+        f.confidence.amount = Some(Confidence::Medium);
+        validate_amount_uppercase("（大写）壹佰元整", &mut f);
+        assert_eq!(f.amount_cents, None);
+        assert_eq!(f.amount_source, None);
+        assert_eq!(f.confidence.amount, None);
+    }
+
+    #[test]
+    fn uppercase_absent_leaves_untouched() {
+        let mut f = fields(None, Some(5000), None);
+        f.confidence.amount = Some(Confidence::Medium);
+        validate_amount_uppercase("合计 50.00", &mut f);
+        assert_eq!(f.amount_cents, Some(5000));
+        assert_eq!(f.confidence.amount, Some(Confidence::Medium));
+    }
+
+    #[test]
+    fn uppercase_high_then_majority_disagree_downgrades() {
+        // 大写一致 → High；但标签行多数指向另一个金额 → 降级 Medium
+        // （两组证据冲突，门控拦住不自动填）
+        let mut f = fields(None, Some(11300), None);
+        f.confidence.amount = Some(Confidence::Medium);
+        let text = "（大写）壹佰壹拾叁元整\n价税合计 113.00\n小计 12.00\n合计 12.00";
+        validate_amount_uppercase(text, &mut f);
+        assert_eq!(f.confidence.amount, Some(Confidence::High));
+        validate_amount(text, &mut f);
+        assert_eq!(f.confidence.amount, Some(Confidence::Medium));
+        assert_eq!(f.amount_cents, Some(11300), "值保留，仅降置信");
     }
 }
