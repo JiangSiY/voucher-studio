@@ -14,7 +14,9 @@
 #
 # 前置：本机已按 README「环境要求」装好 OpenCV 4.10（OPENCV_LIB 可覆盖其 lib 目录）。
 # 用法：bash package-macos.sh [path/to/Xxx.app] [输出目录]
-#       不带参数时自动取 target/release/bundle/macos/*.app，输出到 dist/macos/。
+#       不带参数时自动取 target/release/bundle/macos/*.app，输出到 target/release-artifacts/。
+#       **输出目录不得在 dist/ 下**（那是前端构建目录，任何一次 npm run build 都会清空它，
+#       发布件会被静默冲掉——2026-10-09 v0.20.0 发布时实际发生，见开发日志与挂账 #31）。
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +25,15 @@ LIBS=(core imgproc imgcodecs calib3d features2d flann)
 ABI=410
 
 APP="${1:-}"
-OUT_DIR="${2:-$REPO_ROOT/dist/macos}"
+OUT_DIR="${2:-$REPO_ROOT/target/release-artifacts}"
+
+# 自检：拒绝输出到前端构建目录（历史事故防回归）
+case "$OUT_DIR" in
+  "$REPO_ROOT/dist"|"$REPO_ROOT/dist/"*)
+    echo "拒绝：输出目录 $OUT_DIR 位于前端构建目录 dist/ 下（会被 npm run build 清空）。请换目录。" >&2
+    exit 1
+    ;;
+esac
 
 if [ -z "$APP" ]; then
   APP="$(ls -d "$REPO_ROOT"/target/release/bundle/macos/*.app 2>/dev/null | head -1 || true)"

@@ -70,7 +70,7 @@ cargo fmt --all            # 格式化
 
 ```bash
 npm run tauri build    # 产出 .app / .dmg（bundle.targets 已钉为 app+dmg）
-bash package-macos.sh  # macOS 必需收尾：OpenCV dylib 收进包内 + 重签，产出 dist/macos/*.dmg
+bash package-macos.sh  # macOS 必需收尾：OpenCV dylib 收进包内 + 重签，产出 target/release-artifacts/*.dmg
 ```
 
 macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对路径**引用，`tauri build` 直出的 `.app` 只能在装有同一路径 OpenCV 的机器上启动（拷给别人即 dyld `Library not loaded`）。脚本把 6 个 dylib 收进 `Contents/Frameworks`、引用改为 `@rpath`、补 rpath 并 ad-hoc 重签名。无 Developer ID 证书时签名只能是 ad-hoc、**无法公证**，分发对象首次打开需右键→打开（或 `xattr -dr com.apple.quarantine`）。
