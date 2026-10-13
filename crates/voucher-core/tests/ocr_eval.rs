@@ -180,13 +180,35 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
         // —— 抽取层诊断：对落库的识别文本重跑抽取（与填单时刻同口径）——
         let att = &detail.attachments[0];
         let text = att.ocr_text.as_deref().unwrap_or("");
-        let fields = match ctx
+        let layout = ctx
             .db
-            .with_conn(|conn| voucher_core::db::repos::ocr_layout_repo::get_layout(conn, att.id))?
-        {
-            Some(lines) if !lines.is_empty() => ocr_layout::extract_with_layout(&lines),
+            .with_conn(|conn| voucher_core::db::repos::ocr_layout_repo::get_layout(conn, att.id))?;
+        let fields = match &layout {
+            Some(lines) if !lines.is_empty() => ocr_layout::extract_with_layout(lines),
             _ => ocr_fields::extract_validated(text),
         };
+
+        // VOUCHER_OCR_TEXT_DUMP=1：逐张打印识别文本（含版面坐标）与抽取结果（排查个案用）
+        if std::env::var("VOUCHER_OCR_TEXT_DUMP").is_ok() {
+            println!(
+                "--- #{} 识别文本 ---\n{}\n--- #{} 抽取结果 ---\n{}\n",
+                e.id,
+                text,
+                e.id,
+                serde_json::to_string_pretty(&fields).unwrap_or_default()
+            );
+            if let Some(lines) = &layout {
+                println!("--- #{} 版面坐标 ---", e.id);
+                for l in lines {
+                    let b = l.box_xyxy;
+                    println!(
+                        "[{:.0},{:.0},{:.0},{:.0}] {}",
+                        b[0], b[1], b[2], b[3], l.text
+                    );
+                }
+                println!();
+            }
+        }
 
         let exp_amt = e.expected.amount_cents.map(|c| c.to_string());
         let exp_date =

@@ -108,37 +108,60 @@ pub fn extract_with_layout(lines: &[OcrLine]) -> ocr_fields::ExtractedFields {
         }
     }
 
-    // ---- 金额：底座标签逻辑正确率高，保留；大写金额互验提置信 ----
+    // ---- 金额：几何配对（两栏布局——标签与值分成两个框各自成行，
+    //      如支付成功页「支付金额 / 2,088.00」；2026-10-09 用户实报场景）
+    //      > 底座文本逻辑（标签同行 / 唯一兜底）；最后大写互验提置信 ----
+    if let Some((v, geometric)) = pair_label_value(lines, &ocr_fields::AMOUNT_LABELS, &|v| {
+        ocr_fields::first_money_in(v).is_some()
+    }) {
+        if let Some(cents) = ocr_fields::first_money_in(&v) {
+            base.amount_cents = Some(cents);
+            base.amount_source = Some(ocr_fields::AmountSource::Labeled);
+            conf.amount = Some(if geometric {
+                Confidence::High
+            } else {
+                Confidence::Medium
+            });
+        }
+    }
+    if conf.amount.is_none() && base.amount_cents.is_some() {
+        // 未配对：底座文本逻辑（extract 已算好），按来源分级（标签 Medium / 唯一兜底 Low）
+        conf.amount = base.amount_source.map(|s| match s {
+            ocr_fields::AmountSource::Labeled => Confidence::Medium,
+            ocr_fields::AmountSource::UniqueOnly => Confidence::Low,
+        });
+    }
     if base.amount_cents.is_some() {
         if let Some(cap_cents) = uppercase_amount_in(lines) {
-            // 大写与小写一致 → High（双重来源互证）；不一致 → 降级并放弃（可能读错）
+            // 大写与小写一致 → High（双重来源互证）；不一致 → 放弃金额（可能读错）
             if cap_cents == base.amount_cents.unwrap_or(0) {
                 conf.amount = Some(Confidence::High);
             } else {
                 base.amount_cents = None;
                 base.amount_source = None;
+                conf.amount = None;
             }
-        } else {
-            // 无大写：按来源分级（标签 Medium / 唯一兜底 Low）
-            conf.amount = base.amount_source.map(|s| match s {
-                ocr_fields::AmountSource::Labeled => Confidence::Medium,
-                ocr_fields::AmountSource::UniqueOnly => Confidence::Low,
-            });
         }
     }
 
     // ---- 对方账户：几何 KV 配对 > 纯文本标签（已有）> 商家回退 ----
-    match pair_label_value(lines, &COUNTERPARTY_LABELS, true) {
-        Some((v, geometric)) => {
-            let name = clean_name(&v, 30);
-            if name.chars().count() >= 2 {
-                base.counterparty = Some(name);
-                conf.counterparty = Some(if geometric {
-                    Confidence::High
-                } else {
-                    Confidence::Medium
-                });
-            }
+    // 配对值清洗后不合格（空/噪音词/过短）→ 视为未配对，继续走商家回退
+    // （邻居已改为返回原文，清洗在此完成）
+    let cp_pair = pair_label_value(lines, &COUNTERPARTY_LABELS, &|v| {
+        !v.is_empty() && contains_name_char(v)
+    })
+    .and_then(|(v, geometric)| {
+        let name = clean_name(&v, 30);
+        (name.chars().count() >= 2).then_some((name, geometric))
+    });
+    match cp_pair {
+        Some((name, geometric)) => {
+            base.counterparty = Some(name);
+            conf.counterparty = Some(if geometric {
+                Confidence::High
+            } else {
+                Confidence::Medium
+            });
         }
         None => {
             // 回退商家（发票销售方 / 小票店名）时置信度沿用商家策略
@@ -183,7 +206,7 @@ fn pair_date_value(lines: &[OcrLine]) -> Option<(String, bool)> {
         .filter(|l| !DATE_NEGATIVE_LABELS.iter().any(|n| l.text.contains(n)))
         .cloned()
         .collect();
-    pair_label_value(&filtered, &DATE_LABELS, false)
+    pair_label_value(&filtered, &DATE_LABELS, &|v| !v.is_empty())
 }
 
 /// 标签 → 值配对（版面核心）。三种命中形态，按可信度降序：
@@ -193,13 +216,14 @@ fn pair_date_value(lines: &[OcrLine]) -> Option<(String, bool)> {
 ///
 /// 返回 (值文本, 是否几何佐证[形态 1/3 为 true])。
 ///
-/// `need_alphabetic`：值是否须含字母/中文（名称类 true；日期类 false——纯数字日期也是有效值）。
+/// `valid`：候选值判定器——名称类要求含字母/中文（排除纯数字/符号），
+/// 日期类只要求非空，金额类要求值里**含金额数字**（「价税合计（大写）」后的
+/// 大写值会被自然跳过，继续找下一处）。
 fn pair_label_value(
     lines: &[OcrLine],
     labels: &[&str],
-    need_alphabetic: bool,
+    valid: &dyn Fn(&str) -> bool,
 ) -> Option<(String, bool)> {
-    let valid = |v: &str| !v.is_empty() && (!need_alphabetic || contains_name_char(v));
     for label in labels {
         for (i, line) in lines.iter().enumerate() {
             let Some(idx) = line.text.find(*label) else {
@@ -240,7 +264,9 @@ fn pair_label_value(
     None
 }
 
-/// 同一水平线上、x 在 line i 右侧最近的行文本
+/// 同一水平线上、x 在 line i 右侧最近的行**原文**。
+/// 取值不做清洗——判定与清洗交给调用方（名称类走 `clean_name`，金额类需要保留数字：
+/// 曾因在此处清洗把「2,088.00」剥成空串，两栏布局的金额永远配不上对，2026-10-09 修复）。
 fn right_neighbor(lines: &[OcrLine], i: usize) -> Option<(String, usize)> {
     let me = &lines[i];
     let my_h = me.height().max(1.0);
@@ -260,11 +286,11 @@ fn right_neighbor(lines: &[OcrLine], i: usize) -> Option<(String, usize)> {
             }
         }
     }
-    best.map(|(_, j)| (clean_name(&lines[j].text, 30), j))
+    best.map(|(_, j)| (lines[j].text.trim().to_string(), j))
         .filter(|(v, _)| !v.is_empty())
 }
 
-/// 下一行（y 紧邻、x0 对齐标签行 x0 ± 行高）的文本
+/// 下一行（y 紧邻、x0 对齐标签行 x0 ± 行高）的**原文**（清洗同样交给调用方）
 fn below_neighbor(lines: &[OcrLine], i: usize) -> Option<String> {
     let me = &lines[i];
     let my_h = me.height().max(1.0);
@@ -281,14 +307,16 @@ fn below_neighbor(lines: &[OcrLine], i: usize) -> Option<String> {
             best = Some((dy, j));
         }
     }
-    best.map(|(_, j)| clean_name(&lines[j].text, 30))
+    best.map(|(_, j)| lines[j].text.trim().to_string())
         .filter(|v| !v.is_empty())
 }
 
 /// 商家（含置信度）：KV 标签 High > 纯文本标签 Medium > 首行大字号 Low
 fn merchant_with_confidence(lines: &[OcrLine], text: &str) -> Option<(String, Confidence)> {
     // KV 配对：销售方等标签
-    if let Some((v, geometric)) = pair_label_value(lines, &MERCHANT_LABELS, true) {
+    if let Some((v, geometric)) = pair_label_value(lines, &MERCHANT_LABELS, &|v| {
+        !v.is_empty() && contains_name_char(v)
+    }) {
         let name = clean_name(&v, 30);
         if name.chars().count() >= 2 {
             return Some((
@@ -512,6 +540,53 @@ mod tests {
         let f = extract_with_layout(&noise);
         assert_eq!(f.date, None);
         assert_eq!(f.counterparty, None);
+    }
+
+    /// 2026-10-09 用户实报：两栏支付成功页——「支付金额」标签与「2,088.00」值分成两个框、
+    /// 各自成行。修复前金额漏抽（金额无几何配对 + 唯一兜底被同值重复击穿）；
+    /// 修复后金额 High（右邻配对）、对方 High、日期 Medium。
+    #[test]
+    fn two_column_payment_page() {
+        let lines = vec![
+            line("支付成功", 499.0, 812.0, 716.0, 877.0),
+            line("￥2,088.00", 409.0, 927.0, 812.0, 1028.0),
+            line("收款方", 42.0, 1232.0, 190.0, 1291.0),
+            line(
+                "中国太平洋财产保险股份有限公司",
+                485.0,
+                1234.0,
+                1170.0,
+                1289.0,
+            ),
+            line("支付号", 42.0, 1337.0, 191.0, 1396.0),
+            line("70260161981822", 801.0, 1341.0, 1172.0, 1390.0),
+            line("支付金额", 43.0, 1441.0, 237.0, 1499.0),
+            line("2,088.00", 984.0, 1443.0, 1174.0, 1501.0),
+            line("支付时间", 43.0, 1545.0, 235.0, 1603.0),
+            line("2026-10-09 11:21:30", 721.0, 1550.0, 1171.0, 1598.0),
+        ];
+        let f = extract_with_layout(&lines);
+        assert_eq!(f.amount_cents, Some(208800));
+        assert_eq!(f.confidence.amount, Some(Confidence::High));
+        assert_eq!(
+            f.counterparty.as_deref(),
+            Some("中国太平洋财产保险股份有限公司")
+        );
+        assert_eq!(f.date.as_deref(), Some("2026-10-09"));
+    }
+
+    /// 两栏日期的右邻取值（邻居改为返回原文后新增能力：纯数字日期不再被名称清洗剥空）
+    #[test]
+    fn two_column_date_right_neighbor() {
+        let lines = vec![
+            line("开票日期", 40.0, 100.0, 160.0, 130.0),
+            line("2026-08-20", 300.0, 100.0, 460.0, 130.0),
+            line("合计：113.00元", 40.0, 400.0, 300.0, 430.0),
+        ];
+        let f = extract_with_layout(&lines);
+        assert_eq!(f.date.as_deref(), Some("2026-08-20"));
+        assert_eq!(f.confidence.date, Some(Confidence::High));
+        assert_eq!(f.amount_cents, Some(11300));
     }
 
     /// v0.20 评测修复：右邻是界面标签词（户名/账号…）→ 不作为对方值

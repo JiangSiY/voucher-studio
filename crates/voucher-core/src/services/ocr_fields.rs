@@ -78,7 +78,8 @@ pub struct ExtractedFields {
 
 /// 金额标签优先级：靠前的优先命中。注意「价税合计」必须排在「合计」之前——
 /// `find("合计")` 会命中「价税合计」内部，若顺序颠倒则更具体的标签永远轮不到。
-const AMOUNT_LABELS: [&str; 7] = ["价税合计", "合计", "总计", "实付", "实收", "小计", "金额"];
+pub(crate) const AMOUNT_LABELS: [&str; 7] =
+    ["价税合计", "合计", "总计", "实付", "实收", "小计", "金额"];
 const COUNTERPARTY_LABELS: [&str; 4] = ["收款方", "对方账户", "商户", "收款人"];
 const MERCHANT_LABELS: [&str; 4] = ["销售方", "开票方", "销售单位", "商家名称"];
 
@@ -230,13 +231,17 @@ fn extract_amount(text: &str) -> (Option<i64>, Option<AmountSource>) {
             }
         }
     }
-    // 无标签兜底：全文金额恰好唯一才采用（多个则放弃，宁可空着不猜）
+    // 无标签兜底：全文金额只有一个「取值」才采用。同一取值出现多遍不算歧义
+    // （支付成功页 = 大字金额 + 明细行同一数字；2026-10-09 用户实报场景）；
+    // 出现多个不同取值则放弃，宁可空着不猜
     let mut all = Vec::new();
     for line in text.lines() {
         all.extend(moneys_in(line));
     }
-    if all.len() == 1 {
-        return (Some(all[0]), Some(AmountSource::UniqueOnly));
+    if let Some(first) = all.first() {
+        if all.iter().all(|v| v == first) {
+            return (Some(*first), Some(AmountSource::UniqueOnly));
+        }
     }
     (None, None)
 }
@@ -342,8 +347,8 @@ fn to_cents(int_digits: &str, frac_digits: &str) -> Option<i64> {
     Some(cents)
 }
 
-/// 行内第一个金额（分）
-fn first_money_in(s: &str) -> Option<i64> {
+/// 行内第一个金额（分）。pub(crate)：版面路径的金额几何配对用它判候选值
+pub(crate) fn first_money_in(s: &str) -> Option<i64> {
     moneys_in(s).into_iter().next()
 }
 
@@ -956,6 +961,17 @@ mod tests {
     #[test]
     fn extracts_unlabeled_single_amount() {
         assert_eq!(extract("出租车票 45.00元").amount_cents, Some(4500));
+    }
+
+    #[test]
+    fn repeated_identical_amounts_not_ambiguous() {
+        // 支付成功页形态：大字金额 + 明细行是**同一个数字**——不算歧义（2026-10-09 用户实报修复）
+        let f = extract("支付成功\n￥2,088.00\n支付金额\n2,088.00");
+        assert_eq!(f.amount_cents, Some(208800));
+        assert_eq!(f.amount_source, Some(AmountSource::UniqueOnly));
+        // 不同取值仍然放弃（宁空勿错不变）
+        let g = extract("￥2,088.00\n手续费 3.00 元");
+        assert_eq!(g.amount_cents, None);
     }
 
     #[test]
