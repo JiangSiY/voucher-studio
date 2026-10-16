@@ -91,6 +91,14 @@ describe("主骨架：收件箱驱动", () => {
     expect(layoutSrc).toMatch(/class="sidebar-header" data-tauri-drag-region="deep"/);
   });
 
+  it("侧栏顶部让开交通灯带：上留白随 --toolbar-h 走（用户 2026-10-16 反馈「上方不协调」）", () => {
+    const css = repoFile("src/styles/base.css");
+    // 基础规则：VS 徽标必须落在红绿灯（y≈18–30）下方，不能只给 20px
+    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}?padding: calc\(var\(--toolbar-h\) - var\(--s-2\)\) var\(--s-4\) var\(--s-4\)/);
+    // 收起态与 ≤760 图标栏同样让开（否则两种收窄形态又会挤回红绿灯那一带）
+    expect(css.match(/padding: calc\(var\(--toolbar-h\) - var\(--s-2\)\) 0 var\(--s-4\)/g) ?? []).toHaveLength(2);
+  });
+
   it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {
     expect(paletteSrc).toMatch(/router\.push\("\/inbox"\)/);
     expect(paletteSrc).toContain("全部凭证");

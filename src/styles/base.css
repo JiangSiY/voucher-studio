@@ -59,7 +59,11 @@ body {
 }
 
 .sidebar-header {
-  padding: var(--s-5) var(--s-4);
+  /* 顶部让开"交通灯带"：--toolbar-h = 52px，与统一工具栏等高；红绿灯占窗口 y≈18–30。
+     原 padding-top 是 --s-5（20px），VS 徽标与红绿灯挤在同一带里、上方看着不协调
+     → 用户 2026-10-16 真机走查「侧边栏这部分需要整体下移一些」。
+     这段留白仍在 .sidebar-header 内（带 drag-region="deep"），顶部照旧可拖动窗口。 */
+  padding: calc(var(--toolbar-h) - var(--s-2)) var(--s-4) var(--s-4);
   border-bottom: 1px solid var(--separator);
 }
 
@@ -1985,7 +1989,7 @@ select.input {
   }
 
   .sidebar-header {
-    padding: var(--s-4) 0;
+    padding: calc(var(--toolbar-h) - var(--s-2)) 0 var(--s-4);
     display: flex;
     justify-content: center;
   }
@@ -2058,7 +2062,7 @@ select.input {
 }
 
 :root[data-sidebar-collapsed="true"] .sidebar-header {
-  padding: var(--s-4) 0;
+  padding: calc(var(--toolbar-h) - var(--s-2)) 0 var(--s-4);
   display: flex;
   justify-content: center;
 }
