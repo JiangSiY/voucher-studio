@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **47 文件 270 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **49 文件 288 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -74,7 +74,14 @@
 > `__tests__/taskCenterContract.test.ts` 的 toast 角落断言改右上角。
 > Rust 侧新增 `voucher_flow.rs::rankings_respect_date_range`（排行与标签统计按日期闭区间过滤、单边区间生效、**区间优先于 months**），
 > 集成 130 → **131**、voucher-core 282 → **283**、总数 **286**（281 通过 + 5 ignored）。
-> 前端合计数 **47 文件 270 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17 例（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → **47 文件 270**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
+> **2026-10-16 上下文翻张批**（用户「上一张、下一张前端实装」）新增 2 个前端文件 14 例、改写 1 个文件 +3 例：
+> `composables/__tests__/neighborNav.test.ts`（8 例：位置文案三态 / 用当前 id 与列表同口径 query 取相邻张 / 未选中不发请求 /
+> **在途响应不覆盖新响应** / 取数失败静默隐藏 / `clear()` 让在途响应失效）、
+> `__tests__/voucherNeighborContract.test.ts`（6 例：右栏可见入口与禁用态 / ⌥←/→ 排在输入框早退之后 / 翻张上下文就是列表 `query()` 且筛选变化重拉 /
+> 「保存并下一张」优先跨页 / 走 `showFocused` 安全动线 / 帮助页与规范同步为已实装）、
+> `pages/__tests__/LibraryPage.test.ts` 13 → **16 例**（箭头位置与禁用态、点下一张跳到相邻张、⌥→ 同动线、改筛选重拉位置）。
+> Rust 侧未动（仍 **283 = 152 + 131**）。
+> 前端合计数 **49 文件 288 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ **49 文件 288**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**281 通过 + 5 `#[ignore]`**（含上述新 2 例）= 286）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
