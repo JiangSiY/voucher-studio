@@ -26,6 +26,8 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import VoucherEditor from "../components/voucher/VoucherEditor.vue";
+import RelatedVouchers from "../components/voucher/RelatedVouchers.vue";
+import VoucherGroups from "../components/voucher/VoucherGroups.vue";
 import { useNeighborNav } from "../composables/neighborNav";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { parseTags } from "../composables/money";
@@ -59,6 +61,8 @@ const counterpartyExact = ref("");
 const tagsText = ref("");
 const ocrStatus = ref<string>("");
 const exported = ref<string>("");
+/** v0.22：只筛「未被佐证」（没有任何关联、也不在事项组里）——正对"付款截图缺说明"的核对痛点 */
+const unlinked = ref(false);
 const sort = ref<string>("date_desc");
 
 function query() {
@@ -74,6 +78,7 @@ function query() {
     tags: parseTags(tagsText.value),
     ocrStatus: ocrStatus.value || null,
     exported: (exported.value || null) as "never" | "any" | null,
+    unlinked: unlinked.value ? true : null,
     sort: sort.value,
     page: page.value,
     pageSize,
@@ -141,6 +146,7 @@ function readQuery() {
   staleDays.value = Number.isFinite(sd) && sd > 0 ? sd : null;
   ocrStatus.value = (q.ocrStatus as string) ?? "";
   exported.value = (q.exported as string) ?? "";
+  unlinked.value = q.unlinked === "1" || q.unlinked === "true";
   sort.value = (q.sort as string) ?? "date_desc";
   // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
   counterpartyExact.value = (q.counterparty as string) ?? "";
@@ -168,6 +174,7 @@ const activeFilters = computed(() => {
     out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
   if (exported.value)
     out.push({ label: exported.value === "never" ? "从未导出" : "已导出过", clear: () => (exported.value = "") });
+  if (unlinked.value) out.push({ label: "未被佐证", clear: () => (unlinked.value = false) });
   return out;
 });
 
@@ -397,6 +404,11 @@ watch(
 );
 
 /** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */ 
+/** 关联/组内点一张凭证 → 走既有深链聚焦动线（页外会提示，不会让人以为筛选坏了） */
+async function focusFromLink(id: number) {
+  await showFocused(id);
+}
+
 async function showFocused(id: number) {
   const inPage = items.value.find((v) => v.id === id);
   if (inPage) {
@@ -485,6 +497,7 @@ function clearAllFilters() {
   exported.value = "";
   amountEmpty.value = false;
   counterpartyEmpty.value = false;
+  unlinked.value = false;
 }
 
 const selectedIds = ref<Set<number>>(new Set());
@@ -598,7 +611,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, staleDays, ocrStatus, exported, sort], () => {
+watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, staleDays, ocrStatus, exported, unlinked, sort], () => {
   page.value = 1;
   void load();
   // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
@@ -647,6 +660,9 @@ watch(keyword, () => {
       </label>
       <label class="inline-check" title="只看对方账户未填的凭证">
         <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
+      </label>
+      <label class="inline-check" title="只看没有任何关联、也不属于任何事项组的凭证（付款截图缺说明时用）">
+        <input v-model="unlinked" type="checkbox" /> 未被佐证
       </label>
       <input v-model="counterpartyExact" class="input" style="max-width: 170px"
         placeholder="对方账户（精确）" title="对方账户整串相等（区别于搜索框的模糊匹配）" />
@@ -772,6 +788,10 @@ watch(keyword, () => {
           @detail="onEditorDetail"
           @next="onEditorNext"
         />
+
+        <!-- v0.22 关联批：相关凭证 / 所属事项组（都用 `shown.id`，深链聚焦时跟着变） -->
+        <RelatedVouchers :voucher-id="shown.id" @focus="focusFromLink" />
+        <VoucherGroups :voucher-id="shown.id" @focus="focusFromLink" />
 
         <dl class="ins-meta">
           <div><dt>最后修改</dt><dd>{{ fmtDate(shown.updatedAt) }}</dd></div>

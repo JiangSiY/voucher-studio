@@ -48,6 +48,9 @@ pub struct VoucherQuery {
     pub ocr_status: Option<String>,
     /// 导出覆盖度：`never`（从未导出）| `any`（导出过）
     pub exported: Option<String>,
+    /// v0.22 关联维度：`true` 只筛「**未被佐证**」的凭证（既没有任何关联、也不属于任何事项组）；
+    /// `false` 只筛"已有佐证"的；`None` 不筛。对应收件箱/列表的"付款截图缺说明"待办。
+    pub unlinked: Option<bool>,
     /// 排序：`date_desc`（默认，与历史一致）| `date_asc` | `updated_desc` | `amount_desc` | `amount_asc`
     pub sort: Option<String>,
 }
@@ -430,6 +433,22 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
                 .format("%Y-%m-%dT%H:%M:%S")
                 .to_string(),
         );
+    }
+    // v0.22：关联维度——"未被佐证"＝既没有 `voucher_links`（任一方向）也不在任何事项组里。
+    // 只改这一处即可覆盖 list / list_ids / neighbor（三者共用 `build_filter_where`），
+    // 因此"位置/总数"与列表天然同口径。
+    match q.unlinked {
+        Some(true) => where_clauses.push(
+            "NOT EXISTS (SELECT 1 FROM voucher_links vl WHERE vl.a_id = vouchers.id OR vl.b_id = vouchers.id)
+             AND NOT EXISTS (SELECT 1 FROM voucher_group_items gi WHERE gi.voucher_id = vouchers.id)"
+                .to_string(),
+        ),
+        Some(false) => where_clauses.push(
+            "(EXISTS (SELECT 1 FROM voucher_links vl WHERE vl.a_id = vouchers.id OR vl.b_id = vouchers.id)
+              OR EXISTS (SELECT 1 FROM voucher_group_items gi WHERE gi.voucher_id = vouchers.id))"
+                .to_string(),
+        ),
+        None => {}
     }
     match q.exported.as_deref() {
         Some("never") => where_clauses.push(

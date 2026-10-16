@@ -37,6 +37,15 @@ vi.mock("../../api/client", () => ({
     ocrPreviewFields: vi.fn(),
     runOcr: vi.fn(),
     pickAndReplaceImage: vi.fn(),
+    // v0.22 关联批：右栏「相关凭证」「所属事项组」两个区块会调这些
+    listVoucherLinks: vi.fn(async () => []),
+    linkVouchers: vi.fn(),
+    unlinkVouchers: vi.fn(),
+    voucherGroupsOf: vi.fn(async () => []),
+    listVoucherGroups: vi.fn(async () => []),
+    createVoucherGroup: vi.fn(),
+    addVouchersToGroup: vi.fn(),
+    removeVoucherFromGroup: vi.fn(),
   },
 }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `asset://${p}` }));

@@ -15,6 +15,7 @@ mod common;
 use common::*;
 use voucher_core::models::enums::VoucherLinkKind;
 use voucher_core::models::NewVoucher;
+use voucher_core::services::query::VoucherQuery;
 use voucher_core::services::{links, voucher_mgr};
 use voucher_core::{CoreContext, Result};
 
@@ -230,5 +231,54 @@ fn upgrade_from_pre_v022_db_keeps_vouchers_and_adds_link_tables() -> Result<()> 
     let g = links::create_group(&ctx, "升级后新组", "")?;
     assert!(links::add_to_group(&ctx, g.id, &ids)?.members.len() == 2);
     assert_eq!(links::links_of(&ctx, ids[0])?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn unlinked_filter_matches_only_vouchers_without_links_or_groups() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let a = mk(&ctx, "记-A", Some(100))?;
+    let b = mk(&ctx, "记-B", Some(200))?;
+    let c = mk(&ctx, "记-C", Some(300))?;
+    let d = mk(&ctx, "记-D", Some(400))?;
+
+    // a—b 有关联；c 在事项组里；d 什么都没有
+    links::link(&ctx, a, b, VoucherLinkKind::Explains, "说明")?;
+    let g = links::create_group(&ctx, "2026-08 差旅", "")?;
+    links::add_to_group(&ctx, g.id, &[c])?;
+
+    let only = |ctx: &CoreContext, v: bool| -> Result<(u64, Vec<i64>)> {
+        let q = VoucherQuery {
+            unlinked: Some(v),
+            ..Default::default()
+        };
+        // `voucher_mgr::list` 返回 (items, total)
+        let (items, total) = voucher_mgr::list(ctx, &q)?;
+        Ok((total, items.iter().map(|x| x.id).collect()))
+    };
+
+    let (total, ids) = only(&ctx, true)?;
+    assert_eq!(total, 1, "只有 d 未被佐证");
+    assert_eq!(ids, vec![d]);
+
+    let (total, mut ids) = only(&ctx, false)?;
+    assert_eq!(total, 3, "a/b（有关联）与 c（在组里）都算已有佐证");
+    ids.sort_unstable();
+    let mut expect = vec![a, b, c];
+    expect.sort_unstable();
+    assert_eq!(ids, expect);
+
+    // 解除关联后 a、b 回到"未被佐证"（筛选口径跟着关联走）
+    assert!(links::unlink(&ctx, a, b, VoucherLinkKind::Explains)?);
+    let (total, mut ids) = only(&ctx, true)?;
+    assert_eq!(total, 3);
+    ids.sort_unstable();
+    let mut expect = vec![a, b, d];
+    expect.sort_unstable();
+    assert_eq!(ids, expect);
+
+    // None = 不筛（默认列表口径不受影响）
+    let (items, total) = voucher_mgr::list(&ctx, &VoucherQuery::default())?;
+    assert_eq!((items.len() as u64, total), (4, 4));
     Ok(())
 }

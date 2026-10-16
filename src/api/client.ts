@@ -122,6 +122,8 @@ export interface VoucherQuery {
   staleDays?: number | null;
   /** v0.18：导出覆盖度 never | any */
   exported?: "never" | "any" | null;
+  /** v0.22：未被佐证（既无任何关联、也不属于任何事项组）；false 只看已有佐证的 */
+  unlinked?: boolean | null;
   /** v0.18：排序 date_desc（默认）| date_asc | updated_desc | amount_desc | amount_asc */
   sort?: string | null;
   /** 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后翻张与搜索结果同口径） */
