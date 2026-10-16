@@ -43,11 +43,15 @@ async function testWebdavConnection() {
   webdavTesting.value = true;
   webdavTestResult.value = null;
   try {
-    // 共享缓冲含全部 Tab 尚未提交的修改（与原 props 共享 buffer 语义一致）
-    await configStore.save(draftCfg.value);
+    // 共享缓冲含全部 Tab 尚未提交的修改（与原 props 共享 buffer 语义一致）——
+    // 所以这一步**会把当前草稿整包落盘**。措辞里必须讲清楚（否则用户以为只是"测一下连接"）。
+    // 侧栏宽度/收起这两项不在草稿的编辑范围里，走 withLiveAppearance 用当前值覆盖，
+    // 否则「先收起侧栏 → 点一次测试连接」会把它回退（2026-10-16 界面细节审查）。
+    await configStore.save(configStore.withLiveAppearance(draftCfg.value));
     const count = await api.testWebdav();
-    webdavTestResult.value = { ok: true, text: `连接成功，远端已有 ${count} 份备份` };
-    toast.success(`WebDAV 连接成功，远端已有 ${count} 份备份`);
+    const text = `连接成功，远端已有 ${count} 份备份（当前设置已一并保存）`;
+    webdavTestResult.value = { ok: true, text };
+    toast.success(`WebDAV 连接成功，远端已有 ${count} 份备份（当前设置已保存）`);
   } catch (e) {
     webdavTestResult.value = { ok: false, text: errMsg(e) };
     toastError(e);

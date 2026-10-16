@@ -16,6 +16,9 @@ const keyword = ref("");
 const hits = ref<SearchHit[]>([]);
 const searched = ref(false);
 const busy = ref(false);
+/** 结果条数上限；请求时多取 1 条，只用来判断"还有更多" */
+const SEARCH_LIMIT = 100;
+const truncated = ref(false);
 
 // v0.11 组合筛选（金额单位：元，发送前转分）
 const filterDateFrom = ref("");
@@ -72,7 +75,11 @@ async function search() {
   if (filters === null) return; // 金额输入非法
   busy.value = true;
   try {
-    hits.value = await api.searchVouchers(kw, filters, 100);
+    // 多取 1 条：能确定"还有更多"。此前固定 100 条且界面不提示，
+    // 用户会把被截断的结果当成"库里没有这张"→ 重复录入（2026-10-16 界面细节审查）
+    const rows = await api.searchVouchers(kw, filters, SEARCH_LIMIT + 1);
+    truncated.value = rows.length > SEARCH_LIMIT;
+    hits.value = truncated.value ? rows.slice(0, SEARCH_LIMIT) : rows;
     searched.value = true;
   } catch (e) {
     toastError(e);
@@ -137,8 +144,11 @@ onUnmounted(() => {
 
   <div class="fluent-panel" v-if="searched">
     <div class="fluent-panel-header">
-      <h3>搜索结果（{{ hits.length }}）</h3>
-      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击进入编辑，返回仍在搜索页</span>
+      <h3>搜索结果（{{ hits.length }}{{ truncated ? "+" : "" }}）</h3>
+      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在资料库中打开，返回仍在搜索页</span>
+    </div>
+    <div v-if="truncated" style="padding: 8px 12px; border-bottom: 1px solid var(--separator); font-size: 12px; color: var(--label-secondary)">
+      结果较多，只显示前 {{ SEARCH_LIMIT }} 条 —— 请把关键词写得更具体，或加上日期 / 金额筛选，避免漏看后面的凭证
     </div>
     <div class="fluent-panel-body" style="padding: 0">
       <div class="dtable-wrap" v-if="hits.length">

@@ -339,6 +339,6 @@ onUnmounted(() => unlistenBackupDone?.());
   </div>
 
   <ConfirmDialog :visible="confirmVisible" title="恢复备份"
-    :body="`将用选中的备份覆盖当前数据库、配置与附件目录，恢复后当前数据将被替换。确定继续吗？`"
-    confirm-text="就绪并重启" @confirm="doRestore" @cancel="confirmVisible = false" />
+    :body="`将用选中的备份覆盖当前数据库、配置与附件目录。这一步只把备份写成「待恢复文件」，点「立即重启应用」后才真正替换当前数据；重启前删掉待恢复文件即可取消。确定继续吗？`"
+    confirm-text="写入待恢复文件" @confirm="doRestore" @cancel="confirmVisible = false" />
 </template>

@@ -7,7 +7,7 @@
  * Tab 用 v-show 保持挂载：与拆分前一致——进页即加载各分区数据，切换不丢状态。
  */
 import { onMounted, ref } from "vue";
-import { api, type AppConfig } from "../api/client";
+import { api } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
 import { useSettingsDraft } from "../stores/settingsDraft";
@@ -47,20 +47,11 @@ async function save() {
   saving.value = true;
   try {
     // 直接把共享编辑缓冲交给后端（reactive 代理会在 invoke 序列化时拍快照）。
-    // 但 `appearance` 里有两项不属于本页 UI（侧栏宽度由拖拽手柄维护、侧栏收起状态由工具栏开关维护），
-    // 草稿里是进页时的旧快照：用 store 的当前值覆盖，否则「拖过侧栏 / 收起过侧栏 → 改任一设置 → 保存」
-    // 会把这两项一起回退（2026-10-16 随侧栏收起一并收口）。
-    const payload: AppConfig = {
-      ...draft.cfg,
-      appearance: {
-        ...draft.cfg.appearance,
-        sidebarWidth:
-          configStore.config?.appearance.sidebarWidth ?? draft.cfg.appearance.sidebarWidth,
-        sidebarCollapsed:
-          configStore.config?.appearance.sidebarCollapsed ?? draft.cfg.appearance.sidebarCollapsed,
-      },
-    };
-    await configStore.save(payload);
+    // 但 `appearance` 里有两项不属于本页 UI（侧栏宽度由拖拽手柄维护、侧栏收起由侧栏底部开关维护），
+    // 草稿里是进页时的旧快照：统一走 `withLiveAppearance` 覆盖，否则
+    // 「拖过侧栏 / 收起过侧栏 → 改任一设置 → 保存」会把这两项一起回退。
+    // 备份 Tab 的「测试连接」是第二条整包提交路径（BackupTab 同样走这个 helper）。
+    await configStore.save(configStore.withLiveAppearance(draft.cfg));
     toast.success("设置已保存");
   } catch (e) {
     toastError(e);

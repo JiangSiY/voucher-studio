@@ -234,18 +234,21 @@ onUnmounted(() => {
     <!-- 待办清单：count 为 0 的项不渲染；全部清零时整块消失（空间让给资料） -->
     <section v-if="todoItems.length" class="todos">
       <ul>
-        <li v-for="i in todoItems" :key="i.key">
+        <li v-for="i in todoItems" :key="i.key" class="todo-row">
           <button class="todo" :disabled="i.action.disabled" @click="i.action.run()">
             <span class="todo-icon"><FluentIcon :name="i.icon" :size="17" /></span>
             <span class="todo-title">{{ i.title }}</span>
             <span class="todo-count">{{ i.count }}<small>{{ i.unit }}</small></span>
             <span class="todo-hint">{{ i.hint }}</span>
             <span class="flex-1"></span>
-            <span v-if="i.secondary" class="todo-secondary" @click.stop="i.secondary.run()">
-              {{ i.secondary.label }}
-            </span>
             <span class="todo-action">{{ i.action.label }}</span>
             <FluentIcon name="chevronRight" :size="13" />
+          </button>
+          <!-- 次要动作独立成按钮：原先写在主按钮内部（span @click），Tab 落不到、
+               screen reader 也只当它是主按钮的文字；而且主按钮 disabled（如「识别中…」）
+               时浏览器会吞掉内部点击 → 唯一的下钻入口在识别期间完全点不动 -->
+          <button v-if="i.secondary" class="todo-secondary" @click="i.secondary.run()">
+            {{ i.secondary.label }}
           </button>
         </li>
       </ul>
@@ -307,17 +310,23 @@ onUnmounted(() => {
 .inbox-head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: calc(20px * var(--font-scale)); }
 .flex-1 { flex: 1; }
 
-/* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间 */
+/* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间。
+   行 = 主按钮（整行动作）+ 可选次要按钮；背景与描边挂在行上，视觉上仍是一整行。 */
 .todos ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.todo {
-  display: flex; align-items: center; gap: var(--s-3); width: 100%;
-  padding: 10px var(--s-3);
+.todo-row {
+  display: flex; align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: var(--bg-content);
+}
+.todo-row:hover { background: var(--bg-selection); border-color: var(--separator); }
+.todo {
+  display: flex; align-items: center; gap: var(--s-3); flex: 1; min-width: 0;
+  padding: 10px var(--s-3);
+  border: 0;
+  background: transparent;
   text-align: left; cursor: default;
 }
-.todo:hover { background: var(--bg-selection); border-color: var(--separator); }
 .todo:disabled { opacity: 0.6; }
 .todo-icon { color: var(--label-secondary); display: inline-flex; }
 .todo-title { font: var(--type-body); font-weight: 600; color: var(--label-primary); white-space: nowrap; }
@@ -325,7 +334,11 @@ onUnmounted(() => {
 .todo-count small { margin-left: 3px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
 .todo-hint { font: var(--type-caption); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .todo-action { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
-.todo-secondary { font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; }
+.todo-secondary {
+  flex-shrink: 0; margin-right: var(--s-3); padding: 2px 6px;
+  border: 0; border-radius: var(--radius-small); background: transparent;
+  font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; cursor: default;
+}
 .todo-secondary:hover { color: var(--accent); text-decoration: underline; }
 
 .all-clear {

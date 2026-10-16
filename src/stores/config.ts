@@ -99,7 +99,7 @@ export const useConfigStore = defineStore("config", () => {
   }
 
   /**
-   * 侧栏收起开关（工具栏按钮的唯一写入点；展开/收起两态都要落盘）。
+   * 侧栏收起开关（侧栏底部那一行的唯一写入点；展开/收起两态都要落盘）。
    *
    * 先改本地状态再落盘：预览模式（`config` 为 null）下只改界面不落盘，
    * 与 `saveSidebarWidth` 同口径；落盘失败时界面已切换，由调用方 toast 提示。
@@ -112,6 +112,27 @@ export const useConfigStore = defineStore("config", () => {
     await save({ ...cur, appearance: { ...cur.appearance, sidebarCollapsed: next } });
   }
 
+  /**
+   * 把「不属于设置草稿」的运行期外观项用当前值覆盖回配置对象。
+   *
+   * `appearance.sidebarWidth`（拖拽手柄维护）与 `appearance.sidebarCollapsed`（侧栏底部开关维护）
+   * 都不在设置页里编辑，草稿里装的是**进页时的旧快照**；而设置页与备份 Tab 都会整包提交草稿
+   * （备份 Tab 的「测试连接」也会先落盘一次配置）。不覆盖就会出现
+   * 「拖过侧栏 / 收起过侧栏 → 改任一设置（或点一次测试连接）→ 保存」把这两项一起回退。
+   * 2026-10-16 界面细节审查：原先只有设置页自己 save() 里内联覆盖，备份 Tab 那条路径漏了。
+   */
+  function withLiveAppearance(cfg: AppConfig): AppConfig {
+    const cur = config.value?.appearance;
+    return {
+      ...cfg,
+      appearance: {
+        ...cfg.appearance,
+        sidebarWidth: cur?.sidebarWidth ?? cfg.appearance.sidebarWidth,
+        sidebarCollapsed: cur?.sidebarCollapsed ?? cfg.appearance.sidebarCollapsed,
+      },
+    };
+  }
+
   return {
     config,
     appInfo,
@@ -122,5 +143,6 @@ export const useConfigStore = defineStore("config", () => {
     save,
     saveSidebarWidth,
     toggleSidebarCollapsed,
+    withLiveAppearance,
   };
 });
