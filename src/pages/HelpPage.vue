@@ -16,7 +16,7 @@ const shortcuts: { keys: string; what: string }[] = [
   { keys: "⌘K", what: "命令面板（含备份 / 对账 / 批量识别 / 重建增强等动作）" },
   { keys: "⌘S", what: "保存当前凭证" },
   { keys: "⌘Enter", what: "保存并下一张" },
-  { keys: "⌘⇧E", what: "展宽 / 收起资料库右栏编辑器" },
+  { keys: "⌘⇧E", what: "展宽 / 收起右栏编辑器" },
   { keys: "↑ ↓", what: "在列表、摘要模板下拉里移动" },
   { keys: "Enter", what: "打开选中的凭证 / 展开当前行" },
   { keys: "Esc", what: "关闭浮层（命令面板 / 对话框 / 看图器），焦点回到原处" },
@@ -25,8 +25,8 @@ const shortcuts: { keys: string; what: string }[] = [
 
 /** 侧栏一列入口（与 WorkbenchLayout 的 navItems 同序同文案；帮助页不再用旧称） */
 const navMap: { name: string; what: string }[] = [
-  { name: "待处理", what: "收件箱：该做什么就列什么（待识别 / 待核对 / 待打印 / 疑似重复 / 未填金额），全部清零后整块让位给资料" },
-  { name: "全部凭证", what: "资料库：左列表 + 右编辑器，可就地改全部字段；支持拖图入库、批量改状态、批量导出" },
+  { name: "待处理", what: "该做什么就列什么（待识别 / 待核对 / 待打印 / 疑似重复 / 未填金额），全部清零后整块让位给资料" },
+  { name: "全部凭证", what: "左列表 + 右编辑器，可就地改全部字段；支持拖图入库、批量改状态、批量导出" },
   { name: "重复核查", what: "同日期同金额的疑似重复，逐对判定「确认重复 / 排除」" },
   { name: "洞察", what: "时间窗驱动的月度趋势、状态分布、月度透视、导出覆盖度与存储占用" },
   { name: "打印与导出", what: "A4 多列省墨整理单、按天凭证日报，以及 Excel / CSV 台账" },
@@ -46,7 +46,7 @@ const navMap: { name: string; what: string }[] = [
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>
           <div style="font-size: 12px; color: var(--text-3)">
-            把票据/凭证图片拖进「资料库 → 全部凭证」，自动建卡入库；支持批量拖放，一图一凭证；重复图片自动去重。
+            把票据/凭证图片拖进「全部凭证」，自动建卡入库；支持批量拖放，一图一凭证；重复图片自动去重。
           </div>
         </div>
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">

@@ -145,7 +145,7 @@ describe("收件箱待办清单", () => {
     const w = await mountPage();
     expect(w.text()).toContain("待办都清空了");
     expect(w.find(".todo").exists()).toBe(false);
-    expect(w.text()).toContain("打开资料库");
+    expect(w.text()).toContain("打开「全部凭证」");
   });
 
   it("点「待核对」→ 带草稿筛选进资料库", async () => {

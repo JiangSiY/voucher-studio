@@ -10,7 +10,7 @@ export const router = createRouter({
       children: [
         { path: "", redirect: "/inbox" },
         // v0.18：收件箱成为首页（流程为中心）；旧 /dashboard 链接重定向保留
-        { path: "inbox", name: "inbox", component: () => import("../pages/InboxPage.vue"), meta: { title: "收件箱" } },
+        { path: "inbox", name: "inbox", component: () => import("../pages/InboxPage.vue"), meta: { title: "待处理" } },
         { path: "dashboard", redirect: "/inbox" },
         // v0.18：资料库 = 双行列表 + 检视器（取代旧 10 列表格）；旧 /vouchers 仍指到这里
         { path: "vouchers", name: "vouchers", component: () => import("../pages/LibraryPage.vue"), meta: { title: "全部凭证" } },
@@ -25,7 +25,7 @@ export const router = createRouter({
           redirect: (to) => ({ path: "/vouchers", query: { focus: String(to.params.id) } }),
         },
         { path: "search", name: "search", component: () => import("../pages/SearchPage.vue"), meta: { title: "搜索" } },
-        { path: "print", name: "print", component: () => import("../pages/PrintCenterPage.vue"), meta: { title: "打印中心" } },
+        { path: "print", name: "print", component: () => import("../pages/PrintCenterPage.vue"), meta: { title: "打印与导出" } },
         { path: "insights", name: "insights", component: () => import("../pages/InsightsPage.vue"), meta: { title: "洞察" } },
         { path: "exports", name: "exports", component: () => import("../pages/ExportHistoryPage.vue"), meta: { title: "导出历史" } },
         { path: "settings", name: "settings", component: () => import("../pages/SettingsPage.vue"), meta: { title: "设置", reading: true } },

@@ -145,7 +145,7 @@ onUnmounted(() => {
   <div class="fluent-panel" v-if="searched">
     <div class="fluent-panel-header">
       <h3>搜索结果（{{ hits.length }}{{ truncated ? "+" : "" }}）</h3>
-      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在资料库中打开，返回仍在搜索页</span>
+      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在「全部凭证」中打开，返回仍在搜索页</span>
     </div>
     <div v-if="truncated" style="padding: 8px 12px; border-bottom: 1px solid var(--separator); font-size: 12px; color: var(--label-secondary)">
       结果较多，只显示前 {{ SEARCH_LIMIT }} 条 —— 请把关键词写得更具体，或加上日期 / 金额筛选，避免漏看后面的凭证

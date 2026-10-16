@@ -91,7 +91,7 @@ onUnmounted(() => unlistenImportDone?.());
             <div class="ct">
               <strong>一张图片就是一张凭证。</strong>
               选择图片后系统会立即建卡 + OCR 识别回填日期 / 金额 / 对方账户（可再修改），
-              然后自动跳到资料库并聚焦这一张——在右侧编辑区核对与完善字段。
+              然后自动跳到「全部凭证」并聚焦这一张——在右侧编辑区核对与完善字段。
             </div>
           </div>
           <!-- 键盘可达：role=button + Tab 聚焦 + Enter/Space 触发（内含 div，故不用真 <button> 以免非法嵌套） -->
@@ -119,7 +119,7 @@ onUnmounted(() => unlistenImportDone?.());
           <ol style="padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-2)">
             <li>选择 / 拖放导入图片（支持批量，一图一凭证）</li>
             <li>自动建卡并 OCR 识别（离线引擎，数据不出本机）</li>
-            <li>在资料库右侧编辑区核对自动回填的日期、金额、对方账户，补充摘要与标签</li>
+            <li>在右侧编辑区核对自动回填的日期、金额、对方账户，补充摘要与标签</li>
             <li>按天导出「凭证日报」PDF 归档</li>
           </ol>
         </div>

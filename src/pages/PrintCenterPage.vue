@@ -339,7 +339,7 @@ onUnmounted(() => {
               仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
             </li>
           </ul>
-          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到资料库导入或新建' : '试试调整筛选条件'" />
+          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到「全部凭证」导入或新建' : '试试调整筛选条件'" />
         </div>
       </div>
 

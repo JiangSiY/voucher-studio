@@ -103,7 +103,7 @@ onMounted(load);
         </table>
       </div>
       <EmptyState v-else icon="chart" title="还没有导出记录"
-        desc="到「打印中心」勾选凭证并生成导出文件（PDF / Excel / CSV）后，这里会显示每一次导出批次" />
+        desc="到「打印与导出」勾选凭证并生成导出文件（PDF / Excel / CSV）后，这里会显示每一次导出批次" />
     </div>
   </div>
 
@@ -125,7 +125,7 @@ onMounted(load);
               </tr>
             </thead>
             <tbody>
-              <tr v-for="v in detailVouchers" :key="v.id" style="cursor: pointer" title="在资料库中打开"
+              <tr v-for="v in detailVouchers" :key="v.id" style="cursor: pointer" title="在「全部凭证」中打开"
                 @click="openVoucher(v.id)">
                 <td><span class="mono">{{ v.voucherNo }}</span></td>
                 <td>{{ v.voucherDate }}</td>

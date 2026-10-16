@@ -277,7 +277,7 @@ const leaveConfirmTitle = computed(() => {
     case "focus":
       return "跳转到另一张凭证？";
     default:
-      return "离开资料库？";
+      return "离开全部凭证？";
   }
 });
 let resolveRouteLeave: ((ok: boolean) => void) | null = null;

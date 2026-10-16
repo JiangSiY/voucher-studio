@@ -259,7 +259,7 @@ onUnmounted(() => {
       <FluentIcon name="checkCircle" :size="17" />
       <span>待办都清空了 —— 没有待识别的图片、待核对的草稿、待打印的凭证，也没有未处置的疑似重复。</span>
       <span class="flex-1"></span>
-      <button class="link" @click="router.push('/vouchers')">打开资料库</button>
+      <button class="link" @click="router.push('/vouchers')">打开「全部凭证」</button>
     </div>
 
     <!-- 最近活动（次要信息，放最后） -->

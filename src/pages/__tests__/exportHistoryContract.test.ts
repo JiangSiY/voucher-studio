@@ -30,6 +30,6 @@ describe("导出历史：格式列与可追溯性", () => {
 
   it("过时文案已清：「点击进入编辑页」不存在（v0.19 起编辑在资料库右栏）", () => {
     expect(page).not.toContain("点击进入编辑页");
-    expect(page).toContain('title="在资料库中打开"');
+    expect(page).toContain('title="在「全部凭证」中打开"');
   });
 });
