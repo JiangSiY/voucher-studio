@@ -220,3 +220,61 @@ fn group_view(conn: &rusqlite::Connection, group_id: i64) -> Result<VoucherGroup
         members,
     })
 }
+
+/// 相关凭证清单行（v0.22 批次③）：为一批凭证（＝某一天的日报）汇出它们的关联清单。
+///
+/// 只读；金额取「相关凭证自己的金额」作为**参考值**，页面上显式标注"不并入本日报合计"。
+/// 该函数**不写 `export_items`**——批次张数与导出覆盖度口径完全不受影响。
+pub fn appendix_rows(
+    ctx: &CoreContext,
+    voucher_ids: &[i64],
+) -> Result<Vec<crate::services::pdf::PdfAppendixRow>> {
+    if voucher_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pairs: Vec<(i64, VoucherLink)> = ctx.db.with_conn(|conn| {
+        let mut out: Vec<(i64, VoucherLink)> = Vec::new();
+        for id in voucher_ids {
+            for l in voucher_link_repo::list_of(conn, *id)? {
+                out.push((*id, l));
+            }
+        }
+        Ok(out)
+    })?;
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mains: Vec<i64> = pairs.iter().map(|(id, _)| *id).collect();
+    let others: Vec<i64> = pairs.iter().map(|(id, l)| l.other_id(*id)).collect();
+    let (main_map, other_map) = ctx.db.with_conn(|conn| {
+        let m: HashMap<i64, _> = voucher_repo::get_many(conn, &mains)?
+            .into_iter()
+            .map(|v| (v.id, v))
+            .collect();
+        let o: HashMap<i64, _> = voucher_repo::get_many(conn, &others)?
+            .into_iter()
+            .map(|v| (v.id, v))
+            .collect();
+        Ok((m, o))
+    })?;
+    Ok(pairs
+        .into_iter()
+        .filter_map(|(main_id, l)| {
+            let main = main_map.get(&main_id)?;
+            let other = other_map.get(&l.other_id(main_id))?;
+            let summary = if l.note.trim().is_empty() {
+                other.description.clone()
+            } else {
+                format!("{} · {}", other.description, l.note.trim())
+            };
+            Some(crate::services::pdf::PdfAppendixRow {
+                main_no: main.voucher_no.clone(),
+                kind_key: l.kind.as_str().to_string(),
+                kind_label: l.kind.label_cn().to_string(),
+                other_no: other.voucher_no.clone(),
+                summary,
+                amount_cents: other.amount_cents,
+            })
+        })
+        .collect())
+}

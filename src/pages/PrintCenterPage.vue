@@ -28,6 +28,8 @@ const title = ref("凭证整理单");
 const cardStyle = ref<"standard" | "clean" | "ledger">("standard");
 const columns = ref<1 | 2 | 3>(3);
 const includeImages = ref(true);
+/** v0.22 批次③：相关凭证清单页——**默认带**（用户选择），单次导出可关 */
+const includeLinks = ref(true);
 const groupByDay = ref(true);
 /** v0.10：导出格式（PDF 保留原有按天/合并两形态；Excel/CSV 走表格式导出） */
 const exportFormat = ref<"pdf" | "xlsx" | "csv">("pdf");
@@ -219,6 +221,7 @@ async function generate() {
       cardStyle: cardStyle.value,
       columns: columns.value,
       includeImages: includeImages.value,
+      includeLinks: includeLinks.value,
       dailyTemplate: configStore.config?.print.dailyTemplate ?? "compact",
     };
     if (groupByDay.value) {
@@ -410,6 +413,18 @@ onUnmounted(() => {
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="includeImages" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div v-if="groupByDay" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
+            <div>
+              <div style="font-size: 13px; font-weight: 600">附带相关凭证清单</div>
+              <div class="muted-small">
+                在日报汇总表后追加「相关凭证清单」页：按关系类型分类小计，参考金额不并入日报合计
+              </div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="includeLinks" />
               <span class="slider"></span>
             </label>
           </div>

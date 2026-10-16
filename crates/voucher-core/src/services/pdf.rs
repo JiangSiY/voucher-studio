@@ -55,6 +55,26 @@ pub struct PdfInput {
     pub images: Vec<PdfImage>,
 }
 
+/// 日报「相关凭证清单」（附件清单页，v0.22 批次③）的一行。
+///
+/// 语义纪律：**关联 ≠ 抵消**——这里的金额只是"相关凭证自己的金额"（参考值），
+/// 页面上显式标注「不并入本日报合计」，且绝不影响 `export_items` 的批次张数。
+#[derive(Debug, Clone)]
+pub struct PdfAppendixRow {
+    /// 主凭证编号（本日报里的那张）
+    pub main_no: String,
+    /// 关系 key：explains | detail
+    pub kind_key: String,
+    /// 关系中文：附件说明 | 明细
+    pub kind_label: String,
+    /// 相关凭证编号
+    pub other_no: String,
+    /// 说明列（相关凭证摘要 / 关系备注）
+    pub summary: String,
+    /// 相关凭证金额（分；参考值，可空）
+    pub amount_cents: Option<i64>,
+}
+
 /// 按天日报输入：某一天的凭证集合（一图一凭证模式下即当日全部图片凭证）
 #[derive(Debug, Clone)]
 pub struct DailyInput {
@@ -62,6 +82,8 @@ pub struct DailyInput {
     pub date: String,
     pub cards: Vec<PdfCard>,
     pub images: Vec<PdfImage>,
+    /// 相关凭证清单（空 = 不生成附件清单页；由 `ExportOptions::include_links` 控制是否填充）
+    pub appendices: Vec<PdfAppendixRow>,
 }
 
 // ---------- 页面几何（mm，f32：printpdf 的单位） ----------
@@ -226,6 +248,202 @@ const TCOL_AMOUNT: f32 = 40.0;
 /// 行高：单行 8mm（12pt × 1.4 = 5.9mm，留足净空）/ 摘要两行 12mm
 const TROW_H: f32 = 8.0;
 const TROW_H_2LINE: f32 = 12.0;
+
+// ---------- 日报「相关凭证清单」页（附件清单页，v0.22 批次③）----------
+/// 列宽：主凭证 40 / 类型 26 / 相关凭证 38 / 说明 58 / 参考金额 28（合计 190 = 可用宽）
+const ACOL_MAIN: f32 = 40.0;
+const ACOL_KIND: f32 = 26.0;
+const ACOL_OTHER: f32 = 38.0;
+const ACOL_DESC: f32 = 58.0;
+const ACOL_AMOUNT: f32 = 28.0;
+/// 清单页行高与每页行数（等高简单表，不做折行；首页还要放一行说明）
+const AROW_H: f32 = 8.0;
+const AROWS_PER_PAGE: usize = 24;
+
+/// 清单页的一行：普通关系行，或某关系类型的小计行
+enum AppendixLine {
+    Row(PdfAppendixRow),
+    Subtotal {
+        kind_label: String,
+        count: usize,
+        amount_cents: i64,
+    },
+}
+
+/// 按关系类型分组（附件说明在前、明细在后），每组末尾插一条小计
+fn appendix_lines(rows: &[PdfAppendixRow]) -> Vec<AppendixLine> {
+    let mut out = Vec::new();
+    for key in ["explains", "detail"] {
+        let group: Vec<&PdfAppendixRow> = rows.iter().filter(|r| r.kind_key == key).collect();
+        if group.is_empty() {
+            continue;
+        }
+        for r in &group {
+            out.push(AppendixLine::Row((*r).clone()));
+        }
+        out.push(AppendixLine::Subtotal {
+            kind_label: group[0].kind_label.clone(),
+            count: group.len(),
+            amount_cents: group.iter().filter_map(|r| r.amount_cents).sum(),
+        });
+    }
+    // 兜底：未知 kind 的行也要出现在清单里（不能静默丢）
+    let known = |k: &str| k == "explains" || k == "detail";
+    let others: Vec<&PdfAppendixRow> = rows.iter().filter(|r| !known(&r.kind_key)).collect();
+    if !others.is_empty() {
+        for r in &others {
+            out.push(AppendixLine::Row((*r).clone()));
+        }
+        out.push(AppendixLine::Subtotal {
+            kind_label: "其它".into(),
+            count: others.len(),
+            amount_cents: others.iter().filter_map(|r| r.amount_cents).sum(),
+        });
+    }
+    out
+}
+
+/// 清单页分页（等高行，按每页 `AROWS_PER_PAGE` 行切）
+fn appendix_page_slices(lines: &[AppendixLine]) -> Vec<(usize, usize)> {
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    (0..lines.len())
+        .step_by(AROWS_PER_PAGE)
+        .map(|start| (start, (start + AROWS_PER_PAGE).min(lines.len())))
+        .collect()
+}
+
+/// 画一页「相关凭证清单」：首行说明 + 表头 + 等高的关系行与小计行
+fn draw_appendix_page(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    lines: &[AppendixLine],
+    range: (usize, usize),
+) {
+    let top = MARGIN + HEADER_H + TSUM_GAP;
+    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+    layer.use_text(
+        "本页仅为佐证索引：金额是相关凭证自己的金额，不并入本日报合计",
+        FOOTER_PT,
+        Mm(MARGIN),
+        y(top + 3.0),
+        font,
+    );
+    let head_top = top + 5.0;
+    draw_head_cells(
+        layer,
+        font,
+        head_top,
+        &[
+            HeadCol {
+                label: "主凭证",
+                x: HeadColX::Left(MARGIN + 1.0),
+            },
+            HeadCol {
+                label: "类型",
+                x: HeadColX::Left(MARGIN + ACOL_MAIN + 1.0),
+            },
+            HeadCol {
+                label: "相关凭证",
+                x: HeadColX::Left(MARGIN + ACOL_MAIN + ACOL_KIND + 1.0),
+            },
+            HeadCol {
+                label: "说明",
+                x: HeadColX::Left(MARGIN + ACOL_MAIN + ACOL_KIND + ACOL_OTHER + 1.0),
+            },
+            HeadCol {
+                label: "参考金额",
+                x: HeadColX::Right,
+            },
+        ],
+    );
+
+    let mut yy = head_top + THEAD_H;
+    for line in &lines[range.0..range.1] {
+        let baseline = yy + AROW_H - 1.9;
+        match line {
+            AppendixLine::Row(r) => {
+                cell_text(
+                    layer,
+                    font,
+                    &r.main_no,
+                    BODY_PT,
+                    MARGIN + 1.0,
+                    baseline,
+                    Some(ACOL_MAIN - 2.0),
+                    ACCENT,
+                );
+                cell_text(
+                    layer,
+                    font,
+                    &r.kind_label,
+                    BODY_PT,
+                    MARGIN + ACOL_MAIN + 1.0,
+                    baseline,
+                    Some(ACOL_KIND - 2.0),
+                    BODY,
+                );
+                cell_text(
+                    layer,
+                    font,
+                    &r.other_no,
+                    BODY_PT,
+                    MARGIN + ACOL_MAIN + ACOL_KIND + 1.0,
+                    baseline,
+                    Some(ACOL_OTHER - 2.0),
+                    ACCENT,
+                );
+                cell_text(
+                    layer,
+                    font,
+                    &r.summary,
+                    BODY_PT,
+                    MARGIN + ACOL_MAIN + ACOL_KIND + ACOL_OTHER + 1.0,
+                    baseline,
+                    Some(ACOL_DESC - 2.0),
+                    GREY,
+                );
+                if let Some(cents) = r.amount_cents {
+                    let label = format!("￥{}", crate::models::voucher::format_money(cents));
+                    let (pt, x) = amount_pt_and_x(&label);
+                    cell_text(
+                        layer,
+                        font,
+                        &label,
+                        pt.min(BODY_PT),
+                        x,
+                        baseline,
+                        Some(ACOL_AMOUNT - 2.0),
+                        DARK,
+                    );
+                }
+            }
+            AppendixLine::Subtotal {
+                kind_label,
+                count,
+                amount_cents,
+            } => {
+                let label = format!(
+                    "{kind_label} 小计：{count} 条 · 相关凭证金额 ￥{}（参考，不并入合计）",
+                    crate::models::voucher::format_money(*amount_cents)
+                );
+                cell_text(
+                    layer,
+                    font,
+                    &label,
+                    BODY_PT,
+                    MARGIN + 1.0,
+                    baseline,
+                    Some(PAGE_W - MARGIN * 2.0 - 2.0),
+                    DARK,
+                );
+            }
+        }
+        hline(layer, 0.25, yy + AROW_H - 0.3, STROKE);
+        yy += AROW_H;
+    }
+}
 
 /// 一行表格的版式（摘要最多两行）
 struct RowLayout {
@@ -493,7 +711,11 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     let table_first_top = MARGIN + HEADER_H + TSUM_GAP;
     let pages = paginate_rows(&rows, table_first_top, table_first_top);
     let table_pages = pages.len();
-    let total_pages = 1 + table_pages + img_pages;
+    // 相关凭证清单页（数据驱动：没有关联就没有这一页）
+    let app_lines = appendix_lines(&day.appendices);
+    let app_slices = appendix_page_slices(&app_lines);
+    let appendix_pages = app_slices.len();
+    let total_pages = 1 + table_pages + appendix_pages + img_pages;
 
     // ===== P1 封面 =====
     {
@@ -533,6 +755,15 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         draw_footer(&layer, &font, t + 2, total_pages);
     }
 
+    // ===== 相关凭证清单页（附件清单页） =====
+    for (i, range) in app_slices.iter().enumerate() {
+        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Appendix");
+        let layer = doc.get_page(p).get_layer(l);
+        draw_header(&layer, &font, &format!("相关凭证清单 · {}", day.date));
+        draw_appendix_page(&layer, &font, &app_lines, *range);
+        draw_footer(&layer, &font, 1 + table_pages + i + 1, total_pages);
+    }
+
     // ===== 图片页（2×2/页，caption 对齐参照：附件N：摘要_对方_金额元（档号）） =====
     let img_refs: Vec<&PdfImage> = day.images.iter().collect();
     for page_idx in 0..img_pages {
@@ -540,7 +771,12 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         let layer = doc.get_page(p).get_layer(l);
         draw_header(&layer, &font, &format!("附件 · {}", day.date));
         draw_image_grid(&layer, &font, &img_refs, page_idx, &SPEC_ARCHIVE_GRID);
-        draw_footer(&layer, &font, 1 + table_pages + page_idx + 1, total_pages);
+        draw_footer(
+            &layer,
+            &font,
+            1 + table_pages + appendix_pages + page_idx + 1,
+            total_pages,
+        );
     }
 
     doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
@@ -583,7 +819,11 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     let next_top = MARGIN + HEADER_H + TSUM_GAP;
     let pages = paginate_rows(&rows, first_top, next_top);
     let table_pages = pages.len();
-    let total_pages = table_pages + img_pages;
+    // 相关凭证清单页（数据驱动：没有关联就没有这一页）
+    let app_lines = appendix_lines(&day.appendices);
+    let app_slices = appendix_page_slices(&app_lines);
+    let appendix_pages = app_slices.len();
+    let total_pages = table_pages + appendix_pages + img_pages;
 
     // ===== 表格页（首页含信息横幅，无独立封面） =====
     for (t, range) in pages.iter().enumerate() {
@@ -608,9 +848,18 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         draw_footer(&layer, &font, t + 1, total_pages);
     }
 
+    // ===== 相关凭证清单页（附件清单页） =====
+    for (i, range) in app_slices.iter().enumerate() {
+        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Appendix");
+        let layer = doc.get_page(p).get_layer(l);
+        draw_header(&layer, &font, &format!("相关凭证清单 · {}", day.date));
+        draw_appendix_page(&layer, &font, &app_lines, *range);
+        draw_footer(&layer, &font, table_pages + i + 1, total_pages);
+    }
+
     // ===== 图片页：先竖票 3×3，后横票 2×2（caption 6.5pt 紧凑） =====
     if opts.include_images {
-        let mut page_no = table_pages;
+        let mut page_no = table_pages + appendix_pages;
         let (pt, ch, dy) = SPEC_COMPACT_CAPTION;
         let buckets: [(Vec<&PdfImage>, ImageGridSpec); 2] = [
             (

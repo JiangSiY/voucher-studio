@@ -102,6 +102,15 @@ describe("v0.22 关联批契约", () => {
     expect(src).toContain('name="image"');
   });
 
+  it("打印中心带「相关凭证清单」开关且**默认开**（用户选择），并把它传给出参", () => {
+    const page = read("src/pages/PrintCenterPage.vue");
+    expect(page).toContain("const includeLinks = ref(true);");
+    expect(page).toContain("includeLinks: includeLinks.value,");
+    expect(page).toContain("附带相关凭证清单");
+    const client = read(CLIENT);
+    expect(client).toContain("includeLinks?: boolean;");
+  });
+
   it("列表提供「未被佐证」筛选：控件、URL 回显、清空三处都在", () => {
     const src = read(LIBRARY);
     expect(src).toContain("未被佐证");

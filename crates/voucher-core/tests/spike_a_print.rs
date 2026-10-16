@@ -201,6 +201,7 @@ fn daily_report_cover_layout() {
             date: "2026-08-20".into(),
             cards: (1..=5).map(card).collect(),
             images: imgs,
+            appendices: Vec::new(),
         },
         &PdfOptions {
             title: "原始凭证".into(),

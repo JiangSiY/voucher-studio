@@ -464,6 +464,11 @@ export interface ExportOptions {
   cardStyle: "standard" | "clean" | "ledger";
   columns: number;
   includeImages: boolean;
+  /**
+   * v0.22 批次③：日报是否附带「相关凭证清单」页（按关系类型分类小计）。
+   * **用户定的默认是"带"**；后端字段级默认同样为 true（老调用不带这个键＝带）。
+   */
+  includeLinks?: boolean;
 }
 
 export interface AppConfig {

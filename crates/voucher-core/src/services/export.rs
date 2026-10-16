@@ -48,7 +48,7 @@ pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
             .unwrap_or(false)
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ExportOptions {
     pub title: String,
@@ -59,6 +59,29 @@ pub struct ExportOptions {
     pub include_images: bool,
     /// v0.8 日报模板：compact（省纸）| archive（档案装订）
     pub daily_template: String,
+    /// v0.22 批次③：日报是否附带「相关凭证清单」页。
+    /// **用户定的默认是"带"**，所以字段级 serde 默认也是 true（老前端不带这个键 = 带）。
+    #[serde(default = "include_links_default")]
+    pub include_links: bool,
+}
+
+/// 字段级默认：相关凭证清单**默认开**（用户选择）
+fn include_links_default() -> bool {
+    true
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        // 与历史 `#[derive(Default)]` 的取值保持一致，只把 include_links 定为 true
+        Self {
+            title: String::new(),
+            card_style: String::new(),
+            columns: 0,
+            include_images: false,
+            daily_template: String::new(),
+            include_links: true,
+        }
+    }
 }
 
 impl ExportOptions {
@@ -69,8 +92,66 @@ impl ExportOptions {
             columns: cfg.columns,
             include_images: cfg.include_images,
             daily_template: cfg.daily_template.clone(),
+            // 打印默认带佐证（用户选择）；单次导出可在打印中心关掉
+            include_links: true,
         }
     }
+}
+
+/// v0.22 批次③：把「相关凭证清单」另存一份 CSV（Excel 可核；UTF-8 BOM，与 reconcile 报告同一套写法）。
+///
+/// 只读产物：**不落 `export_batches` / `export_items`**，所以批次口径与"从未导出"台账都不受影响。
+/// 最后一列显式写「是否并入合计」，把"关联 ≠ 抵消"印在文件里。
+fn write_link_list_csv(
+    ctx: &CoreContext,
+    batch_no: &str,
+    rows: &[pdf::PdfAppendixRow],
+) -> Result<std::path::PathBuf> {
+    use std::io::Write;
+    if rows.is_empty() {
+        return Err(CoreError::Invalid("没有相关凭证可导出".into()));
+    }
+    let path = ctx.paths.exports.join(format!("{batch_no}-关联清单.csv"));
+    let mut out = String::new();
+    out.push('\u{FEFF}');
+    out.push_str("主凭证,关系类型,相关凭证,说明,参考金额（元）,是否并入合计\n");
+    for r in rows {
+        let amount = match r.amount_cents {
+            Some(c) => format!("{}.{:02}", c / 100, c % 100),
+            None => String::new(),
+        };
+        push_csv_row(
+            &mut out,
+            &[
+                r.main_no.clone(),
+                r.kind_label.clone(),
+                r.other_no.clone(),
+                r.summary.clone(),
+                amount,
+                "否（仅参考）".into(),
+            ],
+        );
+    }
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(out.as_bytes())?;
+    Ok(path)
+}
+
+/// CSV 单元格转义（含逗号/引号/换行才加引号；内部引号翻倍）
+fn push_csv_row(out: &mut String, cells: &[String]) {
+    let line = cells
+        .iter()
+        .map(|c| {
+            if c.contains([',', '"', '\n', '\r']) {
+                format!("\"{}\"", c.replace('"', "\"\""))
+            } else {
+                c.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    out.push_str(&line);
+    out.push('\n');
 }
 
 /// 按默认打印配置导出（合并单份）
@@ -150,6 +231,15 @@ pub fn export_vouchers_daily(
             date: date.clone(),
             cards: day_items.iter().map(|(v, _)| card_of(v)).collect(),
             images: daily_images_of(ctx, &day_items),
+            // v0.22 批次③：默认带佐证 —— 相关凭证清单页（不写 export_items，批次张数不变）
+            appendices: if opts.include_links {
+                crate::services::links::appendix_rows(
+                    ctx,
+                    &day_items.iter().map(|(v, _)| v.id).collect::<Vec<_>>(),
+                )?
+            } else {
+                Vec::new()
+            },
         };
 
         let compact_date = date.replace(['-', '/'], "");
@@ -160,6 +250,12 @@ pub fn export_vouchers_daily(
         let tmp = pdf_path.with_extension("pdf.tmp");
         pdf::generate_daily(&tmp, &input, &pdf_options(opts))?;
         crate::utils::jsonio::commit_file(&tmp, &pdf_path)?;
+
+        // 相关凭证清单另存一份 CSV（Excel 可核；不落批次表）
+        if !input.appendices.is_empty() {
+            let csv = write_link_list_csv(ctx, &batch_no, &input.appendices)?;
+            log::info!("相关凭证清单 CSV 已写入：{}", csv.display());
+        }
 
         batches.push(record_batch(
             ctx,
