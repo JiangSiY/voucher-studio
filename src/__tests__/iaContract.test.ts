@@ -21,6 +21,7 @@ function repoFile(rel: string): string {
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
 const paletteSrc = repoFile("src/components/CommandPalette.vue");
+const appSrc = repoFile("src/App.vue");
 
 describe("主骨架：收件箱驱动", () => {
   it("首页是收件箱；/dashboard 只作重定向保留（旧链接不 404，但页面已不存在）", () => {
@@ -89,6 +90,16 @@ describe("主骨架：收件箱驱动", () => {
     // 工具栏与侧栏顶部都应可拖（macOS 惯例：交通灯那条也能拖）
     expect(layoutSrc).toMatch(/class="unified-toolbar" data-tauri-drag-region="deep"/);
     expect(layoutSrc).toMatch(/class="sidebar-header" data-tauri-drag-region="deep"/);
+  });
+
+  it("工具栏不再放命令面板按钮（用户 2026-10-16：「基本没用过，没有价值」）", () => {
+    // 工具栏只剩标题；按钮去掉后 ⌘K 快捷键与命令面板本身必须仍在
+    expect(layoutSrc).not.toContain("toolbar-actions");
+    expect(layoutSrc).not.toContain("toolbar-btn");
+    expect(layoutSrc).not.toContain("命令面板（⌘K）");
+    expect(appSrc).toContain("togglePalette");
+    // 对应样式随之删除（留着就是死代码）
+    expect(repoFile("src/styles/base.css")).not.toMatch(/\.unified-toolbar \.toolbar-(btn|actions|hint)\b/);
   });
 
   it("侧栏顶部让开交通灯带：上留白随 --toolbar-h 走（用户 2026-10-16 反馈「上方不协调」）", () => {

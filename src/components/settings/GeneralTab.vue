@@ -121,7 +121,7 @@ async function openDataDir() {
           </label>
           <span style="font-size: 12px; color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
         </div>
-        <div class="desc">打印中心进入时按此默认值初始化；在打印中心内的临时调整不影响这里。</div>
+        <div class="desc">进入「打印与导出」时按此默认值初始化；页内的临时调整不影响这里。</div>
       </div>
     </div>
   </div>

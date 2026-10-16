@@ -417,7 +417,7 @@ onUnmounted(() => {
                 <td>
                   <span v-if="r.enhancedSource === 'scan'" class="tag">扫描件</span>
                   <span v-else-if="r.enhancedSource === 'screenshot'" class="tag tag-muted">截图</span>
-                  <span v-else class="tag tag-muted">未识别</span>
+                  <span v-else class="tag tag-muted">来源未知</span>
                 </td>
                 <td style="text-align: right; font-variant-numeric: tabular-nums">
                   {{ (r.enhancedSize / 1024).toFixed(0) }} KB

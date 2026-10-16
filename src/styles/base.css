@@ -239,38 +239,11 @@ body {
   white-space: nowrap;
 }
 
-.unified-toolbar .toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--s-1);
-}
-
-/* 工具栏按钮：不参与拖拽（drag-region 在父级，按钮自身要能点击） */
-.unified-toolbar .toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: var(--control-h-md);
-  padding: 0 var(--s-2);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
-  background: var(--bg-control);
-  color: var(--label-secondary);
-  font: var(--type-caption);
-  transition: background var(--motion-fast) var(--motion-curve);
-}
-
-.unified-toolbar .toolbar-btn:hover {
-  background: var(--bg-selection);
-  color: var(--label-primary);
-}
-
-/* 侧栏开关不在工具栏（用户 2026-10-16 第二次定位后移到侧栏底部，见下）。
-   工具栏现在只剩标题与右侧动作区。 */
-
-.unified-toolbar .toolbar-hint {
-  color: var(--label-tertiary);
-}
+/* 工具栏里已无按钮：命令面板按钮 2026-10-16 按用户要求去掉（"基本没用过，没有价值"），
+   侧栏开关同日第二次定位后移到侧栏底部——工具栏只剩标题（`flex:1`，占满整条）。
+   `.toolbar-actions` / `.toolbar-btn` / `.toolbar-hint` 三条样式随之删除（曾只服务那个按钮）。
+   将来若再加按钮：button/input/select/a 或带 role=button/tabindex 的元素会自动阻止
+   `data-tauri-drag-region="deep"` 的拖拽，无需额外处理。 */
 
 .main-scroll {
   flex: 1;
@@ -282,26 +255,6 @@ body {
    阅读型页面加 .page--reading 保留 1100px 上限（见文件末尾《窗口缩放适配》一节） */
 .page {
   margin: 0 auto;
-}
-
-.page-title {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin-bottom: var(--s-1);
-}
-
-.page-sub {
-  font-size: 16.1px;
-  color: var(--text-3);
-  margin-bottom: var(--s-6);
-  line-height: 1.5;
-}
-
-.sub-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: var(--s-8) 0 var(--s-4);
 }
 
 /* ===== Fluent 卡片/面板 ===== */
@@ -568,42 +521,8 @@ body {
   outline-offset: 2px;
 }
 
-/* ===== 统计卡 ===== */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--s-3);
-  margin-bottom: var(--s-5);
-}
-
-.stat {
-  background: var(--surface);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
-  padding: var(--s-4);
-  box-shadow: var(--shadow-2);
-}
-
-.stat .label {
-  font-size: 12.6px;
-  color: var(--text-3);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: var(--s-1);
-}
-
-.stat .value {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.stat .delta {
-  font-size: 13.8px;
-  margin-top: 2px;
-  color: var(--text-3);
-}
+/* 统计卡（`.stat-grid` / `.stat*`）与 `.page-title` / `.page-sub` / `.sub-title` / `.tbl-foot`
+   等样式已删除（2026-10-16 清除死代码）：零标记引用，随 `components/StatCard.vue` 一起下线。 */
 
 /* ===== 表单 ===== */
 .field {
@@ -687,7 +606,7 @@ select.input {
 }
 
 /* ===== 分段控件（规范 §1.5）=====
-   macOS 的设置/视图切换用分段控件而不是下划线页签；由 .tab-nav 的调用点迁入。 */
+   macOS 的设置/视图切换用分段控件而不是下划线页签。 */
 .segmented {
   display: inline-flex;
   gap: 2px;
@@ -968,21 +887,7 @@ select.input {
   color: var(--warning);
 }
 
-/* ===== 表尾/分页 ===== */
-.tbl-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--s-3) 0;
-  flex-wrap: wrap;
-  gap: var(--s-2);
-}
-
-.tbl-foot .info {
-  font-size: 13.8px;
-  color: var(--text-3);
-}
-
+/* ===== 分页 ===== */
 .pager {
   display: flex;
   gap: 2px;
@@ -1818,12 +1723,6 @@ select.input {
   align-items: start;
 }
 
-/* ---- 宽度自适应：取消 .page 上限后，若无此覆盖，auto-fill 会保留空轨道、
-       在宽屏留下右侧死空档 ---- */
-.stat-grid {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
-
 .att-grid {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
@@ -1957,10 +1856,6 @@ select.input {
 
   .form-grid {
     grid-template-columns: 1fr;
-  }
-
-  .tab-nav {
-    flex-wrap: wrap;
   }
 
   .recap-grid,

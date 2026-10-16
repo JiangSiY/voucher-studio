@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
 import { useInboxStore } from "../stores/inbox";
-import { useUiStore } from "../stores/ui";
 import { toastError } from "../stores/toast";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
@@ -12,7 +11,6 @@ import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 const route = useRoute();
 const configStore = useConfigStore();
 const dupStore = useDupStore();
-const ui = useUiStore();
 const inboxStore = useInboxStore();
 
 // 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
@@ -55,10 +53,6 @@ function toggleSidebar() {
   void configStore.toggleSidebarCollapsed().catch((e) => toastError(e));
 }
 
-/** 工具栏右侧动作：打开命令面板（与 ⌘K 同一入口） */
-function openPalette() {
-  ui.openPalette();
-}
 </script>
 
 <template>
@@ -124,13 +118,9 @@ function openPalette() {
       <header class="unified-toolbar" data-tauri-drag-region="deep">
         <!-- 侧栏开关不在这里：按用户 2026-10-16 的要求，它已移到侧栏底部版本行上方那一行
              （整行按钮，见 `<aside>` 内 `.sidebar-toggle`）。 -->
+        <!-- 工具栏里不再放按钮：命令面板按钮 2026-10-16 按用户要求去掉
+             （"基本没用过，没有价值"）；⌘K 仍可用（`App.vue` 全局快捷键 → `stores/ui.ts`）。 -->
         <h1 class="toolbar-title">{{ pageTitle }}</h1>
-        <div class="toolbar-actions">
-          <button class="toolbar-btn" title="命令面板（⌘K）" @click="openPalette">
-            <FluentIcon name="search" :size="15" />
-            <span class="toolbar-hint">⌘K</span>
-          </button>
-        </div>
       </header>
       <div class="main-scroll">
         <div class="page" :class="{ 'page--reading': isReading }">
