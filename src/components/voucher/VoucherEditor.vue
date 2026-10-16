@@ -47,6 +47,8 @@ const emit = defineEmits<{
   detail: [d: VoucherDetail];
   /** 保存并下一张（宿主决定下一张是谁） */
   next: [];
+  /** 未保存状态变化（宿主在右栏头部显示「● 未保存」；B 批：把状态提示从底部提到头部） */
+  dirty: [v: boolean];
 }>();
 
 const router = useRouter();
@@ -381,6 +383,9 @@ function onKeydown(e: KeyboardEvent) {
 const dateEl = ref<HTMLInputElement | null>(null);
 /** 供宿主在"展开编辑区"后把焦点送进第一个可编辑字段 */
 /** 暴露给宿主：① 聚焦首个字段；② 上报未保存修改（资料库据此在切换凭证/离开页面前弹确认，v0.19） */
+/** 未保存状态广播给宿主（右栏头部的小圆点） */
+watch(dirty, (v) => emit("dirty", v), { immediate: true });
+
 defineExpose({ focusFirst: () => dateEl.value?.focus(), isDirty: () => dirty.value });
 
 onMounted(() => {
@@ -397,6 +402,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
     <!-- 图片区与操作：换图 / 重跑识别 / 裁剪 / 大图查看（原编辑页能力） -->
     <AttachmentPanel
       v-if="detail"
+      :dense="dense"
       :attachments="detail.attachments"
       :ocr-busy="ocrBusy"
       :replacing="replacing"
@@ -415,15 +421,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </div>
 
+    <!-- 字段顺序（B 批）：摘要 → 日期 → 金额 → 状态 → 对方 → 标签 → 备注。
+         只读的「凭证编号」已移出表单——右栏头部本来就显示编号，白占一行；
+         最常改的三件事（摘要/日期金额/状态）因此落在首屏。 -->
     <div class="editor-form">
-      <label class="ed-row" data-field="no">
-        <span>凭证编号</span>
-        <input class="input mono" :value="voucher.voucherNo" disabled />
-      </label>
-      <label class="ed-row" data-field="date">
-        <span>凭证日期</span>
-        <input ref="dateEl" v-model="form.date" type="date" class="input" />
-      </label>
       <div class="ed-row" data-field="description">
         <span>摘要</span>
         <div class="ed-grow">
@@ -431,9 +432,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
         </div>
       </div>
-      <label class="ed-row" data-field="counterparty">
-        <span>对方账户</span>
-        <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
+      <label class="ed-row" data-field="date">
+        <span>凭证日期</span>
+        <input ref="dateEl" v-model="form.date" type="date" class="input" />
       </label>
       <label class="ed-row" data-field="amount">
         <span>金额（元）</span>
@@ -448,13 +449,17 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <option value="archived">已归档</option>
         </select>
       </label>
+      <label class="ed-row" data-field="counterparty">
+        <span>对方账户</span>
+        <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
+      </label>
       <label class="ed-row" data-field="tags">
         <span>标签</span>
         <input v-model="form.tags" class="input" placeholder="多个标签用、或,分隔" />
       </label>
       <label class="ed-row" data-field="note">
         <span>备注</span>
-        <textarea v-model="form.note" class="input" rows="3"></textarea>
+        <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
       </label>
     </div>
 
@@ -472,7 +477,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       </button>
     </div>
 
-    <!-- 识别提取结果（一键填入表单；落库仍由「保存」决定） -->
+    <!-- 关系与组（v0.22 B 批：由宿主插入，位置在**核心字段之后、识别结果之前**——
+         用户反馈"相关凭证/所属事项组太靠下"，这里给它们一个稳定的落点） -->
+    <slot name="relations" />
+
+    <!-- 识别提取结果（一键填入表单；落库仍由「保存」决定；默认折叠） -->
     <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
       @apply-field="applyExtractedField" @apply-all="applyAllExtracted" />
 
@@ -482,6 +491,25 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 <style scoped>
 .editor { display: flex; flex-direction: column; gap: var(--s-3); }
+
+/* 操作条吸底（B 批，用户选择「吸底」）：字段改完不用再往下滚去找「保存」。
+   背景与右栏一致，避免滚动时文字从底下透出来。 */
+.editor > .ed-ops {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: var(--s-2) 0;
+  background: var(--bg-content);
+  border-top: 1px solid var(--separator);
+}
+
+/* 备注自适应高度（B 批，用户选择「自适应」）：2 行起步，随内容长高，最多 6 行后内部滚动 */
+.ed-note {
+  field-sizing: content;
+  min-height: calc(2 * 1.5em + 12px);
+  max-height: calc(6 * 1.5em + 12px);
+  resize: vertical;
+}
 
 /* 表单是**一个**网格：标签列全局共用一条（宽度 = 最宽标签），因此每行的输入框左边缘对齐。
    反面案例：把 `max-content` 写在每一行上 → 每行各算各的宽度（"状态"两字窄、"金额（元）"五字宽），

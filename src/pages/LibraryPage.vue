@@ -205,6 +205,8 @@ const detail = ref<VoucherDetail | null>(null);
 /** 展开编辑区（窄栏 ⇄ 宽栏）：双击行/回车会展开并聚焦第一个字段 */
 const wide = ref(false);
 const editorRef = ref<InstanceType<typeof VoucherEditor> | null>(null);
+/** B 批：编辑器广播的「有未保存修改」（显示在右栏头部；既有 `editorDirty()` 是离开守卫用的函数） */
+const editorUnsaved = ref(false);
 
 /**
  * 上下文翻张（⌥←/→ 与右栏上的两个箭头）：按**整份筛选结果**翻，能跨页。
@@ -751,6 +753,8 @@ watch(keyword, () => {
       <aside class="inspector" v-if="shown">
         <header class="ins-head">
           <span class="mono">{{ shown.voucherNo }}</span>
+          <!-- B 批：未保存状态从底部操作行提到头部，右栏上半部就能看见 -->
+          <span v-if="editorUnsaved" class="ins-dirty" title="有未保存的修改">● 未保存</span>
           <span class="flex-1"></span>
           <!-- 上下文翻张（⌥←/→）：按**整份筛选结果**翻，能跨页（↑↓ 只在本页内移动）。
                顺序是后端定的日期序，与列表当前排序无关——title 里写明，免得误会。 -->
@@ -784,14 +788,18 @@ watch(keyword, () => {
           :voucher="shown"
           :detail="detail"
           :dense="!wide"
+          @dirty="editorUnsaved = $event"
           @saved="onEditorSaved"
           @detail="onEditorDetail"
           @next="onEditorNext"
-        />
-
-        <!-- v0.22 关联批：相关凭证 / 所属事项组（都用 `shown.id`，深链聚焦时跟着变） -->
-        <RelatedVouchers :voucher-id="shown.id" @focus="focusFromLink" />
-        <VoucherGroups :voucher-id="shown.id" @focus="focusFromLink" />
+        >
+          <!-- v0.22 关联批 + B 批重设计：相关凭证 / 所属事项组插在**核心字段之后、识别结果之前**
+               （都用 `shown.id`，深链聚焦/翻张时跟着变） -->
+          <template #relations>
+            <RelatedVouchers :voucher-id="shown.id" @focus="focusFromLink" />
+            <VoucherGroups :voucher-id="shown.id" @focus="focusFromLink" />
+          </template>
+        </VoucherEditor>
 
         <dl class="ins-meta">
           <div><dt>最后修改</dt><dd>{{ fmtDate(shown.updatedAt) }}</dd></div>
@@ -911,6 +919,12 @@ watch(keyword, () => {
   font-variant-numeric: tabular-nums;
 }
 .link { background: none; border: none; padding: 0; color: var(--accent); font: var(--type-caption); cursor: pointer; text-decoration: underline; }
+/* B 批：头部「● 未保存」提示（原来只在底部操作行里） */
+.ins-dirty {
+  font: var(--type-caption);
+  color: var(--warning);
+  white-space: nowrap;
+}
 .ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
 .ins-meta > div { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: baseline; }
 .ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }

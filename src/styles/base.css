@@ -1760,8 +1760,17 @@ select.input {
 }
 
 /* ---- 裁切兜底：这些容器原本直接裁掉溢出的按钮 ---- */
+/* v0.22 B 批：操作按钮**排在同一行**（此前 flex-wrap 会把它折成两排）；
+   右栏未展宽时（.isDense）收成纯图标——按钮本身都带 title 与 aria-label，语义不丢。 */
 .att-ops {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+.att-ops.isDense .ops-label {
+  display: none;
+}
+.att-ops.isDense .btn-sm {
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .closing-backup-card {

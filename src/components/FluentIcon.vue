@@ -100,6 +100,7 @@ const ICONS: Record<string, string> = {
     '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8.25 10.5h4.5"/>',
   chevronLeft: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   chevronRight: '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
+  chevronDown: '<path d="M5.5 9.5L12 16l6.5-6.5"/>',
   // 侧栏开关（2026-10-16）：面板形图标，一眼看出"这是侧边栏"。
   // 原用 chevronLeft/chevronRight 两态对调，真机走查被当成"返回"按钮 → 换成语义图标 + 选中态提示开合状态。
   sidebar:

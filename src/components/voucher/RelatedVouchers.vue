@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * 右栏「相关凭证」区块（v0.22 关联批）。
+ * 右栏「相关凭证」区块（v0.22 关联批；B 批重设计）。
  *
- * 语义（方案 v2）：只做**不带金额**的语义关系——`explains`（附件说明）与 `detail`（明细）；
+ * 版面规范（`docs/方案-编辑页重设计.md`）：与「识别结果 / 修改历史」同款 `fluent-panel`；
+ * 标题行右侧**只放一个主按钮**（建立关联 / 取消）；展开后**所有控件在同一行**
+ * （类型 / 搜索 / 搜索按钮 / 说明），候选列表在下一行，点候选即建立关联。
+ *
+ * 语义：只做**不带金额**的语义关系——`explains`（附件说明）与 `detail`（明细）；
  * 建立/解除都直接落库（两端凭证 + 审计留痕），**不改变任何金额合计口径**（关联 ≠ 抵消）。
- * 关系表按 `a_id < b_id` 归一化落库，因此两个方向看到的都是同一条关系。
  */
 import { ref, watch } from "vue";
 
@@ -12,6 +15,7 @@ import { api } from "../../api/client";
 import type { LinkedVoucher, Voucher, VoucherLinkKind } from "../../api/client";
 import { fmtAmount } from "../../composables/format";
 import { toastError } from "../../stores/toast";
+import FluentIcon from "../FluentIcon.vue";
 
 const props = defineProps<{ voucherId: number | null }>();
 const emit = defineEmits<{ focus: [id: number] }>();
@@ -82,51 +86,186 @@ async function unlink(l: LinkedVoucher) {
 </script>
 
 <template>
-  <section class="related">
-    <header class="rel-head">
-      <h4>相关凭证</h4>
+  <section class="fluent-panel">
+    <header class="fluent-panel-header rel-head">
+      <h3>
+        相关凭证
+        <span v-if="links.length" class="rel-badge">{{ links.length }} 条</span>
+      </h3>
       <button class="btn btn-sm" :disabled="!voucherId" @click="picking = !picking">
         {{ picking ? "取消" : "＋ 建立关联" }}
       </button>
     </header>
 
-    <div v-if="picking" class="rel-pick">
-      <div class="rel-row">
-        <select v-model="kind" class="input" title="关系类型">
+    <div class="fluent-panel-body rel-body">
+      <!-- 全部控件一行：类型 / 搜索 / 搜索按钮 / 说明 -->
+      <div v-if="picking" class="rel-pick">
+        <select v-model="kind" class="input rel-kind" title="关系类型" aria-label="关系类型">
           <option value="explains">附件说明</option>
           <option value="detail">明细</option>
         </select>
         <input
           v-model="keyword"
-          class="input"
+          class="input rel-grow"
           placeholder="搜索凭证（编号 / 摘要 / 对方）"
+          aria-label="搜索凭证"
           @keyup.enter="search"
         />
         <button class="btn btn-sm" @click="search">搜索</button>
+        <input
+          v-model="note"
+          class="input rel-grow"
+          placeholder="说明（可选，例如：这笔付款对应的发票）"
+          aria-label="关系说明"
+        />
       </div>
-      <input v-model="note" class="input" placeholder="说明（可选，例如：这笔付款对应的发票）" />
+
       <ul v-if="candidates.length" class="rel-cand">
         <li v-for="c in candidates" :key="c.id">
           <button class="link" @click="link(c)">
             {{ c.voucherNo }} · {{ c.voucherDate }} · {{ fmtAmount(c.amountCents) }}
           </button>
-          <span class="muted small">{{ c.description }}</span>
+          <span class="rel-cand-desc">{{ c.description }}</span>
         </li>
       </ul>
-    </div>
 
-    <ul v-if="links.length" class="rel-list">
-      <li v-for="l in links" :key="l.linkId">
-        <span class="rel-kind">{{ KIND_LABEL[l.kind] }}</span>
-        <button class="link" @click="emit('focus', l.other.id)">
-          {{ l.other.voucherNo }} · {{ l.other.voucherDate }} · {{ fmtAmount(l.other.amountCents) }}
-        </button>
-        <span v-if="l.note" class="muted small rel-note">{{ l.note }}</span>
-        <button class="btn btn-sm" @click="unlink(l)">解除</button>
-      </li>
-    </ul>
-    <p v-else class="muted small">
-      还没有关联。付款截图看不懂用途时，可以关联一张说明凭证，或把它归进一个事项组。
-    </p>
+      <ul v-if="links.length" class="rel-list">
+        <li v-for="l in links" :key="l.linkId">
+          <span class="rel-kind-tag">{{ KIND_LABEL[l.kind] }}</span>
+          <button class="link rel-other" @click="emit('focus', l.other.id)">
+            {{ l.other.voucherNo }} · {{ l.other.voucherDate }} · {{ fmtAmount(l.other.amountCents) }}
+          </button>
+          <span v-if="l.note" class="rel-note-text">{{ l.note }}</span>
+          <button class="rel-unlink" title="解除关联" aria-label="解除关联" @click="unlink(l)">
+            <FluentIcon name="close" :size="13" />
+          </button>
+        </li>
+      </ul>
+      <p v-else class="rel-empty">
+        还没有关联。付款截图看不懂用途时，可以关联一张说明凭证，或把它归进一个事项组。
+      </p>
+    </div>
   </section>
 </template>
+
+<style scoped>
+/* 标题右侧只放一个主按钮；标题内的条数徽标折叠时也看得见 */
+.rel-head h3 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0;
+}
+.rel-badge {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
+.rel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+/* 一行放完：类型 / 搜索 / 搜索按钮 / 说明（窄栏允许折行，但控件始终成组相邻） */
+.rel-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: nowrap;
+}
+.rel-kind {
+  width: 108px;
+  flex: 0 0 auto;
+}
+.rel-grow {
+  flex: 1 1 0;
+  min-width: 0;
+}
+@media (max-width: 1240px) {
+  .rel-pick {
+    flex-wrap: wrap;
+  }
+  .rel-kind,
+  .rel-grow {
+    flex: 1 1 140px;
+  }
+}
+/* 候选：一行一条，右侧给摘要 */
+.rel-cand {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  max-height: 168px;
+  overflow: auto;
+}
+.rel-cand li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: 4px var(--s-2);
+}
+.rel-cand li + li {
+  border-top: 1px solid var(--separator);
+}
+.rel-cand-desc {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 已有关系：一行三段 + 行尾解除 */
+.rel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rel-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 5px 0;
+}
+.rel-list li + li {
+  border-top: 1px solid var(--separator);
+}
+.rel-kind-tag {
+  flex: 0 0 auto;
+  font: var(--type-caption);
+  color: var(--label-secondary);
+  background: var(--bg-selection);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.rel-other {
+  flex: 0 0 auto;
+}
+.rel-note-text {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rel-unlink {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  color: var(--label-tertiary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.rel-unlink:hover {
+  color: var(--danger);
+  background: var(--bg-selection);
+}
+.rel-empty {
+  margin: 0;
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
+</style>

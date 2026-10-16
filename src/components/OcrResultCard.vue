@@ -6,6 +6,7 @@
  */
 import { computed } from "vue";
 import type { ExtractedFields } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel.vue";
 import ConfidenceTag from "./ConfidenceTag.vue";
 import FluentIcon from "./FluentIcon.vue";
 import { fmtAmount } from "../composables/format";
@@ -20,6 +21,16 @@ const emit = defineEmits<{
   applyAll: [];
 }>();
 
+/** 徽标：识别到几项（折叠时也能看出有没有内容） */
+const extractedCount = computed(() => {
+  const f = props.extracted;
+  if (!f) return 0;
+  return [f.date, f.amountCents, f.counterparty, f.merchant].filter(
+    (v) => v != null && v !== "",
+  ).length;
+});
+const badge = computed(() => (extractedCount.value ? `识别到 ${extractedCount.value} 项` : ""));
+
 /** 提取字段是否可填入（至少一个字段非空才显示卡片） */
 const hasExtracted = computed(() => {
   const f = props.extracted;
@@ -28,14 +39,13 @@ const hasExtracted = computed(() => {
 </script>
 
 <template>
-  <div class="fluent-panel" v-if="hasExtracted || fieldsBusy">
-    <div class="fluent-panel-header">
-      <h3>识别结果</h3>
+  <CollapsiblePanel v-if="hasExtracted || fieldsBusy" title="识别结果" :badge="badge">
+    <template #actions>
       <button class="btn btn-sm btn-primary" v-if="hasExtracted" @click="emit('applyAll')">
         <FluentIcon name="flash" :size="14" />全部填入
       </button>
-    </div>
-    <div class="fluent-panel-body">
+    </template>
+    <div>
       <div v-if="fieldsBusy" style="font-size: 13px; color: var(--text-2)">正在提取字段…</div>
       <template v-else-if="extracted">
         <div class="ext-row">
@@ -75,7 +85,7 @@ const hasExtracted = computed(() => {
         <div class="ext-tip">提取自 OCR 识别文本；「填入」只改表单值，点「保存」才落库。</div>
       </template>
     </div>
-  </div>
+  </CollapsiblePanel>
 </template>
 
 <style scoped>

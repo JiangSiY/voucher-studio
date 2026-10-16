@@ -19,6 +19,8 @@ defineProps<{
   ocrBusy: boolean;
   replacing: boolean;
   lockedPeriod: string | null;
+  /** 右栏未展宽（B 批）：操作按钮收成纯图标，避免换行成两排 */
+  dense?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -179,7 +181,7 @@ async function onCropSave(
               <span v-if="a.enhancedSource === 'screenshot'" class="tag tag-muted" title="截图（增强收益小）">截图</span>
               <span v-else-if="a.enhancedSource === 'scan'" class="tag tag-info" title="扫描件 / 拍照">扫描件</span>
             </div>
-            <div class="att-ops">
+            <div class="att-ops" :class="{ isDense: dense }">
               <button class="btn btn-sm" :disabled="ocrBusy"
                 :title="ocrBusy ? '识别中…' : '重新识别（重跑本地 OCR）'"
                 aria-label="重新识别" @click="emit('runOcr', a)">

@@ -3,12 +3,23 @@
  * 修改历史（快照）面板：按触发原因展示每次变更前的关键字段摘要。
  * 从 VoucherFormPage 提取；纯展示，数据由父组件加载。
  */
+import { computed } from "vue";
+
 import type { VoucherSnapshot } from "../../api/client";
+import CollapsiblePanel from "../CollapsiblePanel.vue";
 import { fmtDate } from "../../composables/format";
 
-defineProps<{
+const props = defineProps<{
   snapshots: VoucherSnapshot[];
 }>();
+
+/** 徽标：条数 + 最近一次时间（折叠时也能判断要不要展开） */
+const badge = computed(() => {
+  const n = props.snapshots.length;
+  if (!n) return "";
+  const latest = props.snapshots[0]?.createdAt ?? "";
+  return latest ? `${n} 条 · 最近 ${latest.slice(5, 16).replace("T", " ")}` : `${n} 条`;
+});
 
 const SNAPSHOT_LABELS: Record<string, string> = {
   update: "修改前快照",
@@ -22,9 +33,8 @@ const SNAPSHOT_LABELS: Record<string, string> = {
 </script>
 
 <template>
-  <div class="fluent-panel" v-if="snapshots.length">
-    <div class="fluent-panel-header"><h3>修改历史（快照）</h3></div>
-    <div class="fluent-panel-body">
+  <CollapsiblePanel v-if="snapshots.length" title="修改历史（快照）" :badge="badge">
+    <div>
       <div v-for="s in snapshots" :key="s.id" class="snapshot-item">
         <div class="sn-meta">
           <span>{{ SNAPSHOT_LABELS[s.reason] ?? s.reason }}</span>
@@ -35,5 +45,5 @@ const SNAPSHOT_LABELS: Record<string, string> = {
         </div>
       </div>
     </div>
-  </div>
+  </CollapsiblePanel>
 </template>
