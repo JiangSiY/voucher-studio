@@ -8,7 +8,9 @@
  *    令牌管不到它们 → 系统开了"减少动效"仍照播；
  * ② `prefers-contrast: more` 全仓零命中；
  * ③ 危险 toast 与普通提示同用 `aria-live="polite"`：读屏要念完当前句子才播报，
- *    "删除失败 / 备份失败"这类信息晚几秒就已误事。
+ *    "删除失败 / 备份失败"这类信息晚几秒就已误事；
+ * ④ 深色侧栏材质只有 0.35 不透明度：浅色底上合成出中灰，白字对比度 1.5:1，
+ *    侧栏观感随桌面壁纸忽明忽暗（2026-10-16 用户真机反馈）。
  * 这些都是"靠约定不如靠门禁"的典型，故固化为断言。
  */
 import { readFileSync } from "node:fs";
@@ -46,6 +48,21 @@ describe("无障碍回退（规范 §4）", () => {
   it("危险 toast 走断言式通道，普通提示仍为礼貌式", () => {
     expect(toastHost).toMatch(/:role="t\.kind === 'danger' \? 'alert' : 'status'"/);
     expect(toastHost).toMatch(/:aria-live="t\.kind === 'danger' \? 'assertive' : 'polite'"/);
+  });
+
+  it("深色侧栏材质不透明度足够（浅色底上不被冲成中灰）", () => {
+    const decls = [...tokens.matchAll(/--bg-sidebar:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/g)].map(
+      (m) => ({ r: Number(m[1]), alpha: Number(m[4]) }),
+    );
+    // 深色主题块 + `@media (prefers-color-scheme: dark)` 兜底块，两处数值必须都够
+    const dark = decls.filter((d) => d.r < 128);
+    const light = decls.filter((d) => d.r >= 128);
+    expect(dark.length).toBeGreaterThanOrEqual(2);
+    for (const d of dark) expect(d.alpha).toBeGreaterThanOrEqual(0.85);
+    // 浅色侧**故意**保持低不透明度（用户要"看得到玻璃"，见 tokens.css 注释）——
+    // 若有人顺手把它一起抬高，这条会红，提醒先跟用户确认，别悄悄改掉玻璃观感。
+    expect(light.length).toBeGreaterThanOrEqual(1);
+    for (const d of light) expect(d.alpha).toBeLessThanOrEqual(0.35);
   });
 
   it("窄窗图标栏里收起开关的文案必须一起隐藏（56px 里会竖排成 5 行撑高整行）", () => {

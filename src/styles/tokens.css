@@ -20,7 +20,10 @@ html[data-theme="light"] {
   --bg-window: #ececec;
   /* 侧栏/工具栏：叠在**原生材质**上的着色。alpha 刻意压低（0.28）——用户反馈
      "没有看到玻璃效果"，此前 0.55 把模糊盖住了；降低后材质透出更明显。
-     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
+     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。
+     **浅色侧不抬不透明度**：2026-10-16 深色侧因对比度抬到 0.94 时，浅色侧刻意保持 0.28
+     （同一轮用户明确要"看得到玻璃"）；代价是浅色侧栏叠在深色桌面壁纸上仍会偏灰，
+     由 `prefers-reduced-transparency: reduce` 或改用深色主题兜底。 */
   --bg-sidebar: rgba(243, 243, 243, 0.28);
   --bg-sidebar-solid: #e8e8ec;
   /* 内容区：**不透明**，长阅读对比度优先 */
@@ -142,7 +145,13 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   --bg-window: #1e1e1e;
-  --bg-sidebar: rgba(38, 38, 42, 0.35);
+  /* 侧栏材质：深色下**只抬不透明度**（0.35 → 0.94），色相与实色回退保持不变。
+     0.35 的深色叠在浅色底上会被冲成中灰（浅色画布实测合成 rgb(179,179,180)），
+     白字对比度掉到 1.9:1，侧栏观感随桌面壁纸忽明忽暗；0.94 后合成稳定在深灰
+     （浅底 rgb(51,51,55) / 深底 rgb(36,36,40)），比内容区 `#1c1c1e` 略亮一层，仍是"侧栏面板"。
+     **只动深色**：浅色侧用户明确要"看得到玻璃"，保持 0.28 不动。
+     `prefers-reduced-transparency: reduce` 照旧回退实色。 */
+  --bg-sidebar: rgba(38, 38, 42, 0.94);
   --bg-sidebar-solid: #252528;
   --bg-content: #1c1c1e;
   --bg-control: #2c2c2e;
@@ -200,7 +209,7 @@ html[data-theme="dark"] {
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
     --bg-window: #1e1e1e;
-    --bg-sidebar: rgba(38, 38, 42, 0.35);
+    --bg-sidebar: rgba(38, 38, 42, 0.94);
     --bg-sidebar-solid: #252528;
     --bg-content: #1c1c1e;
     --bg-control: #2c2c2e;
