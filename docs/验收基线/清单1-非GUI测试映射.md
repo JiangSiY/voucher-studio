@@ -6,11 +6,11 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **289 个**（src 内联 **154** + tests/ 集成 **135**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **290 个**（src 内联 **154** + tests/ 集成 **136**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 5（v0.22 关联批）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 6（v0.22 关联批）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 296 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 298 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -100,6 +100,12 @@
 > 前端新增 `__tests__/voucherRelationContract.test.ts` **5 例**（右栏两区块挂 `shown.id` 且走 `focusFromLink` /
 > 关联区块模板不得出现「合计」（关联 ≠ 抵消）/ 组内合计必须标注「派生值」/ 10 个命令名一一对应 /
 > 「未被佐证」控件+URL 回显+清空三处都在）→ 前端 **50 文件 296 用例**。
+> **2026-10-16 批次②收尾（P1′ 无图凭证）**：`voucher_link_flow.rs` 新增
+> `memo_voucher_without_image_is_allowed_and_does_not_break_flows`（无图凭证＝**没有附件**的说明条目：
+> 编号自动生成、列表可见、缩略图缺席、金额留空不参与合计、日报照样出且批次张数不受影响、
+> 能被「未被佐证」筛到）→ 集成 135 → **136**、`voucher-core` 289 → **290**、总数 **292 → 293**；
+> 前端 `voucherRelationContract.test.ts` 5 → **7 例**（新增：说明条目入口存在且不走导入路径 / 列表对无图凭证有占位图标）
+> → 前端 **50 文件 298 用例**。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**281 通过 + 5 `#[ignore]`**（含上述新 2 例）= 286）。
