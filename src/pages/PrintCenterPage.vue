@@ -9,12 +9,13 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pickCandidate } from "../composables/useAttachmentFallback";
-import { api, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
+import { api, errMsg, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import VoucherCard from "../components/VoucherCard.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
 import { useConfigStore } from "../stores/config";
+import { useTaskStore } from "../stores/tasks";
 import { toast, toastError } from "../stores/toast";
 
 const configStore = useConfigStore();
@@ -85,6 +86,7 @@ function clearFilters() {
   filterTag.value = "";
 }
 
+const taskStore = useTaskStore();
 const busy = ref(false);
 const lastBatches = ref<ExportBatch[]>([]);
 
@@ -190,10 +192,17 @@ async function generate() {
     return;
   }
   busy.value = true;
+  // 长任务进全局任务中心：生成期间可以换页，回来还看得见进度与「打开文件」
+  const stopLabel = exportFormat.value === "pdf" ? "PDF" : exportFormat.value === "xlsx" ? "Excel" : "CSV";
+  const taskId = taskStore.start("export", `生成${stopLabel}（${selected.value.size} 张凭证）`);
   try {
     // v0.10：表格式导出（Excel / CSV）——列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行
     if (exportFormat.value !== "pdf") {
       const batch = await api.exportTable([...selected.value], exportFormat.value);
+      taskStore.finish(taskId, {
+        detail: `${batch.batchNo} · ${batch.voucherCount} 张凭证`,
+        action: { label: "打开文件", onClick: () => void api.openPath(batch.pdfPath) },
+      });
       lastBatches.value = [batch];
       toast.success(
         `已导出 ${exportFormat.value === "xlsx" ? "Excel" : "CSV"}：${batch.batchNo}（${batch.voucherCount} 张凭证）`,
@@ -215,6 +224,10 @@ async function generate() {
     if (groupByDay.value) {
       const batches = await api.exportPdfDaily([...selected.value], options);
       lastBatches.value = batches;
+      taskStore.finish(taskId, {
+        detail: `按 ${batches.length} 天生成 ${batches.length} 份日报`,
+        action: batches.length ? { label: "打开文件", onClick: () => void openLastPdf() } : undefined,
+      });
       toast.success(
         batches.length === 1
           ? `凭证日报已生成：${batches[0].batchNo}（${batches[0].voucherCount} 张凭证）`
@@ -223,9 +236,14 @@ async function generate() {
     } else {
       const batch = await api.exportPdf([...selected.value], options);
       lastBatches.value = [batch];
+      taskStore.finish(taskId, {
+        detail: `${batch.batchNo} · ${batch.voucherCount} 张凭证`,
+        action: { label: "打开文件", onClick: () => void openLastPdf() },
+      });
       toast.success(`PDF 已生成：${batch.batchNo}（${batch.voucherCount} 张凭证）`);
     }
   } catch (e) {
+    taskStore.fail(taskId, errMsg(e));
     toastError(e);
   } finally {
     busy.value = false;

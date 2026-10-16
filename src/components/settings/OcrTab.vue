@@ -7,9 +7,10 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type LocalOcrStatus } from "../../api/client";
+import { api, errMsg, type LocalOcrStatus } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
+import { useTaskStore } from "../../stores/tasks";
 import { useSettingsDraft } from "../../stores/settingsDraft";
 
 const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
@@ -17,6 +18,9 @@ const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 const localOcr = ref<LocalOcrStatus | null>(null);
 
 // 批量识别待处理附件（列表页导入未跑 OCR 的、历史失败件等），成功后自动填单（只填空字段）
+const taskStore = useTaskStore();
+/** 正在跑的批量识别任务 id（进度事件据此上报；完成后置空） */
+let ocrTaskId: number | null = null;
 const ocrPendingBusy = ref(false);
 const ocrProgress = ref<{ done: number; total: number } | null>(null);
 
@@ -30,18 +34,24 @@ async function runOcrPending() {
   if (ocrPendingBusy.value) return;
   ocrPendingBusy.value = true;
   ocrProgress.value = null;
+  // 批量识别可能跑几分钟：任务中心兜住"换页也看得见"，页内进度条照旧（在本页时不离开视线）
+  const taskId = taskStore.start("ocr", "批量识别待识别附件");
+  ocrTaskId = taskId;
   try {
     const n = await api.runOcrPending(500);
+    taskStore.finish(taskId, { detail: n > 0 ? `已识别 ${n} 张并自动填单` : "没有待识别的附件" });
     if (n > 0) {
       toast.success(`批量识别完成：${n} 张附件已识别并自动填单`);
     } else {
       toast.info?.("没有待识别的附件");
     }
   } catch (e) {
+    taskStore.fail(taskId, errMsg(e));
     toastError(e);
   } finally {
     ocrPendingBusy.value = false;
     ocrProgress.value = null;
+    ocrTaskId = null;
   }
 }
 
@@ -56,6 +66,7 @@ onMounted(async () => {
   }
   unlistenOcrProgress = await listen<{ done: number; total: number }>("ocr:progress", (e) => {
     if (ocrPendingBusy.value) ocrProgress.value = e.payload;
+    if (ocrTaskId !== null) taskStore.progress(ocrTaskId, { done: e.payload.done, total: e.payload.total });
   });
 });
 

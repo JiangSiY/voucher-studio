@@ -8,9 +8,10 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatusV2, type HitTrend, type RecentEnhancedRow } from "../../api/client";
+import { api, errMsg, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatusV2, type HitTrend, type RecentEnhancedRow } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
+import { useTaskStore } from "../../stores/tasks";
 import { useSettingsDraft } from "../../stores/settingsDraft";
 
 const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
@@ -138,6 +139,9 @@ function clearUndoOneTimer() {
 }
 
 // v0.8：存量重新增强（进度事件 enhance:progress 驱动按钮文案）
+const taskStore = useTaskStore();
+/** 正在跑的重建增强任务 id（进度事件据此上报） */
+let enhanceTaskId: number | null = null;
 const reEnhancing = ref(false);
 const reEnhanceDone = ref(0);
 const reEnhanceTotal = ref(0);
@@ -151,6 +155,7 @@ async function reEnhanceAll() {
   reEnhancing.value = true;
   reEnhanceDone.value = 0;
   reEnhanceTotal.value = 0;
+  enhanceTaskId = taskStore.start("enhance", "重建全部增强版");
   try {
     if (!unlistenEnhanceProgress) {
       unlistenEnhanceProgress = await listen<{ done: number; total: number }>(
@@ -158,13 +163,25 @@ async function reEnhanceAll() {
         (e) => {
           reEnhanceDone.value = e.payload.done;
           reEnhanceTotal.value = e.payload.total;
+          if (enhanceTaskId !== null)
+            taskStore.progress(enhanceTaskId, { done: e.payload.done, total: e.payload.total });
         },
       );
     }
     const r = await api.reEnhanceAll();
+    if (enhanceTaskId !== null) {
+      taskStore.finish(enhanceTaskId, {
+        detail: `${r.ok} 成功${r.failed ? ` · ${r.failed} 失败` : ""}`,
+      });
+      enhanceTaskId = null;
+    }
     toast.success(`重新增强完成：${r.ok} 成功${r.failed ? ` · ${r.failed} 失败` : ""}`);
     refreshEnhancePanel();
   } catch (e) {
+    if (enhanceTaskId !== null) {
+      taskStore.fail(enhanceTaskId, errMsg(e));
+      enhanceTaskId = null;
+    }
     toastError(e);
   } finally {
     reEnhancing.value = false;

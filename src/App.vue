@@ -13,6 +13,8 @@ import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
 import FluentIcon from "./components/FluentIcon.vue";
 import CommandPalette from "./components/CommandPalette.vue";
+import TaskCenter from "./components/TaskCenter.vue";
+import { useTaskStore } from "./stores/tasks";
 
 const configStore = useConfigStore();
 const dupStore = useDupStore();
@@ -22,6 +24,13 @@ const router = useRouter();
 // v0.13：全局命令面板（Ctrl+K）
 const ui = useUiStore();
 const paletteVisible = computed(() => ui.paletteVisible);
+
+// 全局任务中心（规范 §1.5）：导入 / 备份 / 导出 / 批量识别这类长任务的进度都汇到这里，
+// 换页也看得见；toast 只负责"一次性结果"，两者分工见 stores/tasks.ts 头注释。
+const taskStore = useTaskStore();
+/** 当前进行中的导入/备份任务 id（一次只可能有一个：Rust 侧同一时刻只跑一条导入/一条关闭备份） */
+let importTaskId: number | null = null;
+let closingBackupTaskId: number | null = null;
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
@@ -74,17 +83,28 @@ onMounted(async () => {
 
   // 自动备份：失败必报；副本告警提示 3-2-1 不完整
   unlistenDone = await safeListen<BackupInfo>("backup:done", (e) => {
+    if (closingBackupTaskId !== null) {
+      taskStore.finish(closingBackupTaskId, {
+        detail: e.payload.warnings?.length ? "副本存在问题，见提示" : "本地备份已就绪",
+      });
+      closingBackupTaskId = null;
+    }
     if (e.payload.warnings?.length) {
       toast.warning(`自动备份完成，但副本存在问题：${e.payload.warnings.join("；")}`);
     }
   });
   unlistenFailed = await safeListen<string>("backup:failed", (e) => {
+    if (closingBackupTaskId !== null) {
+      taskStore.fail(closingBackupTaskId, e.payload);
+      closingBackupTaskId = null;
+    }
     toast.danger(`自动备份失败：${e.payload}`);
   });
 
   // 关闭前自动备份：Rust 拦截关闭请求 → 遮罩提示 + 可跳过
   unlistenClosing = await safeListen("backup:closing", () => {
     closingBackup.value = true;
+    closingBackupTaskId = taskStore.start("backup", "关闭前自动备份");
   });
 
   // 拖放导入（Rust 侧处理）：进入/离开遮罩 → 开始提示 → 结果反馈
@@ -97,6 +117,8 @@ onMounted(async () => {
   unlistenImportStarted = await safeListen<number>("import:started", (e) => {
     importing.value = true;
     draggingOver.value = false;
+    // 进度由 Rust 侧按批事件驱动，任务中心先起一条不确定态；导入期间换页也不丢
+    importTaskId = taskStore.start("import", `导入 ${e.payload} 张图片`, e.payload);
     toast.info?.(`正在导入 ${e.payload} 张图片…`);
   });
   unlistenImportDone = await safeListen<ImportSummary>("import:done", (e) => {
@@ -107,19 +129,28 @@ onMounted(async () => {
     if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张图片，各建一张凭证`);
     if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
     if (s.failed.length) parts.push(`失败 ${s.failed.length} 张`);
+    const goReview = () => {
+      if (s.vouchers.length)
+        router.push({ path: "/vouchers", query: { focus: String(s.vouchers[0].voucherId) } });
+    };
+    if (importTaskId !== null) {
+      taskStore.finish(importTaskId, {
+        detail: parts.join(" · ") || "没有新的图片",
+        action: s.vouchers.length ? { label: "开始核对", onClick: goReview } : undefined,
+      });
+      importTaskId = null;
+    }
     if (parts.length) {
       // 动线：导入完成即引导核对（跳到第一张新凭证，其余可用「下一张」连续翻）
-      toast.success(parts.join(" · "), {
-        label: "开始核对",
-        onClick: () => {
-          if (s.vouchers.length)
-            router.push({ path: "/vouchers", query: { focus: String(s.vouchers[0].voucherId) } });
-        },
-      });
+      toast.success(parts.join(" · "), { label: "开始核对", onClick: goReview });
     }
   });
   unlistenImportError = await safeListen<string>("import:error", (e) => {
     importing.value = false;
+    if (importTaskId !== null) {
+      taskStore.fail(importTaskId, e.payload);
+      importTaskId = null;
+    }
     toast.danger(`导入失败：${e.payload}`);
   });
 
@@ -185,6 +216,8 @@ onUnmounted(() => {
       <button class="btn" @click="skipClosingBackup">跳过备份，直接退出</button>
     </div>
   </div>
+
+  <TaskCenter />
 
   <ToastHost />
 
