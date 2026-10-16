@@ -6,6 +6,8 @@
  * - **双击行 = 展开编辑区**（v0.19 起不再跳独立编辑页）；`focus` 深链可聚焦不在本页的凭证；
  * - **跨页选择集**：翻页不丢选择（旧实现每次 load 清空，是用户抱怨过的行为）；
  * - 「按筛选全选 N 张」走只读 id 接口，不把 N 条对象拉回前端。
+ * - **未保存修改的离开保护**（v0.19，2026-10-16 补）：切凭证 / 深链跳走 / 离开本页前弹确认，
+ *   默认焦点「留在此页」；`beforeunload` 兜住刷新与关窗。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
@@ -18,6 +20,7 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   route: { value: {} as Record<string, string> },
+  leaveGuard: null as null | (() => unknown),
 }));
 
 vi.mock("../../api/client", () => ({
@@ -40,6 +43,9 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) })
 vi.mock("vue-router", () => ({
   useRoute: () => ({ query: h.route.value }),
   useRouter: () => ({ push: h.push, replace: h.replace }),
+  onBeforeRouteLeave: (fn: () => unknown) => {
+    h.leaveGuard = fn;
+  },
 }));
 
 const mockApi = vi.mocked(api);
@@ -63,8 +69,18 @@ function v(over: Partial<Voucher> = {}): Voucher {
 
 const thumb = { filePath: "2026-09/a.jpg", enhancedPath: null, enhancedSource: "unknown", fileAbs: "/tmp/a.jpg", enhancedAbs: null };
 
+/** 确认框走 Teleport 到 body，按钮要按文档级查询找 */
+function dialogButton(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+  if (!found) throw new Error(`找不到按钮：${label}`);
+  return found as HTMLButtonElement;
+}
+
+let mounted: VueWrapper | null = null;
+
 async function mountPage(): Promise<VueWrapper> {
   const w = mount(LibraryPage, { attachTo: document.body });
+  mounted = w;
   await flushPromises();
   return w;
 }
@@ -86,6 +102,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mounted?.unmount();
+  mounted = null;
+  h.leaveGuard = null;
   document.body.innerHTML = "";
   vi.clearAllMocks();
 });
@@ -170,6 +189,69 @@ describe("资料库：双行列表与检视器", () => {
     expect(w.text()).toContain("不在当前筛选结果中");
     // 一次性动作：处理完把 focus 从地址栏摘掉
     expect(h.replace).toHaveBeenCalled();
+  });
+});
+
+describe("资料库：未保存修改的离开保护", () => {
+  it("改字段后点另一行 → 先确认；「留在此页」保住草稿，「放弃修改」才切换", async () => {
+    const w = await mountPage();
+    await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("999");
+    mockApi.getVoucher.mockClear();
+
+    await w.findAll(".row")[1].trigger("click");
+    await flushPromises();
+    expect(document.body.textContent).toContain("当前凭证有未保存的修改");
+    expect(mockApi.getVoucher).not.toHaveBeenCalled(); // 没切走
+
+    dialogButton("留在此页").click();
+    await flushPromises();
+    expect(w.find<HTMLInputElement>('[data-field="amount"] input').element.value).toBe("999");
+
+    await w.findAll(".row")[1].trigger("click");
+    await flushPromises();
+    dialogButton("放弃修改").click();
+    await flushPromises();
+    expect(mockApi.getVoucher).toHaveBeenCalledWith(2);
+  });
+
+  it("干净时切行不打扰（没有确认框）", async () => {
+    const w = await mountPage();
+    await w.findAll(".row")[1].trigger("click");
+    await flushPromises();
+    expect(document.body.textContent).not.toContain("有未保存的修改");
+    expect(mockApi.getVoucher).toHaveBeenCalledWith(2);
+  });
+
+  it("路由守卫：脏数据挂起导航，「留在此页」拒绝、「放弃修改」放行", async () => {
+    const w = await mountPage();
+    expect(h.leaveGuard).toBeTruthy();
+    expect(h.leaveGuard!()).toBe(true); // 干净：直接放行
+
+    await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("999");
+    const blocked = h.leaveGuard!() as Promise<boolean>;
+    await flushPromises();
+    expect(document.body.textContent).toContain("当前凭证有未保存的修改");
+    dialogButton("留在此页").click();
+    await flushPromises();
+    await expect(blocked).resolves.toBe(false);
+
+    const blocked2 = h.leaveGuard!() as Promise<boolean>;
+    await flushPromises();
+    dialogButton("放弃修改").click();
+    await flushPromises();
+    await expect(blocked2).resolves.toBe(true);
+  });
+
+  it("beforeunload：脏数据时取消关闭，干净时不拦", async () => {
+    const w = await mountPage();
+    const clean = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+
+    await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("999");
+    const dirty = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
   });
 });
 

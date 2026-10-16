@@ -12,11 +12,12 @@
  *   新建向导仍保留独立页（`/vouchers/new`，多步流程）。
  *
  * 已实装：跨页选择集、按筛选全选、右栏完整编辑（7 字段 + 换图/识别/裁剪/提取填入/快照）、
- * `focus` 深链（其他页面跳来并聚焦某张）。
+ * `focus` 深链（其他页面跳来并聚焦某张）、**未保存修改的离开保护**（切凭证/深链跳走/离开本页前确认，
+ * 默认「留在此页」；`beforeunload` 兜住刷新与关窗）。
  * 待补（审计 2026-09-27 登记）：列表虚拟滚动（量级上千时）。
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
@@ -254,7 +255,92 @@ const selected = computed(() => items.value.find((v) => v.id === selectedId.valu
  */
 let detailSeq = 0;
 
-async function select(v: Voucher) {
+// ---------- 未保存修改的离开保护（v0.19：右栏是全应用唯一编辑处） ----------
+/**
+ * 三种离开方式都要拦：① 在列表里切到另一张；② `focus` 深链切到页外那张；③ 离开本页（路由/关窗/刷新）。
+ * 旧实现只有 `resetFrom` 无条件覆盖——草稿说没就没，连个提示都没有。
+ * 拦截时弹一次确认，**默认焦点在「留在此页」**（ConfirmDialog 首个可操作元素就是取消按钮）。
+ */
+type LeaveIntent =
+  | { kind: "switch"; target: Voucher }
+  | { kind: "focus"; id: number }
+  | { kind: "route" };
+
+const leaveIntent = ref<LeaveIntent | null>(null);
+const leaveConfirmVisible = computed(() => leaveIntent.value !== null);
+const leaveConfirmTitle = computed(() => {
+  switch (leaveIntent.value?.kind) {
+    case "switch":
+      return "切换到另一张凭证？";
+    case "focus":
+      return "跳转到另一张凭证？";
+    default:
+      return "离开资料库？";
+  }
+});
+let resolveRouteLeave: ((ok: boolean) => void) | null = null;
+
+/** 编辑器里有未保存的修改吗（组件未挂载时视为干净） */
+function editorDirty(): boolean {
+  return editorRef.value?.isDirty() ?? false;
+}
+
+/** 切到另一张之前先问一句：目标与当前展示的是同一张则直接放行 */
+function guardSwitch(v: Voucher): boolean {
+  if (shown.value?.id === v.id || !editorDirty()) return true;
+  leaveIntent.value = { kind: "switch", target: v };
+  return false;
+}
+
+function confirmLeave() {
+  const intent = leaveIntent.value;
+  leaveIntent.value = null;
+  if (!intent) return;
+  if (intent.kind === "switch") {
+    void doSelect(intent.target);
+    return;
+  }
+  if (intent.kind === "focus") {
+    void showFocusedOffPage(intent.id);
+    return;
+  }
+  resolveRouteLeave?.(true);
+  resolveRouteLeave = null;
+}
+
+function cancelLeave() {
+  const intent = leaveIntent.value;
+  leaveIntent.value = null;
+  if (intent?.kind !== "route") return;
+  resolveRouteLeave?.(false);
+  resolveRouteLeave = null;
+}
+
+/** 路由守卫：脏数据时挂起导航，等用户在确认框里选（返回的 Promise 由 router 等待） */
+onBeforeRouteLeave(() => {
+  if (!editorDirty()) return true;
+  return new Promise<boolean>((resolve) => {
+    resolveRouteLeave = resolve;
+    leaveIntent.value = { kind: "route" };
+  });
+});
+
+/** 关窗/刷新兜底：浏览器与 webview 的 beforeunload（Tauri 的 `CloseRequested` 在 Rust 侧做关闭前备份） */
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (!editorDirty()) return;
+  e.preventDefault();
+  e.returnValue = "";
+}
+
+onMounted(() => window.addEventListener("beforeunload", onBeforeUnload));
+onUnmounted(() => {
+  window.removeEventListener("beforeunload", onBeforeUnload);
+  // 卸载时若还有挂起的路由确认（异常路径），放行以免导航永久卡住
+  resolveRouteLeave?.(true);
+  resolveRouteLeave = null;
+});
+
+async function doSelect(v: Voucher) {
   selectedId.value = v.id;
   shown.value = v;
   detail.value = null;
@@ -270,6 +356,11 @@ async function select(v: Voucher) {
   }
 }
 
+async function select(v: Voucher) {
+  if (!guardSwitch(v)) return;
+  await doSelect(v);
+}
+
 /** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */ 
 async function showFocused(id: number) {
   const inPage = items.value.find((v) => v.id === id);
@@ -280,6 +371,15 @@ async function showFocused(id: number) {
     document.querySelector(`[data-row-id="${id}"]`)?.scrollIntoView?.({ block: "nearest" });
     return;
   }
+  if (editorDirty() && shown.value?.id !== id) {
+    leaveIntent.value = { kind: "focus", id };
+    return;
+  }
+  await showFocusedOffPage(id);
+}
+
+/** `focus` 深链指向页外凭证：单独取它并展示，不改列表（切走前同样过脏数据确认） */
+async function showFocusedOffPage(id: number) {
   selectedId.value = id;
   const my = ++detailSeq;
   try {
@@ -635,6 +735,17 @@ watch(keyword, () => {
       confirm-text="删除"
       @confirm="removeSelected"
       @cancel="confirmDelete = false"
+    />
+
+    <!-- 未保存修改的离开保护：切凭证 / 跳走 / 离开本页前先问一句，「留在此页」是默认焦点 -->
+    <ConfirmDialog
+      :visible="leaveConfirmVisible"
+      :title="leaveConfirmTitle"
+      body="当前凭证有未保存的修改，继续将丢失这些改动。"
+      confirm-text="放弃修改"
+      cancel-text="留在此页"
+      @confirm="confirmLeave"
+      @cancel="cancelLeave"
     />
   </div>
 </template>

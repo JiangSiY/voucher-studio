@@ -355,7 +355,8 @@ function onKeydown(e: KeyboardEvent) {
 
 const dateEl = ref<HTMLInputElement | null>(null);
 /** 供宿主在"展开编辑区"后把焦点送进第一个可编辑字段 */
-defineExpose({ focusFirst: () => dateEl.value?.focus() });
+/** 暴露给宿主：① 聚焦首个字段；② 上报未保存修改（资料库据此在切换凭证/离开页面前弹确认，v0.19） */
+defineExpose({ focusFirst: () => dateEl.value?.focus(), isDirty: () => dirty.value });
 
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);

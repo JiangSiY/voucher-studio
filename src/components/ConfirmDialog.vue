@@ -8,9 +8,11 @@ const props = withDefaults(
     title?: string;
     body: string;
     confirmText?: string;
+    /** 取消按钮文案（默认「取消」；「未保存修改」这类场景用「留在此页」更顺口） */
+    cancelText?: string;
     danger?: boolean;
   }>(),
-  { title: "确认操作", confirmText: "确定", danger: true },
+  { title: "确认操作", confirmText: "确定", cancelText: "取消", danger: true },
 );
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
@@ -30,7 +32,7 @@ const { panelEl } = useModal(
         <h3>{{ props.title }}</h3>
         <div class="dialog-body">{{ props.body }}</div>
         <div class="dialog-ops">
-          <button class="btn" @click="emit('cancel')">取消</button>
+          <button class="btn" @click="emit('cancel')">{{ props.cancelText }}</button>
           <button class="btn" :class="danger ? 'btn-danger' : 'btn-primary'" @click="emit('confirm')">
             {{ props.confirmText }}
           </button>
