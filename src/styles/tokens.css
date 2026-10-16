@@ -227,10 +227,35 @@ html[data-theme="dark"] {
   }
 }
 
-/* 无障碍回退：系统要求减少动效 → 过渡与动画全部关闭 */
+/* 无障碍回退：系统要求减少动效 → 过渡与动画全部关闭。
+   只把两个令牌置 0 并不足够：样式表里仍有**硬编码时长**（如 `transition: all .15s`、
+   `clip-path .06s`、`animation: toast-in .2s`），令牌管不到它们，
+   因此再加一条通配兜底（这不是"取消动效"，而是把时长压到不可见）。 */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
     --motion-normal: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 无障碍回退（规范 §4）：系统要求「提高对比度」时，描边加重、次要文字升到主级。
+   只改这三组语义令牌，不改组件——所有文字/分隔线都经它们取色。 */
+@media (prefers-contrast: more) {
+  :root,
+  html[data-theme="light"],
+  html[data-theme="dark"] {
+    --separator: var(--separator-strong);
+    --text-2: var(--label-primary);
+    --text-3: var(--label-primary);
+    --text-4: var(--label-secondary);
   }
 }

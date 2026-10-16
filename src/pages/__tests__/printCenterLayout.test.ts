@@ -63,4 +63,13 @@ describe("打印中心：选择列表", () => {
     expect(occurrences, "导出格式的分段控件只应出现在顶部操作条").toBeLessThanOrEqual(3);
     expect(src).not.toContain('<label>导出格式</label>');
   });
+
+  it("「全选筛选结果」在未勾选时也可用（禁用条件只看有无可选项 / 是否忙）", () => {
+    // 背景：此前禁用条件是 !selected.size，于是"一张都没勾"时最常用的入口不可用，
+    // 必须先手动勾一张（资料库页早已是"未选→显示全选"，两页口径曾相反）。
+    expect(src).toMatch(
+      /<button class="btn" :disabled="!filteredVouchers\.length \|\| busy" @click="selectAll">全选筛选结果<\/button>/,
+    );
+    expect(src).not.toMatch(/:disabled="!selected\.size" @click="selectAll"/);
+  });
 });

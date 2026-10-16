@@ -267,7 +267,10 @@ onUnmounted(() => {
       </div>
       <span class="scope">已选 {{ selected.size }} 张 · 筛选出 {{ filteredVouchers.length }} 张 · 共 {{ vouchers.length }} 张</span>
       <span class="flex-1"></span>
-      <button class="btn" :disabled="!selected.size" @click="selectAll">全选筛选结果</button>
+      <!-- 「全选筛选结果」只在**确实没有可选项**时禁用：
+           此前用 !selected.size 判断，导致"一张都没勾"时无法一键全选，
+           必须先手动勾一张（资料库页早已是"未选→显示全选"的写法，两页口径曾相反）。 -->
+      <button class="btn" :disabled="!filteredVouchers.length || busy" @click="selectAll">全选筛选结果</button>
       <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
       <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
         <FluentIcon v-if="!busy" name="print" :size="15" /> {{ generateLabel }}

@@ -11,6 +11,13 @@ import { toastError } from "../stores/toast";
 const router = useRouter();
 const batches = ref<ExportBatch[]>([]);
 
+/** 批次格式（后端 EXP- 前缀：EXP-X=Excel / EXP-C=CSV，无字母或 EXP-D=PDF）。
+    此前所有批次的操作按钮都写"打开 PDF"，Excel/CSV 批次点开才发现不是 PDF。 */
+const FORMAT_LABEL: Record<string, string> = { pdf: "PDF", xlsx: "Excel", csv: "CSV" };
+function formatLabel(b: ExportBatch): string {
+  return FORMAT_LABEL[b.format ?? "pdf"] ?? "PDF";
+}
+
 async function load() {
   try {
     batches.value = await api.listExportBatches(100);
@@ -67,6 +74,7 @@ onMounted(load);
             <tr>
               <th>批次号</th>
               <th>凭证数</th>
+              <th>格式</th>
               <th>状态</th>
               <th>导出时间</th>
               <th>操作</th>
@@ -76,16 +84,18 @@ onMounted(load);
             <tr v-for="b in batches" :key="b.id">
               <td><span class="mono">{{ b.batchNo }}</span></td>
               <td>{{ b.voucherCount }}</td>
+              <td><span class="tag">{{ formatLabel(b) }}</span></td>
               <td>
+                <!-- 批次状态与凭证状态是两套体系：这里用「已完成 / 失败」，避免与凭证的「已导出」混淆 -->
                 <span class="tag" :class="b.status === 'done' ? 'tag-success' : 'tag-danger'">
-                  {{ b.status === "done" ? "成功" : "失败" }}
+                  {{ b.status === "done" ? "已完成" : "失败" }}
                 </span>
               </td>
               <td>{{ fmtDate(b.createdAt) }}</td>
               <td>
                 <div class="action-row">
                   <button class="icon-btn" title="查看批次包含的凭证" @click="showVouchers(b)"><FluentIcon name="list" :size="15" /></button>
-                  <button class="icon-btn" title="打开 PDF" @click="open(b)"><FluentIcon name="file" :size="15" /></button>
+                  <button class="icon-btn" :title="`打开 ${formatLabel(b)} 文件`" @click="open(b)"><FluentIcon name="file" :size="15" /></button>
                 </div>
               </td>
             </tr>
@@ -93,7 +103,7 @@ onMounted(load);
         </table>
       </div>
       <EmptyState v-else icon="chart" title="还没有导出记录"
-        desc="到「打印中心」勾选凭证并生成 PDF 后，这里会显示每一次导出批次" />
+        desc="到「打印中心」勾选凭证并生成导出文件（PDF / Excel / CSV）后，这里会显示每一次导出批次" />
     </div>
   </div>
 
@@ -115,7 +125,7 @@ onMounted(load);
               </tr>
             </thead>
             <tbody>
-              <tr v-for="v in detailVouchers" :key="v.id" style="cursor: pointer" title="点击进入编辑页"
+              <tr v-for="v in detailVouchers" :key="v.id" style="cursor: pointer" title="在资料库中打开"
                 @click="openVoucher(v.id)">
                 <td><span class="mono">{{ v.voucherNo }}</span></td>
                 <td>{{ v.voucherDate }}</td>

@@ -2026,6 +2026,12 @@ select.input {
     padding: var(--s-2) 0;
   }
 
+  /* 文案必须一起隐藏：56px 栏里「收起侧边栏」会竖排成 5 行、把这一行撑到 121px
+     （2026-10-16 实测 47×121）。图标 + title 已足够辨认。 */
+  .sidebar-toggle .nav-label {
+    display: none;
+  }
+
   .sidebar-footer {
     display: none;
   }
