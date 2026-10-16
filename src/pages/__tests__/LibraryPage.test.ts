@@ -31,6 +31,7 @@ vi.mock("../../api/client", () => ({
     batchUpdateStatus: vi.fn(),
     deleteVouchers: vi.fn(),
     listVoucherIds: vi.fn(),
+    getVoucherNeighbor: vi.fn(),
     listPeriodLocks: vi.fn(),
     checkVoucherDuplicates: vi.fn(),
     ocrPreviewFields: vi.fn(),
@@ -95,6 +96,8 @@ beforeEach(() => {
   mockApi.getVoucher.mockResolvedValue({ voucher: v(), attachments: [], snapshots: [] });
   mockApi.updateVoucher.mockImplementation(async (id, u) => v({ id, amountCents: u.amountCents ?? null, description: u.description ?? "", counterparty: u.counterparty ?? "", tags: u.tags ?? [], note: u.note ?? "" }));
   mockApi.listVoucherIds.mockResolvedValue([1, 2]);
+  // 上下文翻张：默认"第一张，后面还有一张"
+  mockApi.getVoucherNeighbor.mockResolvedValue({ prevId: null, nextId: 2, position: 1, total: 2 } as never);
   mockApi.batchUpdateStatus.mockResolvedValue(2);
   mockApi.listPeriodLocks.mockResolvedValue([]);
   mockApi.checkVoucherDuplicates.mockResolvedValue([]);
@@ -282,5 +285,46 @@ describe("资料库：跨页选择集", () => {
 
     await w.findAll("button").find((b) => b.text() === "清除")!.trigger("click");
     expect(w.text()).not.toContain("已选");
+  });
+});
+
+describe("资料库：上下文翻张（⌥←/→）", () => {
+  it("箭头显示位置与禁用态，点「下一张」跳到相邻凭证", async () => {
+    const w = await mountPage();
+    await flushPromises();
+
+    expect(w.find(".ins-pos").text()).toBe("第 1 / 2 张");
+    const [prev, next] = w.findAll(".ins-nav button");
+    expect(prev.attributes("disabled"), "第一张没有上一张").toBeDefined();
+    expect(next.attributes("disabled")).toBeUndefined();
+
+    await next.trigger("click");
+    await flushPromises();
+    expect(mockApi.getVoucher).toHaveBeenLastCalledWith(2);
+  });
+
+  it("⌥→ 与点箭头同一条动线（键盘也能翻张）", async () => {
+    const w = await mountPage();
+    await flushPromises();
+    const before = mockApi.getVoucher.mock.calls.length;
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", altKey: true }));
+    await flushPromises();
+
+    expect(mockApi.getVoucher.mock.calls.length).toBeGreaterThan(before);
+    expect(mockApi.getVoucher).toHaveBeenLastCalledWith(2);
+    w.unmount();
+  });
+
+  it("翻张信息与筛选同口径：改筛选会重拉位置", async () => {
+    const w = await mountPage();
+    await flushPromises();
+    const before = mockApi.getVoucherNeighbor.mock.calls.length;
+
+    // 搜索框输入 → 触发筛选 watcher → 位置重新计算
+    await w.find(".search input").setValue("美团");
+    await flushPromises();
+
+    expect(mockApi.getVoucherNeighbor.mock.calls.length).toBeGreaterThan(before);
   });
 });

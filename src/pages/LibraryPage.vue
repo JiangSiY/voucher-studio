@@ -21,11 +21,12 @@ import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, type Voucher, type VoucherDetail, type VoucherStatus } from "../api/client";
+import { api, type VoucherQuery, type Voucher, type VoucherDetail, type VoucherStatus } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import VoucherEditor from "../components/voucher/VoucherEditor.vue";
+import { useNeighborNav } from "../composables/neighborNav";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { parseTags } from "../composables/money";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
@@ -197,6 +198,24 @@ const detail = ref<VoucherDetail | null>(null);
 /** 展开编辑区（窄栏 ⇄ 宽栏）：双击行/回车会展开并聚焦第一个字段 */
 const wide = ref(false);
 const editorRef = ref<InstanceType<typeof VoucherEditor> | null>(null);
+
+/**
+ * 上下文翻张（⌥←/→ 与右栏上的两个箭头）：按**整份筛选结果**翻，能跨页。
+ * `query()` 是列表自己的筛选构造器——翻张与列表同口径，否则"下一张"会跳出眼前的筛选。
+ */
+const { neighbor: navNeighbor, positionLabel: navPosition, load: loadNeighbor, clear: clearNeighbor } =
+  useNeighborNav({
+    currentId: computed(() => shown.value?.id ?? null),
+    query: computed(() => query() as VoucherQuery),
+  });
+
+/** 翻到相邻张：复用既有动线（页内直接选中；页外单独取 + 脏数据确认） */
+async function goNeighbor(dir: "prev" | "next") {
+  const n = navNeighbor.value;
+  const id = dir === "prev" ? n?.prevId : n?.nextId;
+  if (!id) return;
+  await showFocused(id);
+}
 /** 待处理的 `focus` 深链目标（来自其他页面"去看这一张"） */
 let pendingFocus: number | null = null;
 
@@ -218,6 +237,11 @@ function onEditorDetail(d: VoucherDetail) {
 
 /** 保存并下一张：本页下一行；到页尾且还有下一页则翻页取第一条 */
 async function onEditorNext() {
+  // 优先按上下文翻张：能跨页、且与筛选同口径（原先只在本页里找下一条，翻到页尾就卡住）
+  if (navNeighbor.value?.nextId) {
+    await goNeighbor("next");
+    return;
+  }
   const idx = items.value.findIndex((v) => v.id === selectedId.value);
   const next = idx >= 0 ? items.value[idx + 1] : items.value[0];
   if (next) {
@@ -363,6 +387,15 @@ async function select(v: Voucher) {
   await doSelect(v);
 }
 
+// 当前显示的凭证一变就重拉翻张信息（换凭证、页外深链、删掉当前张都要跟）
+watch(
+  () => shown.value?.id ?? null,
+  (id) => {
+    if (id) void loadNeighbor();
+    else clearNeighbor();
+  },
+);
+
 /** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */ 
 async function showFocused(id: number) {
   const inPage = items.value.find((v) => v.id === id);
@@ -411,6 +444,13 @@ function onKeydown(e: KeyboardEvent) {
       e.preventDefault();
       void focusEditor(row);
     }
+    return;
+  }
+  // ⌥←/→ 上下文翻张（能跨页；↑↓ 只在本页内移动）。必须排在输入框早退**之后**：
+  // macOS 文本框里 alt+方向键是"按词移动光标"，抢掉会很难用
+  if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    void goNeighbor(e.key === "ArrowLeft" ? "prev" : "next");
     return;
   }
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -558,10 +598,13 @@ onUnmounted(() => {
 watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, staleDays, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
+  // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
+  if (shown.value?.id) void loadNeighbor();
 });
 watch(keyword, () => {
   page.value = 1;
   void load();
+  if (shown.value?.id) void loadNeighbor();
 });
 </script>
 
@@ -690,6 +733,22 @@ watch(keyword, () => {
         <header class="ins-head">
           <span class="mono">{{ shown.voucherNo }}</span>
           <span class="flex-1"></span>
+          <!-- 上下文翻张（⌥←/→）：按**整份筛选结果**翻，能跨页（↑↓ 只在本页内移动）。
+               顺序是后端定的日期序，与列表当前排序无关——title 里写明，免得误会。 -->
+          <div class="ins-nav" role="group" aria-label="上下文翻张">
+            <button class="btn-icon" :disabled="!navNeighbor?.prevId" title="上一张（⌥←）" aria-label="上一张"
+              @click="goNeighbor('prev')">
+              <FluentIcon name="chevronLeft" :size="14" />
+            </button>
+            <span class="ins-pos"
+              :title="`按日期顺序翻张（当前筛选共 ${navNeighbor?.total ?? 0} 张，与列表排序无关）`">
+              {{ navPosition }}
+            </span>
+            <button class="btn-icon" :disabled="!navNeighbor?.nextId" title="下一张（⌥→）" aria-label="下一张"
+              @click="goNeighbor('next')">
+              <FluentIcon name="chevronRight" :size="14" />
+            </button>
+          </div>
           <button class="btn" :title="wide ? '收起编辑区（⌘⇧E）' : '展开编辑区（⌘⇧E）'" @click="toggleWide()">
             <FluentIcon :name="wide ? 'flex-shrink' : 'display'" :size="14" /> {{ wide ? "收起" : "展开" }}
           </button>
@@ -818,6 +877,16 @@ watch(keyword, () => {
   overflow-y: auto;
 }
 .ins-head { display: flex; align-items: center; gap: var(--s-2); }
+
+/* 上下文翻张：右栏头部右侧的「‹ 第 n/N 张 ›」。位置文案用等宽数字，翻页时宽度不跳。 */
+.ins-nav { display: inline-flex; align-items: center; gap: 2px; }
+.ins-pos {
+  min-width: 84px;
+  text-align: center;
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
 .link { background: none; border: none; padding: 0; color: var(--accent); font: var(--type-caption); cursor: pointer; text-decoration: underline; }
 .ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
 .ins-meta > div { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: baseline; }
