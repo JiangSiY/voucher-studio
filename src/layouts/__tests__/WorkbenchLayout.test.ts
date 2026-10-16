@@ -97,18 +97,21 @@ describe("侧栏：扁平导航 + 整栏收起", () => {
     for (const label of NAV_LABELS) expect(w.text()).toContain(label);
   });
 
-  it("点工具栏开关即收起：根属性置 true，aria-expanded 与选中态同步翻转", async () => {
+  it("点侧栏底部那一行的开关即收起：根属性置 true，文案与 aria-expanded 同步翻转", async () => {
     const w = await mountLayout();
+    // 位置契约：开关在侧栏里、版本行**上方**那一行（用户 2026-10-16 要求，工具栏里那个已撤）
+    const aside = w.get("aside.sidebar");
+    expect(aside.find(".sidebar-toggle").exists()).toBe(true);
+    expect(w.find(".unified-toolbar .sidebar-toggle").exists()).toBe(false);
+    expect(aside.get(".sidebar-toggle").text()).toContain("收起侧边栏");
     expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("true");
-    // 侧栏可见时按钮带选中态（真机走查：箭头版被误读成"返回"，状态改由选中态 + 面板图标表达）
-    expect(w.get(".sidebar-toggle").classes()).toContain("is-active");
     expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
 
     await w.get(".sidebar-toggle").trigger("click");
     await flushPromises();
     expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
     expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("false");
-    expect(w.get(".sidebar-toggle").classes()).not.toContain("is-active");
+    expect(w.get(".sidebar-toggle").text()).toContain("展开侧边栏");
   });
 
   it("再点一下恢复展开", async () => {

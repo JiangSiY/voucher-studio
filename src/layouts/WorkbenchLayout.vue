@@ -88,6 +88,21 @@ function openPalette() {
           <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} 组疑似重复待核查`">{{ item.badge }}</span>
         </router-link>
       </nav>
+      <!-- 收起开关（用户 2026-10-16 第二次定位：从工具栏最左移到**版本行上方那一行**——
+           原来那个位置被用户评为"反人类"）。
+           整行按钮：面板图标 + 文案，点一下收起 / 再点展开；收起后这一行**仍在**
+           （CSS 只留图标，否则没有按钮能展开回来）。 -->
+      <button
+        class="sidebar-toggle"
+        :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-expanded="!sidebarCollapsed"
+        aria-controls="app-sidebar"
+        @click="toggleSidebar"
+      >
+        <span class="nav-icon"><FluentIcon name="sidebar" :size="17" /></span>
+        <span class="nav-label">{{ sidebarCollapsed ? "展开侧边栏" : "收起侧边栏" }}</span>
+      </button>
       <div class="sidebar-footer">v{{ version }} · 数据本地存储</div>
     </aside>
 
@@ -107,21 +122,8 @@ function openPalette() {
            拖拽还依赖 `core:window:allow-start-dragging` 权限——它不在 core:default 里，
            见 src-tauri/capabilities/default.json。 -->
       <header class="unified-toolbar" data-tauri-drag-region="deep">
-        <!-- 侧栏开关：固定在工具栏最左（macOS 惯例，交通灯右侧），展开/收起两态都在同一位置，
-             用户不必重新找它。按钮在 drag-region="deep" 子树里会自动阻止拖拽（见上）。
-             图标是**面板形 `sidebar`**（不是箭头）：真机走查里箭头版被读成"返回"
-             → 换成一眼认得出的侧边栏图标，开合状态改由选中态（`.is-active`）承担。 -->
-        <button
-          class="toolbar-btn sidebar-toggle"
-          :class="{ 'is-active': !sidebarCollapsed }"
-          :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-          :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-          :aria-expanded="!sidebarCollapsed"
-          aria-controls="app-sidebar"
-          @click="toggleSidebar"
-        >
-          <FluentIcon name="sidebar" :size="16" />
-        </button>
+        <!-- 侧栏开关不在这里：按用户 2026-10-16 的要求，它已移到侧栏底部版本行上方那一行
+             （整行按钮，见 `<aside>` 内 `.sidebar-toggle`）。 -->
         <h1 class="toolbar-title">{{ pageTitle }}</h1>
         <div class="toolbar-actions">
           <button class="toolbar-btn" title="命令面板（⌘K）" @click="openPalette">

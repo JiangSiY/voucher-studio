@@ -153,6 +153,41 @@ body {
   text-align: center;
 }
 
+/* 侧栏收起开关（用户 2026-10-16 实报后两次定稿）：
+   位置 = 侧栏底部**版本行上方那一行**（`.sidebar-footer` 的 border-top 横线之上，
+   用户明确要求"改到侧栏下方横线上方那一行"）。
+   做成一整行按钮（面板图标 + 文案），比工具栏里的小图标按钮好认——
+   第一版放工具栏最左时被用户评为"反人类"，图标还被读成返回箭头。 */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: calc(100% - 2 * var(--s-2));
+  margin: 0 var(--s-2) var(--s-2);
+  padding: 10px var(--s-3);
+  border: none;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 14.9px;
+  text-align: left;
+  transition: background var(--motion-fast) var(--motion-curve);
+  cursor: default;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-selection);
+}
+
+.sidebar-toggle .nav-icon {
+  width: 24px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0.85;
+}
+
 .sidebar-footer {
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--separator);
@@ -226,20 +261,8 @@ body {
   color: var(--label-primary);
 }
 
-/* 侧栏开关（用户 2026-10-16）：图标按钮做成正方形，固定在工具栏最左，展开/收起两态位置不变 */
-.unified-toolbar .sidebar-toggle {
-  flex-shrink: 0;
-  width: var(--control-h-md);
-  padding: 0;
-  justify-content: center;
-}
-
-/* 侧栏可见时按钮呈选中态（macOS 惯例，Finder/Safari 同款）：
-   图标不再随开合变形，"现在是什么状态"由这层底色承担，真机走查里箭头版被误读成"返回" */
-.unified-toolbar .sidebar-toggle.is-active {
-  background: var(--bg-selection);
-  color: var(--label-primary);
-}
+/* 侧栏开关不在工具栏（用户 2026-10-16 第二次定位后移到侧栏底部，见下）。
+   工具栏现在只剩标题与右侧动作区。 */
 
 .unified-toolbar .toolbar-hint {
   color: var(--label-tertiary);
@@ -1991,6 +2014,14 @@ select.input {
     display: none;
   }
 
+  /* 收起开关在图标栏里照旧可见（只留图标、居中）——否则窄窗下没有按钮能展开回来 */
+  .sidebar-toggle {
+    width: calc(100% - 2 * var(--s-1));
+    margin: 0 var(--s-1) var(--s-2);
+    justify-content: center;
+    padding: var(--s-2) 0;
+  }
+
   .sidebar-footer {
     display: none;
   }
@@ -2052,6 +2083,18 @@ select.input {
 }
 
 :root[data-sidebar-collapsed="true"] .sidebar-nav .nav-label {
+  display: none;
+}
+
+/* 收起后这一行仍在（否则再无按钮可展开回来）：只留面板图标、居中 */
+:root[data-sidebar-collapsed="true"] .sidebar-toggle {
+  width: calc(100% - 2 * var(--s-1));
+  margin: 0 var(--s-1) var(--s-2);
+  justify-content: center;
+  padding: var(--s-2) 0;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-toggle .nav-label {
   display: none;
 }
 

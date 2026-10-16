@@ -51,8 +51,8 @@ describe("主骨架：收件箱驱动", () => {
     ]);
   });
 
-  it("整栏收起：工具栏开关 + 根属性 data-sidebar-collapsed（与主题/宽度同一通道）", () => {
-    expect(layoutSrc).toMatch(/class="toolbar-btn sidebar-toggle"/);
+  it("整栏收起：侧栏底部的整行开关 + 根属性 data-sidebar-collapsed（与主题/宽度同一通道）", () => {
+    expect(layoutSrc).toMatch(/class="sidebar-toggle"/);
     expect(layoutSrc).toMatch(/aria-controls="app-sidebar"/);
     expect(layoutSrc).toMatch(/:aria-expanded="!sidebarCollapsed"/);
     // 开关图标必须是面板形（语义化）：真机走查里 chevron 版被读成"返回"（用户 2026-10-16 实报），别改回去
@@ -60,15 +60,17 @@ describe("主骨架：收件箱驱动", () => {
     expect(layoutSrc).not.toMatch(/chevron(Left|Right)/);
     const icons = repoFile("src/components/FluentIcon.vue");
     expect(icons).toContain("sidebar:");
-    // 开合状态由选中态表达（侧栏可见时按钮高亮）
-    expect(layoutSrc).toMatch(/'is-active':\s*!sidebarCollapsed/);
+    // 位置契约（用户 2026-10-16 明确要求）：在导航之后、版本行**上方**那一行；不再放工具栏
+    expect(layoutSrc).toMatch(/<\/nav>[\s\S]*class="sidebar-toggle"[\s\S]*class="sidebar-footer"/);
+    expect(layoutSrc).not.toMatch(/toolbar-btn sidebar-toggle/);
     // 观感是纯 CSS：收起后隐藏文字，条目标签留在 DOM 里
     const collapse = repoFile("src/composables/sidebarCollapse.ts");
     expect(collapse).toContain("dataset.sidebarCollapsed");
     const css = repoFile("src/styles/base.css");
     expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar');
     expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar-nav .nav-label');
-    expect(css).toContain(".unified-toolbar .sidebar-toggle.is-active");
+    expect(css).toContain(".sidebar-toggle {");
+    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar-toggle .nav-label');
   });
 
   it("侧栏入口与「待处理」徽标同源（inbox store），重复核查徽标沿用 dup store", () => {
