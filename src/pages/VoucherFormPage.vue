@@ -59,6 +59,25 @@ async function createByImage() {
   }
 }
 
+/** v0.22：新建「说明条目」（无图凭证）——说明/备忘/原始凭证分割单这类本来就没有图片 */
+const memoDesc = ref("");
+async function createMemo() {
+  if (creating.value) return;
+  creating.value = true;
+  try {
+    const v = await api.createMemoVoucher({
+      voucherDate: todayLocal(),
+      description: memoDesc.value.trim(),
+    });
+    toast.info("已新建说明条目（无图），正在打开…");
+    openInLibrary(v.id);
+  } catch (e) {
+    toastError(e);
+  } finally {
+    creating.value = false;
+  }
+}
+
 function reportImport(summary: ImportSummary) {
   const parts: string[] = [];
   if (summary.vouchers.length) parts.push(`已创建 ${summary.vouchers.length} 张凭证（一图一凭证）`);
@@ -104,6 +123,23 @@ onUnmounted(() => unlistenImportDone?.());
               支持 jpg / png / bmp / webp；多张图片会各自创建凭证，相同图片自动去重
             </div>
           </div>
+          <!-- v0.22：无图凭证（说明/备忘/分割单）的显式入口——导入路径刻意不留空卡，
+               所以"没有图片的凭证"只能由用户主动创建，两者必须区分开 -->
+          <div class="field" style="margin-top: 16px">
+            <label>没有图片的凭证？</label>
+            <div style="display: flex; gap: 8px">
+              <input v-model="memoDesc" class="input" placeholder="说明（可留空，稍后在右栏补）"
+                @keydown.enter="createMemo" />
+              <button class="btn" :disabled="creating" @click="createMemo">
+                新建说明条目（不选图）
+              </button>
+            </div>
+            <div class="desc">
+              说明 / 备忘 / 原始凭证分割单这类凭证本来就没有图片。建好后可在右栏补图，
+              或与相关凭证建立关联；金额留空，不参与合计。
+            </div>
+          </div>
+
           <div class="field" style="margin-top: 16px">
             <label>新凭证编号预览</label>
             <input :value="noPreview || '…'" class="input mono" disabled />

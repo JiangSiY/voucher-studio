@@ -327,6 +327,7 @@ fn main() {
             commands::recent_enhanced,
             commands::record_viewer_hit,
             commands::enhance_hit_trend,
+            commands::create_memo_voucher,
             commands::link_vouchers,
             commands::unlink_vouchers,
             commands::list_voucher_links,

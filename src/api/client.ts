@@ -707,6 +707,18 @@ export interface VoucherGroup {
   members: Voucher[];
 }
 
+/** v0.22：新建入参（留空字段由后端补默认：编号自动生成、日期取今天） */
+export interface NewVoucherInput {
+  voucherNo?: string;
+  voucherDate?: string;
+  description?: string;
+  counterparty?: string;
+  amountCents?: number | null;
+  status?: VoucherStatus | null;
+  tags?: string[];
+  note?: string;
+}
+
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
   openPath: (path: string) => invoke<void>("open_path", { path }),
@@ -881,6 +893,13 @@ export const api = {
   // v0.6.5 D-7 查看器命中埋点（静默调用，失败不打扰用户）
   recordViewerHit: (attachmentId: number) =>
     invoke<void>("record_viewer_hit", { attachmentId }),
+  /**
+   * v0.22：新建「说明条目」（**无图凭证**：说明 / 备忘 / 原始凭证分割单）。
+   * 导入路径刻意不留空卡，所以"没有图片的凭证"只能由用户从这里显式创建。
+   */
+  createMemoVoucher: (newVoucher: NewVoucherInput) =>
+    invoke<Voucher>("create_memo_voucher", { newVoucher }),
+
   // ---- v0.22 凭证关联 / 事项组（都不改金额合计口径）----
   linkVouchers: (aId: number, bId: number, kind: VoucherLinkKind, note?: string) =>
     invoke<VoucherLink>("link_vouchers", { aId, bId, kind, note }),

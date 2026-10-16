@@ -83,6 +83,25 @@ describe("v0.22 关联批契约", () => {
     }
   });
 
+  it("无图凭证（说明条目）有显式入口，且不走导入路径", () => {
+    const form = read("src/pages/VoucherFormPage.vue");
+    expect(form).toContain("新建说明条目（不选图）");
+    expect(form).toContain("api.createMemoVoucher");
+    expect(form).toContain("没有图片的凭证？");
+    // 用创建后聚焦右栏的既有动线，不另造跳转
+    expect(form).toContain("openInLibrary(v.id)");
+    const client = read(CLIENT);
+    expect(client).toContain('"create_memo_voucher"');
+    // 「一图一凭证」的主线仍在：导入路径照旧（本入口不碰它）
+    expect(form).toContain("api.pickAndImport(true)");
+  });
+
+  it("列表对无图凭证有缩略图占位（不会渲染成破图）", () => {
+    const src = read(LIBRARY);
+    expect(src).toContain("thumbUrl(v)");
+    expect(src).toContain('name="image"');
+  });
+
   it("列表提供「未被佐证」筛选：控件、URL 回显、清空三处都在", () => {
     const src = read(LIBRARY);
     expect(src).toContain("未被佐证");

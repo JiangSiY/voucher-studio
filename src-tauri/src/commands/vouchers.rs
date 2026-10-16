@@ -12,6 +12,22 @@ use voucher_core::services::search::SearchHit;
 use voucher_core::services::voucher_mgr;
 // ---------- 凭证 ----------
 
+/// v0.22：新建「说明条目」（**无图凭证**）。
+///
+/// 「一张图片就是一张凭证」仍是主线（导入路径刻意不留空卡，见 `services/ingestion.rs`），
+/// 但**说明 / 备忘 / 原始凭证分割单**这类凭证本来就没有图片：本命令是它的**显式入口**，
+/// 由用户在新建页主动选择，与"导入失败留下的空卡"区分开。
+///
+/// 无图凭证的约定：① 不参与任何金额合计口径（金额默认空）；② 列表缩略图位置用占位图标；
+/// ③ 之后随时可以在右栏补图（附件面板就是空态拖放区）或与相关凭证建立关联。
+#[tauri::command]
+pub fn create_memo_voucher(
+    ctx: Ctx,
+    new_voucher: voucher_core::models::NewVoucher,
+) -> std::result::Result<voucher_core::models::Voucher, ApiError> {
+    err_api(voucher_mgr::create_voucher(&ctx, new_voucher))
+}
+
 #[tauri::command]
 pub fn list_vouchers(
     ctx: Ctx,

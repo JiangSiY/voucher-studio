@@ -282,3 +282,60 @@ fn unlinked_filter_matches_only_vouchers_without_links_or_groups() -> Result<()>
     assert_eq!((items.len() as u64, total), (4, 4));
     Ok(())
 }
+
+/// P1′：**无图凭证**（说明 / 备忘 / 原始凭证分割单）——「一图一凭证」的显式例外。
+///
+/// 约定：导入路径照旧不留空卡（`ingestion` + 既有用例守着），所以"没有附件的凭证"
+/// 只可能来自用户显式创建；它对下游必须是无害的：列表可见、缩略图缺席、金额留空不参与合计、
+/// 日报照样能出（只是没有图片页）。
+#[test]
+fn memo_voucher_without_image_is_allowed_and_does_not_break_flows() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+
+    // 编号留空 → 命名服务自动取号；日期留空 → 取今天
+    let v = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            voucher_no: String::new(),
+            voucher_date: String::new(),
+            description: "微信转账说明（无图）".into(),
+            counterparty: String::new(),
+            amount_cents: None,
+            status: None,
+            tags: Vec::new(),
+            note: String::new(),
+        },
+    )?;
+    assert!(!v.voucher_no.is_empty(), "编号应自动生成");
+    assert!(!v.voucher_date.is_empty(), "日期应取今天");
+
+    // 「说明条目」的判定依据：**没有附件**（一图一凭证的天花板是 1，不是下限 1）
+    assert!(voucher_mgr::get_detail(&ctx, v.id)?.attachments.is_empty());
+
+    // 列表可见；缩略图缺席（前端用占位图标，不渲染破图）
+    let (items, total) = voucher_mgr::list(&ctx, &VoucherQuery::default())?;
+    assert_eq!((items.len() as u64, total), (1, 1));
+    assert_eq!(items[0].id, v.id);
+    assert!(
+        voucher_core::services::query::voucher_thumbs(&ctx, &[v.id])?.is_empty(),
+        "无图凭证不该有缩略图"
+    );
+
+    // 金额留空 → 不参与任何合计口径
+    assert_eq!(v.amount_cents, None);
+
+    // 日报导出照样能出（表格页正常，无图片页），批次张数不受影响
+    let batches =
+        voucher_core::services::export::export_vouchers_daily(&ctx, &[v.id], &Default::default())?;
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].voucher_count, 1);
+
+    // 说明条目正是"缺佐证"的典型，应被「未被佐证」筛到
+    let q = VoucherQuery {
+        unlinked: Some(true),
+        ..Default::default()
+    };
+    let (items, total) = voucher_mgr::list(&ctx, &q)?;
+    assert_eq!((items.len() as u64, total), (1, 1));
+    Ok(())
+}
