@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **43 文件 256 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **43 文件 257 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -57,7 +57,11 @@
 > 新增 `composables/__tests__/liveAppearance.test.ts`（2 例：用运行期值覆盖侧栏宽度与收起态且不改原对象 / 运行期外观缺失时原样返回）、
 > `__tests__/settingsSavePathContract.test.ts` 3 → **4 例**（新增：store 不再挂该方法、且已接 HMR）、
 > `stores/__tests__/configLayout.test.ts` 9 → **7 例**（两个 `withLiveAppearance` 用例迁至上述新文件）。Rust 侧未动（仍 **282 = 152 + 130**）。
-> 前端合计数 **43 文件 256 用例**（原 42 文件 255 / 41 文件 247 / 38 文件 232，更早 35 文件 217 / 33 文件 208 / 32 文件 200 用例）。
+> **2026-10-16 深色侧栏材质对比度批**（用户真机反馈「深色下侧栏半透明层对比度不太行」）：`src/styles/tokens.css`
+> 深色 `--bg-sidebar` 不透明度 0.35 → **0.94**（浅色侧保持 0.28 不动——同一轮用户明确要「看得到玻璃」），
+> 深色主题块与 `@media (prefers-color-scheme: dark)` 兜底块两处同步；`__tests__/a11yContract.test.ts` 4 → **5 例**
+> （新增：深色侧栏不透明度 ≥0.85、浅色侧 ≤0.35，防两侧被顺手改成一样）。Rust 侧未动（仍 **282 = 152 + 130**）。
+> 前端合计数 **43 文件 257 用例**（原 43 文件 256 / 42 文件 255 / 41 文件 247 / 38 文件 232，更早 35 文件 217 / 33 文件 208 / 32 文件 200 用例）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；

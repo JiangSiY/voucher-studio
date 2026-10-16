@@ -56,7 +56,7 @@
 | 令牌 | 浅色 | 深色 | 用途 |
 |---|---|---|---|
 | `--bg-window` | `#ececec` | `#1e1e1e` | 窗口底（内容区不可见它，仅作兜底） |
-| `--bg-sidebar` | 材质透出（回退 `#e8e8ec`） | 同左（回退 `#252528`） | 侧栏；`prefers-reduced-transparency: reduce` 时用回退实色 |
+| `--bg-sidebar` | 材质透出 **28%**（回退 `#e8e8ec`） | 材质透出 **94%**（回退 `#252528`） | 侧栏/工具栏；`prefers-reduced-transparency: reduce` 时用回退实色。**深浅两侧不透明度刻意不同**，见下 |
 | `--bg-content` | `#ffffff` | `#1c1c1e` | 内容区（**不透明**） |
 | `--bg-control` | `#ffffff` | `#2c2c2e` | 输入框/按钮底 |
 | `--bg-popover` | 材质透出 + `--shadow-popover`（回退 `#f7f7fa`） | 同左（回退 `#2a2a2d`） | 对话框/菜单/命令面板 |
@@ -121,10 +121,19 @@
 | 层 | 实现 | 回退 |
 |---|---|---|
 | 窗口 | `transparent: true` + `macOSPrivateApi: true` | —— |
-| 侧栏 | 原生材质（`windowEffects: {effects:["sidebar"]}`；M2 升级为 Liquid Glass 时改 `window-vibrancy` 的 `apply_liquid_glass`） | `prefers-reduced-transparency: reduce` → `--bg-sidebar` 实色 |
+| 侧栏 | 原生材质（`windowEffects: {effects:["sidebar"]}`；M2 升级为 Liquid Glass 时改 `window-vibrancy` 的 `apply_liquid_glass`）+ 叠色 `--bg-sidebar`（深色 **94%**、浅色 **28%**） | `prefers-reduced-transparency: reduce` → `--bg-sidebar` 实色 |
 | 工具栏 | **不透明** 半透明叠色（`--bg-sidebar` 同源）——工具栏与侧栏同材质、下沿 `--separator-strong` | 同上 |
 | 浮层 | `--bg-popover` + `--shadow-popover`；**不用 CSS `backdrop-filter`**（透明窗口下与 WKWebView 冲突，M4 待目视确认，规范先按"不用"写） | —— |
 | 内容区 | `--bg-content` **不透明** | —— |
+
+> **侧栏叠色为什么深浅不对称（2026-10-16）**：叠色是**乘在原生材质之上**的，所以它的不透明度直接决定
+> 「侧栏文字对比度会不会被背后的桌面影响」。
+> 深色侧原为 35%：深色叠在**浅色桌面**上会合成出中灰（实测合成 `rgb(179,179,180)`），白字对比度掉到
+> **1.9:1**，观感随壁纸忽明忽暗（用户真机反馈「深色下侧栏半透明层对比度不太行」）→ 提到 **94%**
+> （合成稳定在 `rgb(51,51,55)`／深底 `rgb(36,36,40)`，白字 **10.9:1 / 13.2:1**，比内容区 `#1c1c1e` 略亮一层）。
+> 浅色侧**保持 28%**：同一轮用户明确要求「看得到玻璃」，抬到 0.8 以上会把模糊盖住；代价是浅色侧栏叠在
+> **深色壁纸**上仍会偏灰（实测合成 `rgb(68,68,68)`，近黑正文约 2:1），兜底手段是系统「减少透明度」
+> 或切深色主题。`src/__tests__/a11yContract.test.ts` 双侧都上了断言：深色 ≥0.85、浅色 ≤0.35（防有人顺手改掉玻璃观感）。
 
 **窗口装饰**：`titleBarStyle: "Overlay"` + `hiddenTitle: true` + `trafficLightPosition: {x:14, y:18}`
 （Spike M 已验证）；自绘工具栏需要 `core:window:allow-start-dragging` 权限（**不在 `core:default` 中**，
