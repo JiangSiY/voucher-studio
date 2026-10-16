@@ -89,53 +89,9 @@ body {
   flex: 1;
 }
 
-.sidebar-nav .nav-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  margin: 0;
-  border: none;
-  background: transparent;
-  font-size: 12.6px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-4);
-  padding: var(--s-3) var(--s-2) var(--s-1);
-  cursor: default;
-  text-align: left;
-  font-family: var(--font);
-}
-
-.sidebar-nav .nav-group:hover { color: var(--text-3); }
-
-/* 箭头：展开时向下（90°），收起时向右；时长取令牌，尊重"减少动效" */
-.sidebar-nav .nav-group .fluent-icon {
-  transition: transform var(--motion-fast) var(--motion-curve);
-  transform: rotate(90deg);
-}
-
-.sidebar-nav .nav-group.collapsed .fluent-icon { transform: rotate(0deg); }
-
-/* 收起时在组标题上显示组内徽标合计 */
-.sidebar-nav .nav-group-badge {
-  margin-left: auto;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-  letter-spacing: 0;
-}
-
-/* 折叠：用类名而不是 v-show 的内联 display，好让窄窗图标栏能覆盖它 */
-.sidebar-nav a.nav-item-collapsed { display: none; }
+/* 侧栏分组标题（.nav-group / .nav-group-badge）与按组折叠（a.nav-item-collapsed）
+   已随「去掉侧边栏分组」一并删除（用户 2026-10-16）：
+   导航改为扁平一列，开合语义改由整条侧栏的收起承担（见文件末尾《侧栏收起》一节）。 */
 
 .sidebar-nav a {
   display: flex;
@@ -268,6 +224,14 @@ body {
 .unified-toolbar .toolbar-btn:hover {
   background: var(--bg-selection);
   color: var(--label-primary);
+}
+
+/* 侧栏开关（用户 2026-10-16）：图标按钮做成正方形，固定在工具栏最左，展开/收起两态位置不变 */
+.unified-toolbar .sidebar-toggle {
+  flex-shrink: 0;
+  width: var(--control-h-md);
+  padding: 0;
+  justify-content: center;
 }
 
 .unified-toolbar .toolbar-hint {
@@ -2009,15 +1973,8 @@ select.input {
     padding: var(--s-3) var(--s-1);
   }
 
-  .sidebar-nav .nav-group {
-    display: none;
-  }
-
-  /* 图标栏模式下忽略折叠：56px 宽只剩图标，再套一层折叠就没有可点的东西了 */
-  .sidebar-nav a.nav-item-collapsed {
-    display: flex;
-  }
-
+  /* 图标栏模式下忽略折叠（原本是"忽略按组折叠"，分组已删）：
+     56px 宽只剩图标，再套一层隐藏就没有可点的东西了 */
   .sidebar-nav a {
     justify-content: center;
     padding: var(--s-2) 0;
@@ -2038,6 +1995,61 @@ select.input {
   .main-scroll {
     padding: var(--s-4);
   }
+}
+
+/* ---- 侧栏收起（用户 2026-10-16 要求：可收起，收起后只显示图标）----
+   与上面 ≤760 档的图标栏是**同一套观感**（56px 纯图标栏），区别只在触发条件：
+   那里由窗口宽度触发，这里由根属性 `data-sidebar-collapsed` 触发
+   （由 `stores/config.ts` 经 `composables/sidebarCollapse.ts` 写入，与 `data-theme` 同一条通道）。
+
+   为什么用根属性而不是元素内联样式或组件类名：
+   `:root[data-sidebar-collapsed="true"] .sidebar` 特异性 0,3,0，高于媒体查询里的 `.sidebar`（0,1,0），
+   因此能稳定压过 ≤900 档的 `width: min(--sidebar-w, 35vw)`；
+   内联样式同样压得过媒体查询，但会**连同 ≤760 档一起顶掉**（见 `useSidebarResize.ts` 头注释的教训）。
+   收起态与窄窗态同时成立时都落到 56px，二者不打架。
+
+   交互约定：收起后条目只剩图标（文字由 `.nav-label` 隐藏），
+   可发现性由条目的 `title` 原生提示 + 工具栏开关的 `aria-expanded` 承担；
+   宽度拖拽手柄一并隐藏（56px 无可拖空间），键盘焦点也随之移出 tab 序列。 */
+:root[data-sidebar-collapsed="true"] .sidebar {
+  width: 56px;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-resize-handle {
+  display: none;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-header {
+  padding: var(--s-4) 0;
+  display: flex;
+  justify-content: center;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-logo {
+  justify-content: center;
+  gap: 0;
+}
+
+/* 只留 VS 徽标（`> span:not(.badge)` 是文字块；徽标自己就是 span.badge） */
+:root[data-sidebar-collapsed="true"] .sidebar-logo > span:not(.badge) {
+  display: none;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-nav {
+  padding: var(--s-3) var(--s-1);
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-nav a {
+  justify-content: center;
+  padding: var(--s-2) 0;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-nav .nav-label {
+  display: none;
+}
+
+:root[data-sidebar-collapsed="true"] .sidebar-footer {
+  display: none;
 }
 
 /* ---- 窄窗可压缩的省略号单元格 ----

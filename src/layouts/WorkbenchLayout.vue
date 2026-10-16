@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
 import { useInboxStore } from "../stores/inbox";
 import { useUiStore } from "../stores/ui";
+import { toastError } from "../stores/toast";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 
@@ -19,67 +20,39 @@ const isReading = computed(() => route.meta.reading === true);
 
 const version = computed(() => configStore.appInfo?.version ?? "…");
 
-const navGroups = computed(() => [
-  {
-    group: "收件箱",
-    items: [
-      // v0.18 收件箱驱动：首页即"今天要处理什么"，badge 显示待处理项数
-      { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount },
-    ],
-  },
-  {
-    group: "资料库",
-    items: [
-      { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0 },
-      { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
-      { to: "/insights", icon: "chart", label: "洞察", badge: 0 },
-      { to: "/print", icon: "print", label: "打印与导出", badge: 0 },
-      { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
-    ],
-  },
-  {
-    group: "设置",
-    items: [
-      { to: "/settings", icon: "settings", label: "设置", badge: 0 },
-      { to: "/restore", icon: "save", label: "备份与恢复", badge: 0 },
-      { to: "/help", icon: "help", label: "帮助", badge: 0 },
-    ],
-  },
+/**
+ * 侧栏导航：**扁平一列，不再分组**（用户 2026-10-16 要求「去掉侧边栏分组功能」）。
+ *
+ * 分组标题（收件箱 / 资料库 / 设置）与可折叠组是 v0.18 引入的；用户明确不要分组后，
+ * 分区语义改由**条目顺序与文案**表达，导航本身只保留条目。
+ * 下方 `sidebarCollapsed` 才是 v0.18 起"侧栏开合"需求的正解：收起整条侧栏，而不是收起某一组。
+ */
+const navItems = computed(() => [
+  // v0.18 收件箱驱动：首页即"今天要处理什么"，badge 显示待处理项数
+  { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount },
+  { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0 },
+  { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
+  { to: "/insights", icon: "chart", label: "洞察", badge: 0 },
+  { to: "/print", icon: "print", label: "打印与导出", badge: 0 },
+  { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
+  { to: "/settings", icon: "settings", label: "设置", badge: 0 },
+  { to: "/restore", icon: "save", label: "备份与恢复", badge: 0 },
+  { to: "/help", icon: "help", label: "帮助", badge: 0 },
 ]);
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "");
 
 /**
- * 侧栏分组折叠（用户 2026-09-27 要求：**可折叠 + 默认折叠**）。
+ * 侧栏收起（用户 2026-10-16 要求：可收起，收起后只显示图标）。
  *
- * 规则：
- * - 默认全部收起（`manual` 无记录 = 收起）；
- * - **当前页面所在组自动展开**——否则收起后看不到"我在哪一页"，高亮也失去意义；
- * - 用户手动点过以手动状态为准（切到别的组时，那一组仍按规则自动展开）。
- *
- * 注意：窄窗（≤760px）的 56px 图标栏里**分组标题本就隐藏**，故那里必须忽略折叠状态、
- * 始终显示图标——由 base.css 的媒体查询用类名覆盖实现（`v-show` 的内联样式覆盖不掉）。
+ * 状态与落盘都在 config store（`appearance.sidebarCollapsed`，跨启动保持）；
+ * CSS 侧由 `data-sidebar-collapsed` 根属性驱动（见 composables/sidebarCollapse.ts）。
+ * 收起后条目只剩图标：文字由 `.nav-label` 隐藏，可发现性靠 `title` 原生提示兜底。
  */
-const manualCollapsed = ref<Record<string, boolean>>({});
+const sidebarCollapsed = computed(() => configStore.sidebarCollapsed);
 
-function groupHasRoute(items: { to: string }[]): boolean {
-  const path = route.path;
-  return items.some((it) => path === it.to || path.startsWith(it.to + "/"));
-}
-
-function isOpen(group: string, items: { to: string }[]): boolean {
-  const manual = manualCollapsed.value[group];
-  if (manual !== undefined) return !manual;
-  return groupHasRoute(items);
-}
-
-function toggleGroup(group: string, items: { to: string }[]) {
-  manualCollapsed.value = { ...manualCollapsed.value, [group]: isOpen(group, items) };
-}
-
-/** 收起时把组内徽标合计显示在组标题上（不展开也知道有事要办） */
-function groupBadge(items: { badge: number }[]): number {
-  return items.reduce((n, it) => n + (it.badge || 0), 0);
+function toggleSidebar() {
+  void configStore.toggleSidebarCollapsed().catch((e) => toastError(e));
 }
 
 /** 工具栏右侧动作：打开命令面板（与 ⌘K 同一入口） */
@@ -90,7 +63,7 @@ function openPalette() {
 
 <template>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside id="app-sidebar" class="sidebar">
       <!-- 侧栏顶部同样可拖（交通灯就在这条上；里面没有可点元素，deep 不会误吞点击） -->
       <div class="sidebar-header" data-tauri-drag-region="deep">
         <div class="sidebar-logo">
@@ -102,32 +75,18 @@ function openPalette() {
           </span>
         </div>
       </div>
-      <nav class="sidebar-nav">
-        <template v-for="g in navGroups" :key="g.group">
-          <button
-            class="nav-group"
-            :class="{ collapsed: !isOpen(g.group, g.items) }"
-            :aria-expanded="isOpen(g.group, g.items)"
-            :title="isOpen(g.group, g.items) ? `收起「${g.group}」` : `展开「${g.group}」`"
-            @click="toggleGroup(g.group, g.items)"
-          >
-            <FluentIcon name="chevronRight" :size="12" />
-            <span>{{ g.group }}</span>
-            <span v-if="groupBadge(g.items) > 0 && !isOpen(g.group, g.items)" class="nav-group-badge">
-              {{ groupBadge(g.items) }}
-            </span>
-          </button>
-          <router-link
-            v-for="item in g.items"
-            :key="item.to"
-            :to="item.to"
-            :class="{ 'nav-item-collapsed': !isOpen(g.group, g.items) }"
-            :title="item.badge > 0 ? `${item.label}（${item.badge} 组待核查）` : item.label">
-            <span class="nav-icon"><FluentIcon :name="item.icon" :size="17" /></span>
-            <span class="nav-label">{{ item.label }}</span>
-            <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} 组疑似重复待核查`">{{ item.badge }}</span>
-          </router-link>
-        </template>
+      <!-- 扁平导航（无分组，用户 2026-10-16 要求）；收起时 CSS 只留图标 -->
+      <nav class="sidebar-nav" aria-label="主导航">
+        <router-link
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          :title="item.badge > 0 ? `${item.label}（${item.badge} 组待核查）` : item.label"
+        >
+          <span class="nav-icon"><FluentIcon :name="item.icon" :size="17" /></span>
+          <span class="nav-label">{{ item.label }}</span>
+          <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} 组疑似重复待核查`">{{ item.badge }}</span>
+        </router-link>
       </nav>
       <div class="sidebar-footer">v{{ version }} · 数据本地存储</div>
     </aside>
@@ -148,6 +107,18 @@ function openPalette() {
            拖拽还依赖 `core:window:allow-start-dragging` 权限——它不在 core:default 里，
            见 src-tauri/capabilities/default.json。 -->
       <header class="unified-toolbar" data-tauri-drag-region="deep">
+        <!-- 侧栏开关：固定在工具栏最左（macOS 惯例，交通灯右侧），展开/收起两态都在同一位置，
+             用户不必重新找它。按钮在 drag-region="deep" 子树里会自动阻止拖拽（见上）。 -->
+        <button
+          class="toolbar-btn sidebar-toggle"
+          :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+          :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+          :aria-expanded="!sidebarCollapsed"
+          aria-controls="app-sidebar"
+          @click="toggleSidebar"
+        >
+          <FluentIcon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" :size="15" />
+        </button>
         <h1 class="toolbar-title">{{ pageTitle }}</h1>
         <div class="toolbar-actions">
           <button class="toolbar-btn" title="命令面板（⌘K）" @click="openPalette">

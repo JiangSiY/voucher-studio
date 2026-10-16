@@ -47,14 +47,17 @@ async function save() {
   saving.value = true;
   try {
     // 直接把共享编辑缓冲交给后端（reactive 代理会在 invoke 序列化时拍快照）。
-    // 但 `appearance.sidebarWidth` 不属于本页 UI（由侧边栏拖拽维护），草稿里是进页时的旧快照：
-    // 用 store 的当前值覆盖，否则「拖过侧边栏 → 改任一设置 → 保存」会把宽度回退。
+    // 但 `appearance` 里有两项不属于本页 UI（侧栏宽度由拖拽手柄维护、侧栏收起状态由工具栏开关维护），
+    // 草稿里是进页时的旧快照：用 store 的当前值覆盖，否则「拖过侧栏 / 收起过侧栏 → 改任一设置 → 保存」
+    // 会把这两项一起回退（2026-10-16 随侧栏收起一并收口）。
     const payload: AppConfig = {
       ...draft.cfg,
       appearance: {
         ...draft.cfg.appearance,
         sidebarWidth:
           configStore.config?.appearance.sidebarWidth ?? draft.cfg.appearance.sidebarWidth,
+        sidebarCollapsed:
+          configStore.config?.appearance.sidebarCollapsed ?? draft.cfg.appearance.sidebarCollapsed,
       },
     };
     await configStore.save(payload);

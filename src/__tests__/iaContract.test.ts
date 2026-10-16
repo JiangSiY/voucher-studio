@@ -7,8 +7,8 @@
  * 「收件箱 / 资料库 / 设置」三组 + 以**流程**为中心（收件箱即首页）。
  *
  * 这类改动最容易在后续迭代里被悄悄改回去（比如有人把仪表盘加回导航），
- * 故把不变量固化成断言：首页是收件箱、侧栏只有这三组、命令面板入口与侧栏一致、
- * 旧的 /dashboard 只保留重定向。
+ * 故把不变量固化成断言：首页是收件箱、侧栏是一列**扁平入口**（2026-10-16 用户要求去掉分组标题，
+ * 开合语义改由"整栏收起"承担）、命令面板入口与侧栏一致、旧的 /dashboard 只保留重定向。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -34,9 +34,33 @@ describe("主骨架：收件箱驱动", () => {
     expect(existsSync(`${root}src/pages/DashboardPage.vue`)).toBe(false);
   });
 
-  it("侧栏固定三组：收件箱 / 资料库 / 设置", () => {
-    const groups = [...layoutSrc.matchAll(/group:\s*"([^"]+)"/g)].map((m) => m[1]);
-    expect(groups).toEqual(["收件箱", "资料库", "设置"]);
+  it("侧栏为扁平一列：分组标题已删除，九个入口按流程顺序排列", () => {
+    // 曾经的「收件箱 / 资料库 / 设置」三组标题按钮按用户要求删除（2026-10-16），别再加回来
+    expect(layoutSrc).not.toMatch(/group:\s*"/);
+    const routes = [...layoutSrc.matchAll(/to:\s*"(\/[^"]*)"/g)].map((m) => m[1]);
+    expect(routes).toEqual([
+      "/inbox",
+      "/vouchers",
+      "/duplicates",
+      "/insights",
+      "/print",
+      "/exports",
+      "/settings",
+      "/restore",
+      "/help",
+    ]);
+  });
+
+  it("整栏收起：工具栏开关 + 根属性 data-sidebar-collapsed（与主题/宽度同一通道）", () => {
+    expect(layoutSrc).toMatch(/class="toolbar-btn sidebar-toggle"/);
+    expect(layoutSrc).toMatch(/aria-controls="app-sidebar"/);
+    expect(layoutSrc).toMatch(/:aria-expanded="!sidebarCollapsed"/);
+    // 观感是纯 CSS：收起后隐藏文字，条目标签留在 DOM 里
+    const collapse = repoFile("src/composables/sidebarCollapse.ts");
+    expect(collapse).toContain("dataset.sidebarCollapsed");
+    const css = repoFile("src/styles/base.css");
+    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar');
+    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar-nav .nav-label');
   });
 
   it("侧栏入口与「待处理」徽标同源（inbox store），重复核查徽标沿用 dup store", () => {

@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 /**
- * 侧栏分组折叠（用户 2026-09-27 要求："收件箱、资料库、设置做成可折叠，默认折叠"）。
+ * 侧栏开合（用户 2026-10-16 要求："去掉侧边栏分组功能，增加侧边栏收起功能，收起后只显示图标"）。
  *
  * 锁住的契约：
- * - **默认全部收起**（初次进入时不展开任何组，除了……见下条）；
- * - **当前页面所在组自动展开**（否则收起后看不到自己在哪一页、高亮也失去意义）；
- * - 手动点击可展开/收起，且手动状态优先于自动规则；
- * - 收起时**组标题上显示组内徽标合计**（不展开也知道有事要办）。
+ * - 导航是**扁平一列**：分组标题按钮（`.nav-group`）不复存在，九个条目全部渲染；
+ * - 工具栏有侧栏开关，点一下收起（写根属性 `data-sidebar-collapsed="true"`，CSS 依据它只留图标）；
+ * - 再点一下恢复展开（属性回 `"false"`）；
+ * - 启动时尊重已保存的收起状态（`appearance.sidebarCollapsed`，跨启动保持）；
+ * - 收起是**纯 CSS 行为**：条目标签与 `title` 必须留在 DOM 里（v-if 掉就没有图标栏的可发现性兜底了）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { api } from "../../api/client";
+import { defaultConfig } from "../../config-defaults";
+import { useConfigStore } from "../../stores/config";
 import { useDupStore } from "../../stores/dup";
 import WorkbenchLayout from "../WorkbenchLayout.vue";
 
@@ -31,6 +34,22 @@ vi.mock("vue-router", () => ({
 
 const mockApi = vi.mocked(api);
 
+const NAV_LABELS = [
+  "待处理",
+  "全部凭证",
+  "重复核查",
+  "洞察",
+  "打印与导出",
+  "导出历史",
+  "设置",
+  "备份与恢复",
+  "帮助",
+];
+
+function navLinks(w: VueWrapper) {
+  return w.findAll(".sidebar-nav a");
+}
+
 async function mountLayout(): Promise<VueWrapper> {
   const w = mount(WorkbenchLayout, {
     global: {
@@ -45,10 +64,6 @@ async function mountLayout(): Promise<VueWrapper> {
   });
   await flushPromises();
   return w;
-}
-
-function groupButton(w: VueWrapper, label: string) {
-  return w.findAll(".nav-group").find((b) => b.text().includes(label))!;
 }
 
 beforeEach(() => {
@@ -70,55 +85,61 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  delete document.documentElement.dataset.sidebarCollapsed;
   vi.clearAllMocks();
 });
 
-describe("侧栏分组折叠", () => {
-  it("默认收起：只有当前页所在组展开，其余组的条目不可见", async () => {
+describe("侧栏：扁平导航 + 整栏收起", () => {
+  it("导航扁平一列：没有分组标题，九个条目全部渲染", async () => {
     const w = await mountLayout();
-    // 收件箱组（当前页 /inbox）自动展开 → 其条目可见
-    expect(w.text()).toContain("待处理");
-    // 资料库 / 设置两组默认收起 → 条目虽然渲染但带折叠类（CSS 隐藏）
-    const collapsedItems = w.findAll("a.nav-item-collapsed");
-    const texts = collapsedItems.map((a) => a.text());
-    expect(texts).toContain("全部凭证");
-    expect(texts).toContain("设置");
-    // 组按钮的 aria-expanded 如实反映状态
-    expect(groupButton(w, "收件箱").attributes("aria-expanded")).toBe("true");
-    expect(groupButton(w, "资料库").attributes("aria-expanded")).toBe("false");
-    expect(groupButton(w, "设置").attributes("aria-expanded")).toBe("false");
+    expect(w.findAll(".nav-group")).toHaveLength(0);
+    expect(navLinks(w)).toHaveLength(NAV_LABELS.length);
+    for (const label of NAV_LABELS) expect(w.text()).toContain(label);
   });
 
-  it("点击组标题可展开/收起，手动状态优先于自动规则", async () => {
+  it("点工具栏开关即收起：根属性置 true，aria-expanded 反映状态", async () => {
     const w = await mountLayout();
-    const lib = groupButton(w, "资料库");
-    await lib.trigger("click");
-    expect(groupButton(w, "资料库").attributes("aria-expanded")).toBe("true");
+    expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("true");
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
 
-    // 再点一次 → 收起，即使当前页就在该组（手动优先）
-    currentPath = "/insights";
-    await groupButton(w, "资料库").trigger("click");
-    expect(groupButton(w, "资料库").attributes("aria-expanded")).toBe("false");
+    await w.get(".sidebar-toggle").trigger("click");
+    await flushPromises();
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
+    expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("false");
   });
 
-  it("切到别的页面时：那一组自动展开，当前页条目不再带折叠类", async () => {
-    currentPath = "/settings";
+  it("再点一下恢复展开", async () => {
     const w = await mountLayout();
-    expect(groupButton(w, "设置").attributes("aria-expanded")).toBe("true");
-    const settingsItem = w.findAll("a").find((a) => a.text() === "设置")!;
-    expect(settingsItem.classes()).not.toContain("nav-item-collapsed");
-    // 而上一组（收件箱）此时不再自动展开
-    expect(groupButton(w, "收件箱").attributes("aria-expanded")).toBe("false");
+    await w.get(".sidebar-toggle").trigger("click");
+    await flushPromises();
+    await w.get(".sidebar-toggle").trigger("click");
+    await flushPromises();
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
+    expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("true");
   });
 
-  it("收起时组标题上显示组内徽标合计（疑似重复 6 → 资料库组显示 6）", async () => {
-    // 侧栏徽标读 dupStore；应用启动时会 refresh 一次，这里照同样路径准备状态
+  it("启动时尊重已保存的收起状态", async () => {
+    const store = useConfigStore();
+    const cfg = defaultConfig();
+    cfg.appearance.sidebarCollapsed = true;
+    store.config = cfg;
+    await flushPromises();
+
+    const w = await mountLayout();
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
+    expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("false");
+  });
+
+  it("收起后标签与 title 仍留在 DOM（图标栏的可发现性兜底）", async () => {
     useDupStore().pending = { groups: 6, pairs: 6 };
     const w = await mountLayout();
-    const lib = groupButton(w, "资料库");
-    expect(lib.text()).toContain("6");
-    // 展开后不再重复显示（条目自身的徽标会显示）
-    await lib.trigger("click");
-    expect(groupButton(w, "资料库").text()).not.toContain("6");
+    const dup = navLinks(w).find((a) => a.text().includes("重复核查"))!;
+    expect(dup.text()).toContain("6");
+    expect(dup.attributes("title")).toContain("6");
+
+    await w.get(".sidebar-toggle").trigger("click");
+    await flushPromises();
+    expect(dup.text()).toContain("重复核查");
+    expect(dup.attributes("title")).toContain("重复核查");
   });
 });

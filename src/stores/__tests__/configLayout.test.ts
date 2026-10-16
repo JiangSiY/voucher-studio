@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 /**
- * config store 的布局应用（`applyLayout` / `saveSidebarWidth`）。
+ * config store 的布局应用（`applyLayout` / `saveSidebarWidth` / 侧栏收起）。
  *
  * 浏览器预览模式下 `App.vue` 会跳过 `configStore.init()`（config 为 null），
- * 此时不应写 CSS 变量——保持 `tokens.css` 的默认 260px。
+ * 此时不应写 CSS 变量——保持 `tokens.css` 的默认 260px；
+ * 侧栏收起的开关同样要在这种模式下"只改界面不落盘"（用户 2026-10-16 要求）。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 import { createPinia, setActivePinia } from "pinia";
 
 vi.mock("../../api/client", () => ({
@@ -23,6 +25,7 @@ function cssVar(): string {
 beforeEach(() => {
   setActivePinia(createPinia());
   document.documentElement.style.removeProperty("--sidebar-w");
+  delete document.documentElement.dataset.sidebarCollapsed;
   vi.mocked(api.getConfig).mockReset();
   vi.mocked(api.saveConfig).mockReset();
 });
@@ -68,5 +71,48 @@ describe("config store 布局应用", () => {
 
     expect(api.saveConfig).not.toHaveBeenCalled();
     expect(cssVar()).toBe(`${SIDEBAR_WIDTH_DEFAULT}px`);
+  });
+
+  it("init 后把已保存的收起状态写到根属性", async () => {
+    const cfg = defaultConfig();
+    cfg.appearance.sidebarCollapsed = true;
+    vi.mocked(api.getConfig).mockResolvedValue(cfg);
+
+    const store = useConfigStore();
+    await store.init();
+    await nextTick();
+
+    expect(store.sidebarCollapsed).toBe(true);
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
+  });
+
+  it("toggleSidebarCollapsed 翻转界面并落盘（收起与展开两态都要存）", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue(defaultConfig());
+    vi.mocked(api.saveConfig).mockImplementation(async (c) => c);
+
+    const store = useConfigStore();
+    await store.init();
+
+    await store.toggleSidebarCollapsed();
+    await nextTick();
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
+    expect(vi.mocked(api.saveConfig).mock.calls.at(-1)?.[0].appearance.sidebarCollapsed).toBe(true);
+
+    await store.toggleSidebarCollapsed();
+    await nextTick();
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
+    expect(vi.mocked(api.saveConfig).mock.calls.at(-1)?.[0].appearance.sidebarCollapsed).toBe(false);
+  });
+
+  it("配置未加载时切换只改界面不落盘（浏览器预览模式）", async () => {
+    const store = useConfigStore();
+    expect(store.config).toBeNull();
+
+    await store.toggleSidebarCollapsed();
+    await nextTick();
+
+    expect(store.sidebarCollapsed).toBe(true);
+    expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
+    expect(api.saveConfig).not.toHaveBeenCalled();
   });
 });

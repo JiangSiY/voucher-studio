@@ -34,12 +34,23 @@ export const SIDEBAR_WIDTH_MIN = 220;
 export const SIDEBAR_WIDTH_MAX = 400;
 export const SIDEBAR_WIDTH_DEFAULT = 260;
 
+/**
+ * 侧边栏默认是否收起（收起后 56px 图标栏；用户 2026-10-16 要求）。
+ * 必须与 Rust `AppearanceConfig::default()` 的 `sidebar_collapsed` 一致。
+ */
+export const SIDEBAR_COLLAPSED_DEFAULT = false;
+
 /** 与 Rust AppConfig::default() 逐字段对齐的前端默认配置。 */
 export function defaultConfig(): AppConfig {
   return {
     // uiScale：界面字号倍数。**默认偏大**——用户视力不好，明确要求"字号要大一些"
     // （2026-09-24 反馈；当时正文 13px 被评为太小）。与 Rust `UI_SCALE_DEFAULT` 同步。
-    appearance: { theme: "system", sidebarWidth: SIDEBAR_WIDTH_DEFAULT, uiScale: UI_SCALE_DEFAULT },
+    appearance: {
+      theme: "system",
+      sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
+      uiScale: UI_SCALE_DEFAULT,
+      sidebarCollapsed: SIDEBAR_COLLAPSED_DEFAULT,
+    },
     naming: { template: DEFAULT_NAMING_TEMPLATE },
     ocr: { engine: "local", enabled: true, apiUrl: "", model: "" },
     backup: {

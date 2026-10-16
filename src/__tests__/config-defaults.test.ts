@@ -31,11 +31,13 @@ describe("config-defaults 与 Rust AppConfig::default() 对齐", () => {
     expect(defaultConfig().print.title).not.toBe("凭证日报");
   });
 
-  it("侧边栏宽度默认值与范围（对齐 Rust SIDEBAR_WIDTH_* 常量）", () => {
+  it("侧边栏宽度默认值与范围（对齐 Rust SIDEBAR_WIDTH_* 常量），侧栏默认展开", () => {
     expect(defaultConfig().appearance.sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
     expect(SIDEBAR_WIDTH_DEFAULT).toBe(260);
     expect(SIDEBAR_WIDTH_MIN).toBe(220);
     expect(SIDEBAR_WIDTH_MAX).toBe(400);
+    // 收起是 2026-10-16 新增的布尔开关：默认展开（对应 Rust `sidebar_collapsed: false`）
+    expect(defaultConfig().appearance.sidebarCollapsed).toBe(false);
   });
 
   it("返回全新的可变副本（每次调用互不共享引用，避免编辑缓冲互相污染）", () => {

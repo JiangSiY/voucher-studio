@@ -865,6 +865,25 @@ fn legacy_config_without_sidebar_width_uses_default() -> Result<()> {
     let loaded = AppConfig::load(&paths.config_file())?;
     assert_eq!(loaded.appearance.theme, "dark");
     assert_eq!(loaded.appearance.sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+    // 侧栏收起同属后加字段：旧配置缺它 → 默认展开（2026-10-16）
+    assert!(!loaded.appearance.sidebar_collapsed);
+    Ok(())
+}
+
+#[test]
+fn sidebar_collapsed_persists_across_contexts() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    assert!(!ctx.config().appearance.sidebar_collapsed, "默认展开");
+
+    let mut cfg = ctx.config();
+    cfg.appearance.sidebar_collapsed = true;
+    ctx.set_config(cfg)?;
+
+    let ctx2 = CoreContext::init(Some(dir.path().to_path_buf()))?;
+    assert!(
+        ctx2.config().appearance.sidebar_collapsed,
+        "收起状态应落盘并在新上下文读回"
+    );
     Ok(())
 }
 

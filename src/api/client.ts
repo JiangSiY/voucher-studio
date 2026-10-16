@@ -465,8 +465,14 @@ export interface ExportOptions {
 }
 
 export interface AppConfig {
-  /** 外观：主题 / 侧栏宽度 / 界面字号倍数（1 = 标准，1.15 / 1.3 为大字号档） */
-  appearance: { theme: "light" | "dark" | "system"; sidebarWidth: number; uiScale: number };
+  /** 外观：主题 / 侧栏宽度 / 界面字号倍数（1 = 标准，1.15 / 1.3 为大字号档）/ 侧栏是否收起 */
+  appearance: {
+    theme: "light" | "dark" | "system";
+    sidebarWidth: number;
+    uiScale: number;
+    /** 收起后侧栏只显示图标（56px 图标栏）；默认 false = 展开 */
+    sidebarCollapsed: boolean;
+  };
   naming: { template: string };
   ocr: { engine: "cloud" | "local"; enabled: boolean; apiUrl: string; model: string };
   backup: {

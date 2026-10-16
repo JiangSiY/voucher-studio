@@ -52,13 +52,16 @@ pub const UI_SCALE_DEFAULT: f32 = 1.15;
 pub const UI_SCALE_MIN: f32 = 1.0;
 pub const UI_SCALE_MAX: f32 = 1.5;
 
-/// 外观：light / dark / system + 侧边栏宽度
+/// 外观：light / dark / system + 侧边栏宽度 + 侧边栏是否收起
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppearanceConfig {
     pub theme: String,
     /// 侧边栏宽度（px）。手改 app.json 可能越界，读取与写入都经 [`AppConfig::normalize`] 钳制
     pub sidebar_width: u32,
+    /// 侧边栏是否收起（用户 2026-10-16 要求：收起后只显示图标，56px 图标栏）。
+    /// 布尔值无需钳制；旧配置文件无此字段时由容器级 `#[serde(default)]` 补齐为 false（展开）。
+    pub sidebar_collapsed: bool,
     /// 界面字号倍数（1.0–1.5）。前端写入 `--font-scale`；越界同样经 normalize 钳制。
     /// 缺省 1.15（大字号基线），旧配置文件无此字段时由此 `#[serde(default)]` 补齐。
     #[serde(default = "default_ui_scale")]
@@ -74,6 +77,7 @@ impl Default for AppearanceConfig {
         Self {
             theme: "system".into(),
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            sidebar_collapsed: false,
             ui_scale: UI_SCALE_DEFAULT,
         }
     }
@@ -362,12 +366,31 @@ mod tests {
         }
     }
 
-    /// 旧配置（无 `uiScale` 字段）反序列化后应补上默认值，而不是 0（0 会让界面无法阅读）
+    /// 旧配置（无 `uiScale` / `sidebarCollapsed` 字段）反序列化后应补上默认值，而不是 0（0 会让界面无法阅读）
     #[test]
     fn legacy_config_without_ui_scale_gets_default() {
         let json = r#"{"appearance":{"theme":"dark","sidebarWidth":280}}"#;
         let cfg: AppConfig = serde_json::from_str(json).expect("旧配置应能反序列化");
         assert_eq!(cfg.appearance.ui_scale, UI_SCALE_DEFAULT);
         assert_eq!(cfg.appearance.sidebar_width, 280);
+        // 侧栏收起是 2026-10-16 新增字段：旧配置缺它 → 默认展开
+        assert!(!cfg.appearance.sidebar_collapsed);
+    }
+
+    /// 侧栏收起（用户 2026-10-16 要求）：默认展开，按 `sidebarCollapsed` 落盘并能读回
+    #[test]
+    fn sidebar_collapsed_roundtrips_as_camel_case() {
+        assert!(
+            !AppConfig::default().appearance.sidebar_collapsed,
+            "默认应为展开"
+        );
+
+        let mut cfg = AppConfig::default();
+        cfg.appearance.sidebar_collapsed = true;
+        let json = serde_json::to_string(&cfg).expect("应能序列化");
+        assert!(json.contains("\"sidebarCollapsed\":true"), "{json}");
+
+        let back: AppConfig = serde_json::from_str(&json).expect("应能反序列化");
+        assert!(back.appearance.sidebar_collapsed);
     }
 }
