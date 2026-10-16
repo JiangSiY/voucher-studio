@@ -14,6 +14,7 @@ mod backup;
 mod enhance;
 mod export;
 mod ingest;
+mod links;
 mod settings;
 mod vouchers;
 
@@ -21,6 +22,7 @@ pub use backup::*;
 pub use enhance::*;
 pub use export::*;
 pub use ingest::*;
+pub use links::*;
 pub use settings::*;
 pub use vouchers::*;
 

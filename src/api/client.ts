@@ -661,6 +661,50 @@ export interface LocalOcrStatus {
 
 // ---------- API ----------
 
+/** v0.22 凭证关系类型：explains 附件说明 / detail 明细（都不带金额，不改合计口径） */
+export type VoucherLinkKind = "explains" | "detail";
+
+/** 一条两两关联（a_id < b_id 归一化后落库，两向都算） */
+export interface VoucherLink {
+  id: number;
+  aId: number;
+  bId: number;
+  kind: VoucherLinkKind;
+  note: string;
+  createdAt: string;
+}
+
+/** 右栏「相关凭证」一行：关系 + 对方凭证（用于展示与跳转） */
+export interface LinkedVoucher {
+  linkId: number;
+  kind: VoucherLinkKind;
+  note: string;
+  createdAt: string;
+  other: Voucher;
+  isA: boolean;
+}
+
+/** 关联审计事件（append-only，独立于凭证生命周期） */
+export interface VoucherLinkEvent {
+  id: number;
+  linkId: number;
+  aId: number;
+  bId: number;
+  kind: string;
+  action: string;
+  note: string;
+  at: string;
+}
+
+/** 事项组（组内成员＝「明细」；组内合计只是派生展示值） */
+export interface VoucherGroup {
+  id: number;
+  title: string;
+  note: string;
+  createdAt: string;
+  members: Voucher[];
+}
+
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
   openPath: (path: string) => invoke<void>("open_path", { path }),
@@ -835,4 +879,23 @@ export const api = {
   // v0.6.5 D-7 查看器命中埋点（静默调用，失败不打扰用户）
   recordViewerHit: (attachmentId: number) =>
     invoke<void>("record_viewer_hit", { attachmentId }),
+  // ---- v0.22 凭证关联 / 事项组（都不改金额合计口径）----
+  linkVouchers: (aId: number, bId: number, kind: VoucherLinkKind, note?: string) =>
+    invoke<VoucherLink>("link_vouchers", { aId, bId, kind, note }),
+  unlinkVouchers: (aId: number, bId: number, kind: VoucherLinkKind) =>
+    invoke<boolean>("unlink_vouchers", { aId, bId, kind }),
+  listVoucherLinks: (voucherId: number) =>
+    invoke<LinkedVoucher[]>("list_voucher_links", { voucherId }),
+  listVoucherLinkEvents: (voucherId: number) =>
+    invoke<VoucherLinkEvent[]>("list_voucher_link_events", { voucherId }),
+  createVoucherGroup: (title: string, note?: string) =>
+    invoke<VoucherGroup>("create_voucher_group", { title, note }),
+  addVouchersToGroup: (groupId: number, voucherIds: number[]) =>
+    invoke<VoucherGroup>("add_vouchers_to_group", { groupId, voucherIds }),
+  removeVoucherFromGroup: (groupId: number, voucherId: number) =>
+    invoke<VoucherGroup>("remove_voucher_from_group", { groupId, voucherId }),
+  voucherGroupsOf: (voucherId: number) =>
+    invoke<VoucherGroup[]>("voucher_groups_of", { voucherId }),
+  listVoucherGroups: () => invoke<VoucherGroup[]>("list_voucher_groups"),
+  deleteVoucherGroup: (groupId: number) => invoke<boolean>("delete_voucher_group", { groupId }),
 };

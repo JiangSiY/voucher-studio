@@ -9,4 +9,5 @@ pub mod ocr_cache_repo;
 pub mod ocr_layout_repo;
 pub mod period_repo;
 pub mod snapshot_repo;
+pub mod voucher_link_repo;
 pub mod voucher_repo;

@@ -188,6 +188,61 @@ CREATE INDEX IF NOT EXISTS idx_vouchers_status_updated ON vouchers(status, updat
 CREATE INDEX IF NOT EXISTS idx_export_items_voucher ON export_items(voucher_id);
 "#;
 
+/// v9 附加表（v0.22 关联批）：凭证之间的关系、事项组、关联审计。
+///
+/// 三条纪律（见 `docs/方案-v2-打印日报与凭证关联（定稿）.md`）：
+/// - **幂等只增**：`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`，
+///   对既有库无损；**不动 `SCHEMA_VERSION`**（bump 会触发 v<4 的清库分支，把用户数据清空）；
+/// - `voucher_links` / `voucher_group_items` 都带 `ON DELETE CASCADE`——关联随凭证消亡，
+///   删凭证不留孤儿（与 `attachments` / `export_items` 同一套语义）；
+/// - `voucher_link_events` **刻意不加外键**：它是审计日志，"关联过"这件事必须独立于凭证生命周期
+///   存活（与 `dup_decisions` 同理，也是《会计档案管理办法》第八条(三)"建立检索关系"的要求）。
+pub const SCHEMA_V9: &str = r#"
+CREATE TABLE IF NOT EXISTS voucher_links (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    a_id       INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    b_id       INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    kind       TEXT    NOT NULL CHECK (kind IN ('explains','detail')),
+    note       TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL,
+    CHECK (a_id <> b_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_links_pair ON voucher_links(a_id, b_id, kind);
+CREATE INDEX IF NOT EXISTS idx_voucher_links_a ON voucher_links(a_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_links_b ON voucher_links(b_id);
+
+CREATE TABLE IF NOT EXISTS voucher_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT    NOT NULL,
+    note       TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS voucher_group_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   INTEGER NOT NULL REFERENCES voucher_groups(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_group_items_uniq
+    ON voucher_group_items(group_id, voucher_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_group_items_voucher
+    ON voucher_group_items(voucher_id);
+
+CREATE TABLE IF NOT EXISTS voucher_link_events (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_id INTEGER NOT NULL,
+    a_id    INTEGER NOT NULL,
+    b_id    INTEGER NOT NULL,
+    kind    TEXT    NOT NULL,
+    action  TEXT    NOT NULL CHECK (action IN ('linked','unlinked')),
+    note    TEXT    NOT NULL DEFAULT '',
+    at      TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voucher_link_events_link ON voucher_link_events(link_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_link_events_at ON voucher_link_events(at DESC);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -211,6 +266,8 @@ pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_V7)?;
     // v8：仪表盘新指标所需的三条索引（幂等，v0.18 新增；只增索引、不改表结构）
     conn.execute_batch(SCHEMA_V8)?;
+    // v9：凭证关联 / 事项组 / 关联审计（幂等只增，v0.22 关联批；不动 SCHEMA_VERSION）
+    conn.execute_batch(SCHEMA_V9)?;
     // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
     let has_format: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;

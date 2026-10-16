@@ -168,3 +168,77 @@ impl ExportStatus {
         }
     }
 }
+
+/// 凭证之间的关系类型（v0.22 关联批）：**只做不带金额的语义关系**。
+///
+/// 与「疑似重复」（`DupDecisionKind`）是两回事：这里记录"谁解释谁 / 谁是谁的明细"，
+/// 不改变任何金额合计口径（关联 ≠ 抵消，见方案 v2 §5）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoucherLinkKind {
+    /// 附件说明：一张说明/备忘/分割单凭证解释另一张凭证
+    Explains,
+    /// 明细：一张凭证的明细构成（由「事项组」承载，见 `voucher_group_items`）
+    Detail,
+}
+
+impl VoucherLinkKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VoucherLinkKind::Explains => "explains",
+            VoucherLinkKind::Detail => "detail",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "explains" => Some(VoucherLinkKind::Explains),
+            "detail" => Some(VoucherLinkKind::Detail),
+            _ => None,
+        }
+    }
+
+    pub fn label_cn(&self) -> &'static str {
+        match self {
+            VoucherLinkKind::Explains => "附件说明",
+            VoucherLinkKind::Detail => "明细",
+        }
+    }
+}
+
+impl std::fmt::Display for VoucherLinkKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// 关联审计动作（append-only 的 `voucher_link_events.action`）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoucherLinkAction {
+    Linked,
+    Unlinked,
+}
+
+impl VoucherLinkAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VoucherLinkAction::Linked => "linked",
+            VoucherLinkAction::Unlinked => "unlinked",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "linked" => Some(VoucherLinkAction::Linked),
+            "unlinked" => Some(VoucherLinkAction::Unlinked),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for VoucherLinkAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}

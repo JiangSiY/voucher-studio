@@ -327,6 +327,16 @@ fn main() {
             commands::recent_enhanced,
             commands::record_viewer_hit,
             commands::enhance_hit_trend,
+            commands::link_vouchers,
+            commands::unlink_vouchers,
+            commands::list_voucher_links,
+            commands::list_voucher_link_events,
+            commands::create_voucher_group,
+            commands::add_vouchers_to_group,
+            commands::remove_voucher_from_group,
+            commands::voucher_groups_of,
+            commands::list_voucher_groups,
+            commands::delete_voucher_group,
         ])
         .build(tauri::generate_context!())
         // 唯一保留的 expect（2026-09-27 批次 4 评估）：`main` 没有返回错误的调用方，

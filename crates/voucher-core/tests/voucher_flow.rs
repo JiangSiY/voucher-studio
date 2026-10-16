@@ -37,7 +37,13 @@ fn schema_creates_eight_tables() -> Result<()> {
             "snapshots",
             "ocr_cache",
             "config",
-            "period_locks", // v6（v0.11 会计期间锁；v0.10 起随 schema 幂等建表）
+            "period_locks",   // v6（v0.11 会计期间锁；v0.10 起随 schema 幂等建表）
+            "dup_decisions",  // v7（v0.16 疑似重复处置）
+            "ocr_layouts",    // v5（OCR 版面）
+            "voucher_links",  // v9（v0.22 凭证关联）
+            "voucher_groups", // v9（v0.22 事项组）
+            "voucher_group_items", // v9（v0.22 组内明细）
+            "voucher_link_events", // v9（v0.22 关联审计，刻意无外键）
         ] {
             assert!(tables.iter().any(|x| x == t), "缺表 {t}");
         }
