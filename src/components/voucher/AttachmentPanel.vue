@@ -224,7 +224,9 @@ async function onCropSave(
           </div>
         </div>
       </div>
-      <div v-else class="dropzone" @click="emit('replaceImage')">
+      <div v-else class="dropzone" role="button" tabindex="0" aria-label="选择图片补挂到这张凭证"
+        @click="emit('replaceImage')"
+        @keydown.enter.prevent="emit('replaceImage')" @keydown.space.prevent="emit('replaceImage')">
         <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
         <div style="font-weight: 600">点击选择图片补挂到这张凭证</div>
         <div style="font-size: 12px; margin-top: 4px">一图一凭证：每张凭证只关联一张图片</div>

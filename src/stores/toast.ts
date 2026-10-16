@@ -19,12 +19,24 @@ export interface ToastItem {
 
 let nextId = 1;
 
+/** 同屏最多显示的条目数：超出丢最旧的，避免一屏堆满把界面糊住 */
+export const MAX_TOAST_ITEMS = 4;
+
 export const useToastStore = defineStore("toast", () => {
   const items = ref<ToastItem[]>([]);
 
   function push(kind: ToastKind, text: string, duration = 3500, action?: ToastAction) {
+    // 连续重复提示合并：同类型同文案只留一条，并把消失时间往后推。
+    // 否则「重试三次保存」会叠三层一模一样的错误——用户分不清到底有几件事出错，也点不准关闭按钮。
+    const last = items.value[items.value.length - 1];
+    if (last && last.kind === kind && last.text === text) {
+      if (action) last.action = action; // 新回调覆盖旧的（动作可能已指向新的批次）
+      if (duration > 0) setTimeout(() => dismiss(last.id), duration);
+      return last.id;
+    }
     const id = nextId++;
     items.value.push({ id, kind, text, action });
+    if (items.value.length > MAX_TOAST_ITEMS) items.value = items.value.slice(-MAX_TOAST_ITEMS);
     if (duration > 0) {
       // 定时器无需清理：这是「到点自动消失」的语义本身（不绑定组件生命周期；
       // 提前 dismiss 时定时器再触发也只是把已删的 id 再过滤一次，幂等无副作用）

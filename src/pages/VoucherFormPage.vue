@@ -94,7 +94,10 @@ onUnmounted(() => unlistenImportDone?.());
               然后自动跳到资料库并聚焦这一张——在右侧编辑区核对与完善字段。
             </div>
           </div>
-          <div class="dropzone" style="padding: 48px 24px" @click="createByImage">
+          <!-- 键盘可达：role=button + Tab 聚焦 + Enter/Space 触发（内含 div，故不用真 <button> 以免非法嵌套） -->
+          <div class="dropzone" style="padding: 48px 24px" role="button" tabindex="0"
+            aria-label="选择图片创建凭证" @click="createByImage"
+            @keydown.enter.prevent="createByImage" @keydown.space.prevent="createByImage">
             <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
             <div style="font-weight: 600">点击选择图片，或拖放到此处</div>
             <div style="font-size: 12px; margin-top: 4px">

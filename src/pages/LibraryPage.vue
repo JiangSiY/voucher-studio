@@ -47,7 +47,7 @@ const page = ref(1);
 const pageSize = 50;
 const loading = ref(false);
 
-/** 高级筛选（对应"未填金额 / 待识别 / 从未导出"等待办的精确下钻） */
+/** 精确下钻筛选（对应收件箱"未填金额 / 待识别 / 从未导出"等待办；控件都在主筛选行里） */
 const amountEmpty = ref(false);
 const counterpartyEmpty = ref(false);
 /** 陈旧天数（对应收件箱"陈旧草稿"待办；与 dashboard_todos 同口径） */
@@ -170,8 +170,10 @@ const activeFilters = computed(() => {
   return out;
 });
 
-// ---------- 缩略图与检视器 ----------
+/** 是否有任何筛选生效（列表空态里的「清空全部筛选」据此显示：没筛选就不该劝用户清筛选） */
+const hasAnyFilter = computed(() => activeFilters.value.length > 0);
 
+// ---------- 缩略图与检视器 ----------
 const thumbs = ref<Record<number, { filePath: string; enhancedPath: string | null; enhancedSource: string; fileAbs?: string | null; enhancedAbs?: string | null }>>({});
 const thumbStep = ref<Record<number, number>>({});
 
@@ -425,21 +427,10 @@ function onKeydown(e: KeyboardEvent) {
 
 // 跨页选择集：**不随翻页/筛选清空**（旧实现每次 load 都 clear，导致"勾了 3 页只剩最后 1 页"），
 // 只由用户显式清除、或批量操作后重置。
-/** 高级筛选是否展开（默认收起，避免工具栏拥挤） */
-const showMore = ref(false);
-/** 生效中的高级筛选数量（>0 时筛选行自动展开且按钮高亮） */
-const advancedCount = computed(
-  () =>
-    (dateFrom.value ? 1 : 0) +
-    (dateTo.value ? 1 : 0) +
-    (ocrStatus.value ? 1 : 0) +
-    (exported.value ? 1 : 0) +
-    (amountEmpty.value ? 1 : 0) +
-    (counterpartyEmpty.value ? 1 : 0) +
-    (counterpartyExact.value ? 1 : 0) +
-    (tagsText.value ? 1 : 0) +
-    (staleDays.value ? 1 : 0),
-);
+// 2026-10-16：原「高级筛选」折叠行已删除——它的 6 个控件（日期起止 / OCR 状态 / 导出覆盖 /
+// 金额未填 / 对方未填）与主筛选行是**同一批 v-model 的第二份**，同屏两份、改一处另一处跟着动；
+// 而控制它展开的那个开关又没有 setter，等于死代码。逐项清除由主行的筛选 chip 负责，
+// 「清空全部筛选」收敛到列表空态里的那一个按钮（`clearAllFilters`）。
 
 function clearAllFilters() {
   staleDays.value = null;
@@ -475,9 +466,31 @@ function clearSelection() {
   selectedIds.value = new Set();
 }
 const batchStatus = ref<VoucherStatus>("reviewed");
+/** 批量改状态的二次确认：原实现点「应用」立即生效，改错就是一整批；且选择集跨页/跨筛选保留，
+    用户按下去时未必知道自己改的是哪些 */
+const confirmBatchStatus = ref(false);
+
+/** 已选里**不在当前页**的数量（跨页/跨筛选选中留下的），确认框里如实告知 */
+const selectedOffPage = computed(() => {
+  const onPage = new Set(items.value.map((v) => v.id));
+  return [...selectedIds.value].filter((id) => !onPage.has(id)).length;
+});
+
+const batchStatusBody = computed(() => {
+  const n = selectedIds.value.size;
+  const off = selectedOffPage.value;
+  const scope = off > 0 ? `（其中 ${off} 张不在当前列表里，是之前跨页或跨筛选选中的）` : "";
+  return `将把已选 ${n} 张凭证的状态改为「${STATUS_META[batchStatus.value].label}」${scope}。改错需要一张张改回来。`;
+});
+
+function openBatchStatusConfirm() {
+  if (!selectedIds.value.size) return;
+  confirmBatchStatus.value = true;
+}
 
 /** 批量状态流转（单事务逐张快照，后端保证；迁自旧列表页） */
 async function applyBatchStatus() {
+  confirmBatchStatus.value = false;
   if (!selectedIds.value.size) return;
   try {
     const n = await api.batchUpdateStatus([...selectedIds.value], batchStatus.value);
@@ -607,7 +620,7 @@ watch(keyword, () => {
         <select v-model="batchStatus" class="input" style="max-width: 150px" title="批量改状态">
           <option v-for="(meta, key) in STATUS_META" :key="key" :value="key">{{ meta.label }}</option>
         </select>
-        <button class="btn" @click="applyBatchStatus()">应用</button>
+        <button class="btn" title="改状态前会先确认" @click="openBatchStatusConfirm()">应用</button>
         <button class="btn" @click="confirmDelete = true">
           <FluentIcon name="delete" :size="14" /> 删除
         </button>
@@ -622,38 +635,14 @@ watch(keyword, () => {
       </button>
     </div>
 
-    <!-- 高级筛选（默认收起；有生效项时自动展开并高亮，见 advancedCount） -->
-    <div v-if="showMore || advancedCount > 0" class="filter-bar advanced">
-      <span class="scope">日期</span>
-      <input v-model="dateFrom" class="input" type="date" style="max-width: 150px" title="起始日期" />
-      <span class="scope">至</span>
-      <input v-model="dateTo" class="input" type="date" style="max-width: 150px" title="结束日期" />
-      <select v-model="ocrStatus" class="input" style="max-width: 140px" title="按 OCR 状态筛选">
-        <option value="">OCR 状态</option>
-        <option value="pending">待识别</option>
-        <option value="failed">识别失败</option>
-        <option value="done">已识别</option>
-      </select>
-      <select v-model="exported" class="input" style="max-width: 140px" title="按导出覆盖度筛选">
-        <option value="">导出覆盖</option>
-        <option value="never">从未导出</option>
-        <option value="any">导出过</option>
-      </select>
-      <label class="inline-check" title="只看金额未填的凭证">
-        <input v-model="amountEmpty" type="checkbox" /> 金额未填
-      </label>
-      <label class="inline-check" title="只看对方账户未填的凭证">
-        <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
-      </label>
-      <button v-if="advancedCount" class="btn" @click="clearAllFilters()">清除高级筛选</button>
-    </div>
-
     <!-- 主体：左列表（双行）+ 右编辑器（v0.19：右栏即编辑器；双击/回车展开） -->
     <div class="split" :class="{ 'split--wide': wide }">
       <section class="list-pane">
         <div v-if="loading" class="hint">加载中…</div>
         <EmptyState v-else-if="!items.length" icon="folder" title="没有符合条件的凭证"
-          desc="试试清除筛选，或把图片拖进窗口导入。" />
+          desc="试试清除筛选，或把图片拖进窗口导入。">
+          <button v-if="hasAnyFilter" class="btn" @click="clearAllFilters()">清空全部筛选</button>
+        </EmptyState>
 
         <ul v-else class="rows">
           <li
@@ -729,6 +718,15 @@ watch(keyword, () => {
     </div>
 
     <ConfirmDialog
+      :visible="confirmBatchStatus"
+      title="批量修改状态？"
+      :body="batchStatusBody"
+      :confirm-text="`改为「${STATUS_META[batchStatus].label}」`"
+      :danger="false"
+      @confirm="applyBatchStatus"
+      @cancel="confirmBatchStatus = false"
+    />
+    <ConfirmDialog
       :visible="confirmDelete"
       title="删除选中的凭证？"
       :body="`将删除 ${selectedIds.size} 张凭证及其图片文件，此操作不可恢复。`"
@@ -754,9 +752,6 @@ watch(keyword, () => {
 .library { display: flex; flex-direction: column; gap: var(--s-3); height: 100%; }
 
 .filter-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
-/* 高级筛选行：与主行用一条细分隔线分开，视觉上"次级" */
-.filter-bar.advanced { padding-top: var(--s-2); border-top: 1px solid var(--separator); }
-.scope { font: var(--type-caption); color: var(--label-tertiary); }
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
