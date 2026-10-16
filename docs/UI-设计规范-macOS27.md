@@ -297,7 +297,7 @@
 | 项 | 要求 |
 |---|---|
 | 聚焦环 | `:focus-visible` 统一 3px `--accent` 25% 外环 + 2px 实色边，**不得** `outline: none` 无替代 |
-| 焦点管理 | 对话框/命令面板：打开时聚焦首个可操作元素，**Tab 循环留在浮层内**，Esc 关闭并**归还焦点** |
+| 焦点管理 | 对话框/命令面板：打开时聚焦首个可操作元素，**Tab 循环留在浮层内**，Esc 关闭并**归还焦点**。**2026-10-16 实装**：抽 `composables/useModal.ts`（`visible` → 聚焦 `[data-autofocus]` 或首个可操作元素；`Tab`/`Shift+Tab` 在面板内回绕；`Esc` 关闭并 `document.contains` 校验后归还焦点），已接入 `ConfirmDialog.vue`（危险确认框默认焦点落在「取消」）、`CropDialog.vue`、`ImageViewerDialog.vue`（后者自带 Esc，以 `escape: false` 接入避免两次关闭）；命令面板按键只由 window 一份处理器接管（原先输入框又挂一份 → ↓ 跳 2 项、Enter 跑两遍） |
 | 减少透明度 | `prefers-reduced-transparency: reduce` → 侧栏/工具栏/浮层全部改实色（`--bg-sidebar`/`--bg-popover`） |
 | 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭。**2026-10-16 实装补强**：只把 `--motion-*` 置 0 不够，样式表里还有硬编码时长（`transition: all .15s`、`clip-path .06s`、`animation: toast-in .2s`），故再加 `*, *::before, *::after` 通配兜底把 `transition-duration`/`animation-duration` 压到 `0.01ms`（`tokens.css` 末尾） |
 | 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary`。**2026-10-16 实装**（此前零命中）：在 `tokens.css` 末尾同时改写 `--separator`/`--text-2`/`--text-3`/`--text-4` 四组语义令牌，组件不改 |
