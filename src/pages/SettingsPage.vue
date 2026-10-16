@@ -10,6 +10,7 @@ import { onMounted, ref } from "vue";
 import { api } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useConfigStore } from "../stores/config";
+import { withLiveAppearance } from "../composables/liveAppearance";
 import { useSettingsDraft } from "../stores/settingsDraft";
 import GeneralTab from "../components/settings/GeneralTab.vue";
 import NamingTab from "../components/settings/NamingTab.vue";
@@ -51,7 +52,7 @@ async function save() {
     // 草稿里是进页时的旧快照：统一走 `withLiveAppearance` 覆盖，否则
     // 「拖过侧栏 / 收起过侧栏 → 改任一设置 → 保存」会把这两项一起回退。
     // 备份 Tab 的「测试连接」是第二条整包提交路径（BackupTab 同样走这个 helper）。
-    await configStore.save(configStore.withLiveAppearance(draft.cfg));
+    await configStore.save(withLiveAppearance(draft.cfg, configStore.config?.appearance));
     toast.success("设置已保存");
   } catch (e) {
     toastError(e);

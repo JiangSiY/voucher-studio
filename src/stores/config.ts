@@ -1,4 +1,4 @@
-import { defineStore } from "pinia";
+import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { api, type AppConfig, type AppInfo } from "../api/client";
 import { applySidebarWidth, clampSidebarWidth } from "../composables/useSidebarResize";
@@ -112,27 +112,6 @@ export const useConfigStore = defineStore("config", () => {
     await save({ ...cur, appearance: { ...cur.appearance, sidebarCollapsed: next } });
   }
 
-  /**
-   * 把「不属于设置草稿」的运行期外观项用当前值覆盖回配置对象。
-   *
-   * `appearance.sidebarWidth`（拖拽手柄维护）与 `appearance.sidebarCollapsed`（侧栏底部开关维护）
-   * 都不在设置页里编辑，草稿里装的是**进页时的旧快照**；而设置页与备份 Tab 都会整包提交草稿
-   * （备份 Tab 的「测试连接」也会先落盘一次配置）。不覆盖就会出现
-   * 「拖过侧栏 / 收起过侧栏 → 改任一设置（或点一次测试连接）→ 保存」把这两项一起回退。
-   * 2026-10-16 界面细节审查：原先只有设置页自己 save() 里内联覆盖，备份 Tab 那条路径漏了。
-   */
-  function withLiveAppearance(cfg: AppConfig): AppConfig {
-    const cur = config.value?.appearance;
-    return {
-      ...cfg,
-      appearance: {
-        ...cfg.appearance,
-        sidebarWidth: cur?.sidebarWidth ?? cfg.appearance.sidebarWidth,
-        sidebarCollapsed: cur?.sidebarCollapsed ?? cfg.appearance.sidebarCollapsed,
-      },
-    };
-  }
-
   return {
     config,
     appInfo,
@@ -143,6 +122,15 @@ export const useConfigStore = defineStore("config", () => {
     save,
     saveSidebarWidth,
     toggleSidebarCollapsed,
-    withLiveAppearance,
   };
 });
+
+/**
+ * store 源码改动后热更新实例本身。
+ *
+ * 不加这句时，dev 下改了 store（新增/改名方法/字段）只有定义被替换、
+ * **实例仍是旧的那个**——调用方拿到 undefined 才炸（2026-10-16 用户实报
+ * `configStore.withLiveAppearance is not a function`）。合并逻辑已移到
+ * `composables/liveAppearance.ts` 的纯函数，这里再补上 HMR 接收，双保险。
+ */
+if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useConfigStore, import.meta.hot));
