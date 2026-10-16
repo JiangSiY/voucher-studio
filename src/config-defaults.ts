@@ -30,9 +30,9 @@ export const UI_SCALE_OPTIONS = [
 export const DEFAULT_PRINT_TITLE = "原始凭证";
 
 /** 侧边栏宽度范围与默认值（必须与 crates/voucher-core/src/utils/config.rs 的同名常量一致） */
-export const SIDEBAR_WIDTH_MIN = 220;
+export const SIDEBAR_WIDTH_MIN = 184;
 export const SIDEBAR_WIDTH_MAX = 400;
-export const SIDEBAR_WIDTH_DEFAULT = 260;
+export const SIDEBAR_WIDTH_DEFAULT = 220;
 
 /**
  * 侧边栏默认是否收起（收起后 56px 图标栏；用户 2026-10-16 要求）。

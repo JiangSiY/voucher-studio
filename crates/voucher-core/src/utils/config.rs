@@ -38,12 +38,15 @@ pub struct VoucherConfig {
 }
 
 /// 侧边栏宽度钳制范围与默认值（前端 `src/composables/useSidebarResize.ts` 保持同值）
-pub const SIDEBAR_WIDTH_MIN: u32 = 220;
+/// 2026-10-16 收窄：去掉侧栏左上角图标、徽标改为压在图标上的角标后，行内容只需
+/// 图标 24 + 间距 + 标签（最长「打印与导出」约 75px）+ 内边距 ≈ 145px，
+/// 故最小宽度 220 → **184**、默认宽度 260 → **220**（用户要求"缩减侧栏占用的 UI 面积"）。
+pub const SIDEBAR_WIDTH_MIN: u32 = 184;
 pub const SIDEBAR_WIDTH_MAX: u32 = 400;
 /// 自动备份间隔的合法区间（小时）：下限 1h、上限 30 天。见 `normalize` 的注释（审计 B10）。
 pub const MIN_BACKUP_INTERVAL_HOURS: u64 = 1;
 pub const MAX_BACKUP_INTERVAL_HOURS: u64 = 24 * 30;
-pub const SIDEBAR_WIDTH_DEFAULT: u32 = 260;
+pub const SIDEBAR_WIDTH_DEFAULT: u32 = 220;
 
 /// 界面字号档位（倍数）。**默认偏大**：用户视力不好，明确要求"字号要大一些"
 /// （2026-09-24 反馈；当时正文 13px 被评价为太小）。

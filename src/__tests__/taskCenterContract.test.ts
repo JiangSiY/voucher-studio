@@ -43,8 +43,9 @@ describe("任务中心", () => {
     expect(center).toContain("is-indeterminate");
   });
 
-  it("不跟 toast 抢角落：右下角归 toast，任务中心在内容区左下并跟随侧栏宽度", () => {
-    expect(baseCss).toMatch(/\.toast-host \{[\s\S]{0,120}bottom: var\(--s-5\);[\s\S]{0,80}right: var\(--s-5\)/);
+  it("不跟 toast 抢角落：toast 在右上角，任务中心在内容区左下并跟随侧栏宽度", () => {
+    // 规范 §1.5：通知条在右上角（2026-10-16 按规范改正，见 toastSpecContract）
+    expect(baseCss).toMatch(/\.toast-host \{[\s\S]{0,400}?top: var\(--s-5\);[\s\S]{0,80}right: var\(--s-5\)/);
     const css = center.slice(center.indexOf("<style scoped>"));
     expect(css).toMatch(/\.task-center \{[\s\S]{0,160}left: calc\(var\(--sidebar-w\) \+ var\(--s-5\)\)/);
     // 收起态/窄窗是 56px 图标栏，靠 --sidebar-w 跟不动，必须单独纠

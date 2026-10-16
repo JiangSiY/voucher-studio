@@ -37,9 +37,10 @@ describe("clampSidebarWidth", () => {
     expect(clampSidebarWidth(Number.NEGATIVE_INFINITY)).toBe(SIDEBAR_WIDTH_DEFAULT);
   });
 
-  it("默认值落在范围内（与 Rust SIDEBAR_WIDTH_* 同值：220 / 260 / 400）", () => {
-    expect(SIDEBAR_WIDTH_MIN).toBe(220);
-    expect(SIDEBAR_WIDTH_DEFAULT).toBe(260);
+  it("默认值落在范围内（与 Rust SIDEBAR_WIDTH_* 同值：184 / 220 / 400）", () => {
+    // 2026-10-16 收窄：去掉左上角图标 + 徽标改角标后，行内容只需 ~145px
+    expect(SIDEBAR_WIDTH_MIN).toBe(184);
+    expect(SIDEBAR_WIDTH_DEFAULT).toBe(220);
     expect(SIDEBAR_WIDTH_MAX).toBe(400);
   });
 });

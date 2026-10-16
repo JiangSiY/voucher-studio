@@ -60,36 +60,15 @@ body {
 
 .sidebar-header {
   /* 顶部让开"交通灯带"：--toolbar-h = 52px，与统一工具栏等高；红绿灯占窗口 y≈18–30。
-     原 padding-top 是 --s-5（20px），VS 徽标与红绿灯挤在同一带里、上方看着不协调
-     → 用户 2026-10-16 真机走查「侧边栏这部分需要整体下移一些」。
-     这段留白仍在 .sidebar-header 内（带 drag-region="deep"），顶部照旧可拖动窗口。 */
-  padding: calc(var(--toolbar-h) - var(--s-2)) var(--s-4) var(--s-4);
-  border-bottom: 1px solid var(--separator);
-}
-
-.sidebar-logo {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.sidebar-logo .badge {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-small);
-  background: var(--accent);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14.9px;
-  font-weight: 700;
+     **这里现在没有任何内容**——用户 2026-10-16 要求去掉左上角图标（原 VS 徽标 + 字标），
+     只留一段可拖窗口的留白（带 drag-region="deep"）；分隔线随之取消（没有内容可分隔）。
+     `.sidebar-logo` 及其收起态/窄窗态规则一并删除。 */
+  padding-top: calc(var(--toolbar-h) - var(--s-2));
+  flex-shrink: 0;
 }
 
 .sidebar-nav {
-  padding: var(--s-3) var(--s-2);
+  padding: var(--s-2) var(--s-2) var(--s-3);
   flex: 1;
 }
 
@@ -134,6 +113,7 @@ body {
 }
 
 .sidebar-nav .nav-icon {
+  position: relative; /* 角标的定位参照 */
   width: 24px;
   display: inline-flex;
   justify-content: center;
@@ -141,20 +121,26 @@ body {
   opacity: 0.85;
 }
 
-/* v0.16：导航徽标（待处理数；0 时模板不渲染）。配色沿用 .tag-warning 的柔和底+同色字，
-   深色模式下同样可读（不用实心橙底白字——深色主题的 --warning 是浅黄，白字会糊） */
+/* 导航角标（待处理数 / 疑似重复组数；0 时模板不渲染）。
+   2026-10-16 用户要求从**行尾文字位**改成**压在图标右上角的角标**：角标不占行宽，
+   侧栏因此可以更窄（184px 起）。配色沿用 .tag-warning 的柔和底 + 同色字——深色主题的
+   --warning 是浅黄，实心橙底白字会糊。外圈一圈 --bg-content 让角标与图标字形分开。 */
 .sidebar-nav .nav-badge {
-  margin-left: auto;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
+  position: absolute;
+  top: -6px;
+  left: 13px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
   background: var(--warning-soft);
   color: var(--warning);
-  font-size: 12.6px;
-  font-weight: 600;
-  line-height: 18px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
   text-align: center;
+  box-shadow: 0 0 0 1.5px var(--bg-content);
+  pointer-events: none; /* 角标不该抢行点击（整行都是链接） */
 }
 
 /* 侧栏收起开关（用户 2026-10-16 实报后两次定稿）：
@@ -1496,37 +1482,39 @@ select.input {
 
 /* ===== Toast 通知 ===== */
 .toast-host {
+  /* 规范 §1.5：通知条在**右上角**（原实现是右下角，与规范不符——2026-10-16 按规范改正）。
+     右下角现在归任务中心浮层（`.task-center`，z-index 900 < 1000），两者不抢角。 */
   position: fixed;
-  bottom: var(--s-5);
+  top: var(--s-5);
   right: var(--s-5);
   z-index: 1000;
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  max-width: 380px;
+  max-width: 320px; /* 规范 §1.5：宽 320（原 380） */
 }
 
 .toast-item {
   background: var(--bg-popover);
   border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-toast); /* 规范 §1.5：圆角 10（原 --radius-panel 12） */
   box-shadow: var(--shadow-popover);
   padding: var(--s-3) var(--s-4);
   display: flex;
   gap: var(--s-2);
   align-items: flex-start;
   font-size: 14.9px;
-  animation: toast-in 0.2s ease;
+  animation: toast-in var(--motion-normal) var(--motion-curve); /* 原硬编码 0.2s ease */
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(12px); /* 右上角通知：从右侧滑入（原为自下而上，适配右下角） */
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 }
 
@@ -1782,7 +1770,7 @@ select.input {
 }
 
 .toast-host {
-  max-width: min(380px, calc(100vw - 32px));
+  max-width: min(320px, calc(100vw - 32px));
 }
 
 /* ---- 高度自适应：min() 在常见窗高下恒等于原值（等于没改），故用 clamp 份额 ---- */
@@ -1883,23 +1871,8 @@ select.input {
     display: none;
   }
 
-  .sidebar-header {
-    padding: calc(var(--toolbar-h) - var(--s-2)) 0 var(--s-4);
-    display: flex;
-    justify-content: center;
-  }
-
-  .sidebar-logo {
-    justify-content: center;
-    gap: 0;
-  }
-
-  .sidebar-logo > span:not(.badge) {
-    display: none;
-  }
-
   .sidebar-nav {
-    padding: var(--s-3) var(--s-1);
+    padding: var(--s-2) var(--s-1) var(--s-3);
   }
 
   /* 图标栏模式下忽略折叠（原本是"忽略按组折叠"，分组已删）：
@@ -1962,24 +1935,8 @@ select.input {
   display: none;
 }
 
-:root[data-sidebar-collapsed="true"] .sidebar-header {
-  padding: calc(var(--toolbar-h) - var(--s-2)) 0 var(--s-4);
-  display: flex;
-  justify-content: center;
-}
-
-:root[data-sidebar-collapsed="true"] .sidebar-logo {
-  justify-content: center;
-  gap: 0;
-}
-
-/* 只留 VS 徽标（`> span:not(.badge)` 是文字块；徽标自己就是 span.badge） */
-:root[data-sidebar-collapsed="true"] .sidebar-logo > span:not(.badge) {
-  display: none;
-}
-
 :root[data-sidebar-collapsed="true"] .sidebar-nav {
-  padding: var(--s-3) var(--s-1);
+  padding: var(--s-2) var(--s-1) var(--s-3);
 }
 
 :root[data-sidebar-collapsed="true"] .sidebar-nav a {

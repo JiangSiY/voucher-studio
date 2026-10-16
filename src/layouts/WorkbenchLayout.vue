@@ -25,17 +25,22 @@ const version = computed(() => configStore.appInfo?.version ?? "…");
  * 分区语义改由**条目顺序与文案**表达，导航本身只保留条目。
  * 下方 `sidebarCollapsed` 才是 v0.18 起"侧栏开合"需求的正解：收起整条侧栏，而不是收起某一组。
  */
+/** 角标数字：超过 99 显示 99+（侧栏只有 15px 见方，三位数会糊） */
+function badgeText(n: number): string {
+  return n > 99 ? "99+" : String(n);
+}
+
 const navItems = computed(() => [
-  // v0.18 收件箱驱动：首页即"今天要处理什么"，badge 显示待处理项数
-  { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount },
-  { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0 },
-  { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups },
-  { to: "/insights", icon: "chart", label: "洞察", badge: 0 },
-  { to: "/print", icon: "print", label: "打印与导出", badge: 0 },
-  { to: "/exports", icon: "chart", label: "导出历史", badge: 0 },
-  { to: "/settings", icon: "settings", label: "设置", badge: 0 },
-  { to: "/restore", icon: "save", label: "备份与恢复", badge: 0 },
-  { to: "/help", icon: "help", label: "帮助", badge: 0 },
+  // v0.18 收件箱驱动：首页即"今天要处理什么"，角标显示待处理项数
+  { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount, badgeLabel: "项待办" },
+  { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0, badgeLabel: "" },
+  { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups, badgeLabel: "组疑似重复" },
+  { to: "/insights", icon: "chart", label: "洞察", badge: 0, badgeLabel: "" },
+  { to: "/print", icon: "print", label: "打印与导出", badge: 0, badgeLabel: "" },
+  { to: "/exports", icon: "chart", label: "导出历史", badge: 0, badgeLabel: "" },
+  { to: "/settings", icon: "settings", label: "设置", badge: 0, badgeLabel: "" },
+  { to: "/restore", icon: "save", label: "备份与恢复", badge: 0, badgeLabel: "" },
+  { to: "/help", icon: "help", label: "帮助", badge: 0, badgeLabel: "" },
 ]);
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "");
@@ -58,28 +63,27 @@ function toggleSidebar() {
 <template>
   <div class="app-shell">
     <aside id="app-sidebar" class="sidebar">
-      <!-- 侧栏顶部同样可拖（交通灯就在这条上；里面没有可点元素，deep 不会误吞点击） -->
-      <div class="sidebar-header" data-tauri-drag-region="deep">
-        <div class="sidebar-logo">
-          <span class="badge">VS</span>
-          <span>
-            Voucher Studio
-            <br />
-            <small style="font-weight: 400; font-size: 11px; color: var(--text-3)">凭证整理打印</small>
-          </span>
-        </div>
-      </div>
+      <!-- 侧栏顶部：**只留一段可拖窗口的留白**（交通灯就在这条上，里面没有可点元素，
+           deep 不会误吞点击）。用户 2026-10-16 要求去掉左上角图标（原 VS 徽标 + 字标），
+           留白高度仍按 `calc(var(--toolbar-h) - var(--s-2))` 让开红绿灯带（y≈18–30）。 -->
+      <div class="sidebar-header" data-tauri-drag-region="deep"></div>
       <!-- 扁平导航（无分组，用户 2026-10-16 要求）；收起时 CSS 只留图标 -->
       <nav class="sidebar-nav" aria-label="主导航">
         <router-link
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
-          :title="item.badge > 0 ? `${item.label}（${item.badge} 组待核查）` : item.label"
+          :title="item.badge > 0 ? `${item.label}（${item.badge} ${item.badgeLabel}）` : item.label"
+          :aria-label="item.badge > 0 ? `${item.label}，${item.badge} ${item.badgeLabel}` : undefined"
         >
-          <span class="nav-icon"><FluentIcon :name="item.icon" :size="17" /></span>
+          <!-- 角标压在图标右上角：不再占行尾宽度，侧栏因此可以更窄（用户 2026-10-16 要求） -->
+          <span class="nav-icon">
+            <FluentIcon :name="item.icon" :size="17" />
+            <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} ${item.badgeLabel}`">
+              {{ badgeText(item.badge) }}
+            </span>
+          </span>
           <span class="nav-label">{{ item.label }}</span>
-          <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} 组疑似重复待核查`">{{ item.badge }}</span>
         </router-link>
       </nav>
       <!-- 收起开关（用户 2026-10-16 第二次定位：从工具栏最左移到**版本行上方那一行**——

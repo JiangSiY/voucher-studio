@@ -75,9 +75,32 @@ describe("主骨架：收件箱驱动", () => {
   });
 
   it("侧栏入口与「待处理」徽标同源（inbox store），重复核查徽标沿用 dup store", () => {
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/inbox"[^}]*badge:\s*inboxStore\.pendingCount\s*\}/);
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/duplicates"[^}]*badge:\s*dupStore\.pending\.groups\s*\}/);
+    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/inbox"[^}]*badge:\s*inboxStore\.pendingCount/);
+    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/duplicates"[^}]*badge:\s*dupStore\.pending\.groups/);
     expect(layoutSrc).toContain("useInboxStore");
+  });
+
+  it("徽标是压在图标上的角标（用户 2026-10-16：不占行宽，好把侧栏收窄）", () => {
+    // 角标必须在 .nav-icon 内（行尾文字位已取消），且 CSS 用绝对定位
+    expect(layoutSrc).toMatch(/<span class="nav-icon">[\s\S]{0,220}class="nav-badge"/);
+    expect(layoutSrc).not.toMatch(/<\/span>\s*<span v-if="item\.badge > 0" class="nav-badge"/);
+    const css = repoFile("src/styles/base.css");
+    expect(css).toMatch(/\.sidebar-nav \.nav-icon \{[\s\S]{0,80}position: relative/);
+    expect(css).toMatch(/\.sidebar-nav \.nav-badge \{[\s\S]{0,120}position: absolute/);
+    expect(css).toMatch(/\.sidebar-nav \.nav-badge \{[\s\S]{0,400}pointer-events: none/);
+    // 三位数会糊：模板要有 99+ 截断
+    expect(layoutSrc).toContain('n > 99 ? "99+"');
+    // 无障碍：有角标时给出数字本身，而不是让读屏只念"待处理"
+    expect(layoutSrc).toMatch(/:aria-label="item\.badge > 0 \?/);
+  });
+
+  it("左上角图标（VS 徽标 + 字标）已去掉：侧栏顶部只留可拖留白", () => {
+    expect(layoutSrc).not.toContain("sidebar-logo");
+    expect(layoutSrc).not.toContain("Voucher Studio");
+    expect(layoutSrc).toContain('class="sidebar-header" data-tauri-drag-region="deep"');
+    const css = repoFile("src/styles/base.css");
+    expect(css).not.toMatch(/^\.sidebar-logo/m);
+    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/);
   });
 
   it("窗口拖动区用 deep（bare 只在直点元素本身时生效，点标题会拖不动）", () => {
@@ -104,10 +127,8 @@ describe("主骨架：收件箱驱动", () => {
 
   it("侧栏顶部让开交通灯带：上留白随 --toolbar-h 走（用户 2026-10-16 反馈「上方不协调」）", () => {
     const css = repoFile("src/styles/base.css");
-    // 基础规则：VS 徽标必须落在红绿灯（y≈18–30）下方，不能只给 20px
-    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}?padding: calc\(var\(--toolbar-h\) - var\(--s-2\)\) var\(--s-4\) var\(--s-4\)/);
-    // 收起态与 ≤760 图标栏同样让开（否则两种收窄形态又会挤回红绿灯那一带）
-    expect(css.match(/padding: calc\(var\(--toolbar-h\) - var\(--s-2\)\) 0 var\(--s-4\)/g) ?? []).toHaveLength(2);
+    // 侧栏顶部只留留白：必须让开红绿灯（y≈18–30），不能只给 20px
+    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}?padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/);
   });
 
   it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {

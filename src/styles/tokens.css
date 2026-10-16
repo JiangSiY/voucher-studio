@@ -63,6 +63,9 @@ html[data-theme="light"] {
   /* ===== 新语义层：圆角（同心：子圆角 = 父圆角 − 内边距，clamp ≥4）===== */
   --radius-window: 10px;
   --radius-panel: 12px;
+  /* 通知条（toast）圆角：规范 §1.5 点名 10px——比面板小一档、比控件大一档，
+     是 macOS 通知的观感；不塞进上面三档是有意的（改三档不该顺带动 toast）。 */
+  --radius-toast: 10px;
   --radius-control: 6px;
   --radius-small: 4px;
 
@@ -106,7 +109,9 @@ html[data-theme="light"] {
   --s-16: 64px;
 
   /* ===== 布局 ===== */
-  --sidebar-w: 260px;
+  /* 默认宽度与 `SIDEBAR_WIDTH_DEFAULT`（前端 config-defaults / Rust AppearanceConfig）同值：
+     2026-10-16 随"去掉侧栏左上角图标 + 徽标改角标"一起收窄 260 → 220。 */
+  --sidebar-w: 220px;
   /* 统一工具栏高度（自绘工具栏；左侧为交通灯留白 84px，见规范 §1.4） */
   --toolbar-h: 52px;
   --toolbar-inset-start: 84px;
