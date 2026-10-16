@@ -233,54 +233,6 @@ pub fn batch_vouchers(ctx: &CoreContext, batch_id: i64) -> Result<Vec<Voucher>> 
     })
 }
 
-/// v0.11：年度报表 PDF（12 个月汇总 + 季度小计 + 年合计，无图片附录）。
-/// 统计输出而非凭证归档导出：落批次与明细（导出历史可反查），
-/// 但**不改凭证状态**（避免统计导出把草稿批量推成「已导出」）。
-pub fn export_yearly_report(ctx: &CoreContext, year: i32) -> Result<ExportBatch> {
-    let months = crate::services::reports::yearly_summary(ctx, year)?;
-    let total: i64 = months.iter().map(|m| m.count).sum();
-    if total == 0 {
-        return Err(CoreError::Invalid(format!(
-            "{year} 年没有凭证，无需导出年度报表"
-        )));
-    }
-
-    let today = chrono::Local::now().format("%Y%m%d").to_string();
-    let batch_no = next_batch_no(ctx, &format!("EXP-Y{year}-{today}"))?;
-    let path = ctx.paths.exports.join(format!("{batch_no}.pdf"));
-    // 同 export_vouchers：临时名 + 提交（审计 B11）
-    let tmp = path.with_extension("pdf.tmp");
-    pdf::generate_yearly_report(
-        &tmp,
-        &pdf::YearlyInput {
-            year,
-            months: months.clone(),
-        },
-    )?;
-    crate::utils::jsonio::commit_file(&tmp, &path)?;
-
-    // 批次 + 明细（该年全部凭证，反查可点）；不落快照、不改状态（统计报表口径）
-    let voucher_ids = ctx
-        .db
-        .with_conn(|conn| voucher_repo::ids_of_year(conn, year))?;
-    ctx.db.with_tx(|tx| {
-        let batch = export_repo::insert_batch(
-            tx,
-            &crate::models::NewExportBatch {
-                batch_no,
-                voucher_count: total,
-                pdf_path: path.to_string_lossy().to_string(),
-                status: crate::models::ExportStatus::Done,
-                format: ExportFormat::Pdf,
-            },
-        )?;
-        for (i, id) in voucher_ids.iter().enumerate() {
-            export_repo::insert_item(tx, batch.id, *id, i as i64)?;
-        }
-        Ok(batch)
-    })
-}
-
 // ---------- 内部辅助 ----------
 
 /// 取凭证与附件（按日期+编号排序，保持打印顺序稳定）

@@ -13,7 +13,7 @@ import { useRouter } from "vue-router";
 import { api, type MonthlySummary } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../../composables/format";
-import { toast, toastError } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 
 const props = withDefaults(
   defineProps<{
@@ -24,7 +24,6 @@ const props = withDefaults(
 );
 
 const router = useRouter();
-const busy = ref(false);
 
 // ---------- v0.11：趋势视图切换（近 6 月滚动 | 自然年度 12 月） ----------
 
@@ -92,21 +91,6 @@ const quarters = computed(() => {
   return out;
 });
 
-/** v0.11：导出年度报表 PDF（统计输出，不改凭证状态） */
-async function exportYearly() {
-  busy.value = true;
-  try {
-    const batch = await api.exportYearlyReport(trendYear.value);
-    toast.success(`年度报表已生成：${batch.batchNo}`, {
-      label: "打开 PDF",
-      onClick: () => void api.openPath(batch.pdfPath),
-    });
-  } catch (e) {
-    toastError(e);
-  } finally {
-    busy.value = false;
-  }
-}
 
 // ---------- v0.9 动线：图表下钻（看数 → 看明细，不断链） ----------
 
@@ -303,9 +287,6 @@ onUnmounted(() => {
         </svg>
         <!-- v0.11：年度报表导出（统计输出，不改凭证状态） -->
         <div v-if="trendMode === 'yearly'" style="display: flex; justify-content: flex-end; margin-top: 4px">
-          <button class="btn btn-sm" :disabled="busy" @click="exportYearly">
-            <FluentIcon v-if="!busy" name="print" :size="13" />导出 {{ trendYear }} 年度报表 PDF
-          </button>
         </div>
       </div>
     </div>

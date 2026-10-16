@@ -306,7 +306,6 @@ fn main() {
             commands::export_pdf,
             commands::export_pdf_daily,
             commands::export_table,
-            commands::export_yearly_report,
             commands::list_export_batches,
             commands::export_batch_vouchers,
             commands::run_backup,

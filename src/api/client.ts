@@ -794,10 +794,7 @@ export const api = {
   /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */
   exportBatchVouchers: (batchId: number) =>
     invoke<Voucher[]>("export_batch_vouchers", { batchId }),
-  /** v0.11：年度报表 PDF（统计输出，不改凭证状态） */
-  exportYearlyReport: (year: number) =>
-    invoke<ExportBatch>("export_yearly_report", { year }),
-  /** 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态） */
+  /** v0.8：按天日报 PDF（每天一个批次） */
   exportPdfDaily: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch[]>("export_pdf_daily", { voucherIds, options }),
   listExportBatches: (limit?: number) => invoke<ExportBatch[]>("list_export_batches", { limit }),

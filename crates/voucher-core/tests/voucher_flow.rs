@@ -1843,50 +1843,6 @@ fn search_filters_combine_date_and_amount() -> Result<()> {
     Ok(())
 }
 
-/// 年度报表导出：PDF 落盘 + 批次记录（EXP-Y 前缀）+ 不改凭证状态（统计报表口径）
-#[test]
-#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
-fn export_yearly_report_pdf_and_batch() -> Result<()> {
-    let (_dir, ctx) = test_ctx();
-    if voucher_core::services::pdf::find_cjk_font().is_none() {
-        eprintln!("跳过：系统无中文字体");
-        return Ok(());
-    }
-    for (d, amt) in [("2026-02-01", Some(1000)), ("2026-07-15", Some(2500))] {
-        voucher_mgr::create_voucher(
-            &ctx,
-            NewVoucher {
-                voucher_date: d.into(),
-                amount_cents: amt,
-                ..Default::default()
-            },
-        )?;
-    }
-
-    let batch = export::export_yearly_report(&ctx, 2026)?;
-    assert!(
-        batch.batch_no.starts_with("EXP-Y2026"),
-        "年度前缀: {}",
-        batch.batch_no
-    );
-    assert!(PathBuf::from(&batch.pdf_path).exists());
-    assert!(std::fs::metadata(&batch.pdf_path).unwrap().len() > 1000);
-    assert!(batch.voucher_count >= 2);
-
-    // 批次明细可反查（该年全部凭证）
-    let detail = export::batch_vouchers(&ctx, batch.id)?;
-    assert_eq!(detail.len(), 2);
-
-    // 状态不流转（区别于 PDF 归档导出）
-    for v in detail {
-        assert_eq!(v.status, VoucherStatus::Draft, "年度报表不改状态");
-    }
-
-    // 空年度报错
-    assert!(export::export_yearly_report(&ctx, 2020).is_err());
-    Ok(())
-}
-
 // ---------- v0.12：手动裁剪 / 旋转 ----------
 
 /// 手动裁剪：90° 旋转 + 裁剪覆盖写增强版（原图字节不变）、尺寸正确、期间锁拦截
