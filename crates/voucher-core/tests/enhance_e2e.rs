@@ -669,8 +669,16 @@ fn d5_export_records_enhance_hit_per_enhanced_attachment() {
 
     // 调 export_vouchers_pdf（合并单份模式）
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
-    let _batch =
-        export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default()).expect("export pdf");
+    let _batch = export::export_vouchers_daily(
+        &ctx,
+        &voucher_ids,
+        // 走日报导出（单份 PDF 已于 v0.22 下线）；必须带图片页才会记录 export 命中
+        &export::ExportOptions {
+            include_images: true,
+            ..Default::default()
+        },
+    )
+    .expect("export pdf");
 
     // 导出后：2 条 export 命中（每张附件 1 条）
     let export_hits_after = ctx
@@ -790,7 +798,16 @@ fn d6_export_screenshot_writes_no_export_hit() {
     assert!(att.enhanced_path.is_some(), "默认配置截图也生成增强版");
 
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
-    export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default()).expect("export pdf");
+    export::export_vouchers_daily(
+        &ctx,
+        &voucher_ids,
+        // 走日报导出（单份 PDF 已于 v0.22 下线）；必须带图片页才会记录 export 命中
+        &export::ExportOptions {
+            include_images: true,
+            ..Default::default()
+        },
+    )
+    .expect("export pdf");
 
     let export_hits = ctx
         .db
@@ -866,7 +883,16 @@ fn d8_status_v2_hit_counts_by_source() {
         .unwrap();
 
     let voucher_ids: Vec<i64> = summary.vouchers.iter().map(|v| v.voucher_id).collect();
-    export::export_vouchers_pdf(&ctx, &voucher_ids, &Default::default()).expect("export");
+    export::export_vouchers_daily(
+        &ctx,
+        &voucher_ids,
+        // 走日报导出（单份 PDF 已于 v0.22 下线）；必须带图片页才会记录 export 命中
+        &export::ExportOptions {
+            include_images: true,
+            ..Default::default()
+        },
+    )
+    .expect("export");
 
     let counts = ctx.db.with_conn(enhance_hit_repo::count_by_source).unwrap();
     assert_eq!(counts.ocr, 2);

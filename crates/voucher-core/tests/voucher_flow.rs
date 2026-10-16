@@ -221,18 +221,19 @@ fn export_pdf_and_batch_recorded() -> Result<()> {
         },
     )?;
 
-    let batch = export::export_vouchers_pdf(
+    // v0.22：单份 PDF 已下线，导出统一走「按天日报」
+    let batches = export::export_vouchers_daily(
         &ctx,
         &[v.id],
         &export::ExportOptions {
             title: "凭证整理单".into(),
-            card_style: "standard".into(),
-            columns: 3,
             include_images: false,
             daily_template: "compact".into(),
             include_links: false,
         },
     )?;
+    assert_eq!(batches.len(), 1);
+    let batch = &batches[0];
     assert!(batch.voucher_count == 1);
     assert!(PathBuf::from(&batch.pdf_path).exists(), "PDF 已生成");
     assert!(std::fs::metadata(&batch.pdf_path).unwrap().len() > 1000);
@@ -877,7 +878,9 @@ fn export_creates_snapshot_and_marks_exported() -> Result<()> {
         },
     )?;
 
-    let batch = export::export_with_defaults(&ctx, &[v.id])?;
+    let batches = export::export_daily_with_defaults(&ctx, &[v.id])?;
+    assert_eq!(batches.len(), 1);
+    let batch = &batches[0];
     assert_eq!(batch.voucher_count, 1);
     assert!(batch.pdf_path.ends_with(".pdf"));
 
@@ -901,13 +904,14 @@ fn config_roundtrip_via_context() -> Result<()> {
     let (dir, ctx) = test_ctx();
     let mut cfg = ctx.config();
     cfg.naming.template = "{date}-K{seq}".into();
-    cfg.print.columns = 2;
+    // v0.22：print.columns / card_style 已随「单份 PDF」下线，这里改用仍存在的 title 做往返
+    cfg.print.title = "凭证日报-往返".into();
     ctx.set_config(cfg)?;
 
     // 新上下文加载同一目录 → 持久化生效
     let ctx2 = CoreContext::init(Some(dir.path().to_path_buf()))?;
     assert_eq!(ctx2.config().naming.template, "{date}-K{seq}");
-    assert_eq!(ctx2.config().print.columns, 2);
+    assert_eq!(ctx2.config().print.title, "凭证日报-往返");
     Ok(())
 }
 
@@ -1249,8 +1253,6 @@ fn export_daily_groups_by_date() -> Result<()> {
         &[d2.id, d1.id, d1b.id], // 乱序传入，验证按日期升序输出
         &export::ExportOptions {
             title: "凭证日报".into(),
-            card_style: "standard".into(),
-            columns: 3,
             include_images: false,
             daily_template: "compact".into(),
             include_links: false,

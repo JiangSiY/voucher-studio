@@ -5,21 +5,6 @@ use voucher_core::services::export;
 use voucher_core::services::export::ExportOptions;
 // ---------- 导出（PDF） ----------
 
-#[tauri::command]
-pub async fn export_pdf(
-    ctx: Ctx<'_>,
-    voucher_ids: Vec<i64>,
-    options: Option<ExportOptions>,
-) -> std::result::Result<voucher_core::models::ExportBatch, ApiError> {
-    let core = ctx.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || match options {
-        Some(o) => err_api(export::export_vouchers_pdf(&core, &voucher_ids, &o)),
-        None => err_api(export::export_with_defaults(&core, &voucher_ids)),
-    })
-    .await
-    .map_err(|e| ApiError::internal(e.to_string()))?
-}
-
 /// 按天分组导出：每个日期一份「凭证日报」PDF（一图一凭证的默认导出形态）
 #[tauri::command]
 pub async fn export_pdf_daily(

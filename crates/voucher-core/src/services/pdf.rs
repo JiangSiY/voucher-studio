@@ -6,10 +6,9 @@
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
-use printpdf::path::{PaintMode, WindingOrder};
 use printpdf::{
     Color, Image, ImageTransform, IndirectFontRef, Line, Mm, PdfDocument, PdfLayerReference, Point,
-    Polygon, Rgb,
+    Rgb,
 };
 use serde::Serialize;
 
@@ -19,10 +18,6 @@ use crate::{CoreError, Result};
 #[derive(Debug, Clone, Serialize)]
 pub struct PdfOptions {
     pub title: String,
-    /// standard | clean | ledger
-    pub card_style: String,
-    /// 1 | 2 | 3
-    pub columns: u8,
     pub include_images: bool,
     /// v0.8 日报模板：compact（省纸）| archive（档案装订）
     pub daily_template: String,
@@ -47,12 +42,6 @@ pub struct PdfCard {
 pub struct PdfImage {
     pub path: PathBuf,
     pub caption: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct PdfInput {
-    pub cards: Vec<PdfCard>,
-    pub images: Vec<PdfImage>,
 }
 
 /// 日报「相关凭证清单」（附件清单页，v0.22 批次③）的一行。
@@ -93,7 +82,6 @@ const MARGIN: f32 = 10.0;
 const HEADER_H: f32 = 16.0;
 const FOOTER_H: f32 = 8.0;
 const GAP: f32 = 3.0;
-const ROWS_PER_PAGE: usize = 7;
 const IMG_COLS: usize = 2;
 const IMG_ROWS: usize = 2;
 
@@ -113,106 +101,6 @@ const BODY: (f32, f32, f32) = (0.25, 0.25, 0.25);
 const GREY: (f32, f32, f32) = (0.5, 0.5, 0.5);
 
 /// 生成 PDF
-pub fn generate(path: &Path, input: &PdfInput, opts: &PdfOptions) -> Result<()> {
-    if input.cards.is_empty() {
-        return Err(CoreError::Invalid("没有可导出的凭证".into()));
-    }
-
-    let title = if opts.title.trim().is_empty() {
-        "凭证整理单".to_string()
-    } else {
-        opts.title.clone()
-    };
-    let columns: usize = match opts.columns {
-        1..=3 => opts.columns as usize,
-        _ => 3,
-    };
-
-    let (doc, first_page, first_layer) =
-        PdfDocument::new(&title, Mm(PAGE_W), Mm(PAGE_H), "Content");
-    let font = load_cjk_font(&doc)?;
-
-    let usable_w = PAGE_W - MARGIN * 2.0;
-    let card_w = (usable_w - GAP * (columns as f32 - 1.0)) / columns as f32;
-    let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
-    let card_h = (usable_h - GAP * (ROWS_PER_PAGE - 1) as f32) / ROWS_PER_PAGE as f32;
-
-    let per_page = columns * ROWS_PER_PAGE;
-    let total_cards = input.cards.len();
-    let card_pages = total_cards.div_ceil(per_page);
-
-    for page_idx in 0..card_pages {
-        let layer = if page_idx == 0 {
-            doc.get_page(first_page).get_layer(first_layer)
-        } else {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Cards");
-            doc.get_page(p).get_layer(l)
-        };
-        draw_header(&layer, &font, &title);
-
-        for slot in 0..per_page {
-            let card_idx = page_idx * per_page + slot;
-            if card_idx >= total_cards {
-                break;
-            }
-            let col = (slot % columns) as f32;
-            let row = (slot / columns) as f32;
-            let x = MARGIN + col * (card_w + GAP);
-            let top = MARGIN + HEADER_H + row * (card_h + GAP);
-            draw_card(
-                &layer,
-                &font,
-                &input.cards[card_idx],
-                x,
-                top,
-                card_w,
-                card_h,
-                &opts.card_style,
-            );
-        }
-        draw_footer(&layer, &font, page_idx + 1, card_pages);
-    }
-
-    // ===== 图片附录页（每页 2×2） =====
-    if opts.include_images && !input.images.is_empty() {
-        let per_img_page = IMG_COLS * IMG_ROWS;
-        let img_pages = input.images.len().div_ceil(per_img_page);
-        for page_idx in 0..img_pages {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
-            let layer = doc.get_page(p).get_layer(l);
-            draw_header(&layer, &font, &format!("{title} · 附件"));
-
-            let cell_w = (usable_w - GAP) / IMG_COLS as f32;
-            let cell_h = (usable_h - GAP) / IMG_ROWS as f32;
-            for slot in 0..per_img_page {
-                let idx = page_idx * per_img_page + slot;
-                if idx >= input.images.len() {
-                    break;
-                }
-                let col = slot % IMG_COLS;
-                let row = slot / IMG_ROWS;
-                let x = MARGIN + col as f32 * (cell_w + GAP);
-                let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
-                let caption_h = 5.0;
-                let img_area_h = cell_h - caption_h - 1.0;
-                place_image(&layer, &input.images[idx], x, top, cell_w, img_area_h);
-                layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-                layer.use_text(
-                    &input.images[idx].caption,
-                    7.0,
-                    Mm(x + 1.0),
-                    y(top + cell_h - 0.5),
-                    &font,
-                );
-            }
-            draw_footer(&layer, &font, page_idx + 1, img_pages);
-        }
-    }
-
-    doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
-    Ok(())
-}
-
 // ---------- 按天日报版式常量（mm / pt）----------
 // 2026-10-16 打印改版（用户要求「字号 ≥ 小四、排版不重叠」）：
 //   - 正文/表头/金额/合计一律 12pt（小四），页脚 9pt，图片 caption 10pt，标题 14pt；
@@ -1276,108 +1164,6 @@ fn draw_footer(layer: &PdfLayerReference, font: &IndirectFontRef, page: usize, t
         y(PAGE_H - MARGIN + 3.0),
         font,
     );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_card(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    card: &PdfCard,
-    x: f32,
-    top: f32,
-    w: f32,
-    h: f32,
-    style: &str,
-) {
-    // 卡片边框（描边矩形）
-    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-    layer.set_outline_thickness(0.5);
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(x), y(top)), false),
-            (Point::new(Mm(x + w), y(top)), false),
-            (Point::new(Mm(x + w), y(top + h)), false),
-            (Point::new(Mm(x), y(top + h)), false),
-        ],
-        is_closed: true,
-    });
-
-    // 风格区分：clean 无顶部强调条；standard 用主色、ledger 用深色
-    let bar_h = match style {
-        "clean" => 0.0,
-        _ => 2.2,
-    };
-    if bar_h > 0.0 {
-        let bar = if style == "ledger" { DARK } else { ACCENT };
-        layer.set_fill_color(rgb(bar.0, bar.1, bar.2));
-        layer.add_polygon(Polygon {
-            rings: vec![vec![
-                (Point::new(Mm(x), y(top)), false),
-                (Point::new(Mm(x + w), y(top)), false),
-                (Point::new(Mm(x + w), y(top + bar_h)), false),
-                (Point::new(Mm(x), y(top + bar_h)), false),
-            ]],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
-        });
-    }
-
-    let pad = 2.5;
-    let left = x + pad;
-    let max_w = w - pad * 2.0;
-
-    // 凭证编号：核心，等宽大字号
-    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    let no_chars = chars_for_width(&card.voucher_no, 11.0, max_w);
-    layer.use_text(
-        truncate_chars(&card.voucher_no, no_chars),
-        11.0,
-        Mm(left),
-        y(top + bar_h + 7.0),
-        font,
-    );
-
-    // 日期 + 金额（同一行）
-    let mut meta = card.voucher_date.clone();
-    if !card.amount_label.is_empty() {
-        meta.push_str("  ¥");
-        meta.push_str(&card.amount_label);
-    }
-    layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    let meta_chars = chars_for_width(&meta, 8.0, max_w);
-    layer.use_text(
-        truncate_chars(&meta, meta_chars),
-        8.0,
-        Mm(left),
-        y(top + bar_h + 12.5),
-        font,
-    );
-
-    // 摘要
-    if !card.description.is_empty() {
-        layer.set_fill_color(rgb(BODY.0, BODY.1, BODY.2));
-        let d_chars = chars_for_width(&card.description, 8.0, max_w);
-        layer.use_text(
-            truncate_chars(&card.description, d_chars),
-            8.0,
-            Mm(left),
-            y(top + bar_h + 17.5),
-            font,
-        );
-    }
-
-    // 标签行（小灰字）
-    if !card.tags_line.is_empty() {
-        layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-        let t_chars = chars_for_width(&card.tags_line, 6.5, max_w);
-        layer.use_text(
-            truncate_chars(&card.tags_line, t_chars),
-            6.5,
-            Mm(left),
-            y(top + h - 3.0),
-            font,
-        );
-    }
 }
 
 fn place_image(

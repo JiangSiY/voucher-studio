@@ -28,12 +28,6 @@ describe("金额展示统一走 fmtAmount", () => {
     expect(card).not.toContain("(extracted.amountCents / 100).toFixed(2)");
   });
 
-  it("凭证卡片：不再自带一份 toLocaleString 实现（空金额仍留白）", () => {
-    const card = src("src/components/VoucherCard.vue");
-    expect(card).toContain("fmtAmount(props.voucher.amountCents)");
-    expect(card).not.toContain('toLocaleString("zh-CN"');
-  });
-
   it("编辑器疑似重复提示：金额用 fmtAmount（不再把 null 当 0.00）", () => {
     const editor = src("src/components/voucher/VoucherEditor.vue");
     expect(editor).toContain("fmtAmount(v.amountCents)");

@@ -461,8 +461,6 @@ export interface ReconcileReport {
 
 export interface ExportOptions {
   title: string;
-  cardStyle: "standard" | "clean" | "ledger";
-  columns: number;
   includeImages: boolean;
   /**
    * v0.22 批次③：日报是否附带「相关凭证清单」页（按关系类型分类小计）。
@@ -504,10 +502,7 @@ export interface AppConfig {
   };
   print: {
     title: string;
-    cardStyle: string;
-    columns: number;
     includeImages: boolean;
-    groupByDay: boolean;
     /** v0.8 日报模板：compact（省纸）| archive（档案装订） */
     dailyTemplate: "compact" | "archive";
     /** v0.8 打印是否优先增强版图片（仅扫描件；关闭始终用原图） */
@@ -849,8 +844,6 @@ export const api = {
   runOcrPending: (limit?: number) => invoke<number>("run_ocr_pending", { limit }),
   getLocalOcrStatus: () => invoke<LocalOcrStatus>("local_ocr_status"),
 
-  exportPdf: (voucherIds: number[], options?: ExportOptions) =>
-    invoke<ExportBatch>("export_pdf", { voucherIds, options }),
   /** v0.10：表格式导出（Excel / CSV；列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行） */
   exportTable: (voucherIds: number[], format: TableFormat) =>
     invoke<ExportBatch>("export_table", { voucherIds, format }),

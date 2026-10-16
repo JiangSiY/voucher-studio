@@ -60,48 +60,18 @@ async function openDataDir() {
         <label>打印默认值</label>
         <div class="form-grid">
           <div class="field">
-            <label>{{ draftCfg.print.groupByDay ? "日报标题" : "整理单标题" }}</label>
+            <label>日报标题</label>
             <input v-model="draftCfg.print.title" class="input" placeholder="如：凭证日报" />
-          </div>
-          <div class="field">
-            <label>每行列数（合并单份）</label>
-            <select v-model.number="draftCfg.print.columns" class="input">
-              <option :value="3">3 列 · 21 张/页</option>
-              <option :value="2">2 列 · 14 张/页</option>
-              <option :value="1">1 列 · 7 张/页</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-grid" style="margin-top: 8px">
-          <div class="field">
-            <label>卡片风格（合并单份）</label>
-            <select v-model="draftCfg.print.cardStyle" class="input">
-              <option value="standard">标准式</option>
-              <option value="clean">简洁式</option>
-              <option value="ledger">账簿式</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>导出方式</label>
-            <div style="display: flex; gap: 8px; align-items: center; padding-top: 6px">
-              <label class="toggle">
-                <input type="checkbox" v-model="draftCfg.print.groupByDay" />
-                <span class="slider"></span>
-              </label>
-              <span style="font-size: 12px; color: var(--text-3)">
-                {{ draftCfg.print.groupByDay ? "按天分组，每天一份「凭证日报」" : "全部合并为一份整理单" }}
-              </span>
-            </div>
           </div>
         </div>
         <div class="form-grid" style="margin-top: 8px">
           <div class="field">
             <label>日报模板（v0.8）</label>
             <select v-model="draftCfg.print.dailyTemplate" class="input">
-              <option value="compact">省纸紧凑 · 横幅+表格 38 行/页 + 竖票 3×3（推荐）</option>
-              <option value="archive">档案装订 · 独立封面 + 表格 34 行/页 + 图片 2×2</option>
+              <option value="compact">省纸紧凑 · 横幅 + 12pt 汇总表 + 竖票 3×3（推荐）</option>
+              <option value="archive">档案装订 · 独立封面 + 12pt 汇总表 + 图片 2×2</option>
             </select>
-            <div class="desc">20 张/天约省 43% 用纸；图片均等比缩放完整显示不裁内容。</div>
+            <div class="desc">两套模板均为 12pt（小四）表格、按行高自动分页；图片等比缩放完整显示不裁内容。</div>
           </div>
           <div class="field">
             <label>打印优先增强版图片</label>

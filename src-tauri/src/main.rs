@@ -303,7 +303,6 @@ fn main() {
             commands::run_ocr_pending,
             commands::re_enhance_all,
             commands::local_ocr_status,
-            commands::export_pdf,
             commands::export_pdf_daily,
             commands::export_table,
             commands::list_export_batches,

@@ -162,7 +162,9 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     assert!(hits[0].matched_in.iter().any(|m| m == "OCR"));
 
     // 5. 导出 PDF（打印默认配置）
-    let batch = export::export_with_defaults(&ctx, &[summary.vouchers[0].voucher_id])?;
+    let batches = export::export_daily_with_defaults(&ctx, &[summary.vouchers[0].voucher_id])?;
+    assert_eq!(batches.len(), 1);
+    let batch = &batches[0];
     assert_eq!(batch.voucher_count, 1);
     assert!(PathBuf::from(&batch.pdf_path).exists(), "PDF 应落盘");
     assert!(std::fs::metadata(&batch.pdf_path)?.len() > 1000);

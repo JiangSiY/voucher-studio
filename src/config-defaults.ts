@@ -73,10 +73,7 @@ export function defaultConfig(): AppConfig {
     },
     print: {
       title: DEFAULT_PRINT_TITLE,
-      cardStyle: "standard",
-      columns: 3,
       includeImages: true,
-      groupByDay: true,
       dailyTemplate: "compact",
       preferEnhancedImages: true,
     },

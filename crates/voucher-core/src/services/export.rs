@@ -15,7 +15,7 @@ use crate::db::repos::{
     attachment_repo, enhance_hit_repo, export_repo, snapshot_repo, voucher_repo,
 };
 use crate::models::{Attachment, EnhanceSource, ExportBatch, ExportFormat, Voucher, VoucherStatus};
-use crate::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfInput, PdfOptions};
+use crate::services::pdf::{self, DailyInput, PdfCard, PdfImage, PdfOptions};
 use crate::{CoreContext, CoreError, Result};
 
 /// D-6：PDF 附录取图规则——扫描件/拍照件优先增强版（5 步矫正后更清晰可印）；
@@ -52,10 +52,6 @@ pub fn uses_enhanced_in_pdf(ctx: &CoreContext, a: &Attachment) -> bool {
 #[serde(default, rename_all = "camelCase")]
 pub struct ExportOptions {
     pub title: String,
-    /// standard | clean | ledger
-    pub card_style: String,
-    /// 1 | 2 | 3
-    pub columns: u8,
     pub include_images: bool,
     /// v0.8 日报模板：compact（省纸）| archive（档案装订）
     pub daily_template: String,
@@ -75,8 +71,6 @@ impl Default for ExportOptions {
         // 与历史 `#[derive(Default)]` 的取值保持一致，只把 include_links 定为 true
         Self {
             title: String::new(),
-            card_style: String::new(),
-            columns: 0,
             include_images: false,
             daily_template: String::new(),
             include_links: true,
@@ -88,8 +82,6 @@ impl ExportOptions {
     fn from_print_config(cfg: &crate::utils::config::PrintConfig) -> Self {
         Self {
             title: cfg.title.clone(),
-            card_style: cfg.card_style.clone(),
-            columns: cfg.columns,
             include_images: cfg.include_images,
             daily_template: cfg.daily_template.clone(),
             // 打印默认带佐证（用户选择）；单次导出可在打印中心关掉
@@ -154,12 +146,6 @@ fn push_csv_row(out: &mut String, cells: &[String]) {
     out.push('\n');
 }
 
-/// 按默认打印配置导出（合并单份）
-pub fn export_with_defaults(ctx: &CoreContext, voucher_ids: &[i64]) -> Result<ExportBatch> {
-    let opts = ExportOptions::from_print_config(&ctx.config().print);
-    export_vouchers_pdf(ctx, voucher_ids, &opts)
-}
-
 /// 按默认打印配置导出（按天分组，每天一份日报 PDF）
 pub fn export_daily_with_defaults(
     ctx: &CoreContext,
@@ -167,40 +153,6 @@ pub fn export_daily_with_defaults(
 ) -> Result<Vec<ExportBatch>> {
     let opts = ExportOptions::from_print_config(&ctx.config().print);
     export_vouchers_daily(ctx, voucher_ids, &opts)
-}
-
-pub fn export_vouchers_pdf(
-    ctx: &CoreContext,
-    voucher_ids: &[i64],
-    opts: &ExportOptions,
-) -> Result<ExportBatch> {
-    if voucher_ids.is_empty() {
-        return Err(CoreError::Invalid("未选择要导出的凭证".into()));
-    }
-
-    let items = fetch_items(ctx, voucher_ids)?;
-
-    let input = PdfInput {
-        cards: items.iter().map(|(v, _)| card_of(v)).collect(),
-        images: images_of(ctx, &items),
-    };
-
-    let today = chrono::Local::now().format("%Y%m%d").to_string();
-    let batch_no = next_batch_no(ctx, &format!("EXP-{today}"))?;
-    let pdf_path = ctx.paths.exports.join(format!("{batch_no}.pdf"));
-    // 先写临时名再提交（fsync + rename）：生成中途失败不会在最终名留下半截 PDF
-    // （旧行为直接写最终名，坏文件留在导出目录里且没有批次记录）。审计 B11。
-    let tmp = pdf_path.with_extension("pdf.tmp");
-    pdf::generate(&tmp, &input, &pdf_options(opts))?;
-    crate::utils::jsonio::commit_file(&tmp, &pdf_path)?;
-
-    record_batch(
-        ctx,
-        &items,
-        batch_no,
-        pdf_path.to_string_lossy().to_string(),
-        ExportFormat::Pdf,
-    )
 }
 
 /// 按天分组导出：每个日期一份「凭证日报」PDF + 各自一条批次记录。
@@ -362,18 +314,6 @@ fn card_of(v: &Voucher) -> PdfCard {
     }
 }
 
-fn images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> Vec<PdfImage> {
-    items
-        .iter()
-        .flat_map(|(v, atts)| {
-            atts.iter().filter(|a| a.is_image()).map(move |a| PdfImage {
-                path: pdf_image_abs(ctx, a),
-                caption: format!("{} {}", v.voucher_no, a.file_name),
-            })
-        })
-        .collect()
-}
-
 /// 按天日报的图片条目：caption 对齐参照档案版式「附件N：摘要_对方_金额元（档号）」，
 /// N 为当日序号（1 起）。空字段段跳过。
 fn daily_images_of(ctx: &CoreContext, items: &[(Voucher, Vec<Attachment>)]) -> Vec<PdfImage> {
@@ -411,8 +351,6 @@ fn pdf_options(opts: &ExportOptions) -> PdfOptions {
         } else {
             opts.title.clone()
         },
-        card_style: opts.card_style.clone(),
-        columns: opts.columns,
         include_images: opts.include_images,
         daily_template: opts.daily_template.clone(),
     }

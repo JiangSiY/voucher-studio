@@ -192,20 +192,14 @@ impl Default for WebdavConfig {
     }
 }
 
-/// 打印/导出选项（语义对齐 UI 方案：标题、卡片风格、列数、省墨）
+/// 打印/导出选项（v0.22 起：日报是唯一主线，卡片版式与单份导出已下线）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PrintConfig {
     /// 整理单标题
     pub title: String,
-    /// 卡片风格：standard | clean | ledger
-    pub card_style: String,
-    /// 打印列数 1 | 2 | 3
-    pub columns: u8,
-    /// 凭证卡片页是否附带附件图片页
+    /// 日报是否附带附件图片页
     pub include_images: bool,
-    /// 按天分组导出（每天一份「凭证日报」PDF）；false = 合并单份
-    pub group_by_day: bool,
     /// v0.8 日报模板：compact（默认，省纸：信息横幅 + 表格 38 行/页 + 竖票 3×3）
     /// | archive（档案装订：独立封面 + 表格 34 行/页 + 图片 2×2）
     pub daily_template: String,
@@ -217,10 +211,7 @@ impl Default for PrintConfig {
     fn default() -> Self {
         Self {
             title: "原始凭证".into(),
-            card_style: "standard".into(),
-            columns: 3,
             include_images: true,
-            group_by_day: true,
             daily_template: "compact".into(),
             prefer_enhanced_images: true,
         }
