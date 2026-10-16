@@ -439,6 +439,9 @@ function onKeydown(e: KeyboardEvent) {
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
   if (e.key === "Enter") {
+    // 带 ⌘ 的 Enter 归右栏编辑器：⌘Enter = 保存并下一张，⌘⇧Enter = 复核通过并下一张。
+    // 这里不加判断会把它们一起抢成"展开编辑区"。
+    if (mod) return;
     const row = selected.value;
     if (row) {
       e.preventDefault();

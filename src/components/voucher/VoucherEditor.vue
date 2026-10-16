@@ -240,6 +240,22 @@ async function saveAndNext() {
   emit("next");
 }
 
+/**
+ * ⌘⇧Enter「复核通过并下一张」（2026-10-16 用户要求实装；规范 §2.3 的规划项）：
+ * 把状态置**已复核**并落盘，然后翻下一张。
+ * - 无改动且已经是「已复核」→ 不写库，直接翻（连续核对最常见的路径）
+ * - 有改动（含只是改状态）→ 走同一条 `save()`（校验、留痕、重复提示都复用，不另起保存逻辑）
+ * - 校验失败（如金额格式错）→ 停在本张，绝不跳过
+ */
+async function reviewAndNext() {
+  if (form.value.status !== "reviewed") form.value.status = "reviewed";
+  if (dirty.value) {
+    const saved = await save();
+    if (!saved) return;
+  }
+  emit("next");
+}
+
 // ---------- 图片区：重跑识别 / 换图 / 裁剪后刷新 ----------
 
 const ocrBusy = ref(false);
@@ -347,7 +363,16 @@ function onKeydown(e: KeyboardEvent) {
   if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     void save();
-  } else if (mod && e.key === "Enter") {
+    return;
+  }
+  // ⌘⇧Enter 必须排在 ⌘Enter 之前：原实现只判 `mod && Enter`、没有 shift 判断，
+  // ⌘⇧Enter 一直被 ⌘Enter 分支吞掉（规范 §2.3 记着这笔账）
+  if (mod && e.shiftKey && !e.altKey && e.key === "Enter") {
+    e.preventDefault();
+    void reviewAndNext();
+    return;
+  }
+  if (mod && !e.shiftKey && !e.altKey && e.key === "Enter") {
     e.preventDefault();
     void saveAndNext();
   }

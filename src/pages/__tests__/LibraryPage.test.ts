@@ -328,3 +328,53 @@ describe("资料库：上下文翻张（⌥←/→）", () => {
     expect(mockApi.getVoucherNeighbor.mock.calls.length).toBeGreaterThan(before);
   });
 });
+
+describe("资料库：⌘⇧Enter 复核通过并下一张", () => {
+  it("状态置「已复核」+ 保存 + 翻到相邻张", async () => {
+    const w = await mountPage();
+    await flushPromises();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }));
+    await flushPromises();
+
+    expect(mockApi.updateVoucher).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ status: "reviewed" }),
+    );
+    expect(mockApi.getVoucher).toHaveBeenLastCalledWith(2); // 翻到相邻张（邻居 mock：nextId=2）
+    w.unmount();
+  });
+
+  it("已是「已复核」且无改动：只翻张、不重复写库", async () => {
+    mockApi.listVouchers.mockResolvedValue({
+      items: [v({ status: "reviewed" }), v({ id: 2, voucherNo: "20260924-001" })],
+      total: 2,
+      thumbs: { 1: thumb, 2: thumb },
+    } as never);
+    const w = await mountPage();
+    await flushPromises();
+    mockApi.updateVoucher.mockClear();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }));
+    await flushPromises();
+
+    expect(mockApi.updateVoucher).not.toHaveBeenCalled();
+    expect(mockApi.getVoucher).toHaveBeenLastCalledWith(2);
+    w.unmount();
+  });
+
+  it("⌘Enter 仍是「保存并下一张」，没被 ⌘⇧Enter 抢走", async () => {
+    const w = await mountPage();
+    await flushPromises();
+    // 只改备注，不动状态
+    await w.find<HTMLTextAreaElement>('[data-field="note"] textarea').setValue("已核对");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true }));
+    await flushPromises();
+
+    expect(mockApi.updateVoucher).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ note: "已核对", status: "exported" }), // 状态保持原值，不被 ⌘⇧Enter 逻辑改
+    );
+    w.unmount();
+  });
+});

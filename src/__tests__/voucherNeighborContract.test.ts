@@ -61,7 +61,8 @@ describe("上一张 / 下一张", () => {
   it("帮助页与规范同步为「已实装」", () => {
     expect(help).toMatch(/\{ keys: "⌥← ⌥→", what: "上一张 \/ 下一张/);
     expect(spec).toMatch(/\| ⌥← \/ ⌥→ \| \*\*上一张 \/ 下一张（2026-10-16 实装）\*\*/);
-    // ⌘⇧Enter 仍是未实装，不能顺手写成已实现
-    expect(spec).toMatch(/\| ⌘⇧Enter \|[^|\n]*\*\*仍未实装\*\*/);
+    // ⌘⇧Enter 也已实装（同日），规范里同样要标「实装」而不是「仍未实装」
+    expect(spec).toMatch(/\| ⌘⇧Enter \|[^|\n]*实装/);
+    expect(spec).not.toMatch(/\| ⌘⇧Enter \|[^|\n]*仍未实装/);
   });
 });
