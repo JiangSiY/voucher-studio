@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **33 文件 208 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **35 文件 217 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -27,7 +27,11 @@
 > `stores/__tests__/configLayout.test.ts`（7 例，原 4 例；新增收起状态落盘与预览模式只改界面）；
 同日用户真机走查两次改位置并复跑：收起开关自工具栏最左移到**侧栏底部版本行上方那一行**（整行按钮，`iaContract` 增第 9 例锁位置）、
 > `.sidebar-header` 上留白改为 `calc(var(--toolbar-h) - var(--s-2))` 让开交通灯带（例数不变，仅断言）。
-> 前端合计数 **33 文件 208 用例**（原 32 文件 200 用例）。
+> **2026-10-16 界面细节打磨批**（渲染层审查后的第一批修复）新增 2 个前端文件 8 例、改写 1 例：
+> `__tests__/a11yContract.test.ts`（4 例：减动效通配兜底 / 提高对比度令牌映射 / 危险 toast 断言式通道 / 窄窗收起开关文案隐藏）、
+> `pages/__tests__/exportHistoryContract.test.ts`（4 例：格式列与三格式标签 / 打开按钮 title 随格式 / 批次状态「已完成」/ 过时「点击进入编辑页」已清）、
+> `pages/__tests__/printCenterLayout.test.ts`（4 → 5 例：「全选筛选结果」未勾选时也不禁用）。Rust 侧本批未动（仍 **282 = 152 + 130**）。
+> 前端合计数 **35 文件 217 用例**（原 33 文件 208 用例，更早 32 文件 200 用例）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；

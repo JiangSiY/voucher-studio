@@ -299,10 +299,10 @@
 | 聚焦环 | `:focus-visible` 统一 3px `--accent` 25% 外环 + 2px 实色边，**不得** `outline: none` 无替代 |
 | 焦点管理 | 对话框/命令面板：打开时聚焦首个可操作元素，**Tab 循环留在浮层内**，Esc 关闭并**归还焦点** |
 | 减少透明度 | `prefers-reduced-transparency: reduce` → 侧栏/工具栏/浮层全部改实色（`--bg-sidebar`/`--bg-popover`） |
-| 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭（`--motion-*` 置 0） |
-| 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary` |
+| 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭。**2026-10-16 实装补强**：只把 `--motion-*` 置 0 不够，样式表里还有硬编码时长（`transition: all .15s`、`clip-path .06s`、`animation: toast-in .2s`），故再加 `*, *::before, *::after` 通配兜底把 `transition-duration`/`animation-duration` 压到 `0.01ms`（`tokens.css` 末尾） |
+| 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary`。**2026-10-16 实装**（此前零命中）：在 `tokens.css` 末尾同时改写 `--separator`/`--text-2`/`--text-3`/`--text-4` 四组语义令牌，组件不改 |
 | 字号可调 | 标准/大/更大三档（`--font-scale`，默认「大」）；放大后不得出现截断、横向溢出或文字重叠 |
-| 现有基线 | 保留并补强既有 16 处 `role` 与 25 处 `aria-*`（ToastHost `aria-live`、对话框 `aria-modal`、侧栏手柄 aria-value 等） |
+| 现有基线 | 保留并补强既有 16 处 `role` 与 25 处 `aria-*`（ToastHost `aria-live`、对话框 `aria-modal`、侧栏手柄 aria-value 等）。**2026-10-16**：危险 toast 改 `role="alert"` + `aria-live="assertive"`（普通提示仍 polite），见 `components/ToastHost.vue`；`src/__tests__/a11yContract.test.ts` 锁住上述四条回退 |
 
 ---
 
