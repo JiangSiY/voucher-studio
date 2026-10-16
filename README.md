@@ -36,7 +36,7 @@
 | 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv5 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
-| UI | macOS 原生观感：**Liquid Glass 窗口材质**（macOS 26+ 的 `NSGlassEffectView`，失败回退 VisualEffect）、系统字体与语义色、统一工具栏 + 自绘窗口拖拽、**侧栏一列扁平入口且可整栏收起**（收起后 56px 纯图标栏，用工具栏最左的开关切换、状态跨启动保持；原「收件箱/资料库/设置」分组标题自 2026-10-16 起取消）、侧栏宽度 220–400 可拖、**界面字号三档可调（默认偏大）**；**自 v0.17.0 起仅支持 macOS**。设计正本见 [`docs/UI-设计规范-macOS27.md`](docs/UI-设计规范-macOS27.md) |
+| UI | macOS 原生观感：**Liquid Glass 窗口材质**（macOS 26+ 的 `NSGlassEffectView`，失败回退 VisualEffect）、系统字体与语义色、统一工具栏 + 自绘窗口拖拽、**侧栏一列扁平入口且可整栏收起**（收起后 56px 纯图标栏，用**侧栏底部版本行上方那一行**的开关切换、状态跨启动保持；原「收件箱/资料库/设置」分组标题自 2026-10-16 起取消）、侧栏宽度 220–400 可拖、**界面字号三档可调（默认偏大）**；**自 v0.17.0 起仅支持 macOS**。设计正本见 [`docs/UI-设计规范-macOS27.md`](docs/UI-设计规范-macOS27.md) |
 
 ## 环境要求
 
