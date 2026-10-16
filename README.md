@@ -37,7 +37,7 @@
 | 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv5 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
-| UI | macOS 原生观感：**Liquid Glass 窗口材质**（macOS 26+ 的 `NSGlassEffectView`，失败回退 VisualEffect）、系统字体与语义色、统一工具栏 + 自绘窗口拖拽、**侧栏一列扁平入口且可整栏收起**（收起后 56px 纯图标栏，用**侧栏底部版本行上方那一行**的开关切换、状态跨启动保持；原「收件箱/资料库/设置」分组标题自 2026-10-16 起取消）、侧栏宽度 220–400 可拖、**界面字号三档可调（默认偏大）**；**自 v0.17.0 起仅支持 macOS**。设计正本见 [`docs/UI-设计规范-macOS27.md`](docs/UI-设计规范-macOS27.md) |
+| UI | macOS 原生观感：**Liquid Glass 窗口材质**（macOS 26+ 的 `NSGlassEffectView`，失败回退 VisualEffect）、系统字体与语义色、统一工具栏 + 自绘窗口拖拽、**侧栏一列扁平入口且可整栏收起**（收起后 56px 纯图标栏，用**侧栏底部版本行上方那一行**的开关切换、状态跨启动保持；原「收件箱/资料库/设置」分组标题自 2026-10-16 起取消）、**侧栏无左上角图标（顶部只留可拖留白）、待办/疑似重复数以图标右上角角标显示（>99 显示 99+）**、侧栏宽度 184–400 可拖（默认 220）、**界面字号三档可调（默认偏大）**；**自 v0.17.0 起仅支持 macOS**。设计正本见 [`docs/UI-设计规范-macOS27.md`](docs/UI-设计规范-macOS27.md) |
 
 ## 环境要求
 
@@ -61,7 +61,7 @@ npm run tauri dev  # 启动开发模式（自动编译 Rust + 前端热更新）
 ```bash
 npm run typecheck          # 前端类型检查
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：152 单元 + 130 集成，共 282 用例；加 src-tauri 3 用例共 285；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：152 单元 + 131 集成，共 283 用例；加 src-tauri 3 用例共 286；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

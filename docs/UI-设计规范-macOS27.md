@@ -216,6 +216,15 @@
 金额一律经 `fmtAmount` 输出；导出批次终态叫**已完成**。门禁见 `src/__tests__/terminologyContract.test.ts`
 （旧称零命中 + 侧栏九项与路由标题同名同序）。
 
+#### 2.1.2 侧栏顶部、徽标与宽度（2026-10-16）
+
+| 项 | 约定 |
+|---|---|
+| 顶部 | **没有内容**：原来左上角的 VS 徽标 + 「Voucher Studio / 凭证整理打印」字标按用户要求删除，只留 `calc(var(--toolbar-h) - var(--s-2))` 高的一段**可拖窗口留白**（交通灯在窗口 y≈18–30，留白必须让开；`data-tauri-drag-region="deep"`） |
+| 徽标 | **压在图标右上角的角标**（`.sidebar-nav .nav-badge`，绝对定位在 `.nav-icon` 内）——不再占行尾宽度，这正是侧栏能收窄的前提。>99 显示 `99+`；数字同时进 `title`、`aria-label`（读屏要念出数量）与角标 `title`。角标 `pointer-events: none`（整行是链接） |
+| 宽度 | 默认 **220px**、范围 **184–400px**（原 260 / 220–400）。184 的依据：行内容 = 图标 24 + 间距 8 + 最长标签「打印与导出」约 75 + 行内边距 20 + 导航内边距 16 ≈ 143px，留余量即可。前端 `src/config-defaults.ts` 与 Rust `AppearanceConfig` 的 `SIDEBAR_WIDTH_*` **必须同值**，CSS 首帧默认 `--sidebar-w` 也是 220px |
+| 口径 | 三条位置（前端常量 / Rust 常量 / CSS 默认）任一改动都要同步另一处；`sidebarResize.test.ts` 与 `config-defaults.test.ts` 锁死数值 |
+
 #### 2.1.1 侧栏收起（2026-10-16）
 
 | 项 | 约定 |
