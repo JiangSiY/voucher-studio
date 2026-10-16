@@ -1,9 +1,14 @@
 <script setup lang="ts">
 /**
- * 仪表盘 → Top 对方账户排行 + 标签分类统计（双栏，按金额降序，全部历史）。
+ * 仪表盘 → Top 对方账户排行 + 标签分类统计（双栏，按金额降序）。
+ *
+ * 2026-10-16：**跟随洞察页时间窗**（用户反馈"排行不跟随时间窗"）。窗口由父组件以
+ * `dateFrom`/`dateTo` 传入，原样落到后端 `top_counterparties` / `tag_stats` 的日期闭区间；
+ * 没传（或两端都空）时退回 `months=0` 的全历史口径，并在标题里如实标注口径
+ * （规范 §3.1 第 5 条：块标题右侧要标「窗口内 / 全历史」）。
  * 自加载数据并监听 import:done 刷新；行点击下钻列表页关键词筛选。
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../../composables/safeListen";
 import { useRouter } from "vue-router";
@@ -12,6 +17,15 @@ import { fmtAmount } from "../../composables/format";
 import { toastError } from "../../stores/toast";
 
 const router = useRouter();
+
+/** 洞察页时间窗（`YYYY-MM-DD` 闭区间）；两端都空 = 全历史 */
+const props = withDefaults(
+  defineProps<{ dateFrom?: string | null; dateTo?: string | null }>(),
+  { dateFrom: null, dateTo: null },
+);
+
+/** 标题口径后缀：有窗口就说窗口内，否则如实说全历史 */
+const scopeLabel = computed(() => (props.dateFrom || props.dateTo ? "窗口内" : "全历史"));
 
 // ---------- v0.7 R-1：Top 对方账户排行（按金额降序） ----------
 
@@ -58,12 +72,16 @@ function gotoTag(tag: string) {
 
 async function load() {
   try {
-    counterparties.value = await api.topCounterparties(0, CP_TOP);
-    tagRows.value = await api.tagStats(0, TAG_TOP);
+    counterparties.value = await api.topCounterparties(0, CP_TOP, props.dateFrom, props.dateTo);
+    tagRows.value = await api.tagStats(0, TAG_TOP, props.dateFrom, props.dateTo);
   } catch (e) {
     toastError(e);
   }
 }
+
+// 窗口一变就重查（父组件的 dateFrom/dateTo 是 ref，不能只在 onMounted 拉一次——
+// 那正是"切了时间窗排行不动"的老毛病）
+watch(() => [props.dateFrom, props.dateTo], () => void load());
 
 let unlistenImportDone: UnlistenFn | null = null;
 
@@ -81,7 +99,7 @@ onUnmounted(() => {
   <div class="report-grid" v-if="counterparties.length || tagRows.length">
     <div class="fluent-panel" v-if="counterparties.length">
       <div class="fluent-panel-header">
-        <h3>Top 对方账户（按金额 · 全部历史）</h3>
+        <h3>Top 对方账户（按金额 · {{ scopeLabel }}）</h3>
         <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
       </div>
       <div class="fluent-panel-body">
@@ -102,7 +120,7 @@ onUnmounted(() => {
     <!-- 功能深化 3：标签分类统计（未分类固定末尾；一张多标签在每个标签下各计一次） -->
     <div class="fluent-panel" v-if="tagRows.length">
       <div class="fluent-panel-header">
-        <h3>标签分类（按金额 · 全部历史）</h3>
+        <h3>标签分类（按金额 · {{ scopeLabel }}）</h3>
         <span class="dist-sum">共 {{ tagRows.length }} 类 · 含未分类</span>
       </div>
       <div class="fluent-panel-body">

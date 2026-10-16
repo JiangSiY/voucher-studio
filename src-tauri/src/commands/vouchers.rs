@@ -109,32 +109,42 @@ pub fn monthly_summary(
     err_api(voucher_core::services::reports::monthly_summary(&ctx, n))
 }
 
-/// Top 对方账户排行（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50）
+/// Top 对方账户排行（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50）。
+/// 2026-10-16 起支持 `dateFrom`/`dateTo` **日期闭区间**（洞察页时间窗直传；给了区间就以区间为准）
 #[tauri::command]
 pub fn top_counterparties(
     ctx: Ctx,
     months: Option<u32>,
     limit: Option<u32>,
+    date_from: Option<String>,
+    date_to: Option<String>,
 ) -> std::result::Result<Vec<voucher_core::services::reports::CounterpartyRow>, ApiError> {
     err_api(voucher_core::services::reports::top_counterparties(
         &ctx,
         months.unwrap_or(0),
         limit.unwrap_or(10),
+        date_from.as_deref(),
+        date_to.as_deref(),
     ))
 }
 
 /// 标签分类统计（按金额降序；months=0 表示全部历史，limit 默认 10、范围 1–50；
-/// 「未分类」行 tag 为空串、固定排末尾且不占 limit 名额）
+/// 「未分类」行 tag 为空串、固定排末尾且不占 limit 名额）。
+/// 2026-10-16 起支持 `dateFrom`/`dateTo` 日期闭区间，口径同 [`top_counterparties`]
 #[tauri::command]
 pub fn tag_stats(
     ctx: Ctx,
     months: Option<u32>,
     limit: Option<u32>,
+    date_from: Option<String>,
+    date_to: Option<String>,
 ) -> std::result::Result<Vec<voucher_core::services::reports::TagRow>, ApiError> {
     err_api(voucher_core::services::reports::tag_stats(
         &ctx,
         months.unwrap_or(0),
         limit.unwrap_or(10),
+        date_from.as_deref(),
+        date_to.as_deref(),
     ))
 }
 

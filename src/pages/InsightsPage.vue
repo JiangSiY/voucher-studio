@@ -7,7 +7,7 @@
  * 才符合"流程在收件箱、数据在资料库"的分工。
  *
  * 口径说明（设计正本 §3）：页首的时间窗控制器是**唯一真源**，驱动趋势 / 月度透视 / 导出覆盖度；
- * 存储占用为全库口径并已标注。待补（审计 2026-09-27 登记）：TopListsPanel（排行）仍是全历史前 10，
+ * 存储占用为全库口径并已标注。TopListsPanel（排行）2026-10-16 起跟随时间窗（此前恒全历史前 10，
  * 尚未接入该控制器。
  */
 import { computed, onMounted, ref } from "vue";
@@ -274,7 +274,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
     </section>
 
     <TrendPanel :months="trendMonths" />
-    <TopListsPanel />
+    <TopListsPanel :date-from="range.dateFrom" :date-to="range.dateTo" />
     <ReconcilePanel v-if="reconcileReport" :report="reconcileReport" @close="reconcileReport = null" />
   </div>
 </template>

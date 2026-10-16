@@ -749,11 +749,12 @@ export const api = {
   /** v0.11：年度汇总（该自然年 12 个月，空月补零） */
   yearlySummary: (year: number) => invoke<MonthlySummary[]>("yearly_summary", { year }),
 
-  /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10） */
-  topCounterparties: (months?: number, limit?: number) =>
-    invoke<CounterpartyRow[]>("top_counterparties", { months, limit }),
-  tagStats: (months?: number, limit?: number) =>
-    invoke<TagRow[]>("tag_stats", { months, limit }),
+  /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10）。
+      2026-10-16 起可传 `dateFrom`/`dateTo` 日期闭区间（洞察页时间窗）——给了区间就以区间为准 */
+  topCounterparties: (months?: number, limit?: number, dateFrom?: string | null, dateTo?: string | null) =>
+    invoke<CounterpartyRow[]>("top_counterparties", { months, limit, dateFrom, dateTo }),
+  tagStats: (months?: number, limit?: number, dateFrom?: string | null, dateTo?: string | null) =>
+    invoke<TagRow[]>("tag_stats", { months, limit, dateFrom, dateTo }),
 
   getRecoveryReport: () => invoke<RecoveryReport>("get_recovery_report"),
 

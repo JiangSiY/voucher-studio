@@ -560,7 +560,7 @@ fn top_counterparties_orders_by_amount() -> Result<()> {
     mk("e", "滴滴", 100)?;
 
     // 全部历史（months=0）
-    let all = voucher_core::services::reports::top_counterparties(&ctx, 0, 10)?;
+    let all = voucher_core::services::reports::top_counterparties(&ctx, 0, 10, None, None)?;
     assert_eq!(all.len(), 3, "空名排除，三个对方入榜");
     assert_eq!(all[0].name, "京东");
     assert_eq!(all[0].amount_cents, 9000);
@@ -570,9 +570,82 @@ fn top_counterparties_orders_by_amount() -> Result<()> {
     assert_eq!(all[2].name, "滴滴");
 
     // limit 截断
-    let top1 = voucher_core::services::reports::top_counterparties(&ctx, 0, 1)?;
+    let top1 = voucher_core::services::reports::top_counterparties(&ctx, 0, 1, None, None)?;
     assert_eq!(top1.len(), 1);
     assert_eq!(top1[0].name, "京东");
+    Ok(())
+}
+
+/// 2026-10-16：排行必须跟随洞察页的**时间窗**（用户反馈「洞察排行面板不跟随时间窗」）。
+/// 此前 `top_counterparties` / `tag_stats` 只支持「近 N 个月」，前端只好传 0 = 恒全历史，
+/// 切窗口排行纹丝不动。现支持 `dateFrom`/`dateTo` 闭区间，且**区间优先于 months**。
+#[test]
+fn rankings_respect_date_range() -> Result<()> {
+    let (_dir, ctx) = test_ctx();
+    let mk = |cp: &str, cents: i64, date: &str, tags: Vec<&str>| {
+        voucher_mgr::create_voucher(
+            &ctx,
+            NewVoucher {
+                counterparty: cp.into(),
+                amount_cents: Some(cents),
+                voucher_date: date.into(),
+                tags: tags.into_iter().map(String::from).collect(),
+                ..Default::default()
+            },
+        )
+    };
+    mk("美团", 1000, "2026-01-10", vec!["差旅"])?;
+    mk("京东", 5000, "2026-06-20", vec!["办公"])?;
+    mk("滴滴", 7000, "2026-12-31", vec!["差旅"])?;
+
+    // 区间口径：只统计 2026-06-01 ~ 2026-06-30
+    let cp = voucher_core::services::reports::top_counterparties(
+        &ctx,
+        0,
+        10,
+        Some("2026-06-01"),
+        Some("2026-06-30"),
+    )?;
+    assert_eq!(cp.len(), 1, "只有 6 月那一张入榜");
+    assert_eq!(cp[0].name, "京东");
+
+    // 单边区间（只给起点）同样生效
+    let cp_from =
+        voucher_core::services::reports::top_counterparties(&ctx, 0, 10, Some("2026-06-01"), None)?;
+    assert_eq!(cp_from.len(), 2, "6 月及以后：京东 + 滴滴");
+
+    // 区间优先于 months：months=1（近一月）与 1 月区间同时给，按区间算
+    let cp_both = voucher_core::services::reports::top_counterparties(
+        &ctx,
+        1,
+        10,
+        Some("2026-01-01"),
+        Some("2026-01-31"),
+    )?;
+    assert_eq!(cp_both.len(), 1);
+    assert_eq!(cp_both[0].name, "美团");
+
+    // 标签统计同口径：区间内只剩「办公」，且没有未分类行
+    let tags = voucher_core::services::reports::tag_stats(
+        &ctx,
+        0,
+        10,
+        Some("2026-06-01"),
+        Some("2026-06-30"),
+    )?;
+    assert_eq!(tags.len(), 1, "区间内只有带标签的一张，无未分类行");
+    assert_eq!(tags[0].tag, "办公");
+    assert_eq!(tags[0].amount_cents, 5000);
+
+    // 未分类行也受区间约束：只取 1 月 → 美团在区内且带标签 → 仍无未分类行
+    let jan = voucher_core::services::reports::tag_stats(
+        &ctx,
+        0,
+        10,
+        Some("2026-01-01"),
+        Some("2026-01-31"),
+    )?;
+    assert!(jan.iter().all(|t| !t.tag.is_empty()), "区间内凭证都有标签");
     Ok(())
 }
 
@@ -595,7 +668,7 @@ fn tag_stats_orders_by_amount() -> Result<()> {
     mk("b", vec!["差旅"], 5000)?;
     mk("c", vec![], 3000)?; // 无标签 → 未分类
 
-    let rows = voucher_core::services::reports::tag_stats(&ctx, 0, 10)?;
+    let rows = voucher_core::services::reports::tag_stats(&ctx, 0, 10, None, None)?;
     assert_eq!(rows.len(), 3, "差旅/报销/未分类");
     assert_eq!(rows[0].tag, "差旅");
     assert_eq!(rows[0].count, 2, "双标签凭证在差旅下计 2 张");
@@ -608,14 +681,14 @@ fn tag_stats_orders_by_amount() -> Result<()> {
     assert_eq!(rows[2].amount_cents, 3000);
 
     // limit 截断：只留差旅；未分类不占名额仍返回
-    let top1 = voucher_core::services::reports::tag_stats(&ctx, 0, 1)?;
+    let top1 = voucher_core::services::reports::tag_stats(&ctx, 0, 1, None, None)?;
     assert_eq!(top1.len(), 2, "limit=1 → 差旅 + 未分类（不占名额）");
     assert_eq!(top1[0].tag, "差旅");
     assert_eq!(top1[1].tag, "");
 
     // 近 1 月窗口（凭证默认今天）结果一致；空白标签不入榜、计入未分类
     mk("d", vec!["  "], 7000)?; // 空白标签：不单独入榜，凭证算「无有效标签」
-    let m1 = voucher_core::services::reports::tag_stats(&ctx, 1, 10)?;
+    let m1 = voucher_core::services::reports::tag_stats(&ctx, 1, 10, None, None)?;
     let tagged_names: Vec<&str> = m1
         .iter()
         .filter(|r| !r.tag.is_empty())

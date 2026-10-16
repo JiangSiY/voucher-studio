@@ -392,7 +392,7 @@ fn dirty_tags_degrade_consistently_across_aggregations() -> Result<()> {
     assert_eq!(breakdown[0].count, 1);
 
     // ③ 报告页 tag_stats 与之一致（同一条脏数据在两条 SQL 路径上表现相同）
-    let tags = reports::tag_stats(&ctx, 12, 10)?;
+    let tags = reports::tag_stats(&ctx, 12, 10, None, None)?;
     let names: Vec<&str> = tags.iter().map(|t| t.tag.as_str()).collect();
     assert!(names.contains(&"办公"), "合法标签应在报告页出现：{names:?}");
     assert!(
