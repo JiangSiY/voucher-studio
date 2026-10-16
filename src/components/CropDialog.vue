@@ -10,6 +10,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import FluentIcon from "./FluentIcon.vue";
+import { useModal } from "../composables/useModal";
 
 const props = defineProps<{
   visible: boolean;
@@ -23,6 +24,12 @@ const emit = defineEmits<{
   (e: "close"): void;
   (e: "save", rect: { x: number; y: number; w: number; h: number }, rotationDeg: number): void;
 }>();
+
+/** 焦点契约（规范 §4）：打开聚焦首个可操作元素、Tab 循环留在浮层内、Esc 关闭并归还焦点 */
+const { panelEl } = useModal(
+  () => props.visible,
+  () => emit("close"),
+);
 
 // ---------- 图像几何（原图像素 → 旋转包围盒 → 显示尺寸） ----------
 
@@ -226,7 +233,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 <template>
   <Teleport to="body">
     <div v-if="visible" class="crop-mask" @click.self="emit('close')">
-      <div class="crop-dialog" role="dialog" aria-label="调整图片">
+      <div ref="panelEl" class="crop-dialog" role="dialog" aria-modal="true" aria-label="调整图片" tabindex="-1">
         <h3>调整图片 <span class="crop-sub">（裁剪 / 旋转 → 覆盖增强版；原图不受影响）</span></h3>
 
         <!-- 舞台：旋转后包围盒 + 裁剪框 -->

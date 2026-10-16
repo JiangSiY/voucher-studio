@@ -8,6 +8,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import FluentIcon from "./FluentIcon.vue";
 import { toastError } from "../stores/toast";
+import { useModal } from "../composables/useModal";
 
 const props = defineProps<{
   visible: boolean;
@@ -17,6 +18,13 @@ const props = defineProps<{
   attachmentId: number | null;
 }>();
 const emit = defineEmits<{ (e: "close"): void }>();
+
+/** 焦点契约（规范 §4）：本组件已自行处理 Esc，故只借它做首焦点与 Tab 循环 + 关闭后归还焦点 */
+const { panelEl } = useModal(
+  () => props.visible,
+  () => emit("close"),
+  { escape: false },
+);
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 12;
@@ -193,7 +201,12 @@ async function openExternal() {
   <Teleport to="body">
     <div
       v-if="visible"
+      ref="panelEl"
       class="viewer-mask"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`查看图片：${fileName}`"
+      tabindex="-1"
       :class="{ grabbing: dragging }"
       @wheel.prevent="onWheel"
       @mousedown="onMouseDown"

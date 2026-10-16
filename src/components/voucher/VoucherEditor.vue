@@ -24,6 +24,7 @@ import SnapshotPanel from "./SnapshotPanel.vue";
 import OcrResultCard from "../OcrResultCard.vue";
 import FluentIcon from "../FluentIcon.vue";
 import { centsToYuanInput, parseTags, parseYuanToCents } from "../../composables/money";
+import { fmtAmount } from "../../composables/format";
 import { pairKey } from "../../composables/dupReview";
 import { useConfigStore } from "../../stores/config";
 import { useDupStore } from "../../stores/dup";
@@ -219,7 +220,7 @@ async function checkDuplicateHint(v: Voucher) {
     const strongest = fresh[0].evidence.level === "high" ? "（证据较强，建议优先核对）" : "";
     const first = fresh[0];
     toast.warning(
-      `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ¥${((v.amountCents ?? 0) / 100).toFixed(2)}），请核对是否重复报销${strongest}`,
+      `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ¥${fmtAmount(v.amountCents)}），请核对是否重复报销${strongest}`,
       {
         label: "去核查",
         onClick: () => router.push({ path: "/duplicates", query: { pair: pairKey(v.id, first.voucher.id) } }),

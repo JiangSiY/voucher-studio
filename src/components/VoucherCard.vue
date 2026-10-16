@@ -5,6 +5,7 @@
  */
 import { computed } from "vue";
 import type { Voucher } from "../api/client";
+import { fmtAmount } from "../composables/format";
 
 const props = withDefaults(
   defineProps<{
@@ -15,11 +16,10 @@ const props = withDefaults(
   { style: "standard", title: "凭证整理单" },
 );
 
-const amount = computed(() => {
-  if (props.voucher.amountCents == null) return "";
-  const n = props.voucher.amountCents / 100;
-  return n.toLocaleString("zh-CN", { minimumFractionDigits: 2 });
-});
+/** 金额文本统一走 fmtAmount（千分位 + 固定两位小数）；打印件上空金额仍留白，故 null → 空串 */
+const amount = computed(() =>
+  props.voucher.amountCents == null ? "" : fmtAmount(props.voucher.amountCents),
+);
 </script>
 
 <template>

@@ -426,7 +426,7 @@ onUnmounted(() => {
                 <td>{{ v.voucherDate }}</td>
                 <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
                 <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.counterparty || "—" }}</td>
-                <td style="text-align: right" class="mono">{{ v.amountCents != null ? (v.amountCents / 100).toFixed(2) : "" }}</td>
+                <td style="text-align: right" class="mono">{{ v.amountCents != null ? fmtAmount(v.amountCents) : "" }}</td>
                 <td>{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</td>
               </tr>
             </tbody>

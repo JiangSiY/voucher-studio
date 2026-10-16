@@ -8,6 +8,7 @@ import { computed } from "vue";
 import type { ExtractedFields } from "../api/client";
 import ConfidenceTag from "./ConfidenceTag.vue";
 import FluentIcon from "./FluentIcon.vue";
+import { fmtAmount } from "../composables/format";
 
 const props = defineProps<{
   extracted: ExtractedFields | null;
@@ -48,7 +49,7 @@ const hasExtracted = computed(() => {
         <div class="ext-row">
           <span class="ext-label">金额</span>
           <span class="ext-value mono">
-            {{ extracted.amountCents != null ? `¥${(extracted.amountCents / 100).toFixed(2)}` : "—" }}
+            {{ extracted.amountCents != null ? `¥${fmtAmount(extracted.amountCents)}` : "—" }}
             <!-- 置信度：标签命中可信 / 全文唯一兜底低置信 -->
             <span v-if="extracted.amountSource === 'labeled'" class="tag tag-success" title="命中「价税合计/合计」等标签">可信</span>
             <span v-else-if="extracted.amountSource === 'uniqueonly'" class="tag tag-warning" title="全文唯一金额兜底，无标签佐证，请人工核对">低置信</span>

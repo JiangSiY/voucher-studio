@@ -151,12 +151,13 @@ watch(
 <template>
   <Teleport to="body">
     <div v-if="visible" class="cp-mask" @click.self="emit('close')">
-      <div class="cp-panel" role="dialog" aria-label="命令面板">
+      <div class="cp-panel" role="dialog" aria-modal="true" aria-label="命令面板">
         <div class="cp-input-row">
           <FluentIcon name="search" :size="16" />
+          <!-- 按键只由 window 上的 onKeydown 处理（见上）：此前输入框又绑了一份同一处理器，
+               ↓/↑ 一次跳 2 项、Enter 触发两次 execute()（第二项或同一项被跑两遍） -->
           <input ref="inputEl" v-model="query" class="cp-input"
-            placeholder="输入页面 / 动作名，或直接搜凭证（编号、摘要、OCR 文本）…"
-            @keydown="onKeydown" />
+            placeholder="输入页面 / 动作名，或直接搜凭证（编号、摘要、OCR 文本）…" />
           <span class="cp-esc">Esc 关闭</span>
         </div>
 

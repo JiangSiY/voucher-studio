@@ -60,6 +60,9 @@ const breakdown = ref<BreakdownRow[]>([]);
 const coverage = ref<ExportCoverage | null>(null);
 const storage = ref<StorageUsage | null>(null);
 const storageBytesBusy = ref(false);
+/** 失败终态：面板不再用「加载中…」掩盖失败（见 loadWindowed / loadLedgers 的 catch） */
+const windowedFailed = ref(false);
+const storageFailed = ref(false);
 
 async function loadWindowed() {
   try {
@@ -67,7 +70,10 @@ async function loadWindowed() {
       api.exportCoverage(range.value.dateFrom, range.value.dateTo),
       api.monthlyBreakdown(range.value.dateFrom, range.value.dateTo, dim.value, 5),
     ]);
+    windowedFailed.value = false;
   } catch (e) {
+    // 失败时必须有个终态：此前只有 toast，面板会永远停在「加载中…」，用户以为一直在跑
+    windowedFailed.value = true;
     toastError(e);
   }
 }
@@ -105,7 +111,9 @@ function drillDown(row: BreakdownRow) {
 async function loadLedgers() {
   try {
     storage.value = await api.storageUsage(false);
+    storageFailed.value = false;
   } catch (e) {
+    storageFailed.value = true;
     toastError(e);
   }
 }
@@ -203,6 +211,9 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
             查看从未导出的 {{ coverage.neverExported }} 张
           </button>
         </template>
+        <p v-else-if="windowedFailed" class="muted">
+          导出覆盖度加载失败。<button class="link" @click="loadWindowed()">重试</button>
+        </p>
         <p v-else class="muted">加载中…</p>
       </section>
 
@@ -228,6 +239,9 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
             <div><dt>OCR 缓存</dt><dd>{{ storage.ocrCacheCount }} 条</dd></div>
           </div>
         </template>
+        <p v-else-if="storageFailed" class="muted">
+          存储占用加载失败。<button class="link" @click="loadLedgers()">重试</button>
+        </p>
         <p v-else class="muted">加载中…</p>
       </section>
     </div>
