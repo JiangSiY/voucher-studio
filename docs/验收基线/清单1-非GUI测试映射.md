@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **42 文件 240 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **45 文件 259 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -61,7 +61,12 @@
 > 深色 `--bg-sidebar` 不透明度 0.35 → **0.94**（浅色侧保持 0.28 不动——同一轮用户明确要「看得到玻璃」），
 > 深色主题块与 `@media (prefers-color-scheme: dark)` 兜底块两处同步；`__tests__/a11yContract.test.ts` 4 → **5 例**
 > （新增：深色侧栏不透明度 ≥0.85、浅色侧 ≤0.35，防两侧被顺手改成一样）。Rust 侧未动（仍 **282 = 152 + 130**）。
-> 前端合计数 **42 文件 240 用例**（原 43 文件 257 / 43 文件 256 / 42 文件 255 / 41 文件 247 / 38 文件 232；**2026-10-16 清除死代码批净减 17 例**——删掉 `dirtyGuard`（9 例）、`neighborNav`（12 例）、`VoucherNavBar`（3 例）三个零引用文件及其测试，同时新增 `terminologyContract`（3 例）与 `deadCodeContract`（1 例））。
+> **2026-10-16 任务中心批**（用户「再然后做任务中心」；规范 §1.5 明文要求）新增 3 个前端文件 13 例：
+> `stores/__tests__/tasks.test.ts`（6 例：开任务自动展开 / 进度只对运行中生效 / 失败留原文且完成后带动作 / 已完成最多留 3 条且运行中不丢 / 清除与逐条关闭 / 空列表胶囊文案）、
+> `components/__tests__/TaskCenter.test.ts`（6 例：无任务不渲染 / 确定态进度与 aria-valuenow / 未知总量走不确定态 / 完成后动作按钮执行并移除 / 最小化只收列表 / 失败显示错误原文）、
+> `__tests__/taskCenterContract.test.ts`（7 例：浮层挂 App.vue / 可最小化 / 进度条两态 / 不与 toast 抢角且 z-index 低于 toast / 导入与关闭前备份接线 / 导出·OCR·增强三处接线 / store 的观察面齐全）。
+> Rust 侧未动（仍 **282 = 152 + 130**）。
+> 前端合计数 **45 文件 259 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17 例（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → **45 文件 259**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
