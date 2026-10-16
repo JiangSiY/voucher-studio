@@ -5,12 +5,12 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> ⚠️ **修订注记（2026-09-09 初版；2026-09-24 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-09（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 置信度门控批 + 评测 harness + 对方抽取加固）**：`voucher-core` 测试 **280 个**（src 内联 **151** + tests/ 集成 **129**，含
+> ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **282 个**（src 内联 **152** + tests/ 集成 **130**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 42** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **32 文件 200 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **33 文件 207 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -20,7 +20,13 @@
 > 同日评测驱动加固新增 5 例（复合标签不截胡 / 名称类子标签剥离 / 界面噪音词拒收 / 微信「转给」模式 / 版面右邻噪音拒收——首轮评测 50 例对方实填错误全为「户名/账号/备注」类界面词），内联 142 → **147**；
 > 2026-10-09 换 PP-OCRv5 模型批新增 1 例（`pinned_model_files_intact`：随包三模型逐字节 SHA256 锁定，防静默换模/损坏），内联 147 → **148**；
 > 2026-10-09 用户实报修复（两栏支付页金额漏抽）新增 3 例（唯一兜底同值重复 / 两栏支付页金额几何配对 / 两栏日期右邻），内联 148 → **151**；
-> 计数口径：`cargo test --workspace --no-fail-fast` 实际产出（278 通过 + 5 `#[ignore]` = 283）。
+> **2026-10-16 侧栏收起 + 去掉分组**（用户要求）新增 3 例：内联 1 例（`sidebar_collapsed_roundtrips_as_camel_case`：默认展开 + `sidebarCollapsed` camelCase 落盘读回，
+> 内联 151 → **152**）、集成 1 例（`sidebar_collapsed_persists_across_contexts`：写盘后新上下文读回，voucher_flow 42 → 43，集成 129 → **130**）、
+> 前端新增 1 个文件 2 例（`composables/__tests__/sidebarCollapse.test.ts`：根属性 `data-sidebar-collapsed` 通道）；
+> 同批改写 `layouts/__tests__/WorkbenchLayout.test.ts`（5 例，原分组折叠 4 例）、`__tests__/iaContract.test.ts`（8 例，新增「扁平一列」「整栏收起」两条契约）、
+> `stores/__tests__/configLayout.test.ts`（7 例，原 4 例；新增收起状态落盘与预览模式只改界面）；
+> 前端合计数 **33 文件 207 用例**（原 32 文件 200 用例）。
+> 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
 > 单测名 `schema_creates_seven_tables` 已演进为 `schema_creates_eight_tables`（voucher_flow.rs），
