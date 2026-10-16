@@ -6,7 +6,7 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **283 个**（src 内联 **152** + tests/ 集成 **131**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **284 个**（src 内联 **154** + tests/ 集成 **130**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
@@ -84,6 +84,11 @@
 > **2026-10-16 真机走查收口 + ⌘⇧Enter 批**（用户「真机走查通过…去掉挂账，复核通过并下一张实装」）改写 1 个前端文件 +3 例、反转 2 处断言：
 > `pages/__tests__/LibraryPage.test.ts` 16 → **19 例**（⌘⇧Enter 置「已复核」+ 保存 + 翻相邻张 / 已是已复核且无改动只翻张不写库 / ⌘Enter 不被抢且状态保持原值）、
 > `pages/__tests__/helpPageContract.test.ts` 与 `__tests__/voucherNeighborContract.test.ts` 的 ⌘⇧Enter 断言由「不得出现 / 仍未实装」反转为「必须出现 / 已实装」。
+> **2026-10-16 打印日报改版 + 年度报表下线批（方案 v2 定稿批次①上）**：`services/pdf.rs` 日报表格 8.5/9pt → **12pt（小四）**、
+> 列宽改 A1（编号 40 / 摘要 68 / 对方 42 / **金额独立预留 40**）、行高 8/12mm、摘要折两行、两套模板共用**贪心分页**，
+> 新增 3 例（`daily_layout_invariants` / `daily_pagination_never_overflows` / `summary_wraps_to_two_lines`）、
+> 删除 2 例（`yearly_columns_layout_golden` 与 `voucher_flow::export_yearly_report_pdf_and_batch`，**年度汇总报表按用户决定下线**）；
+> 内联 152 → **154**、集成 131 → **130**、`voucher-core` 283 → **284**、总数 **287**（282 通过 + 5 ignored）；前端未动。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**281 通过 + 5 `#[ignore]`**（含上述新 2 例）= 286）。
