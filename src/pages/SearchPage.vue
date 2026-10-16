@@ -134,7 +134,7 @@ onUnmounted(() => {
         <span style="color: var(--text-3); font-size: 12px">—</span>
         <input v-model="filterAmountTo" class="input" style="width: 110px" inputmode="decimal"
           placeholder="≤ 元" title="金额上限（元）" @keyup.enter="search" />
-        <button v-if="hasFilters()" class="btn btn-sm" @click="clearFilters">清除筛选</button>
+        <button v-if="hasFilters()" class="btn" @click="clearFilters">清除筛选</button>
       </div>
       <div v-if="hasFilters()" style="font-size: 12px; color: var(--text-3); margin-top: 6px">
         筛选条件与关键词同时生效（AND）；金额按凭证金额精确匹配，空金额凭证在设定金额范围时不出现

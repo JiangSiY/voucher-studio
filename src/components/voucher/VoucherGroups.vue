@@ -92,12 +92,12 @@ function groupTotal(g: VoucherGroup): number {
       <div v-if="creating" class="vg-row">
         <input
           v-model="title"
-          class="input vg-grow"
+          class="input"
           placeholder="组标题（如：2026-08 差旅）"
           aria-label="组标题"
           @keyup.enter="create"
         />
-        <button class="btn btn-sm" @click="create">建立并加入</button>
+        <button class="btn" @click="create">建立并加入</button>
       </div>
 
       <ul v-if="groups.length" class="vg-list">
@@ -130,11 +130,11 @@ function groupTotal(g: VoucherGroup): number {
 
       <!-- 加入已有组：下拉与按钮同一行 -->
       <div v-if="all.length" class="vg-row">
-        <select v-model.number="pick" class="input vg-grow" title="加入已有组" aria-label="加入已有组">
+        <select v-model.number="pick" class="input" title="加入已有组" aria-label="加入已有组">
           <option :value="null">选择已有组…</option>
           <option v-for="g in all" :key="g.id" :value="g.id">{{ g.title }}</option>
         </select>
-        <button class="btn btn-sm" :disabled="pick === null" @click="addTo">加入</button>
+        <button class="btn" :disabled="pick === null" @click="addTo">加入</button>
       </div>
     </div>
   </section>
@@ -157,24 +157,17 @@ function groupTotal(g: VoucherGroup): number {
   gap: var(--s-2);
 }
 /* 输入与按钮同行 */
-/* 输入与按钮**同一行**（窄栏才允许折行） */
+/* 输入与按钮**同一行同一高度**（行内按钮用 `.btn`（md = 32px）与 `.input` 对齐；
+   此前用 `.btn-sm`（26px）导致"按钮和输入框大小不一致"，用户 2026-10-16 截图反馈）。 */
 .vg-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s-2);
-  flex-wrap: nowrap;
 }
-.vg-grow {
-  flex: 1 1 0;
-  min-width: 0;
-}
-@media (max-width: 1240px) {
-  .vg-row {
-    flex-wrap: wrap;
-  }
-  .vg-grow {
-    flex: 1 1 150px;
-  }
+.vg-row > .input,
+.vg-row > .btn {
+  height: var(--control-h-md);
 }
 .vg-list {
   list-style: none;

@@ -106,15 +106,15 @@ async function unlink(l: LinkedVoucher) {
         </select>
         <input
           v-model="keyword"
-          class="input rel-grow"
+          class="input"
           placeholder="搜索凭证（编号 / 摘要 / 对方）"
           aria-label="搜索凭证"
           @keyup.enter="search"
         />
-        <button class="btn btn-sm" @click="search">搜索</button>
+        <button class="btn" @click="search">搜索</button>
         <input
           v-model="note"
-          class="input rel-grow"
+          class="input"
           placeholder="说明（可选，例如：这笔付款对应的发票）"
           aria-label="关系说明"
         />
@@ -165,29 +165,22 @@ async function unlink(l: LinkedVoucher) {
   flex-direction: column;
   gap: var(--s-2);
 }
-/* 一行放完：类型 / 搜索 / 搜索按钮 / 说明（窄栏允许折行，但控件始终成组相邻） */
+/* 建立关联的控件分两行（用户 2026-10-16 反馈"按钮和输入框大小不一致"：
+   `.btn-sm` 高 26px、`.input` 高 32px —— 同排必须同一档高度，故行内按钮一律用 `.btn`（md））。
+   第一行：类型 / 搜索 / 搜索按钮（三者同高、成组相邻）；第二行：说明（整行铺满，文字不被截断）。 */
 .rel-pick {
-  display: flex;
+  display: grid;
+  /* auto 列让「附件说明」按内容定宽；搜索列 minmax(0,1fr) 防止窄栏溢出 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s-2);
-  flex-wrap: nowrap;
 }
-.rel-kind {
-  width: 108px;
-  flex: 0 0 auto;
+.rel-pick > .input,
+.rel-pick > .btn {
+  height: var(--control-h-md);
 }
-.rel-grow {
-  flex: 1 1 0;
-  min-width: 0;
-}
-@media (max-width: 1240px) {
-  .rel-pick {
-    flex-wrap: wrap;
-  }
-  .rel-kind,
-  .rel-grow {
-    flex: 1 1 140px;
-  }
+.rel-note {
+  grid-column: 1 / -1;
 }
 /* 候选：一行一条，右侧给摘要 */
 .rel-cand {

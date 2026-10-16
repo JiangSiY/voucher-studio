@@ -56,18 +56,21 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(panel).toContain("v-show=");
   });
 
-  it("两个区块的控件排在同一行（flex 行 + 标题只放一个主按钮）", () => {
+  it("两个区块的行内控件同排同高（输入与按钮同一档高度，不再错位）", () => {
     for (const [f, rowClass] of [
       [RELATED, ".rel-pick"],
       [GROUPS, ".vg-row"],
     ] as const) {
       const src = read(f);
       expect(src, `${f} 缺少 scoped 样式`).toContain("<style scoped>");
-      const rule = src.slice(src.indexOf(`${rowClass} {`));
-      expect(rule.slice(0, 200)).toContain("display: flex");
-      // 行内控件不换行（窄栏才允许 wrap 的媒体查询另行声明）
-      expect(src).toContain("flex-wrap: nowrap");
-      // 标题行右侧只有一个主按钮（＋ 建立关联 / ＋ 新建组）
+      const rule = src.slice(src.indexOf(`${rowClass} {`), src.indexOf(`${rowClass} {`) + 400);
+      // 行内是显式网格：输入与按钮同排
+      expect(rule).toContain("display: grid");
+      expect(rule).toContain("grid-template-columns");
+      // **同一档高度**——`.btn-sm` 是 26px、`.input` 是 32px，同排会"大小不一致"（用户 2026-10-16 截图）
+      expect(rule).toContain("--control-h-md");
+      expect(src).not.toMatch(/class="btn btn-sm"[^>]*>(搜索|建立并加入|加入)</);
+      // 标题行右侧只有一个主按钮（＋ 建立关联 / ＋ 新建组），头部按钮可继续用小号
       expect(src).toMatch(/fluent-panel-header[\s\S]{0,400}?btn btn-sm/);
     }
   });
@@ -79,6 +82,14 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     const panel = read("src/components/voucher/AttachmentPanel.vue");
     expect(panel).toContain(":class=\"{ isDense: dense }\"");
     expect(read(EDITOR)).toContain(':dense="dense"');
+  });
+
+  it("排版一致性：与输入框同排的按钮一律用 md（`.btn`），不用小号", () => {
+    // 用户 2026-10-16 反馈「按钮和输入框大小不一致」的同类问题一次性排查：
+    // 搜索页的「清除筛选」与整排 `.input` 同排，此前是 `.btn-sm`（26px vs 32px）
+    const search = read("src/pages/SearchPage.vue");
+    expect(search).toContain('class="btn" @click="clearFilters">清除筛选');
+    expect(search).not.toContain('class="btn btn-sm" @click="clearFilters"');
   });
 
   it("未保存状态显示在右栏头部（由编辑器 dirty 事件驱动）", () => {
