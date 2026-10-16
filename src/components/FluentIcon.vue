@@ -100,6 +100,10 @@ const ICONS: Record<string, string> = {
     '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8.25 10.5h4.5"/>',
   chevronLeft: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   chevronRight: '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
+  // 侧栏开关（2026-10-16）：面板形图标，一眼看出"这是侧边栏"。
+  // 原用 chevronLeft/chevronRight 两态对调，真机走查被当成"返回"按钮 → 换成语义图标 + 选中态提示开合状态。
+  sidebar:
+    '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M9.5 4.5v15"/><path d="M6.25 8.25h.01M6.25 12.25h.01"/>',
   pin: '<path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 4-5.5 10-5.5 10S6.5 13.5 6.5 9.5A5.5 5.5 0 0 1 12 4z"/><circle cx="12" cy="9.5" r="1.8"/>',
 };
 

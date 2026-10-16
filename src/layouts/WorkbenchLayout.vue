@@ -108,16 +108,19 @@ function openPalette() {
            见 src-tauri/capabilities/default.json。 -->
       <header class="unified-toolbar" data-tauri-drag-region="deep">
         <!-- 侧栏开关：固定在工具栏最左（macOS 惯例，交通灯右侧），展开/收起两态都在同一位置，
-             用户不必重新找它。按钮在 drag-region="deep" 子树里会自动阻止拖拽（见上）。 -->
+             用户不必重新找它。按钮在 drag-region="deep" 子树里会自动阻止拖拽（见上）。
+             图标是**面板形 `sidebar`**（不是箭头）：真机走查里箭头版被读成"返回"
+             → 换成一眼认得出的侧边栏图标，开合状态改由选中态（`.is-active`）承担。 -->
         <button
           class="toolbar-btn sidebar-toggle"
+          :class="{ 'is-active': !sidebarCollapsed }"
           :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
           :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
           :aria-expanded="!sidebarCollapsed"
           aria-controls="app-sidebar"
           @click="toggleSidebar"
         >
-          <FluentIcon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" :size="15" />
+          <FluentIcon name="sidebar" :size="16" />
         </button>
         <h1 class="toolbar-title">{{ pageTitle }}</h1>
         <div class="toolbar-actions">

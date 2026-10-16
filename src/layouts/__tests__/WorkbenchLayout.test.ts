@@ -97,15 +97,18 @@ describe("侧栏：扁平导航 + 整栏收起", () => {
     for (const label of NAV_LABELS) expect(w.text()).toContain(label);
   });
 
-  it("点工具栏开关即收起：根属性置 true，aria-expanded 反映状态", async () => {
+  it("点工具栏开关即收起：根属性置 true，aria-expanded 与选中态同步翻转", async () => {
     const w = await mountLayout();
     expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("true");
+    // 侧栏可见时按钮带选中态（真机走查：箭头版被误读成"返回"，状态改由选中态 + 面板图标表达）
+    expect(w.get(".sidebar-toggle").classes()).toContain("is-active");
     expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
 
     await w.get(".sidebar-toggle").trigger("click");
     await flushPromises();
     expect(document.documentElement.dataset.sidebarCollapsed).toBe("true");
     expect(w.get(".sidebar-toggle").attributes("aria-expanded")).toBe("false");
+    expect(w.get(".sidebar-toggle").classes()).not.toContain("is-active");
   });
 
   it("再点一下恢复展开", async () => {

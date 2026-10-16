@@ -234,6 +234,13 @@ body {
   justify-content: center;
 }
 
+/* 侧栏可见时按钮呈选中态（macOS 惯例，Finder/Safari 同款）：
+   图标不再随开合变形，"现在是什么状态"由这层底色承担，真机走查里箭头版被误读成"返回" */
+.unified-toolbar .sidebar-toggle.is-active {
+  background: var(--bg-selection);
+  color: var(--label-primary);
+}
+
 .unified-toolbar .toolbar-hint {
   color: var(--label-tertiary);
 }
