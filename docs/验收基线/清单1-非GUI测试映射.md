@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **41 文件 247 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **42 文件 255 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -46,7 +46,12 @@
 > `__tests__/settingsSavePathContract.test.ts`（3 例：`withLiveAppearance` 是唯一覆盖入口 / 设置页不再内联拼 payload / 备份 Tab「测试连接」走同一 helper 并讲清会一并保存）、
 > `pages/__tests__/helpPageContract.test.ts`（5 例：快捷键只列已实装 / 不列 ⌘⇧Enter 与 ⌥←→ / 入口名与侧栏一致且旧称已清 / 9 个入口都有说明 / macOS 钥匙串与侧栏收起、搜索上限已写明）、
 > `stores/__tests__/configLayout.test.ts` 7 → **9 例**（`withLiveAppearance` 用运行期值覆盖草稿且不改原对象 / 预览模式原样返回）。Rust 侧未动（仍 **282 = 152 + 130**）。
-> 前端合计数 **41 文件 247 用例**（原 38 文件 232 用例，更早 35 文件 217 / 33 文件 208 / 32 文件 200 用例）。
+> **2026-10-16 界面细节打磨第五批**（P2 前半：资料库筛选去重 / 批量改状态二次确认 / 选图入口键盘可达 / toast 去重与上限）
+> 新增 1 个前端文件 6 例、改写 1 个文件 +3 例：
+> `pages/__tests__/libraryPolishContract.test.ts`（6 例：资料库不再有第二份筛选行与死开关 / 空态的可点「清空全部筛选」/ 批量改状态走确认框且文案含跨页量 / 该确认框不是危险样式 / 两处拖放区都是 role=button 且 Enter 与 Space 可触发）、
+> `stores/__tests__/toast.test.ts` 3 → **6 例**（连续重复提示合并为一条且文案不同不合并 / 合并时新回调覆盖旧动作 / 同屏最多 4 条超出丢最旧）。
+> 同时删除已死的 `.filter-bar.advanced` 与 `.scope` 样式。Rust 侧未动（仍 **282 = 152 + 130**）。
+> 前端合计数 **42 文件 255 用例**（原 41 文件 247 / 38 文件 232，更早 35 文件 217 / 33 文件 208 / 32 文件 200 用例）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
