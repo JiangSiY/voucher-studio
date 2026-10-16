@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 6 + print_appendix 1（v0.22 关联批 / 批次③）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **49 文件 292 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 298 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -117,6 +117,12 @@
 > 4 处把"单份导出"当载体的 E2E 改走**日报导出**（`enhance_e2e` 3 + `voucher_flow`/`ocr_flow` 各 1）→
 > 集成 137 → **133**、`voucher-core` 291 → **287**、总数 **294 → 290**；前端删 `VoucherCard.vue` 及其测试、
 > `moneyDisplayContract` 减 1 例 → **49 文件 292 用例**。
+> **2026-10-16 右栏编辑器重设计批（B 批，用户点名的四处 + 分区重构）**新增
+> `__tests__/editorRedesignContract.test.ts` **6 例**：关系与组插在核心字段之后、识别结果之前（含 `#relations` 插槽）；
+> 识别结果/修改历史经 `CollapsiblePanel` 且**默认折叠**、折叠态带徽标；两个区块控件同为一行（flex nowrap + 窄栏媒体查询折行）；
+> 附件操作行 `flex-wrap: nowrap` 且未展宽收成纯图标；未保存状态提到右栏头部（`dirty` 事件驱动）；
+> 表单高频前置（摘要→日期→金额→状态）且只读编号行移出、备注自适应、操作条吸底 → 前端 **50 文件 298 用例**。
+> Rust 侧本批未动（仍 **290**）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**281 通过 + 5 `#[ignore]`**（含上述新 2 例）= 286）。
