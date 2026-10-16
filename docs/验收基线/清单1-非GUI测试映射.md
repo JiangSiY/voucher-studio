@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **38 文件 228 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **38 文件 232 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -35,7 +35,11 @@
 > `composables/__tests__/useModal.test.ts`（4 例：首焦点 / Tab 双向回绕 / Esc 与 escape:false / 关闭归还焦点）、
 > `__tests__/dialogContract.test.ts`（3 例：三个浮层都接 useModal 且声明 aria-modal / 查看器 escape:false / 命令面板按键只注册一次）、
 > `__tests__/moneyDisplayContract.test.ts`（4 例：打印中心、OCR 卡片、凭证卡片、编辑器重复提示的金额都走 `fmtAmount`）。Rust 侧仍未动。
-> 前端合计数 **38 文件 228 用例**（原 35 文件 217 用例，更早 33 文件 208 / 32 文件 200 用例）。
+> **2026-10-16 界面细节打磨第三批**（未保存修改的离开保护，P1 中唯一会丢数据的一条）改写 1 个文件 +4 例：
+> `pages/__tests__/LibraryPage.test.ts` 9 → **13 例**（改字段后点另一行先确认且「留在此页」保住草稿 / 干净时切行不打扰 /
+> 路由守卫脏数据挂起导航、拒绝与放行两条路径 / `beforeunload` 脏数据取消关闭）；同批文件头补记「已实装离开保护」。
+> Rust 侧未动。
+> 前端合计数 **38 文件 232 用例**（原 35 文件 217 用例，更早 33 文件 208 / 32 文件 200 用例）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**280 通过 + 5 `#[ignore]`**（含上述新 2 例）= 285）。
 > 下表逐条映射以 G1 时点为准，未随版本滚动更新；
 > **H 节「微信监听」对应功能已于 v0.7.x 移除（提交 50d2adb），该组用例已删除**，不再作为验收项；
