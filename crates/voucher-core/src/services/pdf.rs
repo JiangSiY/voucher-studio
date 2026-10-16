@@ -191,22 +191,161 @@ pub fn generate(path: &Path, input: &PdfInput, opts: &PdfOptions) -> Result<()> 
     Ok(())
 }
 
-// ---------- 按天日报版式常量（mm） ----------
-/// 汇总表行高（archive 档案模板）
-const TROW_H: f32 = 6.2;
+// ---------- 按天日报版式常量（mm / pt）----------
+// 2026-10-16 打印改版（用户要求「字号 ≥ 小四、排版不重叠」）：
+//   - 正文/表头/金额/合计一律 12pt（小四），页脚 9pt，图片 caption 10pt，标题 14pt；
+//   - **金额列独立预留 40mm**：此前三列吃满 165mm、金额只剩 25mm 且靠右对齐贴页边，
+//     金额位数一多（或字号一大）就压进「对方账户」列——这正是「表格右下角重叠」的根因；
+//   - 行高 8mm（单行）/ 12mm（摘要换行两行），分页按每行实际高度**贪心装填**；
+//   - 表格内容（含合计行）不得越过 TABLE_BOTTOM，页脚基线固定在 290mm。
+const TABLE_BOTTOM: f32 = 275.0;
+/// 表格每页都预留合计行高度（只有末页真画；换来「合计行永不越界」）
+const TOTAL_LINE_H: f32 = 8.0;
 /// 表头行高
-const THEAD_H: f32 = 5.5;
-/// 标题与表头之间的摘要行区域（「当日共 N 张 · 合计 ¥X」）
+const THEAD_H: f32 = 6.0;
+/// 标题与表头之间的摘要行区域（「当日共 N 张 · 合计 ￥X」）
 const TSUM_GAP: f32 = 10.0;
-/// 每页最多行数（含合计行预留）
-const TROWS_PER_PAGE: usize = 34;
-/// 列宽：编号 45 / 摘要 70 / 对方账户 50，金额右对齐至右页边
-const TCOL_NO: f32 = 45.0;
-const TCOL_DESC: f32 = 70.0;
-const TCOL_PARTY: f32 = 50.0;
+
+/// 字号（pt）
+const TITLE_PT: f32 = 14.0;
+const CAPTION_PT: f32 = 10.0;
+const HEAD_PT: f32 = 12.0;
+const BODY_PT: f32 = 12.0;
+const AMOUNT_PT: f32 = 12.0;
+/// 金额超宽时的退让字号（仍 ≥ 五号 10.5pt 的下限附近，绝不截断金额）
+const AMOUNT_PT_MIN: f32 = 10.5;
+const TOTAL_PT: f32 = 12.0;
+const FOOTER_PT: f32 = 9.0;
+
+/// 列宽：编号 40 / 摘要 68 / 对方账户 42 / 金额预留 40（合计 190 = 可用宽）
+const TCOL_NO: f32 = 40.0;
+const TCOL_DESC: f32 = 68.0;
+const TCOL_PARTY: f32 = 42.0;
+const TCOL_AMOUNT: f32 = 40.0;
+
+/// 行高：单行 8mm（12pt × 1.4 = 5.9mm，留足净空）/ 摘要两行 12mm
+const TROW_H: f32 = 8.0;
+const TROW_H_2LINE: f32 = 12.0;
+
+/// 一行表格的版式（摘要最多两行）
+struct RowLayout {
+    no: String,
+    desc1: String,
+    desc2: Option<String>,
+    party: String,
+    amount: String,
+    h: f32,
+}
+
+/// 摘要按列宽折成最多两行；第二行仍放不下的部分截断加「…」
+fn wrap_two_lines(s: &str, pt: f32, cap_mm: f32) -> (String, Option<String>) {
+    let chars = s.chars().count();
+    let fits = chars_for_width(s, pt, cap_mm);
+    if fits >= chars {
+        return (s.to_string(), None);
+    }
+    let cut: String = s.chars().take(fits).collect();
+    let rest: String = s.chars().skip(fits).collect();
+    let rest_fits = chars_for_width(&rest, pt, cap_mm);
+    if rest_fits >= rest.chars().count() {
+        (cut, Some(rest))
+    } else {
+        let keep = rest_fits.saturating_sub(1);
+        let head: String = rest.chars().take(keep).collect();
+        (cut, Some(format!("{head}…")))
+    }
+}
+
+/// 把凭证排成行版式（摘要折行、行高随之变化）
+fn layout_rows(cards: &[PdfCard]) -> Vec<RowLayout> {
+    cards
+        .iter()
+        .map(|c| {
+            let desc = if c.description.is_empty() {
+                "—".to_string()
+            } else {
+                c.description.clone()
+            };
+            let (desc1, desc2) = wrap_two_lines(&desc, BODY_PT, TCOL_DESC - 2.0);
+            let h = if desc2.is_some() {
+                TROW_H_2LINE
+            } else {
+                TROW_H
+            };
+            RowLayout {
+                no: c.voucher_no.clone(),
+                desc1,
+                desc2,
+                party: if c.counterparty.is_empty() {
+                    "—".to_string()
+                } else {
+                    c.counterparty.clone()
+                },
+                amount: c.amount_label.clone(),
+                h,
+            }
+        })
+        .collect()
+}
+
+/// 贪心分页：按每行实际高度装填，每页都预留合计行高度。
+/// 返回 `page → (start, end)` 行区间；`first_top` 用于首页（省纸模板首页有横幅），其余页用 `next_top`。
+fn paginate_rows(rows: &[RowLayout], first_top: f32, next_top: f32) -> Vec<(usize, usize)> {
+    let mut pages: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0usize;
+    let mut top = first_top;
+    while i < rows.len() {
+        let mut y = top + THEAD_H;
+        let mut j = i;
+        while j < rows.len() && y + rows[j].h + TOTAL_LINE_H <= TABLE_BOTTOM {
+            y += rows[j].h;
+            j += 1;
+        }
+        if j == i {
+            j = i + 1; // 兜底：至少放一行
+        }
+        pages.push((i, j));
+        i = j;
+        top = next_top;
+    }
+    if pages.is_empty() {
+        pages.push((0, 0));
+    }
+    pages
+}
+
+/// 金额字号：12pt 放不下时退到 10.5pt（**绝不截断金额**）；返回 (字号, 右对齐起点)
+fn amount_pt_and_x(label: &str) -> (f32, f32) {
+    let min_x = MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY + 1.0;
+    let right = PAGE_W - MARGIN;
+    let pt = if text_width_mm(label, AMOUNT_PT) <= TCOL_AMOUNT - 2.0 {
+        AMOUNT_PT
+    } else {
+        AMOUNT_PT_MIN
+    };
+    (pt, (right - text_width_mm(label, pt)).max(min_x))
+}
+
+/// 画一页表格（表头 + 行 + 末页合计行），返回本页内容底部的 y（mm）
+fn draw_table_page(
+    layer: &PdfLayerReference,
+    font: &IndirectFontRef,
+    rows: &[RowLayout],
+    range: (usize, usize),
+    top: f32,
+) -> f32 {
+    draw_table_head(layer, font, top);
+    let mut y = top + THEAD_H;
+    for r in &rows[range.0..range.1] {
+        draw_table_row(layer, font, r, y);
+        y += r.h;
+    }
+    y
+}
 
 // ---------- 年度汇总报表数值列 x 偏移（相对左边距 MARGIN；属同一套列定义体系） ----------
 /// 年度表列偏移：月份 +1 / 张数 +30 / 草稿 +50 / 已复核 +70 / 已导出 +92 / 已归档 +114（金额右对齐至右页边）
+/// （批次①b 将随「年度汇总报表」一并删除——见 `docs/方案-v2-打印日报与凭证关联（定稿）.md` T2）
 const YCOL_CNT: f32 = 30.0;
 const YCOL_DRAFT: f32 = 50.0;
 const YCOL_REVIEWED: f32 = 70.0;
@@ -214,12 +353,6 @@ const YCOL_EXPORTED: f32 = 92.0;
 const YCOL_ARCHIVED: f32 = 114.0;
 
 // ---------- v0.8 省纸模板常量（compact） ----------
-/// 省纸表格行高（5.5mm）
-const C_TROW_H: f32 = 5.5;
-/// 省纸首页（含信息横幅）行数
-const C_ROWS_FIRST_PAGE: usize = 32;
-/// 省纸后续页行数
-const C_ROWS_PER_PAGE: usize = 38;
 /// 信息横幅高度（原独立封面页的替代，压到 22mm）
 const C_BANNER_H: f32 = 22.0;
 /// 竖版票据每页张数（3×3）
@@ -229,7 +362,7 @@ const C_LANDSCAPES_PER_PAGE: usize = 4;
 
 // ---------- 日报共享渲染（档案/省纸两模板复用，参数化差异） ----------
 
-/// 图片页版式规格：网格行列 + caption 样式（档案 2×2/7pt，省纸 caption 6.5pt 更紧凑）
+/// 图片页版式规格：网格行列 + caption 样式（2026-10-16 起两模板 caption 均 10pt）
 struct ImageGridSpec {
     cols: usize,
     rows: usize,
@@ -242,12 +375,12 @@ struct ImageGridSpec {
 const SPEC_ARCHIVE_GRID: ImageGridSpec = ImageGridSpec {
     cols: IMG_COLS,
     rows: IMG_ROWS,
-    caption_pt: 7.0,
-    caption_h: 5.0,
-    caption_dy: 0.5,
+    caption_pt: CAPTION_PT,
+    caption_h: 7.0,
+    caption_dy: 0.9,
 };
-/// 省纸模板图片规格（caption 6.5pt 紧凑，行列由桶决定）
-const SPEC_COMPACT_CAPTION: (f32, f32, f32) = (6.5, 4.5, 0.4);
+/// 省纸模板图片规格（caption 10pt，行列由桶决定）
+const SPEC_COMPACT_CAPTION: (f32, f32, f32) = (CAPTION_PT, 7.0, 0.9);
 
 /// 合计行（两模板共用）：分隔线 + 「合计 / N 张 / ￥金额」右对齐。
 /// `text_dy` 为文本基线相对分隔线的下沉量（按行高微调）。
@@ -269,20 +402,20 @@ fn draw_total_line(
         is_closed: false,
     });
     layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.use_text("合计", 9.0, Mm(MARGIN + 1.0), y(top + text_dy), font);
+    layer.use_text("合计", TOTAL_PT, Mm(MARGIN + 1.0), y(top + text_dy), font);
     let cnt_label = format!("{count} 张");
     layer.use_text(
         &cnt_label,
-        9.0,
-        Mm(right_x(&cnt_label, 9.0, PAGE_W - MARGIN - 2.0)),
+        TOTAL_PT,
+        Mm(right_x(&cnt_label, TOTAL_PT, PAGE_W - MARGIN - 2.0)),
         y(top + text_dy),
         font,
     );
     let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
     layer.use_text(
         &amt_label,
-        9.0,
-        Mm(right_x(&amt_label, 9.0, PAGE_W - MARGIN)),
+        TOTAL_PT,
+        Mm(right_x(&amt_label, TOTAL_PT, PAGE_W - MARGIN)),
         y(top + text_dy),
         font,
     );
@@ -364,7 +497,11 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         0
     };
     let img_pages = img_count.div_ceil(IMG_COLS * IMG_ROWS);
-    let table_pages = count.div_ceil(TROWS_PER_PAGE);
+    // 2026-10-16 打印改版：按每行实际高度（8mm / 摘要两行 12mm）贪心分页
+    let rows = layout_rows(&day.cards);
+    let table_first_top = MARGIN + HEADER_H + TSUM_GAP;
+    let pages = paginate_rows(&rows, table_first_top, table_first_top);
+    let table_pages = pages.len();
     let total_pages = 1 + table_pages + img_pages;
 
     // ===== P1 封面 =====
@@ -374,7 +511,7 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     }
 
     // ===== P2+ 汇总表页 =====
-    for t in 0..table_pages {
+    for (t, range) in pages.iter().enumerate() {
         let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
         let layer = doc.get_page(p).get_layer(l);
         draw_header(&layer, &font, &sum_title);
@@ -387,28 +524,19 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
                     "当日共 {count} 张凭证 · 合计 ￥{}（按识别金额统计）",
                     crate::models::voucher::format_money(total_cents)
                 ),
-                9.5,
+                BODY_PT,
                 Mm(MARGIN),
-                y(MARGIN + HEADER_H + 4.5),
+                y(MARGIN + HEADER_H + 7.0),
                 &font,
             );
         }
 
-        // 表头（每页重复）
+        // 表头（每页重复）+ 行（摘要可折两行）
         let table_top = MARGIN + HEADER_H + TSUM_GAP;
-        draw_table_head(&layer, &font, table_top);
-
-        let start = t * TROWS_PER_PAGE;
-        let end = (start + TROWS_PER_PAGE).min(count);
-        for (i, card) in day.cards[start..end].iter().enumerate() {
-            let top = table_top + THEAD_H + i as f32 * TROW_H;
-            draw_table_row(&layer, &font, card, top, TROW_H);
-        }
-
+        let bottom = draw_table_page(&layer, &font, &rows, *range, table_top);
         // 合计行（最后一页表格底部）
         if t == table_pages - 1 {
-            let top = table_top + THEAD_H + (end - start) as f32 * TROW_H + 1.0;
-            draw_total_line(&layer, &font, top, count, total_cents, 4.8);
+            draw_total_line(&layer, &font, bottom + 1.0, count, total_cents, 5.0);
         }
 
         draw_footer(&layer, &font, t + 2, total_pages);
@@ -458,16 +586,16 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         0
     };
 
-    // 表格分页：首页含横幅（行数少），后续页满行
-    let table_pages = if count <= C_ROWS_FIRST_PAGE {
-        1
-    } else {
-        1 + (count - C_ROWS_FIRST_PAGE).div_ceil(C_ROWS_PER_PAGE)
-    };
+    // 表格分页：首页含横幅（可用高度更小），后续页从表头开始；按每行实际高度贪心装填
+    let rows = layout_rows(&day.cards);
+    let first_top = MARGIN + HEADER_H + C_BANNER_H + TSUM_GAP;
+    let next_top = MARGIN + HEADER_H + TSUM_GAP;
+    let pages = paginate_rows(&rows, first_top, next_top);
+    let table_pages = pages.len();
     let total_pages = table_pages + img_pages;
 
     // ===== 表格页（首页含信息横幅，无独立封面） =====
-    for t in 0..table_pages {
+    for (t, range) in pages.iter().enumerate() {
         let layer = if t == 0 {
             doc.get_page(first_page).get_layer(first_layer)
         } else {
@@ -476,32 +604,14 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
         };
         draw_header(&layer, &font, &sum_title);
 
-        let (table_top, start, end) = if t == 0 {
+        if t == 0 {
             draw_compact_banner(&layer, &font, day, count, total_cents);
-            (
-                MARGIN + HEADER_H + C_BANNER_H + TSUM_GAP,
-                0,
-                count.min(C_ROWS_FIRST_PAGE),
-            )
-        } else {
-            let start = C_ROWS_FIRST_PAGE + (t - 1) * C_ROWS_PER_PAGE;
-            (
-                MARGIN + HEADER_H + TSUM_GAP,
-                start,
-                (start + C_ROWS_PER_PAGE).min(count),
-            )
-        };
-
-        draw_table_head(&layer, &font, table_top);
-        for (i, card) in day.cards[start..end].iter().enumerate() {
-            let top = table_top + THEAD_H + i as f32 * C_TROW_H;
-            draw_table_row(&layer, &font, card, top, C_TROW_H);
         }
-
+        let table_top = if t == 0 { first_top } else { next_top };
+        let bottom = draw_table_page(&layer, &font, &rows, *range, table_top);
         // 合计行（末页表格底部）
         if t == table_pages - 1 {
-            let top = table_top + THEAD_H + (end - start) as f32 * C_TROW_H + 1.0;
-            draw_total_line(&layer, &font, top, count, total_cents, 4.4);
+            draw_total_line(&layer, &font, bottom + 1.0, count, total_cents, 5.0);
         }
 
         draw_footer(&layer, &font, t + 1, total_pages);
@@ -603,7 +713,7 @@ fn draw_compact_banner(
         layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
         layer.use_text(
             r,
-            9.0,
+            BODY_PT,
             Mm(MARGIN + 3.0),
             y(top + 5.0 + i as f32 * 6.8),
             font,
@@ -745,9 +855,9 @@ fn draw_head_cells(
     for c in cols {
         let x = match c.x {
             HeadColX::Left(x) => Mm(x),
-            HeadColX::Right => Mm(right_x(c.label, 8.0, PAGE_W - MARGIN)),
+            HeadColX::Right => Mm(right_x(c.label, HEAD_PT, PAGE_W - MARGIN)),
         };
-        layer.use_text(c.label, 8.0, x, y(y0), font);
+        layer.use_text(c.label, HEAD_PT, x, y(y0), font);
     }
     hline(layer, 0.6, top + THEAD_H - 0.5, STROKE);
 }
@@ -812,78 +922,79 @@ fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) 
     );
 }
 
-/// 行绘制（`row_h` 参数化：archive 6.2mm / compact 5.5mm 共用）
-fn draw_table_row(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    card: &PdfCard,
-    top: f32,
-    row_h: f32,
-) {
+/// 行绘制（2026-10-16 打印改版：正文 12pt、摘要最多两行、金额在独立列内右对齐**不压列**）
+fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayout, top: f32) {
     let desc_x = MARGIN + TCOL_NO + 1.0;
     let party_x = MARGIN + TCOL_NO + TCOL_DESC + 1.0;
-    let text_y = top + row_h - 1.9; // 文字基线：行内底部留 1.9mm
+    // 单行：基线贴行底留 1.9mm；两行：5.0 / 10.4mm（行距 5.4mm ≥ 12pt 行高）
+    let (b1, b2) = if r.desc2.is_some() {
+        (top + 5.0, Some(top + 10.4))
+    } else {
+        (top + r.h - 1.9, None)
+    };
 
-    // 编号（等宽感：主色）
+    // 编号（主色）
     cell_text(
         layer,
         font,
-        &card.voucher_no,
-        8.5,
+        &r.no,
+        BODY_PT,
         MARGIN + 1.0,
-        text_y,
+        b1,
         Some(TCOL_NO - 2.0),
         ACCENT,
     );
-    // 摘要（空则占位横线，保持行可读）
-    let desc = if card.description.is_empty() {
-        "—"
-    } else {
-        &card.description
-    };
+    // 摘要（最多两行；空摘要已在 layout_rows 里换成「—」）
     cell_text(
         layer,
         font,
-        desc,
-        8.5,
+        &r.desc1,
+        BODY_PT,
         desc_x,
-        text_y,
+        b1,
         Some(TCOL_DESC - 2.0),
         BODY,
     );
-    // 对方账户（小灰字）
-    let party = if card.counterparty.is_empty() {
-        "—"
-    } else {
-        &card.counterparty
-    };
-    cell_text(
-        layer,
-        font,
-        party,
-        8.5,
-        party_x,
-        text_y,
-        Some(TCOL_PARTY - 2.0),
-        GREY,
-    );
-
-    // 金额（右对齐，无金额留空）
-    if !card.amount_label.is_empty() {
+    if let (Some(d2), Some(y2)) = (r.desc2.as_deref(), b2) {
         cell_text(
             layer,
             font,
-            &card.amount_label,
-            9.0,
-            right_x(&card.amount_label, 9.0, PAGE_W - MARGIN),
-            text_y,
-            None,
+            d2,
+            BODY_PT,
+            desc_x,
+            y2,
+            Some(TCOL_DESC - 2.0),
+            BODY,
+        );
+    }
+    // 对方账户（小灰字）
+    cell_text(
+        layer,
+        font,
+        &r.party,
+        BODY_PT,
+        party_x,
+        b1,
+        Some(TCOL_PARTY - 2.0),
+        GREY,
+    );
+    // 金额（独立列内右对齐：12pt 放不下才退 10.5pt，绝不侵入「对方账户」列）
+    if !r.amount.is_empty() {
+        let (pt, x) = amount_pt_and_x(&r.amount);
+        cell_text(
+            layer,
+            font,
+            &r.amount,
+            pt,
+            x,
+            b1,
+            Some(TCOL_AMOUNT - 2.0),
             DARK,
         );
     }
 
-    // 行底分隔线（省墨：仅横向细线，无竖线、无底色）
-    hline(layer, 0.25, top + row_h - 0.3, STROKE);
+    // 行底分隔线（省墨：仅横向细线）
+    hline(layer, 0.25, top + r.h - 0.3, STROKE);
 }
 
 /// 右对齐 x 坐标：右边界 - 文本估算宽度
@@ -903,7 +1014,7 @@ fn text_width_mm(s: &str, font_pt: f32) -> f32 {
 
 fn draw_header(layer: &PdfLayerReference, font: &IndirectFontRef, title: &str) {
     layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    layer.use_text(title, 14.0, Mm(MARGIN), y(MARGIN + 8.0), font);
+    layer.use_text(title, TITLE_PT, Mm(MARGIN), y(MARGIN + 8.0), font);
     // 标题下分隔线
     layer.set_outline_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
     layer.set_outline_thickness(0.8);
@@ -920,7 +1031,7 @@ fn draw_footer(layer: &PdfLayerReference, font: &IndirectFontRef, page: usize, t
     layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
     layer.use_text(
         format!("第 {page} / {total} 页"),
-        7.5,
+        FOOTER_PT,
         Mm(MARGIN),
         y(PAGE_H - MARGIN + 3.0),
         font,
@@ -1484,9 +1595,119 @@ mod tests {
 
     #[test]
     fn daily_columns_layout_golden() {
-        // 日报表各列起点/截断宽度与重构前一致：编号 45 / 摘要 70 / 对方账户 50
-        assert_eq!(MARGIN + TCOL_NO, 55.0);
-        assert_eq!(MARGIN + TCOL_NO + TCOL_DESC, 125.0);
-        assert_eq!(MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY, 175.0);
+        // 2026-10-16 打印改版后的列几何：编号 40 / 摘要 68 / 对方 42 / **金额独立预留 40**
+        // （改版前金额只剩 25mm、靠右对齐贴页边 → 金额位数一多就压进「对方账户」列）
+        assert_eq!(MARGIN + TCOL_NO, 50.0, "摘要列起点");
+        assert_eq!(MARGIN + TCOL_NO + TCOL_DESC, 118.0, "对方账户列起点");
+        assert_eq!(
+            MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY,
+            160.0,
+            "金额列起点"
+        );
+        assert_eq!(
+            MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY + TCOL_AMOUNT,
+            200.0,
+            "金额列右边界"
+        );
+    }
+
+    #[test]
+    fn daily_layout_invariants() {
+        // ① 四列吃满可用宽，不溢出页边
+        assert_eq!(
+            TCOL_NO + TCOL_DESC + TCOL_PARTY + TCOL_AMOUNT,
+            PAGE_W - MARGIN * 2.0
+        );
+        // ② 最宽的常见金额在 12pt 下必须放得进金额列（含 2mm 余量）
+        let widest = "￥99,999,999.99";
+        assert!(
+            text_width_mm(widest, AMOUNT_PT) <= TCOL_AMOUNT - 2.0,
+            "最宽金额 {} mm 超过金额列可用宽 {} mm",
+            text_width_mm(widest, AMOUNT_PT),
+            TCOL_AMOUNT - 2.0
+        );
+        // ③ 金额右对齐起点绝不越过金额列左边界（否则会压进「对方账户」列）
+        let (_, x) = amount_pt_and_x(widest);
+        assert!(
+            x >= MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY + 1.0,
+            "金额压列：x={x}"
+        );
+        // ④ 行高 ≥ 字号 × 1.4（12pt → ≥5.9mm），两行行高 ≥ 两倍
+        let row_h = TROW_H;
+        let min_row_h = BODY_PT * 0.3528 * 1.4;
+        assert!(row_h >= min_row_h, "行高 {row_h} < 字号×1.4 = {min_row_h}");
+        let two_line_h = TROW_H_2LINE;
+        let single_h = TROW_H;
+        assert!(two_line_h >= single_h * 1.4, "两行行高不足");
+        // ⑤ 超长金额退字号但仍不截断、仍不压列
+        let huge = "￥9,999,999,999.99";
+        let (pt, x2) = amount_pt_and_x(huge);
+        assert!(
+            (AMOUNT_PT_MIN..AMOUNT_PT).contains(&pt),
+            "退让字号越界：{pt}"
+        );
+        assert!(text_width_mm(huge, pt) <= TCOL_AMOUNT - 2.0 + 0.01);
+        assert!(x2 >= MARGIN + TCOL_NO + TCOL_DESC + TCOL_PARTY + 1.0);
+    }
+
+    #[test]
+    fn daily_pagination_never_overflows() {
+        // 40 行（含折行）贪心分页：每页内容 + 合计行预留都不得越过 TABLE_BOTTOM
+        let cards: Vec<PdfCard> = (0..40)
+            .map(|i| PdfCard {
+                voucher_no: format!("20260820-{:03}", i + 1),
+                voucher_date: "2026-08-20".into(),
+                description: if i % 3 == 0 {
+                    "八月办公用品采购第1批，含打印纸、墨盒与装订夹".into()
+                } else {
+                    "办公用品".into()
+                },
+                counterparty: "文一办公用品店".into(),
+                amount_label: "￥123.45".into(),
+                amount_cents: Some(12345),
+                tags_line: String::new(),
+            })
+            .collect();
+        let rows = layout_rows(&cards);
+        assert_eq!(rows.len(), 40);
+        let rows2 = rows.iter().filter(|r| r.desc2.is_some()).count();
+        assert!(rows2 > 0, "长摘要应折成两行");
+        for (first_top, next_top) in [
+            (
+                MARGIN + HEADER_H + C_BANNER_H + TSUM_GAP,
+                MARGIN + HEADER_H + TSUM_GAP,
+            ),
+            (MARGIN + HEADER_H + TSUM_GAP, MARGIN + HEADER_H + TSUM_GAP),
+        ] {
+            let pages = paginate_rows(&rows, first_top, next_top);
+            assert!(pages.len() >= 2);
+            let mut covered = 0usize;
+            for (pi, (a, b)) in pages.iter().enumerate() {
+                assert!(b > a, "每页至少一行");
+                let top = if pi == 0 { first_top } else { next_top };
+                let content: f32 = rows[*a..*b].iter().map(|r| r.h).sum();
+                assert!(
+                    top + THEAD_H + content + TOTAL_LINE_H <= TABLE_BOTTOM + 0.001,
+                    "第 {} 页越过 TABLE_BOTTOM",
+                    pi + 1
+                );
+                covered += b - a;
+            }
+            assert_eq!(covered, rows.len(), "分页必须覆盖全部行");
+        }
+    }
+
+    #[test]
+    fn summary_wraps_to_two_lines() {
+        let long = "八月办公用品采购第1批，含打印纸、墨盒与装订夹";
+        let (l1, l2) = wrap_two_lines(long, BODY_PT, TCOL_DESC - 2.0);
+        assert!(!l1.is_empty() && l2.is_some(), "长摘要必须折成两行");
+        // 两行都不越列（估算宽 ≤ 列可用宽）
+        assert!(text_width_mm(&l1, BODY_PT) <= TCOL_DESC - 2.0 + 0.01);
+        assert!(text_width_mm(l2.as_deref().unwrap(), BODY_PT) <= TCOL_DESC - 2.0 + 0.01);
+        // 短摘要不折行
+        let (s1, s2) = wrap_two_lines("办公用品", BODY_PT, TCOL_DESC - 2.0);
+        assert_eq!(s1, "办公用品");
+        assert!(s2.is_none());
     }
 }
