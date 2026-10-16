@@ -6,9 +6,9 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **284 个**（src 内联 **154** + tests/ 集成 **130**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **288 个**（src 内联 **154** + tests/ 集成 **134**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 4（v0.22 关联批）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
 > 合法待恢复库正常落位）；前端 vitest **49 文件 291 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
@@ -89,6 +89,11 @@
 > 新增 3 例（`daily_layout_invariants` / `daily_pagination_never_overflows` / `summary_wraps_to_two_lines`）、
 > 删除 2 例（`yearly_columns_layout_golden` 与 `voucher_flow::export_yearly_report_pdf_and_batch`，**年度汇总报表按用户决定下线**）；
 > 内联 152 → **154**、集成 131 → **130**、`voucher-core` 283 → **284**、总数 **287**（282 通过 + 5 ignored）；前端未动。
+> **2026-10-16 凭证关联 / 事项组数据层（方案 v2 批次②上）**新增 `tests/voucher_link_flow.rs` **4 例**：
+> 关联归一化+幂等+双向可见+审计留痕（建/解都追加、解除幂等）、删凭证级联清关联但**审计留痕独立存活**、
+> 事项组建/加成员幂等/顺序/移出/按凭证查组/删组级联、**老库升级安全**（四张表按需补齐且凭证一张不少）；
+> 另把此前**漏登记**的 `dup_decisions` / `ocr_layouts` 补进 `voucher_flow.rs` 的表清单断言。
+> 集成 130 → **134**、`voucher-core` 284 → **288**、总数 **287 → 291**；前端未动（`client.ts` 仅加类型与 10 个 invoke 封装，invoke-contract 双向断言通过）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。
 > 计数口径：`cargo test --workspace --no-fail-fast -- --include-ignored` 实际产出（**281 通过 + 5 `#[ignore]`**（含上述新 2 例）= 286）。
