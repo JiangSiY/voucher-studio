@@ -180,7 +180,12 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     // 双行标签：行高与行距跟字段区一致 → 每行正对它的输入框
     expect(editor).toContain('class="ed-pair-labels"');
     expect(editor).toMatch(/\.ed-pair-labels\s*\{[^}]*grid-auto-rows:\s*var\(--control-h-md\)/);
-    expect(editor).toMatch(/\.ed-pair-labels\s*\{[^}]*gap:\s*var\(--s-2\)/);
+    // 组内间距必须与字段网格**同值**（对齐靠同一节奏；两边写死同一个 4px）
+    const labelsGap = /\.ed-pair-labels\s*\{[^}]*gap:\s*([^;]+);/.exec(editor)?.[1]?.trim();
+    const fieldsGap = /\.ed-pair-fields\s*\{[^}]*gap:\s*([^;]+);/.exec(editor)?.[1]?.trim();
+    expect(labelsGap).toBeTruthy();
+    expect(fieldsGap).toBeTruthy();
+    expect(labelsGap).toBe(fieldsGap);
     // 两对成对行的双行文案
     expect(editor).toContain('<span class="ed-pair-col">日期</span>');
     expect(editor).toContain('<span class="ed-pair-col">金额（元）</span>');

@@ -638,7 +638,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 .ed-pair-labels {
   display: grid;
   grid-auto-rows: var(--control-h-md);
-  gap: var(--s-2); /* 与 .ed-pair-fields 的行距一致，逐行对齐靠它 */
+  gap: 4px; /* **必须与 .ed-pair-fields 同值**：逐行对齐靠它，不是靠估算 margin */
   align-content: start;
 }
 .ed-pair-col {
@@ -652,9 +652,16 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 .ed-pair-item .ed-pair-label {
   display: none;
 }
-/* 展宽档：字段并排，故字段内子标签显示（外标签仍是双行，标签列保持最窄） */
+/* 展宽档：字段并排，故字段内子标签显示（外标签仍是双行，标签列保持最窄）。
+   此时外标签**压缩成紧凑两行**（行高按文字、行距 2px）：字段那边因带子标签高 ~52px，
+   若外标签仍按 32px 行高 + 8px 行距排（共 72px），就会比输入框高出 20px、看着"间距大、对不上"，
+   并把它下面的行整体压低。紧凑两行 ≈38px，与字段行贴齐（用户 2026-10-17 反馈「间距缩小一些」）。 */
 .editor:not(.editor-dense) .ed-pair-item .ed-pair-label {
   display: block;
+}
+.editor:not(.editor-dense) .ed-pair-labels {
+  grid-auto-rows: auto;
+  gap: 2px;
 }
 .ed-pair-hint {
   color: var(--label-tertiary);
@@ -663,10 +670,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 组内间距 4px（比行与行之间的 8px 更紧）：两个字段读起来是"一组"，
+   且标签网格用同一个值 → 逐行对齐不会被破坏（用户 2026-10-17：间距缩小一些、
+   让两组标签与输入框更好对齐匹配）。 */
 .ed-pair-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--s-2);
+  gap: 4px;
 }
 .editor:not(.editor-dense) .ed-pair-fields {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
