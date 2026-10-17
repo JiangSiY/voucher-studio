@@ -878,7 +878,9 @@ watch(keyword, () => {
 
 .split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: var(--s-3); align-items: start; }
 /* 展宽（⌘⇧E / 双击行）：编辑区取得大部分宽度，列表仍在左侧保留上下文 */
-.split--wide { grid-template-columns: minmax(300px, 0.7fr) minmax(560px, 1.6fr); }
+/* 展宽档：右栏下限 560 → 720px（2026-10-17 方案 A）——右栏内部要拆「图片｜字段」两列，
+   每列至少 ~300px 才不挤（低于 720px 时 CSS 会把两列退回上下堆叠，见 VoucherEditor 的 editor-main） */
+.split--wide { grid-template-columns: minmax(300px, 0.7fr) minmax(720px, 1.6fr); }
 .list-pane { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .hint { color: var(--label-tertiary); font: var(--type-body); padding: var(--s-4); }
 

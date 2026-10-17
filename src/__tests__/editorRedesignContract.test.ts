@@ -131,74 +131,52 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(lib).toContain("● 未保存");
   });
 
-  it("表单高频前置：摘要 → 日期/金额（同排） → 状态；只读编号行已移出表单", () => {
+  it("表单高频前置：摘要 → 日期 → 金额 → 状态 → 对方 → 收支方向 → 备注；只读编号行已移出表单", () => {
     const editor = read(EDITOR);
     const idx = (f: string) => editor.indexOf(`data-field="${f}"`);
-    expect(idx("description")).toBeGreaterThan(-1);
-    expect(idx("description")).toBeLessThan(idx("date-amount"));
-    // 日期与金额在**同一行**里（子字段仍保留各自的 data-field 钩子，自动化选择器不用改道）
-    expect(idx("date")).toBeGreaterThan(idx("date-amount"));
-    expect(idx("amount")).toBeGreaterThan(idx("date"));
-    expect(idx("date-amount")).toBeLessThan(idx("status"));
+    const order = ["description", "date", "amount", "status", "counterparty", "tags", "note"];
+    for (const f of order) expect(idx(f), `缺少字段 ${f}`).toBeGreaterThan(-1);
+    for (let i = 1; i < order.length; i += 1) {
+      expect(idx(order[i - 1]), `${order[i - 1]} 应在 ${order[i]} 之前`).toBeLessThan(idx(order[i]));
+    }
     // 编号不再占表单一行（右栏头部已显示）
     expect(editor).not.toContain('data-field="no"');
     // 备注自适应 + 操作条吸底
     expect(editor).toContain("field-sizing: content");
-    expect(editor).toMatch(/\.editor > \.ed-ops\s*\{[^}]*position:\s*sticky/);
+    expect(editor).toMatch(/\.editor-fields > \.ed-ops\s*\{[^}]*position:\s*sticky/);
   });
 
-  it("对方账户与收支方向同排；「标签」改为收支方向分段按钮（非方向标签保留在数据里）", () => {
+  it("「标签」改为收支方向分段按钮，且**不再**与对方账户并排（每字段独占一行）", () => {
     const editor = read(EDITOR);
-    // 同一套成对规则：data-field="counterparty-direction"，内含两个子字段
     const idx = (f: string) => editor.indexOf(`data-field="${f}"`);
-    expect(idx("counterparty-direction")).toBeGreaterThan(-1);
-    expect(idx("counterparty")).toBeGreaterThan(idx("counterparty-direction"));
+    expect(idx("counterparty")).toBeGreaterThan(-1);
     expect(idx("tags")).toBeGreaterThan(idx("counterparty"));
-    // 收支方向是 radiogroup（未标 / 收入 / 支出），不再是自由文本输入
     const tagsBlock = editor.slice(idx("tags"), idx("tags") + 1300);
     expect(tagsBlock).toContain('role="radiogroup"');
-    // 源码里是绑定形式；渲染后 `data-direction` 取 "none" / "收入" / "支出"
     expect(tagsBlock).toContain("data-direction");
     expect(tagsBlock).not.toContain("<input");
-    // 三个档位在脚本里定义（模板只渲染 opt.label）
     expect(editor).toContain('{ value: "", label: "未标" }');
     expect(editor).toContain('{ value: "收入", label: "收入" }');
     expect(editor).toContain('{ value: "支出", label: "支出" }');
-    // 非方向标签只读展示，不静默丢弃
     expect(editor).toContain("otherTags");
     expect(editor).toContain("其他标签");
-    // 方向写回 tags（保留其他标签）
     expect(editor).toContain("function setDirection");
     expect(editor).toContain("DIRECTION_TAGS");
+    // 方案 A：并排已取消
+    expect(editor).not.toContain("counterparty-direction");
+    expect(editor).not.toContain("ed-pair");
   });
 
-  it("成对行标签改为双行显示，且两行与两个输入框逐行对齐（常规档）", () => {
+  it("字段标签在**输入框上方**：所有输入框同起点同宽，不再有左侧标签列", () => {
     const editor = read(EDITOR);
-    // 外标签不再居中/下移
-    expect(editor).toMatch(/\.ed-pair > span\s*\{[^}]*align-self:\s*start/);
-    expect(editor).not.toMatch(/\.ed-pair > span\s*\{[^}]*margin-top/);
-    // 双行标签：行高与行距跟字段区一致 → 每行正对它的输入框
-    expect(editor).toContain('class="ed-pair-labels"');
-    expect(editor).toMatch(/\.ed-pair-labels\s*\{[^}]*grid-auto-rows:\s*var\(--control-h-md\)/);
-    // 组内间距必须与字段网格**同值**（对齐靠同一节奏；两边写死同一个 4px）
-    const labelsGap = /\.ed-pair-labels\s*\{[^}]*gap:\s*([^;]+);/.exec(editor)?.[1]?.trim();
-    const fieldsGap = /\.ed-pair-fields\s*\{[^}]*gap:\s*([^;]+);/.exec(editor)?.[1]?.trim();
-    expect(labelsGap).toBeTruthy();
-    expect(fieldsGap).toBeTruthy();
-    expect(labelsGap).toBe(fieldsGap);
-    // 两对成对行的双行文案
-    expect(editor).toContain('<span class="ed-pair-col">日期</span>');
-    expect(editor).toContain('<span class="ed-pair-col">金额（元）</span>');
-    expect(editor).toContain('<span class="ed-pair-col">对方账户</span>');
-    expect(editor).toContain('<span class="ed-pair-col">收支方向</span>');
-    // 堆叠档：内部子标签隐藏（不然与外标签重复）；展宽档：外标签单行 + 子标签显示
-    expect(editor).toMatch(/\.ed-pair-item \.ed-pair-label\s*\{\s*display:\s*none/);
-    expect(editor).toMatch(
-      /\.editor:not\(\.editor-dense\) \.ed-pair-item \.ed-pair-label\s*\{\s*display:\s*block/,
-    );
-    // 展宽档也保持双行标签（用户：展开后长标签改两行，减少标签列宽度）→ 不再有「合并一行」那一支
-    expect(editor).not.toContain("ed-pair-merged");
-    expect(editor).not.toMatch(/\.ed-pair-col\s*\{[^}]*display:\s*none/);
+    // 单列堆叠 + 每个字段「标签行在上、控件行在下」
+    expect(editor).toMatch(/\.editor-form\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+    expect(editor).toMatch(/\.ed-field\s*\{[^}]*display:\s*grid[^}]*gap:\s*4px/);
+    expect(editor).toMatch(/\.ed-field-label\s*\{[^}]*font:\s*var\(--type-caption\)/);
+    // 旧的一列标签 / 成对行实现全部退休
+    expect(editor).not.toContain("max-content");
+    expect(editor).not.toContain("ed-row");
+    expect(editor).not.toContain("ed-pair");
   });
 
   it("状态改成分段按钮（radiogroup、四个状态、支持 ←/→），不再用下拉", () => {
@@ -221,14 +199,19 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(statusRow).not.toContain("<select");
   });
 
-  it("日期/金额按控件利用率并排：仅展宽档两列，常规档堆叠", () => {
+  it("图片与字段左右并排只在展宽档（方案 A）；展宽档右栏下限抬到 720px", () => {
     const editor = read(EDITOR);
-    // 基础规则 = 单列（堆叠）
-    const base = editor.slice(editor.indexOf(".ed-pair-fields {"));
-    expect(base.slice(0, 160)).toContain("grid-template-columns: minmax(0, 1fr)");
-    // 展宽档（非 dense）才两列
+    // 两列外壳：基础单列（常规档上下堆叠）
+    const mainStart = editor.indexOf(".editor-main {");
+    const main = editor.slice(mainStart, mainStart + 400);
+    expect(main).toContain("grid-template-columns: minmax(0, 1fr)");
+    // 展宽档才两列（图片 | 字段），每列有下限
     expect(editor).toMatch(
-      /\.editor:not\(\.editor-dense\) \.ed-pair-fields\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/,
+      /\.editor:not\(\.editor-dense\) \.editor-main\s*\{[^}]*grid-template-columns:\s*minmax\(240px[\s\S]{0,80}?minmax\(280px/,
     );
+    // 右栏下限 560 → 720px（否则两列都会挤）
+    const lib = read(LIBRARY);
+    expect(lib).toContain("minmax(720px, 1.6fr)");
+    expect(lib).not.toContain("minmax(560px, 1.6fr)");
   });
 });

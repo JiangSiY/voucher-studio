@@ -449,19 +449,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 <template>
   <div class="editor" :class="{ 'editor-dense': dense }">
-    <!-- 图片区与操作：换图 / 重跑识别 / 裁剪 / 大图查看（原编辑页能力） -->
-    <AttachmentPanel
-      v-if="detail"
-      :dense="dense"
-      :attachments="detail.attachments"
-      :ocr-busy="ocrBusy"
-      :replacing="replacing"
-      :locked-period="lockedPeriod"
-      @run-ocr="runOcr"
-      @replace-image="replaceImage"
-      @crop-saved="onCropSaved"
-    />
-
     <!-- 封账月提示（保存被禁用；查看/导出不受限） -->
     <div class="callout warning" v-if="lockedPeriod">
       <span class="ci"><FluentIcon name="lock" :size="18" /></span>
@@ -471,73 +458,63 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </div>
 
-    <!-- 字段顺序（B 批）：摘要 → 日期 → 金额 → 状态 → 对方 → 标签 → 备注。
-         只读的「凭证编号」已移出表单——右栏头部本来就显示编号，白占一行；
-         最常改的三件事（摘要/日期金额/状态）因此落在首屏。 -->
-    <div class="editor-form">
-      <div class="ed-row" data-field="description">
-        <span>摘要</span>
-        <div class="ed-grow">
-          <!-- 本组件已提供「摘要」标签（保证与其它行同列对齐），故隐藏其自带的那一枚 -->
-          <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
-        </div>
-      </div>
-      <!-- 日期 + 金额同排：**按控件利用率决定**——
-           右栏常规档可用宽度 ≈ 296px（扣掉标签列 ≈ 212px），一个日期框只吃掉 ~130px，
-           若并排每格只剩 ~100px（原生日期框会挤到看不清）；展宽档 ≈536px（值格 ≈452px），
-           并排后每格 ~222px 既放得下又不浪费。故：**展宽并排、常规堆叠**（堆叠时字段仍各占整行）。 -->
-      <div class="ed-row ed-pair" data-field="date-amount">
-        <span class="ed-pair-labels">
-          <!-- 常规档（堆叠）：外标签**双行**，与两个输入行逐行对齐（用户 2026-10-17 反馈） -->
-          <span class="ed-pair-col">日期</span>
-          <span class="ed-pair-col">金额（元）</span>
-        </span>
-        <div class="ed-pair-fields">
-          <label class="ed-pair-item" data-field="date">
-            <span class="ed-pair-label">日期</span>
+    <!-- 方案 A（2026-10-17 用户确认）：**图片在左、字段在右**。
+         并排只在展宽档生效（常规档右栏 320–420px，拆两列后图片与字段都会挤，保持上下堆叠）。 -->
+    <div class="editor-main">
+      <!-- 图片区与操作：换图 / 重跑识别 / 裁剪 / 大图查看（原编辑页能力） -->
+      <AttachmentPanel
+        v-if="detail"
+        :dense="dense"
+        :attachments="detail.attachments"
+        :ocr-busy="ocrBusy"
+        :replacing="replacing"
+        :locked-period="lockedPeriod"
+        @run-ocr="runOcr"
+        @replace-image="replaceImage"
+        @crop-saved="onCropSaved"
+      />
+
+      <div class="editor-fields">
+        <!-- 字段：标签在**输入框上方**（用户 2026-10-17）——所有输入框同起点同宽，
+             结构上不可能出现"左边缘参差不齐"；两组并排（日期/金额、对方账户/收支方向）已取消，
+             每个字段独占一行、整宽显示。 -->
+        <div class="editor-form">
+          <label class="ed-field" data-field="description">
+            <span class="ed-field-label">摘要</span>
+            <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
+          </label>
+          <label class="ed-field" data-field="date">
+            <span class="ed-field-label">凭证日期</span>
             <input ref="dateEl" v-model="form.date" type="date" class="input" />
           </label>
-          <label class="ed-pair-item" data-field="amount">
-            <span class="ed-pair-label">金额（元）</span>
-            <input v-model="form.amount" class="input" inputmode="decimal" placeholder="可留空" />
+          <label class="ed-field" data-field="amount">
+            <span class="ed-field-label">金额（元）</span>
+            <input v-model="form.amount" class="input" inputmode="decimal" placeholder="如：123.45，可留空" />
           </label>
-        </div>
-      </div>
-      <!-- 状态分组按钮（用户要求"便于操作"）：一眼看到全部状态、单击即切；
-           role=radiogroup + aria-checked，支持 ←/→ 键盘切换（Roving tabindex）。 -->
-      <div class="ed-row" data-field="status">
-        <span>状态</span>
-        <div class="ed-seg" role="radiogroup" aria-label="凭证状态" @keydown="onStatusKeydown">
-          <button
-            v-for="opt in STATUS_OPTIONS"
-            :key="opt.value"
-            type="button"
-            class="ed-seg-btn"
-            role="radio"
-            :aria-checked="form.status === opt.value"
-            :tabindex="form.status === opt.value ? 0 : -1"
-            :data-status="opt.value"
-            @click="form.status = opt.value"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
-      <!-- 对方账户 + 收支方向同排（与"日期/金额"同一套条件并排规则）。
-           用户只用标签表达金额正负，故「标签」改为**收支方向分段按钮**（省控件、单击即切）；
-           原有非方向标签不丢——仍在数据里，并在下方以小字只读展示。 -->
-      <div class="ed-row ed-pair" data-field="counterparty-direction">
-        <span class="ed-pair-labels">
-          <span class="ed-pair-col">对方账户</span>
-          <span class="ed-pair-col">收支方向</span>
-        </span>
-        <div class="ed-pair-fields">
-          <label class="ed-pair-item" data-field="counterparty">
-            <span class="ed-pair-label">对方账户</span>
+          <div class="ed-field" data-field="status">
+            <span class="ed-field-label">状态</span>
+            <div class="ed-seg" role="radiogroup" aria-label="凭证状态" @keydown="onStatusKeydown">
+              <button
+                v-for="opt in STATUS_OPTIONS"
+                :key="opt.value"
+                type="button"
+                class="ed-seg-btn"
+                role="radio"
+                :aria-checked="form.status === opt.value"
+                :tabindex="form.status === opt.value ? 0 : -1"
+                :data-status="opt.value"
+                @click="form.status = opt.value"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+          <label class="ed-field" data-field="counterparty">
+            <span class="ed-field-label">对方账户</span>
             <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
           </label>
-          <div class="ed-pair-item" data-field="tags">
-            <span class="ed-pair-label">收支方向</span>
+          <div class="ed-field" data-field="tags">
+            <span class="ed-field-label">收支方向</span>
             <div class="ed-seg" role="radiogroup" aria-label="收支方向">
               <button
                 v-for="opt in DIRECTION_OPTIONS"
@@ -553,18 +530,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
                 {{ opt.label }}
               </button>
             </div>
-            <span v-if="otherTags.length" class="ed-pair-hint" title="这些标签仍在数据里，可在筛选/洞察中按标签查找">
+            <span
+              v-if="otherTags.length"
+              class="ed-field-hint"
+              title="这些标签仍在数据里，可在筛选/洞察中按标签查找"
+            >
               其他标签：{{ otherTags.join("、") }}
             </span>
           </div>
+          <label class="ed-field" data-field="note">
+            <span class="ed-field-label">备注</span>
+            <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
+          </label>
         </div>
-      </div>
-      <label class="ed-row" data-field="note">
-        <span>备注</span>
-        <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
-      </label>
-    </div>
-
     <div class="ed-ops">
       <span v-if="dirty && lockedPeriod" class="dirty-hint">● 已封账</span>
       <span v-else-if="dirty" class="dirty-hint">● 未保存</span>
@@ -579,7 +557,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       </button>
     </div>
 
-    <!-- 关系与组（v0.22 B 批：由宿主插入，位置在**核心字段之后、识别结果之前**——
+      </div>
+    </div>
+
+    <!-- 关系与组（由宿主插入，位置在**核心字段之后、识别结果之前**——
          用户反馈"相关凭证/所属事项组太靠下"，这里给它们一个稳定的落点） -->
     <slot name="relations" />
 
@@ -596,7 +577,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 /* 操作条吸底（B 批，用户选择「吸底」）：字段改完不用再往下滚去找「保存」。
    背景与右栏一致，避免滚动时文字从底下透出来。 */
-.editor > .ed-ops {
+.editor-fields > .ed-ops {
   position: sticky;
   bottom: 0;
   z-index: 2;
@@ -613,87 +594,53 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   resize: vertical;
 }
 
-/* 表单是**一个**网格：标签列全局共用一条（宽度 = 最宽标签），因此每行的输入框左边缘对齐。
-   反面案例：把 `max-content` 写在每一行上 → 每行各算各的宽度（"状态"两字窄、"金额（元）"五字宽），
-   输入框左边缘参差不齐（用户 2026-09-28 截图报）。
-   标签列用 max-content 而非固定 px：字号可调（默认已偏大），固定值会让长标签溢出压到输入框。 */
+/* 字段区：标签在**输入框上方**（2026-10-17 方案 A）——
+   所有输入框同起点同宽，因此不再需要"一条标签列"，也不可能出现左边缘参差不齐。 */
+.editor-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+}
+/* 展宽档：图片在左、字段在右。下限 240/280px：低于这个宽度两侧都会挤
+   （常规档因此保持上下堆叠——右栏 320–420px 拆两列各只剩 160–210px）。 */
+.editor:not(.editor-dense) .editor-main {
+  grid-template-columns: minmax(240px, 0.85fr) minmax(280px, 1fr);
+}
+.editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
 .editor-form {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--s-2) var(--s-3);
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-2);
 }
-/* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
-.ed-row { display: contents; }
-/* 日期 + 金额：常规档堆叠（各占整行），展宽档并排（两个半宽） */
-/* 成对行标签（v0.22，用户 2026-10-17 两次反馈后的定稿）：
-   - **两档都用双行标签**（`日期` / `金额（元）`；`对方账户` / `收支方向`）——
-     常规档下每行正对它的输入框；展宽档下把标签列压到最窄（不再出现「对方账户 / 收支方向」这种长行，
-     用户："展开后把这两个长标签做成两行显示，减少标签占的宽度"）；
-   - 展宽档字段并排时，字段内子标签显示（就近标注是哪一格）；常规档隐藏（避免与外标签重复）。
-   两档共用同一层 DOM，切档只切显示（不重建输入框、不丢焦点/草稿）。*/
-.ed-pair > span {
-  align-self: start;
-}
-.ed-pair-labels {
+/* 一个字段 = 标签行 + 控件行（纵排）；标签 caption 字号，控件整宽 */
+.ed-field {
   display: grid;
-  grid-auto-rows: var(--control-h-md);
-  gap: 4px; /* **必须与 .ed-pair-fields 同值**：逐行对齐靠它，不是靠估算 margin */
-  align-content: start;
+  gap: 4px;
+  min-width: 0;
 }
-.ed-pair-col {
-  display: flex;
-  align-items: center;
+.ed-field-label {
   color: var(--label-tertiary);
   font: var(--type-caption);
   white-space: nowrap;
 }
-/* 内部子标签：默认（堆叠）不显示，避免与外标签双行重复 */
-.ed-pair-item .ed-pair-label {
-  display: none;
-}
-/* 展宽档：字段并排，故字段内子标签显示（外标签仍是双行，标签列保持最窄）。
-   此时外标签**压缩成紧凑两行**（行高按文字、行距 2px）：字段那边因带子标签高 ~52px，
-   若外标签仍按 32px 行高 + 8px 行距排（共 72px），就会比输入框高出 20px、看着"间距大、对不上"，
-   并把它下面的行整体压低。紧凑两行 ≈38px，与字段行贴齐（用户 2026-10-17 反馈「间距缩小一些」）。 */
-.editor:not(.editor-dense) .ed-pair-item .ed-pair-label {
-  display: block;
-}
-.editor:not(.editor-dense) .ed-pair-labels {
-  grid-auto-rows: auto;
-  gap: 2px;
-}
-.ed-pair-hint {
+.ed-field-hint {
   color: var(--label-tertiary);
   font: var(--type-caption);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* 组内间距 4px（比行与行之间的 8px 更紧）：两个字段读起来是"一组"，
-   且标签网格用同一个值 → 逐行对齐不会被破坏（用户 2026-10-17：间距缩小一些、
-   让两组标签与输入框更好对齐匹配）。 */
-.ed-pair-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+/* 摘要：DescriptionInput 自带标签，这里已有「摘要」标签在上，故隐藏它那一枚 */
+.desc-no-label :deep(label) {
+  display: none;
 }
-.editor:not(.editor-dense) .ed-pair-fields {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-.ed-pair-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.ed-pair-label {
-  color: var(--label-tertiary);
-  font: var(--type-caption);
-  white-space: nowrap;
-}
-
-/* 状态分组按钮：一眼看到全部状态、单击即切（替代原下拉） */
+/* 状态 / 收支方向：分段按钮整宽、与输入框同高 */
 .ed-seg {
   display: inline-flex;
   align-items: center;
@@ -731,12 +678,34 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+/* 备注自适应高度（2 行起步，随内容长高，最多 6 行后内部滚动） */
+.ed-note {
+  field-sizing: content;
+  min-height: calc(2 * 1.5em + 12px);
+  max-height: calc(6 * 1.5em + 12px);
+  resize: vertical;
+}
 
-/* 备注是多行控件：标签对齐顶部更自然（display:contents 后按 DOM 选择器定位即可） */
-.ed-row[data-field="note"] > span { align-self: start; margin-top: 7px; }
-.ed-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
-.ed-row .input { width: 100%; }
-.ed-grow { min-width: 0; }
+/* 操作条吸底（B 批，用户选择「吸底」）：字段改完不用再往下滚去找「保存」。
+   背景与右栏一致，避免滚动时文字从底下透出来。 */
+.editor > .ed-ops {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: var(--s-2) 0;
+  background: var(--bg-content);
+  border-top: 1px solid var(--separator);
+}
+
+/* 备注自适应高度（B 批，用户选择「自适应」）：2 行起步，随内容长高，最多 6 行后内部滚动 */
+.ed-note {
+  field-sizing: content;
+  min-height: calc(2 * 1.5em + 12px);
+  max-height: calc(6 * 1.5em + 12px);
+  resize: vertical;
+}
+
+/* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
 .ed-ops { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 .flex-1 { flex: 1; }
 .dirty-hint { color: var(--warning); font: var(--type-caption); white-space: nowrap; }
