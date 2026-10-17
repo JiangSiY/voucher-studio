@@ -487,7 +487,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
            若并排每格只剩 ~100px（原生日期框会挤到看不清）；展宽档 ≈536px（值格 ≈452px），
            并排后每格 ~222px 既放得下又不浪费。故：**展宽并排、常规堆叠**（堆叠时字段仍各占整行）。 -->
       <div class="ed-row ed-pair" data-field="date-amount">
-        <span>日期 / 金额</span>
+        <span class="ed-pair-labels">
+          <!-- 常规档（堆叠）：外标签**双行**，与两个输入行逐行对齐（用户 2026-10-17 反馈） -->
+          <span class="ed-pair-col">日期</span>
+          <span class="ed-pair-col">金额（元）</span>
+          <!-- 展宽档（并排）：合成一行，具体字段就近用子标签标注 -->
+          <span class="ed-pair-merged">日期 / 金额</span>
+        </span>
         <div class="ed-pair-fields">
           <label class="ed-pair-item" data-field="date">
             <span class="ed-pair-label">日期</span>
@@ -523,7 +529,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
            用户只用标签表达金额正负，故「标签」改为**收支方向分段按钮**（省控件、单击即切）；
            原有非方向标签不丢——仍在数据里，并在下方以小字只读展示。 -->
       <div class="ed-row ed-pair" data-field="counterparty-direction">
-        <span>对方账户 / 收支方向</span>
+        <span class="ed-pair-labels">
+          <span class="ed-pair-col">对方账户</span>
+          <span class="ed-pair-col">收支方向</span>
+          <span class="ed-pair-merged">对方账户 / 收支方向</span>
+        </span>
         <div class="ed-pair-fields">
           <label class="ed-pair-item" data-field="counterparty">
             <span class="ed-pair-label">对方账户</span>
@@ -619,9 +629,49 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 /* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
 .ed-row { display: contents; }
 /* 日期 + 金额：常规档堆叠（各占整行），展宽档并排（两个半宽） */
-/* 成对行：外标签与两个子标签**排在同一行**（此前外标签居中、子标签在上，看着没对齐） */
+/* 成对行标签（v0.22，用户 2026-10-17「标签改为双行显示」）：
+   - 常规档（字段堆叠）：外标签**双行**，行高与行距跟字段区一致 → 每行标签正对它的输入框；
+   - 展宽档（字段并排）：外标签合成一行，具体字段靠各自的子标签标注。
+   两档共用同一套 .ed-pair-fields 网格，切档只切显示，DOM 不变。 */
 .ed-pair > span {
   align-self: start;
+}
+.ed-pair-labels {
+  display: grid;
+  grid-auto-rows: var(--control-h-md);
+  gap: var(--s-2); /* 与 .ed-pair-fields 的行距一致，逐行对齐靠它 */
+  align-content: start;
+}
+.ed-pair-col {
+  display: flex;
+  align-items: center;
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+.ed-pair-merged {
+  display: none;
+  align-items: center;
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+/* 内部子标签：默认（堆叠）不显示，避免与外标签双行重复 */
+.ed-pair-item .ed-pair-label {
+  display: none;
+}
+/* 展宽档：外标签单行 + 子标签标注 */
+.editor:not(.editor-dense) .ed-pair-labels {
+  display: block;
+}
+.editor:not(.editor-dense) .ed-pair-col {
+  display: none;
+}
+.editor:not(.editor-dense) .ed-pair-merged {
+  display: flex;
+}
+.editor:not(.editor-dense) .ed-pair-item .ed-pair-label {
+  display: block;
 }
 .ed-pair-hint {
   color: var(--label-tertiary);

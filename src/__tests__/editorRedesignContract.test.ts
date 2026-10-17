@@ -172,11 +172,26 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(editor).toContain("DIRECTION_TAGS");
   });
 
-  it("成对行的外标签与子标签同一行（对齐修正）", () => {
+  it("成对行标签改为双行显示，且两行与两个输入框逐行对齐（常规档）", () => {
     const editor = read(EDITOR);
-    // 外标签不再居中/下移，与子标签同处首行
+    // 外标签不再居中/下移
     expect(editor).toMatch(/\.ed-pair > span\s*\{[^}]*align-self:\s*start/);
     expect(editor).not.toMatch(/\.ed-pair > span\s*\{[^}]*margin-top/);
+    // 双行标签：行高与行距跟字段区一致 → 每行正对它的输入框
+    expect(editor).toContain('class="ed-pair-labels"');
+    expect(editor).toMatch(/\.ed-pair-labels\s*\{[^}]*grid-auto-rows:\s*var\(--control-h-md\)/);
+    expect(editor).toMatch(/\.ed-pair-labels\s*\{[^}]*gap:\s*var\(--s-2\)/);
+    // 两对成对行的双行文案
+    expect(editor).toContain('<span class="ed-pair-col">日期</span>');
+    expect(editor).toContain('<span class="ed-pair-col">金额（元）</span>');
+    expect(editor).toContain('<span class="ed-pair-col">对方账户</span>');
+    expect(editor).toContain('<span class="ed-pair-col">收支方向</span>');
+    // 堆叠档：内部子标签隐藏（不然与外标签重复）；展宽档：外标签单行 + 子标签显示
+    expect(editor).toMatch(/\.ed-pair-item \.ed-pair-label\s*\{\s*display:\s*none/);
+    expect(editor).toMatch(
+      /\.editor:not\(\.editor-dense\) \.ed-pair-item \.ed-pair-label\s*\{\s*display:\s*block/,
+    );
+    expect(editor).toMatch(/\.editor:not\(\.editor-dense\) \.ed-pair-merged\s*\{\s*display:\s*flex/);
   });
 
   it("状态改成分段按钮（radiogroup、四个状态、支持 ←/→），不再用下拉", () => {
