@@ -75,6 +75,27 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     }
   });
 
+  it("凭证预览按竖向比例且不裁图（评测集 90% 是竖图）", () => {
+    const css = read(BASE_CSS);
+    // 竖向预览框：aspect-ratio ≈ 1:2.2（评测集中位高宽比 2.21）
+    const frame = css.slice(css.indexOf(".att-card .att-img {"));
+    expect(frame.slice(0, 400)).toContain("aspect-ratio: 10 / 22");
+    // 不裁中文凭内容：contain 而不是 cover
+    const img = css.slice(css.indexOf(".att-card img {"));
+    expect(img.slice(0, 200)).toContain("object-fit: contain");
+    expect(img.slice(0, 200)).not.toContain("object-fit: cover");
+    // 对比模式（两图叠放）仍是固定高
+    expect(css).toMatch(/\.att-card \.att-img\.is-compare\s*\{[^}]*height:\s*320px/);
+  });
+
+  it("常规档右栏够宽时也能并排（容器查询 380px；老 WebKit 自动退回堆叠）", () => {
+    const editor = read(EDITOR);
+    expect(editor).toMatch(/\.editor\s*\{[^}]*container-type:\s*inline-size/s);
+    expect(editor).toMatch(
+      /@container \(min-width: 380px\)\s*\{[^}]*\.editor-main\s*\{[^}]*grid-template-columns:\s*minmax\(120px[\s\S]{0,80}?minmax\(220px/,
+    );
+  });
+
   it("附件操作按钮同行，未展宽时收成纯图标", () => {
     const css = read(BASE_CSS);
     expect(css).toMatch(/\.att-ops\s*\{[^}]*flex-wrap:\s*nowrap/);

@@ -573,7 +573,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </template>
 
 <style scoped>
-.editor { display: flex; flex-direction: column; gap: var(--s-3); }
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  /* 让 .editor-main 能按**右栏自身宽度**决定要不要两列（不依赖窗口宽度） */
+  container-type: inline-size;
+}
 
 /* 操作条吸底（B 批，用户选择「吸底」）：字段改完不用再往下滚去找「保存」。
    背景与右栏一致，避免滚动时文字从底下透出来。 */
@@ -606,6 +612,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
    （常规档因此保持上下堆叠——右栏 320–420px 拆两列各只剩 160–210px）。 */
 .editor:not(.editor-dense) .editor-main {
   grid-template-columns: minmax(240px, 0.85fr) minmax(280px, 1fr);
+}
+/* 常规档：右栏自己够宽（≥380px）时也并排——竖向预览框只要 120–150px，
+   让"图片 | 字段"能塞进常规宽度（用户 2026-10-17：看看常规状态能不能放下）。
+   容器查询按右栏宽度判断（窗口宽度作代理会随侧栏宽度漂移）；老 WebKit 忽略本规则 →
+   自动退回上下堆叠（不会溢出）。 */
+@container (min-width: 380px) {
+  .editor-main {
+    grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1fr);
+  }
 }
 .editor-fields {
   display: flex;

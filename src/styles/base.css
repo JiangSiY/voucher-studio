@@ -1240,7 +1240,14 @@ select.input {
 }
 
 .att-card .att-img {
-  height: 200px;
+  /* v0.22（2026-10-17）：凭证预览改**竖向比例**并按 contain 显示。
+     依据是评测集实测：2026-09 基准 102 张里 **92 张竖图（90%）**，其中 95% 高宽比 ≥1.6
+     （手机长截图，中位高宽比 **2.21**）。原来 200px 高的横框 + `object-fit: cover`
+     会把长截图上下裁掉（用户 2026-10-17 截图可见图被切断）。 */
+  aspect-ratio: 10 / 22; /* ≈1:2.2，正对竖图中位比例 */
+  width: 100%;
+  height: auto;
+  max-height: 420px; /* 常规档整宽堆叠时不至于一屏占满 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1249,7 +1256,12 @@ select.input {
   cursor: zoom-in;
   position: relative;
 }
-.att-card .att-img.is-compare { height: 260px; cursor: default; }
+/* 对比模式是两图叠放（裁切由 clip-path 控制），仍用固定高 */
+.att-card .att-img.is-compare {
+  aspect-ratio: auto;
+  height: 320px;
+  cursor: default;
+}
 
 /* v0.6 增强状态角标（位于缩略图右上角） */
 .att-card .att-enhanced-badge {
@@ -1422,7 +1434,8 @@ select.input {
 .att-card img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* 凭证预览**永不裁内容**：竖图铺满、横图居中留边（原来的 cover 会切掉长截图的上下） */
+  object-fit: contain;
 }
 
 .att-card .att-meta {
