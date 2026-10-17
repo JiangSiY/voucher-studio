@@ -118,6 +118,38 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(editor).toMatch(/\.editor > \.ed-ops\s*\{[^}]*position:\s*sticky/);
   });
 
+  it("对方账户与收支方向同排；「标签」改为收支方向分段按钮（非方向标签保留在数据里）", () => {
+    const editor = read(EDITOR);
+    // 同一套成对规则：data-field="counterparty-direction"，内含两个子字段
+    const idx = (f: string) => editor.indexOf(`data-field="${f}"`);
+    expect(idx("counterparty-direction")).toBeGreaterThan(-1);
+    expect(idx("counterparty")).toBeGreaterThan(idx("counterparty-direction"));
+    expect(idx("tags")).toBeGreaterThan(idx("counterparty"));
+    // 收支方向是 radiogroup（未标 / 收入 / 支出），不再是自由文本输入
+    const tagsBlock = editor.slice(idx("tags"), idx("tags") + 1300);
+    expect(tagsBlock).toContain('role="radiogroup"');
+    // 源码里是绑定形式；渲染后 `data-direction` 取 "none" / "收入" / "支出"
+    expect(tagsBlock).toContain("data-direction");
+    expect(tagsBlock).not.toContain("<input");
+    // 三个档位在脚本里定义（模板只渲染 opt.label）
+    expect(editor).toContain('{ value: "", label: "未标" }');
+    expect(editor).toContain('{ value: "收入", label: "收入" }');
+    expect(editor).toContain('{ value: "支出", label: "支出" }');
+    // 非方向标签只读展示，不静默丢弃
+    expect(editor).toContain("otherTags");
+    expect(editor).toContain("其他标签");
+    // 方向写回 tags（保留其他标签）
+    expect(editor).toContain("function setDirection");
+    expect(editor).toContain("DIRECTION_TAGS");
+  });
+
+  it("成对行的外标签与子标签同一行（对齐修正）", () => {
+    const editor = read(EDITOR);
+    // 外标签不再居中/下移，与子标签同处首行
+    expect(editor).toMatch(/\.ed-pair > span\s*\{[^}]*align-self:\s*start/);
+    expect(editor).not.toMatch(/\.ed-pair > span\s*\{[^}]*margin-top/);
+  });
+
   it("状态改成分段按钮（radiogroup、四个状态、支持 ←/→），不再用下拉", () => {
     const editor = read(EDITOR);
     expect(editor).toContain('role="radiogroup"');

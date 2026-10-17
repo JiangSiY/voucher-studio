@@ -142,13 +142,15 @@ describe("资料库：双行列表与检视器", () => {
     expect(w.text()).not.toContain("未保存");
   });
 
-  it("右栏能改**全部**字段（日期/对方/状态/标签/备注）——原编辑页能力已并入", async () => {
+  it("右栏能改**全部**字段（日期/对方/状态/收支方向/备注）——原编辑页能力已并入", async () => {
     const w = await mountPage();
     await w.find<HTMLInputElement>('[data-field="date"] input').setValue("2026-09-01");
     await w.find<HTMLInputElement>('[data-field="counterparty"] input').setValue("河北神力");
     // v0.22：状态由下拉改为分段按钮（B 批后续）——点选即切换
     await w.find('[data-field="status"] [data-status="reviewed"]').trigger("click");
-    await w.find<HTMLInputElement>('[data-field="tags"] input').setValue("工程款、九月");
+    // v0.22：标签输入框改为「收支方向」分段按钮（用户只用标签表达金额正负）；
+    // 原非方向标签（工程款）仍在数据里、不被覆盖
+    await w.find('[data-field="tags"] [data-direction="支出"]').trigger("click");
     await w.find<HTMLTextAreaElement>('[data-field="note"] textarea').setValue("已核对");
     await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
     await flushPromises();
@@ -158,7 +160,7 @@ describe("资料库：双行列表与检视器", () => {
         voucherDate: "2026-09-01",
         counterparty: "河北神力",
         status: "reviewed",
-        tags: ["工程款", "九月"],
+        tags: ["工程款", "支出"],
         note: "已核对",
       }),
     );

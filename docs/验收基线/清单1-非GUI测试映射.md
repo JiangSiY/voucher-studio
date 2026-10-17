@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 6 + print_appendix 1（v0.22 关联批 / 批次③）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 301 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 303 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -132,6 +132,12 @@
 > 日期+金额合并为一行 `.ed-pair`，**展宽档两列、常规档堆叠**（测算：常规档值格 ≈212px，并排后每格 ≈100px
 > 低于原生日期框 ~130px 的可用宽度；展宽档值格 ≈452px，并排每格 ≈222px 富余）。
 > 契约测试 7 → **9 例**；`LibraryPage.test.ts` 的状态交互由 `setValue` 改「点分段按钮」→ 前端 **50 文件 301 用例**。
+> **2026-10-17 补（对方账户+收支方向同排 / 标签改方向 / 对齐修正）**：用户「日期/金额标签与输入框未对齐；
+> 标签和对方账户也做并排；标签改为收支方向（只用标签表示金额正负），可用分段按钮代替输入框」——
+> 实装：① 成对行外标签改为与子标签**同一行**（去掉 `margin-top`）；② 对方账户与**收支方向**按同一套
+> 成对规则并排；③ 原自由文本「标签」输入框改为 `role="radiogroup"` 的 **未标 / 收入 / 支出** 分段按钮，
+> 值写进 `tags`（**非方向旧标签原样保留**，并在下方小字只读展示 `其他标签：…`，不静默丢数据）。
+> 契约测试 9 → **11 例**；`LibraryPage.test.ts` 的标签交互由 `setValue` 改「点 支出」→ 前端 **50 文件 303 用例**。
 > Rust 侧本批未动（仍 **290**）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。

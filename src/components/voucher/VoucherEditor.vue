@@ -124,6 +124,38 @@ const STATUS_OPTIONS: { value: Voucher["status"]; label: string }[] = [
   { value: "archived", label: "已归档" },
 ];
 
+/** 收支方向（用户只用标签表达金额正负）——存进 `tags`，非方向的旧标签原样保留 */
+const DIRECTION_TAGS = ["收入", "支出"];
+const DIRECTION_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "未标" },
+  { value: "收入", label: "收入" },
+  { value: "支出", label: "支出" },
+];
+
+/** 标签串 → 数组（与 `parseTags` 同口径：中英文逗号/顿号分隔，去空去重保序） */
+function parseTagList(s: string): string[] {
+  const out: string[] = [];
+  for (const raw of s.split(/[、,，]/)) {
+    const t = raw.trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+function joinTagList(list: string[]): string {
+  return list.join("、");
+}
+
+const otherTags = computed(() =>
+  parseTagList(form.value.tags).filter((t) => !DIRECTION_TAGS.includes(t)),
+);
+const direction = computed(
+  () => parseTagList(form.value.tags).find((t) => DIRECTION_TAGS.includes(t)) ?? "",
+);
+/** 切换方向：先剔除旧方向标签，再按需追加新方向（其他标签保持原样） */
+function setDirection(d: string) {
+  form.value.tags = joinTagList([...otherTags.value, ...(d ? [d] : [])]);
+}
+
 /** ←/→ 在分组按钮间移动（Roving tabindex：只有选中项可 Tab 进入，方向键移动并切换） */
 function onStatusKeydown(e: KeyboardEvent) {
   const delta = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -487,14 +519,39 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           </button>
         </div>
       </div>
-      <label class="ed-row" data-field="counterparty">
-        <span>对方账户</span>
-        <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
-      </label>
-      <label class="ed-row" data-field="tags">
-        <span>标签</span>
-        <input v-model="form.tags" class="input" placeholder="多个标签用、或,分隔" />
-      </label>
+      <!-- 对方账户 + 收支方向同排（与"日期/金额"同一套条件并排规则）。
+           用户只用标签表达金额正负，故「标签」改为**收支方向分段按钮**（省控件、单击即切）；
+           原有非方向标签不丢——仍在数据里，并在下方以小字只读展示。 -->
+      <div class="ed-row ed-pair" data-field="counterparty-direction">
+        <span>对方账户 / 收支方向</span>
+        <div class="ed-pair-fields">
+          <label class="ed-pair-item" data-field="counterparty">
+            <span class="ed-pair-label">对方账户</span>
+            <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
+          </label>
+          <div class="ed-pair-item" data-field="tags">
+            <span class="ed-pair-label">收支方向</span>
+            <div class="ed-seg" role="radiogroup" aria-label="收支方向">
+              <button
+                v-for="opt in DIRECTION_OPTIONS"
+                :key="opt.label"
+                type="button"
+                class="ed-seg-btn"
+                role="radio"
+                :aria-checked="direction === opt.value"
+                :tabindex="direction === opt.value ? 0 : -1"
+                :data-direction="opt.value || 'none'"
+                @click="setDirection(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <span v-if="otherTags.length" class="ed-pair-hint" title="这些标签仍在数据里，可在筛选/洞察中按标签查找">
+              其他标签：{{ otherTags.join("、") }}
+            </span>
+          </div>
+        </div>
+      </div>
       <label class="ed-row" data-field="note">
         <span>备注</span>
         <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
@@ -562,9 +619,16 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 /* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
 .ed-row { display: contents; }
 /* 日期 + 金额：常规档堆叠（各占整行），展宽档并排（两个半宽） */
+/* 成对行：外标签与两个子标签**排在同一行**（此前外标签居中、子标签在上，看着没对齐） */
 .ed-pair > span {
   align-self: start;
-  margin-top: 6px;
+}
+.ed-pair-hint {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ed-pair-fields {
   display: grid;
