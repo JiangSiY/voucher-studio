@@ -55,10 +55,16 @@ describe("相关凭证：建立关联的动线", () => {
     expect(pick.find("select.rel-kind").exists()).toBe(true);
     expect(pick.find("input[aria-label='搜索凭证']").exists()).toBe(true);
     expect(pick.find("button.btn").text()).toContain("搜索");
-    // 关键：「说明」必须带 rel-note，CSS 里 `.rel-note { grid-column: 1 / -1 }` 才生效
+    // 关键：「说明」必须带 rel-note，且**在行容器之外**（放行里就会挤掉关键词框）
     const note = pick.find("input[aria-label='关系说明']");
     expect(note.exists()).toBe(true);
     expect(note.classes()).toContain("rel-note");
+    expect(pick.find(".rel-pick-row input[aria-label='关系说明']").exists()).toBe(false);
+    // 关键词框在行容器里、只有一个「搜索」按钮（用户 2026-10-17：「搜索按钮重复了」）
+    const row = pick.find(".rel-pick-row");
+    expect(row.exists()).toBe(true);
+    expect(row.find("input[aria-label='搜索凭证']").exists()).toBe(true);
+    expect(pick.findAll("button").filter((b) => b.text() === "搜索").length).toBe(1);
   });
 
   it("输入关键词 → 搜索 → 点候选 → 调 linkVouchers（kind / note 原样带上）", async () => {

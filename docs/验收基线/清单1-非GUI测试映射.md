@@ -6,7 +6,7 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **289 个**（src 内联 **154** + tests/ 集成 **135**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **290 个**（src 内联 **155** + tests/ 集成 **135**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 8 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
@@ -169,6 +169,12 @@
 > 新增**组件动线测试** `components/voucher/__tests__/relatedVouchers.test.ts`（3 例：控件齐全且说明独占整行 /
 > 输入→搜索→点候选→调 linkVouchers / 搜不到给提示）+ 契约 1 例（说明必须带 rel-note）
 > → 前端 **51 文件 313 用例**；Rust 未动 **292**。
+> **2026-10-17 第二次塌陷修复 + 合计行重叠修复**：①「建立关联」的说明行**又**挤掉关键词框（这次表现为
+> "两个搜索"按钮）→ `.rel-pick` 从 grid 改**两行 flex**（`.rel-pick-row` 放三件、说明在行外）；
+> ② 日报合计行「张数」原先右对齐到"右边界 − 2mm"，12pt 下与金额叠在右下角 → 改为**金额左侧 6mm**，
+> 并抽出纯函数 `total_line_x()` + 单测 `total_line_labels_do_not_overlap`（三组大额样例断言不重叠、不越界）；
+> 另用 PyMuPDF 对真实 PDF 抽样核验：`44 张` 结束于 485.2pt、金额起于 502.1pt（间隙 5.96mm，无重叠）
+> → 单测 **+1**、Rust 总数 **292 → 293**（voucher-core 290 = 155 单元 + 135 集成）；前端未变 **51 文件 313 用例**。
 > **2026-10-17 列表筛选栏整理**：三个复选框（金额未填 / 对方未填 / 未被佐证）合并为一个「**缺项**」下拉
 > （三者互斥；URL 回显仍接受 `amountEmpty` / `counterpartyEmpty` / `unlinked` 三种旧参数）、
 > 筛选栏 **吸顶**（滚动列表与编辑器时不动）、去掉右侧「N 张」、列表 **每页 10 条**（`pageSize = 10`，

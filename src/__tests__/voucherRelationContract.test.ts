@@ -113,9 +113,15 @@ describe("v0.22 关联批契约", () => {
 
   it("建立关联的「说明」必须带 rel-note 类（否则会挤掉关键词输入框——2026-10-17 线上缺陷回放）", () => {
     const src = read("src/components/voucher/RelatedVouchers.vue");
-    // 说明输入框必须挂 rel-note，CSS 的 `.rel-note { grid-column: 1 / -1 }` 才生效
+    // 说明输入框必须挂 rel-note，且**必须在 `.rel-pick-row` 之外**（放里面就会挤掉关键词框）
     expect(src).toMatch(/class="input rel-note"[\s\S]{0,120}aria-label="关系说明"/);
-    expect(src).toMatch(/\.rel-note\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    const pick = src.slice(src.indexOf('class="rel-pick"'), src.indexOf('class="rel-pick"') + 900);
+    const row = pick.slice(pick.indexOf('class="rel-pick-row"'));
+    expect(row).toContain('aria-label="搜索凭证"');
+    expect(row.slice(0, row.indexOf("</div>"))).not.toContain("rel-note");
+    // 行容器用 flex，关键词占剩余宽度（grid 的 auto 列会被跨列项撑宽——两次塌陷的根因）
+    expect(src).toMatch(/\.rel-pick-row\s*\{[^}]*display:\s*flex/);
+    expect(src).toMatch(/\.rel-kw\s*\{[^}]*flex:\s*1/);
     // 关键词输入框必须存在且可搜索（用户「没有位置可以关联其他凭证」的直接病灶）
     expect(src).toContain('aria-label="搜索凭证"');
     expect(src).toContain("async function search()");

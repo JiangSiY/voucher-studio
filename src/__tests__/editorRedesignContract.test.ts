@@ -64,11 +64,13 @@ describe("右栏编辑器重设计契约（B 批）", () => {
       const src = read(f);
       expect(src, `${f} 缺少 scoped 样式`).toContain("<style scoped>");
       const rule = src.slice(src.indexOf(`${rowClass} {`), src.indexOf(`${rowClass} {`) + 400);
-      // 行内是显式网格：输入与按钮同排
-      expect(rule).toContain("display: grid");
-      expect(rule).toContain("grid-template-columns");
+      // 行内控件同排：RelatedVouchers 用两行 flex（`.rel-pick-row` 放三件、说明单独一行），
+      // VoucherGroups 用两列网格；两者都必须是"同排同高"，且说明/备注不得再撑宽 auto 列
+      expect(rule.includes("display: grid") || rule.includes("display: flex")).toBe(true);
+      if (f === RELATED) expect(rule).toContain("flex-direction: column");
+      else expect(rule).toContain("grid-template-columns");
       // **同一档高度**——`.btn-sm` 是 26px、`.input` 是 32px，同排会"大小不一致"（用户 2026-10-16 截图）
-      expect(rule).toContain("--control-h-md");
+      expect(src).toContain("--control-h-md");
       expect(src).not.toMatch(/class="btn btn-sm"[^>]*>(搜索|建立并加入|加入)</);
       // 标题行右侧只有一个主按钮（＋ 建立关联 / ＋ 新建组），头部按钮可继续用小号
       expect(src).toMatch(/fluent-panel-header[\s\S]{0,400}?btn btn-sm/);

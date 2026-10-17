@@ -500,22 +500,23 @@ fn draw_total_line(
     });
     layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
     layer.use_text("合计", TOTAL_PT, Mm(MARGIN + 1.0), y(top + text_dy), font);
-    let cnt_label = format!("{count} 张");
-    layer.use_text(
-        &cnt_label,
-        TOTAL_PT,
-        Mm(right_x(&cnt_label, TOTAL_PT, PAGE_W - MARGIN - 2.0)),
-        y(top + text_dy),
-        font,
-    );
+
     let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
-    layer.use_text(
-        &amt_label,
-        TOTAL_PT,
-        Mm(right_x(&amt_label, TOTAL_PT, PAGE_W - MARGIN)),
-        y(top + text_dy),
-        font,
-    );
+    let cnt_label = format!("{count} 张");
+    let (cnt_x, amt_x) = total_line_x(&cnt_label, &amt_label);
+    layer.use_text(&amt_label, TOTAL_PT, Mm(amt_x), y(top + text_dy), font);
+    layer.use_text(&cnt_label, TOTAL_PT, Mm(cnt_x), y(top + text_dy), font);
+}
+
+/// 合计行横坐标（mm）：`(张数 x, 金额 x)`——金额右对齐到页面右边界（与表格金额列同一条右边线），
+/// 张数放在**金额左侧 6mm 处**。
+///
+/// 历史：原先张数是"右边界 − 2mm"，12pt 下金额更宽 → 两条文字叠在右下角
+/// （用户 2026-10-17 截图报「右下角仍有重叠」）。抽成纯函数是为让"不重叠"成为可测不变量。
+fn total_line_x(cnt_label: &str, amt_label: &str) -> (f32, f32) {
+    let amt_x = right_x(amt_label, TOTAL_PT, PAGE_W - MARGIN);
+    let cnt_x = amt_x - text_width_mm(cnt_label, TOTAL_PT) - 6.0;
+    (cnt_x.max(MARGIN + 12.0), amt_x)
 }
 
 /// 单页图片网格（两模板共用）：按 spec 行列排布一页内的槽位，
@@ -1308,6 +1309,28 @@ mod tests {
         let long = "一二三四五六七八九十";
         let cut = truncate_chars(long, 5);
         assert!(cut.chars().count() == 5 && cut.ends_with('…'));
+    }
+
+    /// 合计行「不重叠」：张数必须整体落在金额左侧（用户 2026-10-17 报「右下角仍有重叠」的回放）。
+    #[test]
+    fn total_line_labels_do_not_overlap() {
+        for (cnt, amt) in [
+            ("6 张", "￥130,039.08"),
+            ("102 张", "￥9,999,999.99"),
+            ("1 张", "￥0.00"),
+        ] {
+            let (cnt_x, amt_x) = total_line_x(cnt, amt);
+            let cnt_right = cnt_x + text_width_mm(cnt, TOTAL_PT);
+            assert!(
+                cnt_right <= amt_x,
+                "「{cnt}」右边界 {cnt_right:.2}mm 压到金额左边界 {amt_x:.2}mm"
+            );
+            assert!(cnt_x >= MARGIN + 12.0 - 0.01, "「{cnt}」起点越出左边线");
+            assert!(
+                amt_x + text_width_mm(amt, TOTAL_PT) <= PAGE_W - MARGIN + 0.01,
+                "金额越出右边线"
+            );
+        }
     }
 
     #[test]

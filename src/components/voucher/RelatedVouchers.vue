@@ -110,20 +110,22 @@ async function unlink(l: LinkedVoucher) {
     </header>
 
     <div class="fluent-panel-body rel-body">
-      <!-- 全部控件一行：类型 / 搜索 / 搜索按钮 / 说明 -->
+      <!-- 第一行：类型 / 关键词 / 搜索按钮；第二行：说明（独占整行） -->
       <div v-if="picking" class="rel-pick">
-        <select v-model="kind" class="input rel-kind" title="关系类型" aria-label="关系类型">
-          <option value="explains">附件说明</option>
-          <option value="detail">明细</option>
-        </select>
-        <input
-          v-model="keyword"
-          class="input"
-          placeholder="搜索凭证（编号 / 摘要 / 对方）"
-          aria-label="搜索凭证"
-          @keyup.enter="search"
-        />
-        <button class="btn" @click="search">搜索</button>
+        <div class="rel-pick-row">
+          <select v-model="kind" class="input rel-kind" title="关系类型" aria-label="关系类型">
+            <option value="explains">附件说明</option>
+            <option value="detail">明细</option>
+          </select>
+          <input
+            v-model="keyword"
+            class="input rel-kw"
+            placeholder="搜索凭证…"
+            aria-label="搜索凭证"
+            @keyup.enter="search"
+          />
+          <button class="btn" @click="search">搜索</button>
+        </div>
         <input
           v-model="note"
           class="input rel-note"
@@ -181,22 +183,35 @@ async function unlink(l: LinkedVoucher) {
   flex-direction: column;
   gap: var(--s-2);
 }
-/* 建立关联的控件分两行（用户 2026-10-16 反馈"按钮和输入框大小不一致"：
-   `.btn-sm` 高 26px、`.input` 高 32px —— 同排必须同一档高度，故行内按钮一律用 `.btn`（md））。
-   第一行：类型 / 搜索 / 搜索按钮（三者同高、成组相邻）；第二行：说明（整行铺满，文字不被截断）。 */
+/* 建立关联的控件：**两行 flex**（2026-10-17 第二次修）。
+   不要用 grid —— 跨列的「说明」会按 max-content 反向把 `auto` 列撑宽，
+   于是类型下拉变超宽、关键词输入框被压成 0 宽（用户两次截图：一次看不见输入框、一次像两个「搜索」按钮）。
+   flex 里只有关键词是 `flex:1`，类型与按钮 `flex:none`，说明单独一行，结构上不会再塌。 */
 .rel-pick {
-  display: grid;
-  /* auto 列让「附件说明」按内容定宽；搜索列 minmax(0,1fr) 防止窄栏溢出 */
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.rel-pick-row {
+  display: flex;
   align-items: center;
   gap: var(--s-2);
 }
-.rel-pick > .input,
-.rel-pick > .btn {
+.rel-pick-row > .input,
+.rel-pick-row > .btn {
   height: var(--control-h-md);
 }
-.rel-note {
-  grid-column: 1 / -1;
+.rel-kind {
+  flex: none;
+  width: auto;
+  max-width: 45%;
+}
+.rel-kw {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rel-pick-row > .btn {
+  flex: none;
 }
 /* 候选：一行一条，右侧给摘要 */
 .rel-cand {
