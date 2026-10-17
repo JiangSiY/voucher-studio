@@ -17,6 +17,7 @@
  * 待补（审计 2026-09-27 登记）：列表虚拟滚动（量级上千时）。
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import type { Ref } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -28,6 +29,7 @@ import FluentIcon from "../components/FluentIcon.vue";
 import VoucherEditor from "../components/voucher/VoucherEditor.vue";
 import RelatedVouchers from "../components/voucher/RelatedVouchers.vue";
 import VoucherGroups from "../components/voucher/VoucherGroups.vue";
+import MultiSelect from "../components/MultiSelect.vue";
 import { useNeighborNav } from "../composables/neighborNav";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
@@ -38,7 +40,12 @@ const router = useRouter();
 
 // ---------- 筛选（沿用既有 query 参数通道：仪表盘/收件箱下钻都用它） ----------
 
-const status = ref<VoucherStatus | "all">("all");
+/** 状态多选（2026-10-17 用户要求「下拉菜单做成可多选」）：空数组 = 全部状态 */
+const statuses = ref<string[]>([]);
+const STATUS_OPTIONS = Object.entries(STATUS_META).map(([value, meta]) => ({
+  value,
+  label: meta.label,
+}));
 const keyword = ref("");
 const dateFrom = ref("");
 const dateTo = ref("");
@@ -52,7 +59,13 @@ const loading = ref(false);
 /** 缺项筛选（2026-10-17：原先三个复选框合并为一个下拉，省控件、与其它筛选同一形态）。
     「金额未填 / 对方未填 / 未被佐证」三者互斥——它们都是"找缺什么"的入口，通常一次只查一种；
     若将来需要组合（例如 金额未填 且 未被佐证），再改成多选。 */
-const pendingFilter = ref<"" | "amountEmpty" | "counterpartyEmpty" | "unlinked">("");
+/** 缺项**多选**（2026-10-17 用户要求多选：三个都是布尔加法，选几项就是"且"几个条件） */
+const pendingFilters = ref<string[]>([]);
+const PENDING_OPTIONS = [
+  { value: "amountEmpty", label: "金额未填" },
+  { value: "counterpartyEmpty", label: "对方未填" },
+  { value: "unlinked", label: "未被佐证" },
+];
 const PENDING_LABEL: Record<string, string> = {
   amountEmpty: "金额未填",
   counterpartyEmpty: "对方未填",
@@ -65,26 +78,41 @@ const counterpartyExact = ref("");
 /** v0.22：标签收敛为「收支方向」——筛选改为下拉（全部 / 收入 / 支出 / 未标）。
     方向本身仍走既有的 `tags` 精确匹配（后端 `json_each` 等值），「未标」走 `directionNone`。 */
 const DIRECTION_LABEL: Record<string, string> = { "": "全部", "收入": "收入", "支出": "支出", none: "未标" };
-const direction = ref<string>("");
-const ocrStatus = ref<string>("");
+/** 收支方向多选（「未标」与收入/支出互斥——它表示"两个方向都没有"） */
+const directions = ref<string[]>([]);
+const DIRECTION_FILTER_OPTIONS = [
+  { value: "收入", label: "收入" },
+  { value: "支出", label: "支出" },
+  { value: "none", label: "未标" },
+];
+/** OCR 状态多选（写回后端仍是逗号分隔的 `pending,failed` 口径） */
+const ocrStatuses = ref<string[]>([]);
+const OCR_FILTER_OPTIONS = [
+  { value: "pending", label: "待识别" },
+  { value: "failed", label: "识别失败" },
+  { value: "done", label: "已识别" },
+];
+/** 导出覆盖：**筛选控件已按用户要求去掉**（"用状态里的已导出区分即可"），
+    但仍读 URL 参数 `exported=`（收件箱/仪表盘下钻会带），并用 chip 显示与清除。 */
 const exported = ref<string>("");
 const sort = ref<string>("date_desc");
 
 function query() {
   return {
-    status: status.value === "all" ? null : status.value,
+    status: null,
+    statuses: statuses.value,
     keyword: keyword.value.trim() || null,
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null,
-    amountEmpty: pendingFilter.value === "amountEmpty",
-    counterpartyEmpty: pendingFilter.value === "counterpartyEmpty",
+    amountEmpty: pendingFilters.value.includes("amountEmpty"),
+    counterpartyEmpty: pendingFilters.value.includes("counterpartyEmpty"),
     staleDays: staleDays.value,
     counterparty: counterpartyExact.value.trim() || null,
-    tags: direction.value === "收入" || direction.value === "支出" ? [direction.value] : [],
-    directionNone: direction.value === "none",
-    ocrStatus: ocrStatus.value || null,
+    tags: directions.value.filter((v) => v !== "none"),
+    directionNone: directions.value.includes("none"),
+    ocrStatus: ocrStatuses.value.length ? ocrStatuses.value.join(",") : null,
     exported: (exported.value || null) as "never" | "any" | null,
-    unlinked: pendingFilter.value === "unlinked" ? true : null,
+    unlinked: pendingFilters.value.includes("unlinked") ? true : null,
     sort: sort.value,
     page: page.value,
     pageSize,
@@ -139,24 +167,29 @@ function stripFocusFromUrl() {
   void router.replace({ query: q });
 }
 
+/** 内容相同就不赋值（数组 ref 换身份也会触发 watch，会白白重拉列表并打掉深链聚焦态） */
+function setList(target: Ref<string[]>, next: string[]) {
+  if (target.value.length === next.length && target.value.every((v, i) => v === next[i])) return;
+  target.value = next;
+}
+
 /** 从 URL 读筛选（收件箱/趋势下钻过来时带回显） */
 function readQuery() {
   const q = route.query;
-  status.value = (q.status as VoucherStatus) ?? "all";
+  // 状态：新参数 `statuses=a,b`；兼容旧下钻的 `status=single`
+  const statusParam = (q.statuses as string) ?? (q.status as string) ?? "";
+  setList(statuses, statusParam && statusParam !== "all" ? statusParam.split(",").filter(Boolean) : []);
   keyword.value = (q.keyword as string) ?? "";
   dateFrom.value = (q.dateFrom as string) ?? "";
   dateTo.value = (q.dateTo as string) ?? "";
-  pendingFilter.value =
-    q.amountEmpty === "1" || q.amountEmpty === "true"
-      ? "amountEmpty"
-      : q.counterpartyEmpty === "1"
-        ? "counterpartyEmpty"
-        : q.unlinked === "1" || q.unlinked === "true"
-          ? "unlinked"
-          : "";
+  const pending: string[] = [];
+  if (q.amountEmpty === "1" || q.amountEmpty === "true") pending.push("amountEmpty");
+  if (q.counterpartyEmpty === "1") pending.push("counterpartyEmpty");
+  if (q.unlinked === "1" || q.unlinked === "true") pending.push("unlinked");
+  setList(pendingFilters, pending);
   const sd = Number(q.staleDays);
   staleDays.value = Number.isFinite(sd) && sd > 0 ? sd : null;
-  ocrStatus.value = (q.ocrStatus as string) ?? "";
+  setList(ocrStatuses, ((q.ocrStatus as string) ?? "").split(",").filter(Boolean));
   exported.value = (q.exported as string) ?? "";
   sort.value = (q.sort as string) ?? "date_desc";
   // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
@@ -164,14 +197,16 @@ function readQuery() {
   // v0.22：兼容两种来源——旧下钻参数 `tags=收入|支出`，以及 `direction=none|收入|支出`
   const legacyTags = (q.tags as string) ?? "";
   const dirParam = (q.direction as string) ?? "";
-  direction.value =
-    dirParam === "none" || q.directionNone === "1"
-      ? "none"
-      : legacyTags.includes("收入")
-        ? "收入"
-        : legacyTags.includes("支出")
-          ? "支出"
-          : "";
+  const dirs: string[] = [];
+  if (legacyTags.includes("收入")) dirs.push("收入");
+  if (legacyTags.includes("支出")) dirs.push("支出");
+  if (dirParam === "none" || q.directionNone === "1") dirs.length = 0;
+  if (dirParam === "收入" || dirParam === "支出") {
+    dirs.length = 0;
+    dirs.push(dirParam);
+  }
+  if (dirParam === "none" || q.directionNone === "1") dirs.push("none");
+  setList(directions, dirs);
   // v0.19：`focus` = 其他页面"去看这一张"（深链聚焦，不参与筛选；见 load() 里的处理）
   const f = Number(q.focus);
   pendingFocus = Number.isFinite(f) && f > 0 ? f : null;
@@ -179,7 +214,11 @@ function readQuery() {
 
 const activeFilters = computed(() => {
   const out: { label: string; clear: () => void }[] = [];
-  if (status.value !== "all") out.push({ label: `状态：${STATUS_META[status.value].label}`, clear: () => (status.value = "all") });
+  if (statuses.value.length)
+    out.push({
+      label: `状态：${statuses.value.map((v) => STATUS_META[v as VoucherStatus]?.label ?? v).join("、")}`,
+      clear: () => (statuses.value = []),
+    });
   if (keyword.value) out.push({ label: `关键词：${keyword.value}`, clear: () => (keyword.value = "") });
   if (dateFrom.value || dateTo.value)
     out.push({ label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`, clear: () => ((dateFrom.value = ""), (dateTo.value = "")) });
@@ -187,19 +226,22 @@ const activeFilters = computed(() => {
   if (staleDays.value) out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
   if (counterpartyExact.value)
     out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
-  if (direction.value)
+  if (directions.value.length)
     out.push({
-      label: `收支方向：${DIRECTION_LABEL[direction.value]}`,
-      clear: () => (direction.value = ""),
+      label: `收支方向：${directions.value.map((v) => DIRECTION_LABEL[v] ?? v).join("、")}`,
+      clear: () => (directions.value = []),
     });
-  if (ocrStatus.value)
-    out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
+  if (ocrStatuses.value.length)
+    out.push({
+      label: `OCR：${ocrStatuses.value.map((v) => OCR_FILTER_OPTIONS.find((o) => o.value === v)?.label ?? v).join("、")}`,
+      clear: () => (ocrStatuses.value = []),
+    });
   if (exported.value)
     out.push({ label: exported.value === "never" ? "从未导出" : "已导出过", clear: () => (exported.value = "") });
-  if (pendingFilter.value)
+  if (pendingFilters.value.length)
     out.push({
-      label: PENDING_LABEL[pendingFilter.value],
-      clear: () => (pendingFilter.value = ""),
+      label: pendingFilters.value.map((v) => PENDING_LABEL[v] ?? v).join("、"),
+      clear: () => (pendingFilters.value = []),
     });
   return out;
 });
@@ -516,14 +558,15 @@ function onKeydown(e: KeyboardEvent) {
 // 「清空全部筛选」收敛到列表空态里的那一个按钮（`clearAllFilters`）。
 
 function clearAllFilters() {
+  statuses.value = [];
   staleDays.value = null;
   counterpartyExact.value = "";
-  direction.value = "";
+  directions.value = [];
   dateFrom.value = "";
   dateTo.value = "";
-  ocrStatus.value = "";
+  ocrStatuses.value = [];
   exported.value = "";
-  pendingFilter.value = "";
+  pendingFilters.value = [];
 }
 
 const selectedIds = ref<Set<number>>(new Set());
@@ -637,7 +680,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, pendingFilter, counterpartyExact, direction, staleDays, ocrStatus, exported, sort], () => {
+watch([statuses, dateFrom, dateTo, pendingFilters, counterpartyExact, directions, staleDays, ocrStatuses, exported, sort], () => {
   page.value = 1;
   void load();
   // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
@@ -658,10 +701,8 @@ watch(keyword, () => {
       <div class="search">
         <input v-model="keyword" placeholder="搜索编号 / 摘要 / 对方 / 备注" />
       </div>
-      <select v-model="status" class="input" style="max-width: 160px">
-        <option value="all">全部状态</option>
-        <option v-for="(meta, key) in STATUS_META" :key="key" :value="key">{{ meta.label }}</option>
-      </select>
+      <MultiSelect v-model="statuses" label="状态" :options="STATUS_OPTIONS"
+        title="按状态筛选（可多选）" max-width="170px" />
       <input v-model="dateFrom" class="input" type="date" style="max-width: 160px" title="起始日期" />
       <input v-model="dateTo" class="input" type="date" style="max-width: 160px" title="结束日期" />
       <template v-for="f in activeFilters" :key="f.label">
@@ -669,32 +710,12 @@ watch(keyword, () => {
           {{ f.label }} <FluentIcon name="close" :size="12" />
         </button>
       </template>
-      <select v-model="ocrStatus" class="input" style="max-width: 140px" title="按 OCR 状态筛选">
-        <option value="">OCR 状态</option>
-        <option value="pending,failed">待识别（含失败）</option>
-        <option value="pending">仅待识别</option>
-        <option value="failed">仅识别失败</option>
-        <option value="done">已识别</option>
-      </select>
-      <select v-model="exported" class="input" style="max-width: 140px" title="按导出覆盖度筛选">
-        <option value="">导出覆盖</option>
-        <option value="never">从未导出</option>
-        <option value="any">导出过</option>
-      </select>
-      <select v-model="pendingFilter" class="input" style="max-width: 150px" title="只看某一类缺项（金额未填 / 对方未填 / 未被佐证）">
-        <option value="">缺项</option>
-        <option value="amountEmpty">金额未填</option>
-        <option value="counterpartyEmpty">对方未填</option>
-        <option value="unlinked">未被佐证</option>
-      </select>
-      <input v-model="counterpartyExact" class="input" style="max-width: 170px"
-        placeholder="对方账户（精确）" title="对方账户整串相等（区别于搜索框的模糊匹配）" />
-      <select v-model="direction" class="input" style="max-width: 150px" title="按收支方向筛选">
-        <option value="">收支方向</option>
-        <option value="收入">收入</option>
-        <option value="支出">支出</option>
-        <option value="none">未标</option>
-      </select>
+      <MultiSelect v-model="ocrStatuses" label="OCR 状态" :options="OCR_FILTER_OPTIONS"
+        title="按 OCR 状态筛选（可多选）" max-width="150px" />
+      <MultiSelect v-model="pendingFilters" label="缺项" :options="PENDING_OPTIONS"
+        title="只看某一类缺项（可多选，选几项=同时满足）" max-width="150px" />
+      <MultiSelect v-model="directions" label="收支方向" :options="DIRECTION_FILTER_OPTIONS"
+        :exclusive="['none']" title="按收支方向筛选（可多选；「未标」与收入/支出互斥）" max-width="160px" />
       <select v-model="sort" class="input" style="max-width: 150px" title="排序">
         <option value="date_desc">日期（新→旧）</option>
         <option value="date_asc">日期（旧→新）</option>
@@ -782,7 +803,7 @@ watch(keyword, () => {
           <span class="flex-1"></span>
           <!-- 上下文翻张（⌥←/→）：按**整份筛选结果**翻，能跨页（↑↓ 只在本页内移动）。
                顺序是后端定的日期序，与列表当前排序无关——title 里写明，免得误会。 -->
-          <div class="ins-nav" role="group" aria-label="上下文翻张">
+          <div v-if="navNeighbor" class="ins-nav" role="group" aria-label="上下文翻张">
             <button class="btn-icon" :disabled="!navNeighbor?.prevId" title="上一张（⌥←）" aria-label="上一张"
               @click="goNeighbor('prev')">
               <FluentIcon name="chevronLeft" :size="14" />
@@ -821,6 +842,8 @@ watch(keyword, () => {
                （都用 `shown.id`，深链聚焦/翻张时跟着变） -->
           <template #relations>
             <RelatedVouchers :voucher-id="shown.id" @focus="focusFromLink" />
+          </template>
+          <template #groups>
             <VoucherGroups :voucher-id="shown.id" @focus="focusFromLink" />
           </template>
         </VoucherEditor>

@@ -475,10 +475,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       />
 
       <div class="editor-fields">
-        <!-- 字段：标签在**输入框上方**（用户 2026-10-17）——所有输入框同起点同宽，
-             结构上不可能出现"左边缘参差不齐"；两组并排（日期/金额、对方账户/收支方向）已取消，
-             每个字段独占一行、整宽显示。 -->
-        <div class="editor-form">
+        <!-- 字段面板：标题格式与「凭证图片（N/1）」一致（用户 2026-10-17 要求）。
+             字段标签在**输入框上方**——所有输入框同起点同宽，结构上不可能出现"左边缘参差不齐"；
+             两组并排（日期/金额、对方账户/收支方向）已取消，每个字段独占一行、整宽显示。 -->
+        <div class="fluent-panel">
+          <div class="fluent-panel-header">
+            <h3>凭证字段</h3>
+          </div>
+          <div class="fluent-panel-body">
+            <div class="editor-form">
           <label class="ed-field" data-field="description">
             <span class="ed-field-label">摘要</span>
             <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
@@ -542,8 +547,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
             <span class="ed-field-label">备注</span>
             <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
           </label>
+            </div>
+          </div>
         </div>
-    <div class="ed-ops">
+        <div class="ed-ops">
       <span v-if="dirty && lockedPeriod" class="dirty-hint">● 已封账</span>
       <span v-else-if="dirty" class="dirty-hint">● 未保存</span>
       <span class="flex-1"></span>
@@ -560,15 +567,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </div>
 
-    <!-- 关系与组（由宿主插入，位置在**核心字段之后、识别结果之前**——
-         用户反馈"相关凭证/所属事项组太靠下"，这里给它们一个稳定的落点） -->
-    <slot name="relations" />
-
-    <!-- 识别提取结果（一键填入表单；落库仍由「保存」决定；默认折叠） -->
-    <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
-      @apply-field="applyExtractedField" @apply-all="applyAllExtracted" />
-
-    <SnapshotPanel v-if="detail" :snapshots="detail.snapshots" />
+    <!-- 四个面板**并排**（2026-10-17 用户要求）：相关凭证 / 所属事项组 / 识别结果 / 修改历史。
+         够宽（容器 ≥560px）时 2×2，否则单列堆叠（不硬挤）。 -->
+    <div class="editor-panels">
+      <slot name="relations" />
+      <slot name="groups" />
+      <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
+        @apply-field="applyExtractedField" @apply-all="applyAllExtracted" />
+      <SnapshotPanel v-if="detail" :snapshots="detail.snapshots" />
+    </div>
   </div>
 </template>
 
@@ -627,6 +634,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   flex-direction: column;
   gap: var(--s-3);
   min-width: 0;
+}
+/* 四个面板：基础单列；右栏够宽时 2×2（相关凭证|所属事项组 / 识别结果|修改历史） */
+.editor-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+}
+@container (min-width: 560px) {
+  .editor-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .editor-form {
   display: grid;

@@ -6,11 +6,11 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **288 个**（src 内联 **154** + tests/ 集成 **134**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **289 个**（src 内联 **154** + tests/ 集成 **135**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 7 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 8 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 308 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 309 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -156,6 +156,13 @@
 > （原来会把长截图上下裁掉）；`.editor` 加 `container-type: inline-size` +
 > `@container (min-width: 380px)` → **常规档右栏够宽时也能"图片|字段"并排**（老 WebKit 忽略 → 退回堆叠）。
 > 契约测试 13 → **15 例**（竖向预览不裁图 / 容器查询两列）→ 前端 **50 文件 307 用例**；Rust 未动 **291**。
+> **2026-10-17 收⑧（筛选多选 + 面板并排 + 字段面板标题）**：四项筛选（状态/OCR/缺项/收支方向）改成
+> `MultiSelect` 多选下拉；去掉「导出覆盖」与「对方账户（精确）」控件（URL 参数仍读，下钻不回退）；
+> 后端新增 `VoucherQuery.statuses: Vec<String>`（SQL `IN (...)`）+
+> `voucher_link_flow.rs::multi_status_filter_matches_any_of_the_statuses`（多选命中 / 单值兼容 / 空不筛）
+> → 集成 134 → **135**、`voucher-core` 288 → **289**、总数 **291 → 292**；
+> 右栏四个面板（相关凭证/事项组/识别结果/修改历史）2×2 并排（容器 ≥560px）、字段面板加标题「凭证字段」、
+> 无翻张信息时不渲染翻张条；契约测试 15 → **16 例** → 前端 **50 文件 309 用例**。
 > **2026-10-17 列表筛选栏整理**：三个复选框（金额未填 / 对方未填 / 未被佐证）合并为一个「**缺项**」下拉
 > （三者互斥；URL 回显仍接受 `amountEmpty` / `counterpartyEmpty` / `unlinked` 三种旧参数）、
 > 筛选栏 **吸顶**（滚动列表与编辑器时不动）、去掉右侧「N 张」、列表 **每页 10 条**（`pageSize = 10`，

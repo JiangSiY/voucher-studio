@@ -102,6 +102,8 @@ export interface VoucherDetail {
 
 export interface VoucherQuery {
   status?: VoucherStatus | null;
+  /** v0.22（2026-10-17）：状态**多选**（SQL `IN (...)`）；与 `status` 并存，同时给时以 `statuses` 为准 */
+  statuses?: string[] | null;
   keyword?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;

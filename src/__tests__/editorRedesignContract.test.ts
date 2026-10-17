@@ -75,6 +75,21 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     }
   });
 
+  it("四个面板并排（相关凭证/事项组/识别结果/修改历史）+ 字段面板标题 + 空翻张条不渲染", () => {
+    const editor = read(EDITOR);
+    // ① 四个面板同一网格：够宽（容器 ≥560px）2×2，否则单列
+    expect(editor).toContain('class="editor-panels"');
+    expect(editor).toContain('<slot name="relations" />');
+    expect(editor).toContain('<slot name="groups" />');
+    expect(editor).toMatch(
+      /@container \(min-width: 560px\)\s*\{[^}]*\.editor-panels\s*\{[^}]*grid-template-columns:\s*repeat\(2/,
+    );
+    // ② 字段面板有标题，且与「凭证图片」用同一套 fluent-panel 头
+    expect(editor).toMatch(/<div class="fluent-panel-header">\s*<h3>凭证字段<\/h3>/);
+    // ③ 没有翻张信息时不渲染翻张条（去掉展开/收起按钮左侧的留空）
+    expect(read(LIBRARY)).toContain('<div v-if="navNeighbor" class="ins-nav"');
+  });
+
   it("凭证预览按竖向比例且不裁图（评测集 90% 是竖图）", () => {
     const css = read(BASE_CSS);
     // 竖向预览框：aspect-ratio ≈ 1:2.2（评测集中位高宽比 2.21）
@@ -113,24 +128,24 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(search).not.toContain('class="btn btn-sm" @click="clearFilters"');
   });
 
-  it("「标签」筛选统一为「收支方向」下拉（列表 + 打印中心），不再有自由文本标签输入", () => {
+  it("「标签」筛选统一为「收支方向」多选下拉（列表 + 打印中心），不再有自由文本标签输入", () => {
     const lib = read("src/pages/LibraryPage.vue");
-    // 下拉四档：全部 / 收入 / 支出 / 未标
-    expect(lib).toContain('title="按收支方向筛选"');
-    expect(lib).toContain('<option value="收入">收入</option>');
-    expect(lib).toContain('<option value="支出">支出</option>');
-    expect(lib).toContain('<option value="none">未标</option>');
+    // 多选下拉（2026-10-17 用户要求「下拉菜单做成可多选」）
+    expect(lib).toContain('<MultiSelect v-model="directions" label="收支方向"');
+    expect(lib).toContain(":exclusive=\"['none']\"");
+    expect(lib).toContain('value: "收入"');
+    expect(lib).toContain('value: "支出"');
+    expect(lib).toContain('value: "none", label: "未标"');
     // 映射到既有 tags（方向本身）与新 directionNone（未标）
-    expect(lib).toContain('tags: direction.value === "收入" || direction.value === "支出" ? [direction.value] : []');
-    expect(lib).toContain('directionNone: direction.value === "none"');
+    expect(lib).toContain('tags: directions.value.filter((v) => v !== "none")');
+    expect(lib).toContain('directionNone: directions.value.includes("none")');
     // 旧文案不得回归
     expect(lib).not.toContain("标签（逗号分隔）");
     expect(lib).not.toContain("tagsText");
-    // 打印中心同为下拉
+    // 打印中心仍为下拉
     const print = read("src/pages/PrintCenterPage.vue");
     expect(print).toContain('title="按收支方向筛选"');
     expect(print).not.toContain("filterTag");
-    expect(print).not.toContain("标签过滤");
   });
 
   it("用户可见的「标签」措辞已统一为「收支方向」（洞察透视 / 排行卡 / 帮助页 / 导出说明）", () => {

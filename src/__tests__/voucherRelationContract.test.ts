@@ -113,10 +113,10 @@ describe("v0.22 关联批契约", () => {
 
   it("列表提供「未被佐证」筛选：已并入「待补项」下拉（控件、URL 回显、清空三处都在）", () => {
     const src = read(LIBRARY);
-    // 2026-10-17：三个复选框合并成「待补项」下拉，未被佐证是其中一个 option
-    expect(src).toContain('<option value="unlinked">未被佐证</option>');
+    // 2026-10-17：三个复选框合并成「缺项」**多选**下拉，未被佐证是其中一个选项
+    expect(src).toContain('{ value: "unlinked", label: "未被佐证" }');
     expect(src).toContain('q.unlinked === "1"');
-    expect(src).toContain('unlinked: pendingFilter.value === "unlinked" ? true : null');
-    expect(src).toContain('pendingFilter.value = "";');
+    expect(src).toContain('unlinked: pendingFilters.value.includes("unlinked") ? true : null');
+    expect(src).toContain("pendingFilters.value = [];");
   });
 });

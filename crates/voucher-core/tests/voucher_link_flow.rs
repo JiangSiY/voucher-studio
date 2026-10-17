@@ -424,3 +424,48 @@ fn direction_none_filter_matches_vouchers_without_income_or_expense_tag() -> Res
     assert_eq!(dirty, expect, "非法 JSON 视为未标，且查询不报错");
     Ok(())
 }
+
+/// v0.22（2026-10-17）状态多选：`statuses` 走 IN；单值 `status` 仍工作；空数组不筛。
+#[test]
+fn multi_status_filter_matches_any_of_the_statuses() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let a = mk(&ctx, "状态-草稿", Some(100))?;
+    let b = mk(&ctx, "状态-已复核", Some(200))?;
+    let c = mk(&ctx, "状态-已导出", Some(300))?;
+    for (id, st) in [(a, "draft"), (b, "reviewed"), (c, "exported")] {
+        voucher_mgr::update_voucher(
+            &ctx,
+            id,
+            voucher_core::models::VoucherUpdate {
+                status: voucher_core::models::VoucherStatus::parse(st),
+                ..Default::default()
+            },
+        )?;
+    }
+    let ids = |q: &VoucherQuery| -> Result<Vec<i64>> {
+        let (items, _) = voucher_mgr::list(&ctx, q)?;
+        let mut v: Vec<i64> = items.iter().map(|x| x.id).collect();
+        v.sort_unstable();
+        Ok(v)
+    };
+    let mut expect = vec![a, c];
+    expect.sort_unstable();
+    assert_eq!(
+        ids(&VoucherQuery {
+            statuses: vec!["draft".into(), "exported".into()],
+            ..Default::default()
+        })?,
+        expect
+    );
+    // 单值仍然工作
+    assert_eq!(
+        ids(&VoucherQuery {
+            status: voucher_core::models::VoucherStatus::parse("reviewed"),
+            ..Default::default()
+        })?,
+        vec![b]
+    );
+    // 空数组 = 不筛
+    assert_eq!(ids(&VoucherQuery::default())?.len(), 3);
+    Ok(())
+}

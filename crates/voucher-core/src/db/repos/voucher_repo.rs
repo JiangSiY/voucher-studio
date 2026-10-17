@@ -14,6 +14,10 @@ use crate::{CoreError, Result};
 #[serde(default, rename_all = "camelCase")]
 pub struct VoucherQuery {
     pub status: Option<VoucherStatus>,
+    /// v0.22（2026-10-17）：状态**多选**（`IN (...)`）。与 `status` 并存：单值仍走 `status`，
+    /// 多选走这里；两者同时给时以 `statuses` 为准（列表页多选下拉用）。
+    #[serde(default)]
+    pub statuses: Vec<String>,
     /// 编号/摘要/备注/标签 关键词
     pub keyword: Option<String>,
     pub date_from: Option<String>,
@@ -329,7 +333,18 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
     let mut where_clauses: Vec<String> = Vec::new();
     let mut bind: Vec<String> = Vec::new();
 
-    if let Some(s) = &q.status {
+    if !q.statuses.is_empty() {
+        // 多选状态：IN (...)（顺序稳定，SQL 复用）
+        let phs: Vec<String> = q
+            .statuses
+            .iter()
+            .map(|s| {
+                bind.push(s.clone());
+                format!("?{}", bind.len())
+            })
+            .collect();
+        where_clauses.push(format!("status IN ({})", phs.join(", ")));
+    } else if let Some(s) = &q.status {
         where_clauses.push(format!("status = ?{}", bind.len() + 1));
         bind.push(s.as_str().to_string());
     }
