@@ -111,6 +111,17 @@ describe("v0.22 关联批契约", () => {
     expect(client).toContain("includeLinks?: boolean;");
   });
 
+  it("建立关联的「说明」必须带 rel-note 类（否则会挤掉关键词输入框——2026-10-17 线上缺陷回放）", () => {
+    const src = read("src/components/voucher/RelatedVouchers.vue");
+    // 说明输入框必须挂 rel-note，CSS 的 `.rel-note { grid-column: 1 / -1 }` 才生效
+    expect(src).toMatch(/class="input rel-note"[\s\S]{0,120}aria-label="关系说明"/);
+    expect(src).toMatch(/\.rel-note\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    // 关键词输入框必须存在且可搜索（用户「没有位置可以关联其他凭证」的直接病灶）
+    expect(src).toContain('aria-label="搜索凭证"');
+    expect(src).toContain("async function search()");
+    expect(src).toContain("api.linkVouchers(");
+  });
+
   it("列表提供「未被佐证」筛选：已并入「待补项」下拉（控件、URL 回显、清空三处都在）", () => {
     const src = read(LIBRARY);
     // 2026-10-17：三个复选框合并成「缺项」**多选**下拉，未被佐证是其中一个选项

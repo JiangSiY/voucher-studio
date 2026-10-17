@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 8 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 309 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **51 文件 313 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -163,6 +163,12 @@
 > → 集成 134 → **135**、`voucher-core` 288 → **289**、总数 **291 → 292**；
 > 右栏四个面板（相关凭证/事项组/识别结果/修改历史）2×2 并排（容器 ≥560px）、字段面板加标题「凭证字段」、
 > 无翻张信息时不渲染翻张条；契约测试 15 → **16 例** → 前端 **50 文件 309 用例**。
+> **2026-10-17 线上缺陷修复（关联凭证无法完成）**：`RelatedVouchers.vue` 的「说明」输入框漏了 `rel-note` 类
+> → 它落在网格第 2 行第 1 列，把 `auto` 列撑到约 400px，**中间的关键词输入框被挤成 0 宽**（看不见/点不到），
+> 用户反馈"没有位置可以关联其他凭证"。修复：补类 + 搜索空结果给明确提示；
+> 新增**组件动线测试** `components/voucher/__tests__/relatedVouchers.test.ts`（3 例：控件齐全且说明独占整行 /
+> 输入→搜索→点候选→调 linkVouchers / 搜不到给提示）+ 契约 1 例（说明必须带 rel-note）
+> → 前端 **51 文件 313 用例**；Rust 未动 **292**。
 > **2026-10-17 列表筛选栏整理**：三个复选框（金额未填 / 对方未填 / 未被佐证）合并为一个「**缺项**」下拉
 > （三者互斥；URL 回显仍接受 `amountEmpty` / `counterpartyEmpty` / `unlinked` 三种旧参数）、
 > 筛选栏 **吸顶**（滚动列表与编辑器时不动）、去掉右侧「N 张」、列表 **每页 10 条**（`pageSize = 10`，

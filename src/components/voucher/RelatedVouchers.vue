@@ -31,6 +31,8 @@ const note = ref("");
 const keyword = ref("");
 const candidates = ref<Voucher[]>([]);
 const picking = ref(false);
+/** 已经点过「搜索」：用于区分"还没搜"与"搜了没有结果" */
+const searched = ref(false);
 
 async function load() {
   if (!props.voucherId) {
@@ -48,6 +50,7 @@ watch(() => props.voucherId, load, { immediate: true });
 
 async function search() {
   const kw = keyword.value.trim();
+  searched.value = false;
   if (!kw) {
     candidates.value = [];
     return;
@@ -55,6 +58,7 @@ async function search() {
   try {
     const res = await api.listVouchers({ keyword: kw, page: 1, pageSize: 8 });
     candidates.value = res.items.filter((v) => v.id !== props.voucherId);
+    searched.value = true;
   } catch (e) {
     toastError(e);
   }
@@ -67,6 +71,7 @@ async function link(v: Voucher) {
     note.value = "";
     keyword.value = "";
     candidates.value = [];
+    searched.value = false;
     picking.value = false;
     await load();
   } catch (e) {
@@ -92,7 +97,14 @@ async function unlink(l: LinkedVoucher) {
         相关凭证
         <span v-if="links.length" class="rel-badge">{{ links.length }} 条</span>
       </h3>
-      <button class="btn btn-sm" :disabled="!voucherId" @click="picking = !picking">
+      <button
+        class="btn btn-sm"
+        :disabled="!voucherId"
+        @click="
+          picking = !picking;
+          searched = false;
+        "
+      >
         {{ picking ? "取消" : "＋ 建立关联" }}
       </button>
     </header>
@@ -114,7 +126,7 @@ async function unlink(l: LinkedVoucher) {
         <button class="btn" @click="search">搜索</button>
         <input
           v-model="note"
-          class="input"
+          class="input rel-note"
           placeholder="说明（可选，例如：这笔付款对应的发票）"
           aria-label="关系说明"
         />
@@ -128,6 +140,10 @@ async function unlink(l: LinkedVoucher) {
           <span class="rel-cand-desc">{{ c.description }}</span>
         </li>
       </ul>
+
+      <p v-if="searched && !candidates.length" class="rel-empty">
+        没有找到匹配的凭证 —— 换个编号、摘要或对方关键词试试。
+      </p>
 
       <ul v-if="links.length" class="rel-list">
         <li v-for="l in links" :key="l.linkId">
