@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 7 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 307 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 308 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -156,6 +156,11 @@
 > （原来会把长截图上下裁掉）；`.editor` 加 `container-type: inline-size` +
 > `@container (min-width: 380px)` → **常规档右栏够宽时也能"图片|字段"并排**（老 WebKit 忽略 → 退回堆叠）。
 > 契约测试 13 → **15 例**（竖向预览不裁图 / 容器查询两列）→ 前端 **50 文件 307 用例**；Rust 未动 **291**。
+> **2026-10-17 列表筛选栏整理**：三个复选框（金额未填 / 对方未填 / 未被佐证）合并为一个「**缺项**」下拉
+> （三者互斥；URL 回显仍接受 `amountEmpty` / `counterpartyEmpty` / `unlinked` 三种旧参数）、
+> 筛选栏 **吸顶**（滚动列表与编辑器时不动）、去掉右侧「N 张」、列表 **每页 10 条**（`pageSize = 10`，
+> 分页控件自动跟随）。契约：`voucherRelationContract` 的「未被佐证」一条改写为下拉口径、
+> `libraryPolishContract` **+1 例**（吸顶/缺项下拉/无张数/每页 10 条）→ **50 文件 308 用例**；Rust 未动 **291**。
 > Rust 侧本批未动（仍 **290**）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。

@@ -60,4 +60,24 @@ describe("选图片入口键盘可达（打磨第五批）", () => {
       expect(zone.slice(0, 500)).toContain(handler);
     });
   }
+
+  it("筛选栏吸顶、三个勾选合并为「缺项」下拉、去掉「N 张」、每页 10 条（2026-10-17）", () => {
+    const src = readFileSync(new URL("../LibraryPage.vue", import.meta.url), "utf8");
+    // ① 吸顶：.filter-bar 声明 sticky（滚动列表/编辑器时筛选不动）
+    const bar = src.slice(src.indexOf(".filter-bar {"));
+    expect(bar.slice(0, 300)).toContain("position: sticky");
+    expect(bar.slice(0, 300)).toContain("top: 0");
+    // ② 三复选框 → 一个「缺项」下拉（三个 option 都在，互斥由 pendingFilter 保证）
+    expect(src).not.toContain('class="inline-check"');
+    expect(src).toContain('<option value="">缺项</option>');
+    expect(src).toContain('<option value="amountEmpty">金额未填</option>');
+    expect(src).toContain('<option value="counterpartyEmpty">对方未填</option>');
+    expect(src).toContain('<option value="unlinked">未被佐证</option>');
+    expect(src).toContain('amountEmpty: pendingFilter.value === "amountEmpty"');
+    expect(src).toContain('counterpartyEmpty: pendingFilter.value === "counterpartyEmpty"');
+    // ③ 去掉筛选栏右侧的「N 张」（选择计数「已选 N 张」保留）
+    expect(src).not.toContain('{{ total }} 张');
+    // ④ 每页 10 条
+    expect(src).toContain("const pageSize = 10;");
+  });
 });

@@ -46,12 +46,18 @@ const dateTo = ref("");
 const items = ref<Voucher[]>([]);
 const total = ref(0);
 const page = ref(1);
-const pageSize = 50;
+const pageSize = 10; // 2026-10-17 用户要求：列表一页 10 条
 const loading = ref(false);
 
-/** 精确下钻筛选（对应收件箱"未填金额 / 待识别 / 从未导出"等待办；控件都在主筛选行里） */
-const amountEmpty = ref(false);
-const counterpartyEmpty = ref(false);
+/** 缺项筛选（2026-10-17：原先三个复选框合并为一个下拉，省控件、与其它筛选同一形态）。
+    「金额未填 / 对方未填 / 未被佐证」三者互斥——它们都是"找缺什么"的入口，通常一次只查一种；
+    若将来需要组合（例如 金额未填 且 未被佐证），再改成多选。 */
+const pendingFilter = ref<"" | "amountEmpty" | "counterpartyEmpty" | "unlinked">("");
+const PENDING_LABEL: Record<string, string> = {
+  amountEmpty: "金额未填",
+  counterpartyEmpty: "对方未填",
+  unlinked: "未被佐证",
+};
 /** 陈旧天数（对应收件箱"陈旧草稿"待办；与 dashboard_todos 同口径） */
 const staleDays = ref<number | null>(null);
 /** 精确筛选：对方账户（整串相等）——洞察的月度透视下钻会带这个参数 */
@@ -62,8 +68,6 @@ const DIRECTION_LABEL: Record<string, string> = { "": "全部", "收入": "收�
 const direction = ref<string>("");
 const ocrStatus = ref<string>("");
 const exported = ref<string>("");
-/** v0.22：只筛「未被佐证」（没有任何关联、也不在事项组里）——正对"付款截图缺说明"的核对痛点 */
-const unlinked = ref(false);
 const sort = ref<string>("date_desc");
 
 function query() {
@@ -72,15 +76,15 @@ function query() {
     keyword: keyword.value.trim() || null,
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null,
-    amountEmpty: amountEmpty.value,
-    counterpartyEmpty: counterpartyEmpty.value,
+    amountEmpty: pendingFilter.value === "amountEmpty",
+    counterpartyEmpty: pendingFilter.value === "counterpartyEmpty",
     staleDays: staleDays.value,
     counterparty: counterpartyExact.value.trim() || null,
     tags: direction.value === "收入" || direction.value === "支出" ? [direction.value] : [],
     directionNone: direction.value === "none",
     ocrStatus: ocrStatus.value || null,
     exported: (exported.value || null) as "never" | "any" | null,
-    unlinked: unlinked.value ? true : null,
+    unlinked: pendingFilter.value === "unlinked" ? true : null,
     sort: sort.value,
     page: page.value,
     pageSize,
@@ -142,13 +146,18 @@ function readQuery() {
   keyword.value = (q.keyword as string) ?? "";
   dateFrom.value = (q.dateFrom as string) ?? "";
   dateTo.value = (q.dateTo as string) ?? "";
-  amountEmpty.value = q.amountEmpty === "1" || q.amountEmpty === "true";
-  counterpartyEmpty.value = q.counterpartyEmpty === "1";
+  pendingFilter.value =
+    q.amountEmpty === "1" || q.amountEmpty === "true"
+      ? "amountEmpty"
+      : q.counterpartyEmpty === "1"
+        ? "counterpartyEmpty"
+        : q.unlinked === "1" || q.unlinked === "true"
+          ? "unlinked"
+          : "";
   const sd = Number(q.staleDays);
   staleDays.value = Number.isFinite(sd) && sd > 0 ? sd : null;
   ocrStatus.value = (q.ocrStatus as string) ?? "";
   exported.value = (q.exported as string) ?? "";
-  unlinked.value = q.unlinked === "1" || q.unlinked === "true";
   sort.value = (q.sort as string) ?? "date_desc";
   // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
   counterpartyExact.value = (q.counterparty as string) ?? "";
@@ -174,9 +183,7 @@ const activeFilters = computed(() => {
   if (keyword.value) out.push({ label: `关键词：${keyword.value}`, clear: () => (keyword.value = "") });
   if (dateFrom.value || dateTo.value)
     out.push({ label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`, clear: () => ((dateFrom.value = ""), (dateTo.value = "")) });
-  if (amountEmpty.value) out.push({ label: "金额未填", clear: () => (amountEmpty.value = false) });
-  if (counterpartyEmpty.value)
-    out.push({ label: "对方未填", clear: () => (counterpartyEmpty.value = false) });
+
   if (staleDays.value) out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
   if (counterpartyExact.value)
     out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
@@ -189,7 +196,11 @@ const activeFilters = computed(() => {
     out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
   if (exported.value)
     out.push({ label: exported.value === "never" ? "从未导出" : "已导出过", clear: () => (exported.value = "") });
-  if (unlinked.value) out.push({ label: "未被佐证", clear: () => (unlinked.value = false) });
+  if (pendingFilter.value)
+    out.push({
+      label: PENDING_LABEL[pendingFilter.value],
+      clear: () => (pendingFilter.value = ""),
+    });
   return out;
 });
 
@@ -512,9 +523,7 @@ function clearAllFilters() {
   dateTo.value = "";
   ocrStatus.value = "";
   exported.value = "";
-  amountEmpty.value = false;
-  counterpartyEmpty.value = false;
-  unlinked.value = false;
+  pendingFilter.value = "";
 }
 
 const selectedIds = ref<Set<number>>(new Set());
@@ -628,7 +637,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, direction, staleDays, ocrStatus, exported, unlinked, sort], () => {
+watch([status, dateFrom, dateTo, pendingFilter, counterpartyExact, direction, staleDays, ocrStatus, exported, sort], () => {
   page.value = 1;
   void load();
   // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
@@ -672,15 +681,12 @@ watch(keyword, () => {
         <option value="never">从未导出</option>
         <option value="any">导出过</option>
       </select>
-      <label class="inline-check" title="只看金额未填的凭证">
-        <input v-model="amountEmpty" type="checkbox" /> 金额未填
-      </label>
-      <label class="inline-check" title="只看对方账户未填的凭证">
-        <input v-model="counterpartyEmpty" type="checkbox" /> 对方未填
-      </label>
-      <label class="inline-check" title="只看没有任何关联、也不属于任何事项组的凭证（付款截图缺说明时用）">
-        <input v-model="unlinked" type="checkbox" /> 未被佐证
-      </label>
+      <select v-model="pendingFilter" class="input" style="max-width: 150px" title="只看某一类缺项（金额未填 / 对方未填 / 未被佐证）">
+        <option value="">缺项</option>
+        <option value="amountEmpty">金额未填</option>
+        <option value="counterpartyEmpty">对方未填</option>
+        <option value="unlinked">未被佐证</option>
+      </select>
       <input v-model="counterpartyExact" class="input" style="max-width: 170px"
         placeholder="对方账户（精确）" title="对方账户整串相等（区别于搜索框的模糊匹配）" />
       <select v-model="direction" class="input" style="max-width: 150px" title="按收支方向筛选">
@@ -697,7 +703,6 @@ watch(keyword, () => {
         <option value="amount_asc">金额（小→大）</option>
       </select>
       <span class="flex-1"></span>
-      <span class="count">{{ total }} 张</span>
       <template v-if="selectedIds.size">
         <span class="sel-count">已选 {{ selectedIds.size }} 张</span>
         <select v-model="batchStatus" class="input" style="max-width: 150px" title="批量改状态">
@@ -860,7 +865,20 @@ watch(keyword, () => {
 <style scoped>
 .library { display: flex; flex-direction: column; gap: var(--s-3); height: 100%; }
 
-.filter-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+/* 筛选栏**吸顶**（2026-10-17 用户要求）：滚动凭证列表与右栏编辑器时筛选选项保持不动。
+   `.main-scroll` 是滚动容器 → sticky top:0 会贴在工具栏下方；加背景与下边线避免内容透出。 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: var(--s-2) 0;
+  background: var(--bg-content);
+  box-shadow: 0 1px 0 var(--separator);
+}
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
