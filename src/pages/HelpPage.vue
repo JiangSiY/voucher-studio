@@ -56,7 +56,7 @@ const navMap: { name: string; what: string }[] = [
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="edit" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">2 · 整理</div>
           <div style="font-size: 12px; color: var(--text-3)">
-            补全摘要、金额、标签；一键 OCR 提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
+            补全摘要、金额、收支方向；一键 OCR 提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
           </div>
         </div>
         <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">

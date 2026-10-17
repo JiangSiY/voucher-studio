@@ -30,7 +30,6 @@ import RelatedVouchers from "../components/voucher/RelatedVouchers.vue";
 import VoucherGroups from "../components/voucher/VoucherGroups.vue";
 import { useNeighborNav } from "../composables/neighborNav";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
-import { parseTags } from "../composables/money";
 import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
 import { toast, toastError } from "../stores/toast";
 
@@ -57,8 +56,10 @@ const counterpartyEmpty = ref(false);
 const staleDays = ref<number | null>(null);
 /** 精确筛选：对方账户（整串相等）——洞察的月度透视下钻会带这个参数 */
 const counterpartyExact = ref("");
-/** 精确筛选：标签（逗号/顿号分隔，任一命中）——同上 */
-const tagsText = ref("");
+/** v0.22：标签收敛为「收支方向」——筛选改为下拉（全部 / 收入 / 支出 / 未标）。
+    方向本身仍走既有的 `tags` 精确匹配（后端 `json_each` 等值），「未标」走 `directionNone`。 */
+const DIRECTION_LABEL: Record<string, string> = { "": "全部", "收入": "收入", "支出": "支出", none: "未标" };
+const direction = ref<string>("");
 const ocrStatus = ref<string>("");
 const exported = ref<string>("");
 /** v0.22：只筛「未被佐证」（没有任何关联、也不在事项组里）——正对"付款截图缺说明"的核对痛点 */
@@ -75,7 +76,8 @@ function query() {
     counterpartyEmpty: counterpartyEmpty.value,
     staleDays: staleDays.value,
     counterparty: counterpartyExact.value.trim() || null,
-    tags: parseTags(tagsText.value),
+    tags: direction.value === "收入" || direction.value === "支出" ? [direction.value] : [],
+    directionNone: direction.value === "none",
     ocrStatus: ocrStatus.value || null,
     exported: (exported.value || null) as "never" | "any" | null,
     unlinked: unlinked.value ? true : null,
@@ -150,7 +152,17 @@ function readQuery() {
   sort.value = (q.sort as string) ?? "date_desc";
   // v0.18 修复：洞察-月度透视下钻会带 `counterparty=` / `tags=`，此前这里没读 → 列表不过滤
   counterpartyExact.value = (q.counterparty as string) ?? "";
-  tagsText.value = (q.tags as string) ?? "";
+  // v0.22：兼容两种来源——旧下钻参数 `tags=收入|支出`，以及 `direction=none|收入|支出`
+  const legacyTags = (q.tags as string) ?? "";
+  const dirParam = (q.direction as string) ?? "";
+  direction.value =
+    dirParam === "none" || q.directionNone === "1"
+      ? "none"
+      : legacyTags.includes("收入")
+        ? "收入"
+        : legacyTags.includes("支出")
+          ? "支出"
+          : "";
   // v0.19：`focus` = 其他页面"去看这一张"（深链聚焦，不参与筛选；见 load() 里的处理）
   const f = Number(q.focus);
   pendingFocus = Number.isFinite(f) && f > 0 ? f : null;
@@ -168,8 +180,11 @@ const activeFilters = computed(() => {
   if (staleDays.value) out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
   if (counterpartyExact.value)
     out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
-  if (tagsText.value)
-    out.push({ label: `标签：${tagsText.value}`, clear: () => (tagsText.value = "") });
+  if (direction.value)
+    out.push({
+      label: `收支方向：${DIRECTION_LABEL[direction.value]}`,
+      clear: () => (direction.value = ""),
+    });
   if (ocrStatus.value)
     out.push({ label: `OCR：${ocrStatus.value === "pending" ? "待识别" : ocrStatus.value}`, clear: () => (ocrStatus.value = "") });
   if (exported.value)
@@ -492,7 +507,7 @@ function onKeydown(e: KeyboardEvent) {
 function clearAllFilters() {
   staleDays.value = null;
   counterpartyExact.value = "";
-  tagsText.value = "";
+  direction.value = "";
   dateFrom.value = "";
   dateTo.value = "";
   ocrStatus.value = "";
@@ -613,7 +628,7 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, tagsText, staleDays, ocrStatus, exported, unlinked, sort], () => {
+watch([status, dateFrom, dateTo, amountEmpty, counterpartyEmpty, counterpartyExact, direction, staleDays, ocrStatus, exported, unlinked, sort], () => {
   page.value = 1;
   void load();
   // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
@@ -668,8 +683,12 @@ watch(keyword, () => {
       </label>
       <input v-model="counterpartyExact" class="input" style="max-width: 170px"
         placeholder="对方账户（精确）" title="对方账户整串相等（区别于搜索框的模糊匹配）" />
-      <input v-model="tagsText" class="input" style="max-width: 170px"
-        placeholder="标签（逗号分隔）" title="标签精确匹配，多个用、或,分隔（任一命中）" />
+      <select v-model="direction" class="input" style="max-width: 150px" title="按收支方向筛选">
+        <option value="">收支方向</option>
+        <option value="收入">收入</option>
+        <option value="支出">支出</option>
+        <option value="none">未标</option>
+      </select>
       <select v-model="sort" class="input" style="max-width: 150px" title="排序">
         <option value="date_desc">日期（新→旧）</option>
         <option value="date_asc">日期（旧→新）</option>

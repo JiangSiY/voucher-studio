@@ -51,7 +51,7 @@ function applyPreset(p: RangePreset) {
   }
 }
 
-// ---------- 月度透视（月份 × 对方 / 标签）与台账 ----------
+// ---------- 月度透视（月份 × 对方 / 收支方向）与台账 ----------
 
 const dim = ref<"counterparty" | "tag">("counterparty");
 const breakdown = ref<BreakdownRow[]>([]);
@@ -246,7 +246,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
       </section>
     </div>
 
-    <!-- 月度透视：月份 × 对方/标签，点一行**精确下钻**到资料库（批次 5 的精确维度） -->
+    <!-- 月度透视：月份 × 对方/收支方向，点一行**精确下钻**到资料库（批次 5 的精确维度） -->
     <section class="panel">
       <header class="sh">
         <h3>月度透视</h3>
@@ -254,7 +254,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
           <button class="seg-item" role="tab" :aria-selected="dim === 'counterparty'"
             :class="{ active: dim === 'counterparty' }" @click="switchDim('counterparty')">按对方账户</button>
           <button class="seg-item" role="tab" :aria-selected="dim === 'tag'"
-            :class="{ active: dim === 'tag' }" @click="switchDim('tag')">按标签</button>
+            :class="{ active: dim === 'tag' }" @click="switchDim('tag')">按收支方向</button>
         </div>
         <span class="scope">每月前 5 项 · 按金额倒序</span>
       </header>

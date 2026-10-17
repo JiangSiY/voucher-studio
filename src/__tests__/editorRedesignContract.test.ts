@@ -92,6 +92,35 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(search).not.toContain('class="btn btn-sm" @click="clearFilters"');
   });
 
+  it("「标签」筛选统一为「收支方向」下拉（列表 + 打印中心），不再有自由文本标签输入", () => {
+    const lib = read("src/pages/LibraryPage.vue");
+    // 下拉四档：全部 / 收入 / 支出 / 未标
+    expect(lib).toContain('title="按收支方向筛选"');
+    expect(lib).toContain('<option value="收入">收入</option>');
+    expect(lib).toContain('<option value="支出">支出</option>');
+    expect(lib).toContain('<option value="none">未标</option>');
+    // 映射到既有 tags（方向本身）与新 directionNone（未标）
+    expect(lib).toContain('tags: direction.value === "收入" || direction.value === "支出" ? [direction.value] : []');
+    expect(lib).toContain('directionNone: direction.value === "none"');
+    // 旧文案不得回归
+    expect(lib).not.toContain("标签（逗号分隔）");
+    expect(lib).not.toContain("tagsText");
+    // 打印中心同为下拉
+    const print = read("src/pages/PrintCenterPage.vue");
+    expect(print).toContain('title="按收支方向筛选"');
+    expect(print).not.toContain("filterTag");
+    expect(print).not.toContain("标签过滤");
+  });
+
+  it("用户可见的「标签」措辞已统一为「收支方向」（洞察透视 / 排行卡 / 帮助页 / 导出说明）", () => {
+    expect(read("src/pages/InsightsPage.vue")).toContain(">按收支方向</button>");
+    expect(read("src/components/dashboard/TopListsPanel.vue")).toContain("收支方向（按金额");
+    expect(read("src/pages/HelpPage.vue")).toContain("补全摘要、金额、收支方向");
+    // 后端导出表头（xlsx/csv 第 7 列）
+    const table = readFileSync(resolve(process.cwd(), "crates/voucher-core/src/services/table.rs"), "utf8");
+    expect(table).toContain('"收支方向"');
+  });
+
   it("未保存状态显示在右栏头部（由编辑器 dirty 事件驱动）", () => {
     const editor = read(EDITOR);
     expect(editor).toContain("dirty: [v: boolean]");

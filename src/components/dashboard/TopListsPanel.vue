@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 仪表盘 → Top 对方账户排行 + 标签分类统计（双栏，按金额降序）。
+ * 仪表盘 → Top 对方账户排行 + 收支方向统计（双栏，按金额降序）。
  *
  * 2026-10-16：**跟随洞察页时间窗**（用户反馈"排行不跟随时间窗"）。窗口由父组件以
  * `dateFrom`/`dateTo` 传入，原样落到后端 `top_counterparties` / `tag_stats` 的日期闭区间；
@@ -41,7 +41,7 @@ function cpBarWidth(c: CounterpartyRow): string {
   return `${Math.max(2, (c.amountCents / cpMaxAmount.value) * 100)}%`;
 }
 
-// ---------- 功能深化 3：标签分类统计（按金额降序，全部历史） ----------
+// ---------- 功能深化 3：收支方向统计（按金额降序，全部历史） ----------
 
 const TAG_TOP = 10;
 const tagRows = ref<TagRow[]>([]);
@@ -54,7 +54,7 @@ function tagBarWidth(t: TagRow): string {
   return `${Math.max(2, (t.amountCents / tagMaxAmount.value) * 100)}%`;
 }
 
-/** 标签显示名：空串 = 未分类 */
+/** 收支方向显示名：空串 = 未标注 */
 function tagLabel(t: TagRow): string {
   return t.tag || "未分类";
 }
@@ -64,7 +64,7 @@ function gotoCounterparty(name: string) {
   router.push({ path: "/vouchers", query: { keyword: name } });
 }
 
-/** 标签分类行 → 列表页按标签关键词筛选（「未分类」无法用关键词表达，不可点） */
+/** 收支方向行 → 列表页按方向筛选（「未标注」不可点：它没有对应的关键词） */
 function gotoTag(tag: string) {
   if (!tag) return;
   router.push({ path: "/vouchers", query: { keyword: tag } });
@@ -117,20 +117,20 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 功能深化 3：标签分类统计（未分类固定末尾；一张多标签在每个标签下各计一次） -->
+    <!-- 功能深化 3：收支方向统计（未标注固定末尾；一张多标签在每个标签下各计一次） -->
     <div class="fluent-panel" v-if="tagRows.length">
       <div class="fluent-panel-header">
-        <h3>标签分类（按金额 · {{ scopeLabel }}）</h3>
+        <h3>收支方向（按金额 · {{ scopeLabel }}）</h3>
         <span class="dist-sum">共 {{ tagRows.length }} 类 · 含未分类</span>
       </div>
       <div class="fluent-panel-body">
         <div v-for="(t, i) in tagRows" :key="t.tag || '__untagged__'" class="cp-row"
           :class="{ 'cp-click': t.tag }"
           :style="t.tag ? 'cursor: pointer' : ''"
-          :title="t.tag ? `点击查看「${tagLabel(t)}」的 ${t.count} 张凭证` : '没有任何标签的凭证'"
+          :title="t.tag ? `点击查看「${tagLabel(t)}」的 ${t.count} 张凭证` : '没有标注收支方向的凭证'"
           @click="gotoTag(t.tag)">
           <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 && t.tag }">{{ t.tag ? i + 1 : "—" }}</span>
-          <span class="cp-name" :class="{ 'cp-name-muted': !t.tag }" :title="t.tag ? t.tag : '没有任何标签的凭证'">
+          <span class="cp-name" :class="{ 'cp-name-muted': !t.tag }" :title="t.tag ? t.tag : '没有标注收支方向的凭证'">
             {{ t.tag ? `# ${tagLabel(t)}` : tagLabel(t) }}
           </span>
           <div class="cp-bar-wrap">
@@ -232,7 +232,7 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* 标签面板中「未分类」行的弱化样式 */
+/* 收支方向面板中「未标注」行的弱化样式 */
 .cp-name-muted {
   color: var(--text-3);
 }

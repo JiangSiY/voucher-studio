@@ -6,11 +6,11 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **287 个**（src 内联 **154** + tests/ 集成 **133**，含
+> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **288 个**（src 内联 **154** + tests/ 集成 **134**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 6 + print_appendix 1（v0.22 关联批 / 批次③）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 7 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 303 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 305 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -138,6 +138,12 @@
 > 成对规则并排；③ 原自由文本「标签」输入框改为 `role="radiogroup"` 的 **未标 / 收入 / 支出** 分段按钮，
 > 值写进 `tags`（**非方向旧标签原样保留**，并在下方小字只读展示 `其他标签：…`，不静默丢数据）。
 > 契约测试 9 → **11 例**；`LibraryPage.test.ts` 的标签交互由 `setValue` 改「点 支出」→ 前端 **50 文件 303 用例**。
+> **2026-10-17 收⑦（「标签」措辞全应用统一为「收支方向」）**：Rust 新增
+> `voucher_link_flow.rs::direction_none_filter_matches_vouchers_without_income_or_expense_tag`
+> （「未标」＝标签里既无收入也无支出；`tags` 精确匹配收入/支出；**非法 JSON 兜底视为未标且查询不报错**）→
+> 集成 133 → **134**、`voucher-core` 287 → **288**、总数 **290 → 291**；前端：列表与打印中心的标签筛选改
+> **下拉**（全部/收入/支出/未标）、洞察按钮改「按收支方向」、仪表盘卡片与导出表头改「收支方向」、
+> 契约测试 11 → **13 例** → 前端 **50 文件 305 用例**。
 > Rust 侧本批未动（仍 **290**）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。

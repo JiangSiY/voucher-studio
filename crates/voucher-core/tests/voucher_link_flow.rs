@@ -339,3 +339,88 @@ fn memo_voucher_without_image_is_allowed_and_does_not_break_flows() -> Result<()
     assert_eq!((items.len() as u64, total), (1, 1));
     Ok(())
 }
+
+/// v0.22 收支方向筛选：「未标」＝标签数组里既没有「收入」也没有「支出」；
+/// 方向本身走既有的 `tags` 精确匹配；脏数据（非法 JSON）也按「未标」算，不让查询报错。
+#[test]
+fn direction_none_filter_matches_vouchers_without_income_or_expense_tag() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let income = mk(&ctx, "记-收", Some(1_000))?;
+    let expense = mk(&ctx, "记-支", Some(2_000))?;
+    let none = mk(&ctx, "记-未标", Some(3_000))?;
+    let other = mk(&ctx, "记-其他标签", Some(4_000))?;
+
+    voucher_mgr::update_voucher(
+        &ctx,
+        income,
+        voucher_core::models::VoucherUpdate {
+            tags: Some(vec!["收入".into()]),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::update_voucher(
+        &ctx,
+        expense,
+        voucher_core::models::VoucherUpdate {
+            tags: Some(vec!["支出".into()]),
+            ..Default::default()
+        },
+    )?;
+    voucher_mgr::update_voucher(
+        &ctx,
+        other,
+        voucher_core::models::VoucherUpdate {
+            tags: Some(vec!["办公".into()]),
+            ..Default::default()
+        },
+    )?;
+
+    let ids_of = |q: &VoucherQuery| -> Result<Vec<i64>> {
+        let (items, _) = voucher_mgr::list(&ctx, q)?;
+        let mut ids: Vec<i64> = items.iter().map(|v| v.id).collect();
+        ids.sort_unstable();
+        Ok(ids)
+    };
+
+    // 未标：只有「记-未标」与「记-其他标签」（有别的标签但没有收入/支出）
+    let mut expect = vec![none, other];
+    expect.sort_unstable();
+    assert_eq!(
+        ids_of(&VoucherQuery {
+            direction_none: true,
+            ..Default::default()
+        })?,
+        expect
+    );
+
+    // 方向本身：精确等值匹配（既有 tags 维度）
+    assert_eq!(
+        ids_of(&VoucherQuery {
+            tags: vec!["收入".into()],
+            ..Default::default()
+        })?,
+        vec![income]
+    );
+    assert_eq!(
+        ids_of(&VoucherQuery {
+            tags: vec!["支出".into()],
+            ..Default::default()
+        })?,
+        vec![expense]
+    );
+
+    // 脏数据兜底：手写非法 JSON 的标签不算方向（也不让查询报错）
+    ctx.db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE vouchers SET tags = 'not-json' WHERE id = ?1",
+            [none],
+        )?;
+        Ok(())
+    })?;
+    let dirty = ids_of(&VoucherQuery {
+        direction_none: true,
+        ..Default::default()
+    })?;
+    assert_eq!(dirty, expect, "非法 JSON 视为未标，且查询不报错");
+    Ok(())
+}

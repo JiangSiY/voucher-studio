@@ -51,6 +51,9 @@ pub struct VoucherQuery {
     /// v0.22 关联维度：`true` 只筛「**未被佐证**」的凭证（既没有任何关联、也不属于任何事项组）；
     /// `false` 只筛"已有佐证"的；`None` 不筛。对应收件箱/列表的"付款截图缺说明"待办。
     pub unlinked: Option<bool>,
+    /// v0.22 收支方向：`true` 只筛**没有任何收支方向标签**（`收入`/`支出`）的凭证。
+    /// 「收入/支出」两个方向本身的筛选走既有的 `tags`（精确等值，任一命中）。
+    pub direction_none: bool,
     /// 排序：`date_desc`（默认，与历史一致）| `date_asc` | `updated_desc` | `amount_desc` | `amount_asc`
     pub sort: Option<String>,
 }
@@ -434,6 +437,17 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
                 .to_string(),
         );
     }
+    // v0.22 收支方向：「未标」＝标签数组里既没有「收入」也没有「支出」。
+    // json_valid 兜底：脏数据（非法 JSON）视为"未标"而不是让整个查询报错。
+    if q.direction_none {
+        where_clauses.push(
+            "(COALESCE(json_valid(vouchers.tags), 0) = 0
+              OR NOT EXISTS (SELECT 1 FROM json_each(vouchers.tags) je
+                             WHERE je.value IN ('收入','支出')))"
+                .to_string(),
+        );
+    }
+
     // v0.22：关联维度——"未被佐证"＝既没有 `voucher_links`（任一方向）也不在任何事项组里。
     // 只改这一处即可覆盖 list / list_ids / neighbor（三者共用 `build_filter_where`），
     // 因此"位置/总数"与列表天然同口径。

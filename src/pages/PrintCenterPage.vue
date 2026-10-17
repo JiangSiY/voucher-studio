@@ -30,11 +30,11 @@ const includeLinks = ref(true);
 /** v0.10：导出格式（PDF 保留原有按天/合并两形态；Excel/CSV 走表格式导出） */
 const exportFormat = ref<"pdf" | "xlsx" | "csv">("pdf");
 
-// ---------- 筛选器（按日期范围 / 状态 / 标签） ----------
+// ---------- 筛选器（按日期范围 / 状态 / 收支方向） ----------
 const filterDateFrom = ref("");
 const filterDateTo = ref("");
 const filterStatus = ref<"all" | VoucherStatus>("all");
-const filterTag = ref("");
+const filterDirection = ref("");
 
 /** 筛选后的可选凭证 */
 /** 渲染上限（2026-09-23 审计 B16）：打印中心原先把**全部**筛选结果渲染成 <tr>，
@@ -48,9 +48,11 @@ const filteredVouchers = computed(() => {
     if (filterDateFrom.value && v.voucherDate < filterDateFrom.value) return false;
     if (filterDateTo.value && v.voucherDate > filterDateTo.value) return false;
     if (filterStatus.value !== "all" && v.status !== filterStatus.value) return false;
-    if (filterTag.value.trim()) {
-      const tag = filterTag.value.trim().toLowerCase();
-      if (!v.tags.some((t) => t.toLowerCase().includes(tag))) return false;
+    if (filterDirection.value === "none") {
+      // 未标：标签里既没有「收入」也没有「支出」
+      if (v.tags.includes("收入") || v.tags.includes("支出")) return false;
+    } else if (filterDirection.value && !v.tags.includes(filterDirection.value)) {
+      return false;
     }
     return true;
   });
@@ -81,7 +83,7 @@ function clearFilters() {
   filterDateFrom.value = "";
   filterDateTo.value = "";
   filterStatus.value = "all";
-  filterTag.value = "";
+  filterDirection.value = "";
 }
 
 const taskStore = useTaskStore();
@@ -174,7 +176,7 @@ async function generate() {
   const stopLabel = exportFormat.value === "pdf" ? "PDF" : exportFormat.value === "xlsx" ? "Excel" : "CSV";
   const taskId = taskStore.start("export", `生成${stopLabel}（${selected.value.size} 张凭证）`);
   try {
-    // v0.10：表格式导出（Excel / CSV）——列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行
+    // v0.10：表格式导出（Excel / CSV）——列：凭证号/日期/摘要/对方/金额/状态/收支方向/备注 + 合计行
     if (exportFormat.value !== "pdf") {
       const batch = await api.exportTable([...selected.value], exportFormat.value);
       taskStore.finish(taskId, {
@@ -283,7 +285,13 @@ onUnmounted(() => {
               <option value="exported">已导出</option>
               <option value="archived">已归档</option>
             </select>
-            <input v-model="filterTag" class="input" style="flex: 1; min-width: 120px" placeholder="标签过滤（模糊匹配）" />
+            <select v-model="filterDirection" class="input" style="flex: 1; min-width: 120px"
+              title="按收支方向筛选">
+              <option value="">收支方向</option>
+              <option value="收入">收入</option>
+              <option value="支出">支出</option>
+              <option value="none">未标</option>
+            </select>
             <button class="btn btn-subtle" @click="clearFilters">清除筛选</button>
           </div>
           <div style="display: flex; gap: 4px; margin-top: 8px">
@@ -334,7 +342,7 @@ onUnmounted(() => {
         <div class="fluent-panel-body">
           <!-- v0.18：导出格式已提到顶部操作条（唯一入口），此处不再重复 -->
           <div class="desc" v-if="exportFormat !== 'pdf'">
-            表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 标签 / 备注 + 合计行），适合对账与导入记账软件
+            表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 收支方向 / 备注 + 合计行），适合对账与导入记账软件
           </div>
           <template v-if="exportFormat === 'pdf'">
           <div class="field">
@@ -407,7 +415,7 @@ onUnmounted(() => {
           仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
         </div>
         <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
-          文件另含 标签 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
+          文件另含 收支方向 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
         </div>
       </div>
 
