@@ -491,8 +491,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <!-- 常规档（堆叠）：外标签**双行**，与两个输入行逐行对齐（用户 2026-10-17 反馈） -->
           <span class="ed-pair-col">日期</span>
           <span class="ed-pair-col">金额（元）</span>
-          <!-- 展宽档（并排）：合成一行，具体字段就近用子标签标注 -->
-          <span class="ed-pair-merged">日期 / 金额</span>
         </span>
         <div class="ed-pair-fields">
           <label class="ed-pair-item" data-field="date">
@@ -532,7 +530,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
         <span class="ed-pair-labels">
           <span class="ed-pair-col">对方账户</span>
           <span class="ed-pair-col">收支方向</span>
-          <span class="ed-pair-merged">对方账户 / 收支方向</span>
         </span>
         <div class="ed-pair-fields">
           <label class="ed-pair-item" data-field="counterparty">
@@ -629,10 +626,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 /* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
 .ed-row { display: contents; }
 /* 日期 + 金额：常规档堆叠（各占整行），展宽档并排（两个半宽） */
-/* 成对行标签（v0.22，用户 2026-10-17「标签改为双行显示」）：
-   - 常规档（字段堆叠）：外标签**双行**，行高与行距跟字段区一致 → 每行标签正对它的输入框；
-   - 展宽档（字段并排）：外标签合成一行，具体字段靠各自的子标签标注。
-   两档共用同一套 .ed-pair-fields 网格，切档只切显示，DOM 不变。 */
+/* 成对行标签（v0.22，用户 2026-10-17 两次反馈后的定稿）：
+   - **两档都用双行标签**（`日期` / `金额（元）`；`对方账户` / `收支方向`）——
+     常规档下每行正对它的输入框；展宽档下把标签列压到最窄（不再出现「对方账户 / 收支方向」这种长行，
+     用户："展开后把这两个长标签做成两行显示，减少标签占的宽度"）；
+   - 展宽档字段并排时，字段内子标签显示（就近标注是哪一格）；常规档隐藏（避免与外标签重复）。
+   两档共用同一层 DOM，切档只切显示（不重建输入框、不丢焦点/草稿）。*/
 .ed-pair > span {
   align-self: start;
 }
@@ -649,27 +648,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   font: var(--type-caption);
   white-space: nowrap;
 }
-.ed-pair-merged {
-  display: none;
-  align-items: center;
-  color: var(--label-tertiary);
-  font: var(--type-caption);
-  white-space: nowrap;
-}
 /* 内部子标签：默认（堆叠）不显示，避免与外标签双行重复 */
 .ed-pair-item .ed-pair-label {
   display: none;
 }
-/* 展宽档：外标签单行 + 子标签标注 */
-.editor:not(.editor-dense) .ed-pair-labels {
-  display: block;
-}
-.editor:not(.editor-dense) .ed-pair-col {
-  display: none;
-}
-.editor:not(.editor-dense) .ed-pair-merged {
-  display: flex;
-}
+/* 展宽档：字段并排，故字段内子标签显示（外标签仍是双行，标签列保持最窄） */
 .editor:not(.editor-dense) .ed-pair-item .ed-pair-label {
   display: block;
 }

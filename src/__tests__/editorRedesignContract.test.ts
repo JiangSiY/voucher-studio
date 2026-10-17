@@ -191,7 +191,9 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(editor).toMatch(
       /\.editor:not\(\.editor-dense\) \.ed-pair-item \.ed-pair-label\s*\{\s*display:\s*block/,
     );
-    expect(editor).toMatch(/\.editor:not\(\.editor-dense\) \.ed-pair-merged\s*\{\s*display:\s*flex/);
+    // 展宽档也保持双行标签（用户：展开后长标签改两行，减少标签列宽度）→ 不再有「合并一行」那一支
+    expect(editor).not.toContain("ed-pair-merged");
+    expect(editor).not.toMatch(/\.ed-pair-col\s*\{[^}]*display:\s*none/);
   });
 
   it("状态改成分段按钮（radiogroup、四个状态、支持 ←/→），不再用下拉", () => {
