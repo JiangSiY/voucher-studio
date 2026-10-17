@@ -146,7 +146,8 @@ describe("资料库：双行列表与检视器", () => {
     const w = await mountPage();
     await w.find<HTMLInputElement>('[data-field="date"] input').setValue("2026-09-01");
     await w.find<HTMLInputElement>('[data-field="counterparty"] input').setValue("河北神力");
-    await w.find<HTMLSelectElement>('[data-field="status"] select').setValue("reviewed");
+    // v0.22：状态由下拉改为分段按钮（B 批后续）——点选即切换
+    await w.find('[data-field="status"] [data-status="reviewed"]').trigger("click");
     await w.find<HTMLInputElement>('[data-field="tags"] input').setValue("工程款、九月");
     await w.find<HTMLTextAreaElement>('[data-field="note"] textarea').setValue("已核对");
     await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");

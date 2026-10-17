@@ -102,17 +102,50 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(lib).toContain("● 未保存");
   });
 
-  it("表单高频前置：摘要 → 日期 → 金额 → 状态；只读编号行已移出表单", () => {
+  it("表单高频前置：摘要 → 日期/金额（同排） → 状态；只读编号行已移出表单", () => {
     const editor = read(EDITOR);
     const idx = (f: string) => editor.indexOf(`data-field="${f}"`);
     expect(idx("description")).toBeGreaterThan(-1);
-    expect(idx("description")).toBeLessThan(idx("date"));
-    expect(idx("date")).toBeLessThan(idx("amount"));
-    expect(idx("amount")).toBeLessThan(idx("status"));
+    expect(idx("description")).toBeLessThan(idx("date-amount"));
+    // 日期与金额在**同一行**里（子字段仍保留各自的 data-field 钩子，自动化选择器不用改道）
+    expect(idx("date")).toBeGreaterThan(idx("date-amount"));
+    expect(idx("amount")).toBeGreaterThan(idx("date"));
+    expect(idx("date-amount")).toBeLessThan(idx("status"));
     // 编号不再占表单一行（右栏头部已显示）
     expect(editor).not.toContain('data-field="no"');
     // 备注自适应 + 操作条吸底
     expect(editor).toContain("field-sizing: content");
     expect(editor).toMatch(/\.editor > \.ed-ops\s*\{[^}]*position:\s*sticky/);
+  });
+
+  it("状态改成分段按钮（radiogroup、四个状态、支持 ←/→），不再用下拉", () => {
+    const editor = read(EDITOR);
+    expect(editor).toContain('role="radiogroup"');
+    expect(editor).toContain('role="radio"');
+    expect(editor).toContain(":aria-checked=");
+    for (const [value, label] of [
+      ["draft", "草稿"],
+      ["reviewed", "已复核"],
+      ["exported", "已导出"],
+      ["archived", "已归档"],
+    ] as const) {
+      expect(editor).toContain(`value: "${value}", label: "${label}"`);
+    }
+    expect(editor).toContain("onStatusKeydown");
+    expect(editor).toContain("ArrowRight");
+    // 状态行里不得再有 select
+    const statusRow = editor.slice(editor.indexOf('data-field="status"'), editor.indexOf('data-field="status"') + 700);
+    expect(statusRow).not.toContain("<select");
+  });
+
+  it("日期/金额按控件利用率并排：仅展宽档两列，常规档堆叠", () => {
+    const editor = read(EDITOR);
+    // 基础规则 = 单列（堆叠）
+    const base = editor.slice(editor.indexOf(".ed-pair-fields {"));
+    expect(base.slice(0, 160)).toContain("grid-template-columns: minmax(0, 1fr)");
+    // 展宽档（非 dense）才两列
+    expect(editor).toMatch(
+      /\.editor:not\(\.editor-dense\) \.ed-pair-fields\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/,
+    );
   });
 });

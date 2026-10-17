@@ -10,7 +10,7 @@
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 6 + print_appendix 1（v0.22 关联批 / 批次③）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **50 文件 299 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **50 文件 301 用例**（含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -126,6 +126,12 @@
 > （高 `--control-h-sm` = 26px）而 `.input` 是 `--control-h-md`（32px）；两个关联区块的建立行改为显式 grid
 > （类型/搜索/搜索按钮同排 + 说明独占下一行铺满，不再截断），行内按钮一律 `.btn`；顺带排查同类问题并修
 > 搜索页「清除筛选」（同排整排 `.input`）。契约测试 6 → **7 例**（新增「与输入框同排的按钮一律 md」）→ **50 文件 299 用例**。
+> **同日再补（状态分段按钮 + 日期/金额条件并排）**：用户定「状态改为分段按钮，便于操作」；
+> 「日期和金额要不要并排，根据页面的控件利用率决定」。实装：状态行由 `<select>` 改为 `role="radiogroup"`
+> 的四个按钮（草稿/已复核/已导出/已归档，`aria-checked` + Roving tabindex + ←/→ 切换）；
+> 日期+金额合并为一行 `.ed-pair`，**展宽档两列、常规档堆叠**（测算：常规档值格 ≈212px，并排后每格 ≈100px
+> 低于原生日期框 ~130px 的可用宽度；展宽档值格 ≈452px，并排每格 ≈222px 富余）。
+> 契约测试 7 → **9 例**；`LibraryPage.test.ts` 的状态交互由 `setValue` 改「点分段按钮」→ 前端 **50 文件 301 用例**。
 > Rust 侧本批未动（仍 **290**）。
 > Rust 侧未动（仍 **283 = 152 + 131**）。
 > 前端合计数 **49 文件 291 用例**（2026-10-16 当日轨迹：43 文件 257 → 清除死代码批净减 17（删 `dirtyGuard` 9 / `neighborNav` 12 / `VoucherNavBar` 3，新增 `terminologyContract` 3 与 `deadCodeContract` 1）→ 42 文件 240 → 任务中心批 +19 → 45 文件 259 → 侧栏瘦身 / 排行时间窗 / toast 规范对齐批 +11 → 47 文件 270 → 上下文翻张批 +18（含 `neighborNav` 回归的 8 例）→ 49 文件 288 → 真机走查收口 + ⌘⇧Enter 批 +3 → **49 文件 291**；更早 41 文件 247 / 38 文件 232 / 35 文件 217）。

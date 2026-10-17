@@ -116,6 +116,24 @@ function resetFrom(v: Voucher) {
   form.value = toForm(v);
 }
 
+/** 状态分组按钮（顺序＝流程顺序；用户要求"便于操作"） */
+const STATUS_OPTIONS: { value: Voucher["status"]; label: string }[] = [
+  { value: "draft", label: "草稿" },
+  { value: "reviewed", label: "已复核" },
+  { value: "exported", label: "已导出" },
+  { value: "archived", label: "已归档" },
+];
+
+/** ←/→ 在分组按钮间移动（Roving tabindex：只有选中项可 Tab 进入，方向键移动并切换） */
+function onStatusKeydown(e: KeyboardEvent) {
+  const delta = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!delta) return;
+  e.preventDefault();
+  const i = STATUS_OPTIONS.findIndex((o) => o.value === form.value.status);
+  const next = (i + delta + STATUS_OPTIONS.length) % STATUS_OPTIONS.length;
+  form.value.status = STATUS_OPTIONS[next].value;
+}
+
 const dirty = computed(() => {
   const b = baseline.value;
   const f = form.value;
@@ -432,23 +450,43 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
         </div>
       </div>
-      <label class="ed-row" data-field="date">
-        <span>凭证日期</span>
-        <input ref="dateEl" v-model="form.date" type="date" class="input" />
-      </label>
-      <label class="ed-row" data-field="amount">
-        <span>金额（元）</span>
-        <input v-model="form.amount" class="input" inputmode="decimal" placeholder="如：123.45，可留空" />
-      </label>
-      <label class="ed-row" data-field="status">
+      <!-- 日期 + 金额同排：**按控件利用率决定**——
+           右栏常规档可用宽度 ≈ 296px（扣掉标签列 ≈ 212px），一个日期框只吃掉 ~130px，
+           若并排每格只剩 ~100px（原生日期框会挤到看不清）；展宽档 ≈536px（值格 ≈452px），
+           并排后每格 ~222px 既放得下又不浪费。故：**展宽并排、常规堆叠**（堆叠时字段仍各占整行）。 -->
+      <div class="ed-row ed-pair" data-field="date-amount">
+        <span>日期 / 金额</span>
+        <div class="ed-pair-fields">
+          <label class="ed-pair-item" data-field="date">
+            <span class="ed-pair-label">日期</span>
+            <input ref="dateEl" v-model="form.date" type="date" class="input" />
+          </label>
+          <label class="ed-pair-item" data-field="amount">
+            <span class="ed-pair-label">金额（元）</span>
+            <input v-model="form.amount" class="input" inputmode="decimal" placeholder="可留空" />
+          </label>
+        </div>
+      </div>
+      <!-- 状态分组按钮（用户要求"便于操作"）：一眼看到全部状态、单击即切；
+           role=radiogroup + aria-checked，支持 ←/→ 键盘切换（Roving tabindex）。 -->
+      <div class="ed-row" data-field="status">
         <span>状态</span>
-        <select v-model="form.status" class="input">
-          <option value="draft">草稿</option>
-          <option value="reviewed">已复核</option>
-          <option value="exported">已导出</option>
-          <option value="archived">已归档</option>
-        </select>
-      </label>
+        <div class="ed-seg" role="radiogroup" aria-label="凭证状态" @keydown="onStatusKeydown">
+          <button
+            v-for="opt in STATUS_OPTIONS"
+            :key="opt.value"
+            type="button"
+            class="ed-seg-btn"
+            role="radio"
+            :aria-checked="form.status === opt.value"
+            :tabindex="form.status === opt.value ? 0 : -1"
+            :data-status="opt.value"
+            @click="form.status = opt.value"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
       <label class="ed-row" data-field="counterparty">
         <span>对方账户</span>
         <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
@@ -523,6 +561,70 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 }
 /* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
 .ed-row { display: contents; }
+/* 日期 + 金额：常规档堆叠（各占整行），展宽档并排（两个半宽） */
+.ed-pair > span {
+  align-self: start;
+  margin-top: 6px;
+}
+.ed-pair-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-2);
+}
+.editor:not(.editor-dense) .ed-pair-fields {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.ed-pair-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ed-pair-label {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+
+/* 状态分组按钮：一眼看到全部状态、单击即切（替代原下拉） */
+.ed-seg {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  height: var(--control-h-md);
+  width: 100%;
+}
+.ed-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--separator);
+  color: var(--label-secondary);
+  font: var(--type-caption);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ed-seg-btn:first-child {
+  border-left: 0;
+}
+.ed-seg-btn:hover {
+  background: var(--bg-selection);
+}
+.ed-seg-btn[aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.ed-seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* 备注是多行控件：标签对齐顶部更自然（display:contents 后按 DOM 选择器定位即可） */
 .ed-row[data-field="note"] > span { align-self: start; margin-top: 7px; }
 .ed-row > span { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
