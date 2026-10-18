@@ -31,8 +31,10 @@ pub enum CoreError {
     Keyring(#[from] keyring::Error),
     #[error("网络错误: {0}")]
     Http(#[from] reqwest::Error),
+    // printpdf 0.12 不再提供统一的 `Error` 类型（0.7 → 0.12.8 迁移时改为字符串载荷，
+    // 保留变体名以免上层 match 分支变动；当前生成路径不再产生 printpdf 错误）
     #[error("PDF 错误: {0}")]
-    Pdf(#[from] printpdf::Error),
+    Pdf(String),
     #[error("压缩包错误: {0}")]
     Zip(#[from] zip::result::ZipError),
     #[error("Excel 错误: {0}")]

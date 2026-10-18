@@ -2,13 +2,19 @@
 //!
 //! 布局语义对齐 UI 方案：A4 纵向、列数 1/2/3 可选（默认 3 列 × 7 行 = 21 张/页）、
 //! 卡片以凭证编号为核心、文字为主省墨设计、可选附件图片页（2×2/页）。
+//!
+//! 2026-10-18 printpdf 0.7 → 0.12.8（RUSTSEC-2026-0187：0.7 经 lopdf 0.31 引入漏洞）。
+//! 0.12 的写入模型与 0.7 不同：**先往页面收集 `Op`，最后一次性 `with_pages` 交给文档**，
+//! 不再有「文档 → 页 → 层」的即时绘制句柄；因此本模块自建 `PdfBuild`（文档 + 每页 Op）
+//! 与 `Canvas`（页面级绘制入口，等价于 0.7 的 `PdfLayerReference`）两层薄封装，
+//! 所有版式常量、坐标公式与纯函数**逐一保持不变**，只换底层 API。
 
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use printpdf::{
-    Color, Image, ImageTransform, IndirectFontRef, Line, Mm, PdfDocument, PdfLayerReference, Point,
-    Rgb,
+    Color, Line, LinePoint, Mm, Op, ParsedFont, PdfDocument, PdfFontHandle, PdfPage,
+    PdfSaveOptions, Point, Pt, RawImage, Rgb, TextItem, XObjectTransform,
 };
 use serde::Serialize;
 
@@ -100,7 +106,170 @@ const ACCENT: (f32, f32, f32) = (0.0, 0.47, 0.83);
 const BODY: (f32, f32, f32) = (0.25, 0.25, 0.25);
 const GREY: (f32, f32, f32) = (0.5, 0.5, 0.5);
 
-/// 生成 PDF
+// ---------- printpdf 0.12 的写入骨架 ----------
+
+/// 页面下标（`PdfBuild::add_page` 的返回值，按输出顺序）
+type PageId = usize;
+
+/// 文档构造器：持有 `PdfDocument` + 每页的 `Op` 列表 + 已注册的中文字体句柄。
+///
+/// 0.12 的 `PdfPage` 需要「一次给全一页的 op 列表」，而本模块的绘制是边算边画，
+/// 所以按页攒 op，最后 `save` 时统一 `with_pages` + 序列化。
+struct PdfBuild {
+    doc: PdfDocument,
+    pages: Vec<Vec<Op>>,
+    font: PdfFontHandle,
+}
+
+impl PdfBuild {
+    /// 建文档并注册中文字体；字体不可用 = 整份导出失败（与 0.7 行为一致，绝不静默丢字）
+    fn new(title: &str) -> Result<Self> {
+        let mut doc = PdfDocument::new(title);
+        let font = load_cjk_font(&mut doc)?;
+        Ok(Self {
+            doc,
+            pages: Vec::new(),
+            font,
+        })
+    }
+
+    /// 追加一页（按调用顺序输出）
+    fn add_page(&mut self) -> PageId {
+        self.pages.push(Vec::new());
+        self.pages.len() - 1
+    }
+
+    /// 取一页的绘制入口
+    fn canvas(&mut self, page: PageId) -> Canvas<'_> {
+        Canvas {
+            doc: &mut self.doc,
+            ops: &mut self.pages[page],
+            font: self.font.clone(),
+            fill: None,
+            stroke: None,
+            thickness: None,
+        }
+    }
+
+    fn save(self, path: &Path) -> Result<()> {
+        let pages: Vec<PdfPage> = self
+            .pages
+            .into_iter()
+            .map(|ops| PdfPage::new(Mm(PAGE_W), Mm(PAGE_H), ops))
+            .collect();
+        let mut doc = self.doc;
+        doc.with_pages(pages);
+        let mut warnings = Vec::new();
+        let mut out = BufWriter::new(std::fs::File::create(path)?);
+        doc.save_writer(&mut out, &save_options(), &mut warnings);
+        out.flush()?;
+        for w in warnings {
+            log::warn!("PDF 生成警告（第 {} 页）: {}", w.page + 1, w.msg);
+        }
+        Ok(())
+    }
+}
+
+/// 序列化选项：与 0.7 的 `font_subsetting` feature + 默认压缩等价
+fn save_options() -> PdfSaveOptions {
+    PdfSaveOptions {
+        // 子集化：只嵌实际用到的字形（整字体 ≈ 9.4MB/份，子集后 ≈ 10KB）
+        subset_fonts: true,
+        // 0.7 的图片是 raw 像素 + 流压缩（无损）；0.12 的默认值会转 JPEG(q85)（有损）→ 显式关掉
+        image_optimization: None,
+        // 压缩内容流 / 图片流
+        optimize: true,
+        ..Default::default()
+    }
+}
+
+/// 一页的绘制入口（等价 0.7 的 `PdfLayerReference`）。
+///
+/// 颜色/线宽按需写入：同一页里连续同色只发一次算子（PDF 图形状态本就持续生效），
+/// 与 0.7「每次绘制前都设一次」的渲染结果完全一致，文件更小。
+struct Canvas<'a> {
+    doc: &'a mut PdfDocument,
+    ops: &'a mut Vec<Op>,
+    font: PdfFontHandle,
+    fill: Option<(f32, f32, f32)>,
+    stroke: Option<(f32, f32, f32)>,
+    thickness: Option<f32>,
+}
+
+impl Canvas<'_> {
+    fn set_fill(&mut self, color: (f32, f32, f32)) {
+        if self.fill != Some(color) {
+            self.ops.push(Op::SetFillColor {
+                col: rgb(color.0, color.1, color.2),
+            });
+            self.fill = Some(color);
+        }
+    }
+
+    fn set_stroke(&mut self, color: (f32, f32, f32)) {
+        if self.stroke != Some(color) {
+            self.ops.push(Op::SetOutlineColor {
+                col: rgb(color.0, color.1, color.2),
+            });
+            self.stroke = Some(color);
+        }
+    }
+
+    fn set_thickness(&mut self, pt: f32) {
+        if self.thickness != Some(pt) {
+            self.ops.push(Op::SetOutlineThickness { pt: Pt(pt) });
+            self.thickness = Some(pt);
+        }
+    }
+
+    /// 落一段文字：`(x, top)` 为 mm、从页顶往下，`top` 是**基线**（与 0.7 `use_text(.., y(top), ..)` 同义）
+    fn text(&mut self, s: &str, pt: f32, x_mm: f32, top_mm: f32, color: (f32, f32, f32)) {
+        self.set_fill(color);
+        self.ops.push(Op::StartTextSection);
+        self.ops.push(Op::SetFont {
+            font: self.font.clone(),
+            size: Pt(pt),
+        });
+        // 0.7 的 use_text 也是「绝对定位基线 + 写一行字」，坐标语义不变
+        self.ops.push(Op::SetTextCursor {
+            pos: Point::new(Mm(x_mm), y(top_mm)),
+        });
+        self.ops.push(Op::ShowText {
+            items: vec![TextItem::Text(s.to_string())],
+        });
+        self.ops.push(Op::EndTextSection);
+    }
+
+    /// 一条线段（横向/竖向共用）：坐标均为 mm、从页顶往下
+    fn stroke_line(
+        &mut self,
+        x1: f32,
+        top1: f32,
+        x2: f32,
+        top2: f32,
+        thickness: f32,
+        color: (f32, f32, f32),
+    ) {
+        self.set_thickness(thickness);
+        self.set_stroke(color);
+        self.ops.push(Op::DrawLine {
+            line: Line {
+                points: vec![
+                    LinePoint {
+                        p: Point::new(Mm(x1), y(top1)),
+                        bezier: false,
+                    },
+                    LinePoint {
+                        p: Point::new(Mm(x2), y(top2)),
+                        bezier: false,
+                    },
+                ],
+                is_closed: false,
+            },
+        });
+    }
+}
+
 // ---------- 按天日报版式常量（mm / pt）----------
 // 2026-10-16 打印改版（用户要求「字号 ≥ 小四、排版不重叠」）：
 //   - 正文/表头/金额/合计一律 12pt（小四），页脚 9pt，图片 caption 10pt，标题 14pt；
@@ -203,25 +372,18 @@ fn appendix_page_slices(lines: &[AppendixLine]) -> Vec<(usize, usize)> {
 }
 
 /// 画一页「相关凭证清单」：首行说明 + 表头 + 等高的关系行与小计行
-fn draw_appendix_page(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    lines: &[AppendixLine],
-    range: (usize, usize),
-) {
+fn draw_appendix_page(c: &mut Canvas<'_>, lines: &[AppendixLine], range: (usize, usize)) {
     let top = MARGIN + HEADER_H + TSUM_GAP;
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    layer.use_text(
+    c.text(
         "本页仅为佐证索引：金额是相关凭证自己的金额，不并入本日报合计",
         FOOTER_PT,
-        Mm(MARGIN),
-        y(top + 3.0),
-        font,
+        MARGIN,
+        top + 3.0,
+        GREY,
     );
     let head_top = top + 5.0;
     draw_head_cells(
-        layer,
-        font,
+        c,
         head_top,
         &[
             HeadCol {
@@ -253,8 +415,7 @@ fn draw_appendix_page(
         match line {
             AppendixLine::Row(r) => {
                 cell_text(
-                    layer,
-                    font,
+                    c,
                     &r.main_no,
                     BODY_PT,
                     MARGIN + 1.0,
@@ -263,8 +424,7 @@ fn draw_appendix_page(
                     ACCENT,
                 );
                 cell_text(
-                    layer,
-                    font,
+                    c,
                     &r.kind_label,
                     BODY_PT,
                     MARGIN + ACOL_MAIN + 1.0,
@@ -273,8 +433,7 @@ fn draw_appendix_page(
                     BODY,
                 );
                 cell_text(
-                    layer,
-                    font,
+                    c,
                     &r.other_no,
                     BODY_PT,
                     MARGIN + ACOL_MAIN + ACOL_KIND + 1.0,
@@ -283,8 +442,7 @@ fn draw_appendix_page(
                     ACCENT,
                 );
                 cell_text(
-                    layer,
-                    font,
+                    c,
                     &r.summary,
                     BODY_PT,
                     MARGIN + ACOL_MAIN + ACOL_KIND + ACOL_OTHER + 1.0,
@@ -296,8 +454,7 @@ fn draw_appendix_page(
                     let label = format!("￥{}", crate::models::voucher::format_money(cents));
                     let (pt, x) = amount_pt_and_x(&label);
                     cell_text(
-                        layer,
-                        font,
+                        c,
                         &label,
                         pt.min(BODY_PT),
                         x,
@@ -317,8 +474,7 @@ fn draw_appendix_page(
                     crate::models::voucher::format_money(*amount_cents)
                 );
                 cell_text(
-                    layer,
-                    font,
+                    c,
                     &label,
                     BODY_PT,
                     MARGIN + 1.0,
@@ -328,7 +484,7 @@ fn draw_appendix_page(
                 );
             }
         }
-        hline(layer, 0.25, yy + AROW_H - 0.3, STROKE);
+        hline(c, 0.25, yy + AROW_H - 0.3, STROKE);
         yy += AROW_H;
     }
 }
@@ -433,17 +589,11 @@ fn amount_pt_and_x(label: &str) -> (f32, f32) {
 }
 
 /// 画一页表格（表头 + 行 + 末页合计行），返回本页内容底部的 y（mm）
-fn draw_table_page(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    rows: &[RowLayout],
-    range: (usize, usize),
-    top: f32,
-) -> f32 {
-    draw_table_head(layer, font, top);
+fn draw_table_page(c: &mut Canvas<'_>, rows: &[RowLayout], range: (usize, usize), top: f32) -> f32 {
+    draw_table_head(c, top);
     let mut y = top + THEAD_H;
     for r in &rows[range.0..range.1] {
-        draw_table_row(layer, font, r, y);
+        draw_table_row(c, r, y);
         y += r.h;
     }
     y
@@ -481,31 +631,15 @@ const SPEC_COMPACT_CAPTION: (f32, f32, f32) = (CAPTION_PT, 7.0, 0.9);
 
 /// 合计行（两模板共用）：分隔线 + 「合计 / N 张 / ￥金额」右对齐。
 /// `text_dy` 为文本基线相对分隔线的下沉量（按行高微调）。
-fn draw_total_line(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    top: f32,
-    count: usize,
-    total_cents: i64,
-    text_dy: f32,
-) {
-    layer.set_outline_thickness(0.8);
-    layer.set_outline_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(top)), false),
-            (Point::new(Mm(PAGE_W - MARGIN), y(top)), false),
-        ],
-        is_closed: false,
-    });
-    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-    layer.use_text("合计", TOTAL_PT, Mm(MARGIN + 1.0), y(top + text_dy), font);
+fn draw_total_line(c: &mut Canvas<'_>, top: f32, count: usize, total_cents: i64, text_dy: f32) {
+    c.stroke_line(MARGIN, top, PAGE_W - MARGIN, top, 0.8, DARK);
+    c.text("合计", TOTAL_PT, MARGIN + 1.0, top + text_dy, DARK);
 
     let amt_label = format!("￥{}", crate::models::voucher::format_money(total_cents));
     let cnt_label = format!("{count} 张");
     let (cnt_x, amt_x) = total_line_x(&cnt_label, &amt_label);
-    layer.use_text(&amt_label, TOTAL_PT, Mm(amt_x), y(top + text_dy), font);
-    layer.use_text(&cnt_label, TOTAL_PT, Mm(cnt_x), y(top + text_dy), font);
+    c.text(&amt_label, TOTAL_PT, amt_x, top + text_dy, DARK);
+    c.text(&cnt_label, TOTAL_PT, cnt_x, top + text_dy, DARK);
 }
 
 /// 合计行横坐标（mm）：`(张数 x, 金额 x)`——金额右对齐到页面右边界（与表格金额列同一条右边线），
@@ -521,13 +655,7 @@ fn total_line_x(cnt_label: &str, amt_label: &str) -> (f32, f32) {
 
 /// 单页图片网格（两模板共用）：按 spec 行列排布一页内的槽位，
 /// 等比缩放放置图片 + 底部 caption（超出截断）。返回实际放置张数。
-fn draw_image_grid(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    imgs: &[&PdfImage],
-    page_idx: usize,
-    spec: &ImageGridSpec,
-) {
+fn draw_image_grid(c: &mut Canvas<'_>, imgs: &[&PdfImage], page_idx: usize, spec: &ImageGridSpec) {
     let per_page = spec.cols * spec.rows;
     let usable_w = PAGE_W - MARGIN * 2.0;
     let usable_h = PAGE_H - MARGIN * 2.0 - HEADER_H - FOOTER_H;
@@ -543,18 +671,17 @@ fn draw_image_grid(
         let x = MARGIN + col as f32 * (cell_w + GAP);
         let top = MARGIN + HEADER_H + row as f32 * (cell_h + GAP);
         let img_area_h = cell_h - spec.caption_h - 1.0;
-        place_image(layer, imgs[idx], x, top, cell_w, img_area_h);
-        layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+        place_image(c, imgs[idx], x, top, cell_w, img_area_h);
         let caption = truncate_chars(
             &imgs[idx].caption,
             chars_for_width(&imgs[idx].caption, spec.caption_pt, cell_w - 2.0),
         );
-        layer.use_text(
-            caption,
+        c.text(
+            &caption,
             spec.caption_pt,
-            Mm(x + 1.0),
-            y(top + cell_h - spec.caption_dy),
-            font,
+            x + 1.0,
+            top + cell_h - spec.caption_dy,
+            ACCENT,
         );
     }
 }
@@ -583,9 +710,7 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
     let cover_title = format!("{base_title}封面");
     let sum_title = format!("凭证汇总表 · {}", day.date);
 
-    let (doc, first_page, first_layer) =
-        PdfDocument::new(&cover_title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
-    let font = load_cjk_font(&doc)?;
+    let mut build = PdfBuild::new(&cover_title)?;
 
     let count = day.cards.len();
     let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
@@ -608,68 +733,61 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
 
     // ===== P1 封面 =====
     {
-        let layer = doc.get_page(first_page).get_layer(first_layer);
-        draw_cover_page(&layer, &font, day, &base_title);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_cover_page(&mut c, day, &base_title);
     }
 
     // ===== P2+ 汇总表页 =====
     for (t, range) in pages.iter().enumerate() {
-        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
-        let layer = doc.get_page(p).get_layer(l);
-        draw_header(&layer, &font, &sum_title);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_header(&mut c, &sum_title);
 
         // 首页摘要行：当日共 N 张 · 合计 ¥X（仅统计已填金额的凭证）
         if t == 0 {
-            layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-            layer.use_text(
-                format!(
-                    "当日共 {count} 张凭证 · 合计 ￥{}（按识别金额统计）",
-                    crate::models::voucher::format_money(total_cents)
-                ),
-                BODY_PT,
-                Mm(MARGIN),
-                y(MARGIN + HEADER_H + 7.0),
-                &font,
+            let line = format!(
+                "当日共 {count} 张凭证 · 合计 ￥{}（按识别金额统计）",
+                crate::models::voucher::format_money(total_cents)
             );
+            c.text(&line, BODY_PT, MARGIN, MARGIN + HEADER_H + 7.0, DARK);
         }
 
         // 表头（每页重复）+ 行（摘要可折两行）
         let table_top = MARGIN + HEADER_H + TSUM_GAP;
-        let bottom = draw_table_page(&layer, &font, &rows, *range, table_top);
+        let bottom = draw_table_page(&mut c, &rows, *range, table_top);
         // 合计行（最后一页表格底部）
         if t == table_pages - 1 {
-            draw_total_line(&layer, &font, bottom + 1.0, count, total_cents, 5.0);
+            draw_total_line(&mut c, bottom + 1.0, count, total_cents, 5.0);
         }
 
-        draw_footer(&layer, &font, t + 2, total_pages);
+        draw_footer(&mut c, t + 2, total_pages);
     }
 
     // ===== 相关凭证清单页（附件清单页） =====
     for (i, range) in app_slices.iter().enumerate() {
-        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Appendix");
-        let layer = doc.get_page(p).get_layer(l);
-        draw_header(&layer, &font, &format!("相关凭证清单 · {}", day.date));
-        draw_appendix_page(&layer, &font, &app_lines, *range);
-        draw_footer(&layer, &font, 1 + table_pages + i + 1, total_pages);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_header(&mut c, &format!("相关凭证清单 · {}", day.date));
+        draw_appendix_page(&mut c, &app_lines, *range);
+        draw_footer(&mut c, 1 + table_pages + i + 1, total_pages);
     }
 
     // ===== 图片页（2×2/页，caption 对齐参照：附件N：摘要_对方_金额元（档号）） =====
     let img_refs: Vec<&PdfImage> = day.images.iter().collect();
     for page_idx in 0..img_pages {
-        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
-        let layer = doc.get_page(p).get_layer(l);
-        draw_header(&layer, &font, &format!("附件 · {}", day.date));
-        draw_image_grid(&layer, &font, &img_refs, page_idx, &SPEC_ARCHIVE_GRID);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_header(&mut c, &format!("附件 · {}", day.date));
+        draw_image_grid(&mut c, &img_refs, page_idx, &SPEC_ARCHIVE_GRID);
         draw_footer(
-            &layer,
-            &font,
+            &mut c,
             1 + table_pages + appendix_pages + page_idx + 1,
             total_pages,
         );
     }
 
-    doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
-    Ok(())
+    build.save(path)
 }
 
 /// 省纸模板：首页信息横幅 + 汇总表 → 竖票 3×3 → 横票 2×2。
@@ -678,9 +796,7 @@ fn generate_daily_archive(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
 fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> Result<()> {
     let sum_title = format!("凭证汇总表 · {}", day.date);
 
-    let (doc, first_page, first_layer) =
-        PdfDocument::new(&sum_title, Mm(PAGE_W), Mm(PAGE_H), "Summary");
-    let font = load_cjk_font(&doc)?;
+    let mut build = PdfBuild::new(&sum_title)?;
 
     let count = day.cards.len();
     let total_cents: i64 = day.cards.iter().filter_map(|c| c.amount_cents).sum();
@@ -716,34 +832,30 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
 
     // ===== 表格页（首页含信息横幅，无独立封面） =====
     for (t, range) in pages.iter().enumerate() {
-        let layer = if t == 0 {
-            doc.get_page(first_page).get_layer(first_layer)
-        } else {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Summary");
-            doc.get_page(p).get_layer(l)
-        };
-        draw_header(&layer, &font, &sum_title);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_header(&mut c, &sum_title);
 
         if t == 0 {
-            draw_compact_banner(&layer, &font, day, count, total_cents);
+            draw_compact_banner(&mut c, day, count, total_cents);
         }
         let table_top = if t == 0 { first_top } else { next_top };
-        let bottom = draw_table_page(&layer, &font, &rows, *range, table_top);
+        let bottom = draw_table_page(&mut c, &rows, *range, table_top);
         // 合计行（末页表格底部）
         if t == table_pages - 1 {
-            draw_total_line(&layer, &font, bottom + 1.0, count, total_cents, 5.0);
+            draw_total_line(&mut c, bottom + 1.0, count, total_cents, 5.0);
         }
 
-        draw_footer(&layer, &font, t + 1, total_pages);
+        draw_footer(&mut c, t + 1, total_pages);
     }
 
     // ===== 相关凭证清单页（附件清单页） =====
     for (i, range) in app_slices.iter().enumerate() {
-        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Appendix");
-        let layer = doc.get_page(p).get_layer(l);
-        draw_header(&layer, &font, &format!("相关凭证清单 · {}", day.date));
-        draw_appendix_page(&layer, &font, &app_lines, *range);
-        draw_footer(&layer, &font, table_pages + i + 1, total_pages);
+        let p = build.add_page();
+        let mut c = build.canvas(p);
+        draw_header(&mut c, &format!("相关凭证清单 · {}", day.date));
+        draw_appendix_page(&mut c, &app_lines, *range);
+        draw_footer(&mut c, table_pages + i + 1, total_pages);
     }
 
     // ===== 图片页：先竖票 3×3，后横票 2×2（caption 6.5pt 紧凑） =====
@@ -778,41 +890,26 @@ fn generate_daily_compact(path: &Path, day: &DailyInput, opts: &PdfOptions) -> R
             }
             let pages = imgs.len().div_ceil(spec.cols * spec.rows);
             for page_idx in 0..pages {
-                let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Images");
-                let layer = doc.get_page(p).get_layer(l);
-                draw_header(&layer, &font, &format!("附件 · {}", day.date));
-                draw_image_grid(&layer, &font, &imgs, page_idx, &spec);
+                let p = build.add_page();
+                let mut c = build.canvas(p);
+                draw_header(&mut c, &format!("附件 · {}", day.date));
+                draw_image_grid(&mut c, &imgs, page_idx, &spec);
                 page_no += 1;
-                draw_footer(&layer, &font, page_no, total_pages);
+                draw_footer(&mut c, page_no, total_pages);
             }
         }
     }
 
-    doc.save(&mut BufWriter::new(std::fs::File::create(path)?))?;
-    Ok(())
+    build.save(path)
 }
 
 /// 省纸模板信息横幅（替代档案模板的独立封面页）：
 /// 左侧主色竖线 + 3 行关键信息（日期/生成时间、档号范围、张数/金额合计）。
-fn draw_compact_banner(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    day: &DailyInput,
-    count: usize,
-    total_cents: i64,
-) {
+fn draw_compact_banner(c: &mut Canvas<'_>, day: &DailyInput, count: usize, total_cents: i64) {
     let top = MARGIN + HEADER_H;
 
     // 左侧主色竖线（视觉锚点，提示这是摘要信息块）
-    layer.set_outline_thickness(0.8);
-    layer.set_outline_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(top)), false),
-            (Point::new(Mm(MARGIN), y(top + C_BANNER_H)), false),
-        ],
-        is_closed: false,
-    });
+    c.stroke_line(MARGIN, top, MARGIN, top + C_BANNER_H, 0.8, ACCENT);
 
     let first_no = day
         .cards
@@ -839,53 +936,31 @@ fn draw_compact_banner(
         ),
     ];
     for (i, r) in rows.iter().enumerate() {
-        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-        layer.use_text(
-            r,
-            BODY_PT,
-            Mm(MARGIN + 3.0),
-            y(top + 5.0 + i as f32 * 6.8),
-            font,
-        );
+        c.text(r, BODY_PT, MARGIN + 3.0, top + 5.0 + i as f32 * 6.8, DARK);
     }
 }
 
 /// 封面页（档案装订形态）：
 /// 左侧装订线（竖排「装订线」三字 + 细线）+ 居中大标题 + 5 行信息表
 /// 标题在页面上半部居中，信息表在标题下方，整体视觉重心中上。
-fn draw_cover_page(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    day: &DailyInput,
-    title: &str,
-) {
+fn draw_cover_page(c: &mut Canvas<'_>, day: &DailyInput, title: &str) {
     // 装订线三字（竖排）——与标题垂直居中对齐
     let title_top = 140.0; // 标题 baseline 距页顶 140mm（原 88mm 下移导致上方 78mm 空白，上移 52mm 至中上位置）
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
     for (i, ch) in ["装", "订", "线"].iter().enumerate() {
-        layer.use_text(*ch, 12.0, Mm(18.0), y(title_top + i as f32 * 14.0), font);
+        c.text(ch, 12.0, 18.0, title_top + i as f32 * 14.0, GREY);
     }
     // 装订线（贯穿全页，左侧 24.7mm）
-    layer.set_outline_thickness(0.3);
-    layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(24.7), y(15.0)), false),
-            (Point::new(Mm(24.7), y(282.0)), false),
-        ],
-        is_closed: false,
-    });
+    c.stroke_line(24.7, 15.0, 24.7, 282.0, 0.3, STROKE);
 
     // 居中大标题（18pt → 22pt，更醒目；上移 52mm 至中上位置）
     let cover_title = format!("{title}封面");
-    layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
     let tw = text_width_mm(&cover_title, 22.0);
-    layer.use_text(
+    c.text(
         &cover_title,
         22.0,
-        Mm((PAGE_W - tw) / 2.0),
-        y(title_top + 10.0),
-        font,
+        (PAGE_W - tw) / 2.0,
+        title_top + 10.0,
+        DARK,
     );
 
     // 信息表 5 行（下移至标题下方，table_top = 175mm → 标题下约 25mm）
@@ -937,19 +1012,16 @@ fn draw_cover_page(
     let table_top = title_top + 35.0; // 标题下方 25mm 开始表格
     for (i, (label, value)) in rows.iter().enumerate() {
         let top = table_top + i as f32 * row_h;
-        layer.set_outline_thickness(0.4);
-        layer.set_outline_color(rgb(STROKE.0, STROKE.1, STROKE.2));
-        layer.add_line(Line {
-            points: vec![
-                (Point::new(Mm(table_left), y(top + row_h)), false),
-                (Point::new(Mm(table_right), y(top + row_h)), false),
-            ],
-            is_closed: false,
-        });
-        layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-        layer.use_text(label, 10.5, Mm(label_x), y(top + 12.0), font);
-        layer.set_fill_color(rgb(DARK.0, DARK.1, DARK.2));
-        layer.use_text(value, 10.5, Mm(value_x), y(top + 12.0), font);
+        c.stroke_line(
+            table_left,
+            top + row_h,
+            table_right,
+            top + row_h,
+            0.4,
+            STROKE,
+        );
+        c.text(label, 10.5, label_x, top + 12.0, GREY);
+        c.text(value, 10.5, value_x, top + 12.0, DARK);
     }
 }
 
@@ -973,29 +1045,21 @@ struct HeadCol<'a> {
 }
 
 /// 表头渲染：灰字列名（金额右对齐），底部 0.6mm 横线。日报/年度共用。
-fn draw_head_cells(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
-    top: f32,
-    cols: &[HeadCol<'_>],
-) {
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
+fn draw_head_cells(c: &mut Canvas<'_>, top: f32, cols: &[HeadCol<'_>]) {
     let y0 = top + 4.0;
-    for c in cols {
-        let x = match c.x {
-            HeadColX::Left(x) => Mm(x),
-            HeadColX::Right => Mm(right_x(c.label, HEAD_PT, PAGE_W - MARGIN)),
+    for col in cols {
+        let x = match col.x {
+            HeadColX::Left(x) => x,
+            HeadColX::Right => right_x(col.label, HEAD_PT, PAGE_W - MARGIN),
         };
-        layer.use_text(c.label, HEAD_PT, x, y(y0), font);
+        c.text(col.label, HEAD_PT, x, y0, GREY);
     }
-    hline(layer, 0.6, top + THEAD_H - 0.5, STROKE);
+    hline(c, 0.6, top + THEAD_H - 0.5, STROKE);
 }
 
 /// 单元格文本：统一「填色 → 可选按宽度截断 → 落字」，表行/合计行共用。
-#[allow(clippy::too_many_arguments)]
 fn cell_text(
-    layer: &PdfLayerReference,
-    font: &IndirectFontRef,
+    c: &mut Canvas<'_>,
     s: &str,
     font_pt: f32,
     x: f32,
@@ -1003,32 +1067,22 @@ fn cell_text(
     cap_mm: Option<f32>,
     fill: (f32, f32, f32),
 ) {
-    layer.set_fill_color(rgb(fill.0, fill.1, fill.2));
-    let text = match cap_mm {
+    let text: std::borrow::Cow<'_, str> = match cap_mm {
         Some(w) => std::borrow::Cow::Owned(truncate_chars(s, chars_for_width(s, font_pt, w))),
         None => std::borrow::Cow::Borrowed(s),
     };
-    layer.use_text(&*text, font_pt, Mm(x), y(y_mm), font);
+    c.text(text.as_ref(), font_pt, x, y_mm, fill);
 }
 
 /// 横向分隔线（表头底 / 行底 / 年合计顶共用；颜色区分加粗线）
-fn hline(layer: &PdfLayerReference, thickness: f32, y_mm: f32, color: (f32, f32, f32)) {
-    layer.set_outline_thickness(thickness);
-    layer.set_outline_color(rgb(color.0, color.1, color.2));
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(y_mm)), false),
-            (Point::new(Mm(PAGE_W - MARGIN), y(y_mm)), false),
-        ],
-        is_closed: false,
-    });
+fn hline(c: &mut Canvas<'_>, thickness: f32, y_mm: f32, color: (f32, f32, f32)) {
+    c.stroke_line(MARGIN, y_mm, PAGE_W - MARGIN, y_mm, thickness, color);
 }
 
 /// 日报表头（列定义数据驱动；编号/摘要/对方账户 固定 x，金额右对齐）
-fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) {
+fn draw_table_head(c: &mut Canvas<'_>, top: f32) {
     draw_head_cells(
-        layer,
-        font,
+        c,
         top,
         &[
             HeadCol {
@@ -1052,7 +1106,7 @@ fn draw_table_head(layer: &PdfLayerReference, font: &IndirectFontRef, top: f32) 
 }
 
 /// 行绘制（2026-10-16 打印改版：正文 12pt、摘要最多两行、金额在独立列内右对齐**不压列**）
-fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayout, top: f32) {
+fn draw_table_row(c: &mut Canvas<'_>, r: &RowLayout, top: f32) {
     let desc_x = MARGIN + TCOL_NO + 1.0;
     let party_x = MARGIN + TCOL_NO + TCOL_DESC + 1.0;
     // 单行：基线贴行底留 1.9mm；两行：5.0 / 10.4mm（行距 5.4mm ≥ 12pt 行高）
@@ -1064,8 +1118,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayo
 
     // 编号（主色）
     cell_text(
-        layer,
-        font,
+        c,
         &r.no,
         BODY_PT,
         MARGIN + 1.0,
@@ -1075,8 +1128,7 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayo
     );
     // 摘要（最多两行；空摘要已在 layout_rows 里换成「—」）
     cell_text(
-        layer,
-        font,
+        c,
         &r.desc1,
         BODY_PT,
         desc_x,
@@ -1085,21 +1137,11 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayo
         BODY,
     );
     if let (Some(d2), Some(y2)) = (r.desc2.as_deref(), b2) {
-        cell_text(
-            layer,
-            font,
-            d2,
-            BODY_PT,
-            desc_x,
-            y2,
-            Some(TCOL_DESC - 2.0),
-            BODY,
-        );
+        cell_text(c, d2, BODY_PT, desc_x, y2, Some(TCOL_DESC - 2.0), BODY);
     }
     // 对方账户（小灰字）
     cell_text(
-        layer,
-        font,
+        c,
         &r.party,
         BODY_PT,
         party_x,
@@ -1110,20 +1152,11 @@ fn draw_table_row(layer: &PdfLayerReference, font: &IndirectFontRef, r: &RowLayo
     // 金额（独立列内右对齐：12pt 放不下才退 10.5pt，绝不侵入「对方账户」列）
     if !r.amount.is_empty() {
         let (pt, x) = amount_pt_and_x(&r.amount);
-        cell_text(
-            layer,
-            font,
-            &r.amount,
-            pt,
-            x,
-            b1,
-            Some(TCOL_AMOUNT - 2.0),
-            DARK,
-        );
+        cell_text(c, &r.amount, pt, x, b1, Some(TCOL_AMOUNT - 2.0), DARK);
     }
 
     // 行底分隔线（省墨：仅横向细线）
-    hline(layer, 0.25, top + r.h - 0.3, STROKE);
+    hline(c, 0.25, top + r.h - 0.3, STROKE);
 }
 
 /// 右对齐 x 坐标：右边界 - 文本估算宽度
@@ -1141,55 +1174,51 @@ fn text_width_mm(s: &str, font_pt: f32) -> f32 {
     units * char_mm
 }
 
-fn draw_header(layer: &PdfLayerReference, font: &IndirectFontRef, title: &str) {
-    layer.set_fill_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    layer.use_text(title, TITLE_PT, Mm(MARGIN), y(MARGIN + 8.0), font);
+fn draw_header(c: &mut Canvas<'_>, title: &str) {
+    c.text(title, TITLE_PT, MARGIN, MARGIN + 8.0, ACCENT);
     // 标题下分隔线
-    layer.set_outline_color(rgb(ACCENT.0, ACCENT.1, ACCENT.2));
-    layer.set_outline_thickness(0.8);
-    layer.add_line(Line {
-        points: vec![
-            (Point::new(Mm(MARGIN), y(MARGIN + 11.0)), false),
-            (Point::new(Mm(PAGE_W - MARGIN), y(MARGIN + 11.0)), false),
-        ],
-        is_closed: false,
-    });
-}
-
-fn draw_footer(layer: &PdfLayerReference, font: &IndirectFontRef, page: usize, total: usize) {
-    layer.set_fill_color(rgb(GREY.0, GREY.1, GREY.2));
-    layer.use_text(
-        format!("第 {page} / {total} 页"),
-        FOOTER_PT,
-        Mm(MARGIN),
-        y(PAGE_H - MARGIN + 3.0),
-        font,
+    c.stroke_line(
+        MARGIN,
+        MARGIN + 11.0,
+        PAGE_W - MARGIN,
+        MARGIN + 11.0,
+        0.8,
+        ACCENT,
     );
 }
 
-fn place_image(
-    layer: &PdfLayerReference,
-    img: &PdfImage,
-    x: f32,
-    top: f32,
-    max_w: f32,
-    max_h: f32,
-) {
-    let decoded = image::io::Reader::open(&img.path)
-        .map_err(|e| e.to_string())
-        .and_then(|r| r.decode().map_err(|e| e.to_string()));
-    let dyn_img = match decoded {
-        Ok(i) => i,
+fn draw_footer(c: &mut Canvas<'_>, page: usize, total: usize) {
+    let label = format!("第 {page} / {total} 页");
+    c.text(&label, FOOTER_PT, MARGIN, PAGE_H - MARGIN + 3.0, GREY);
+}
+
+/// 等比 contain 放置一张附件图：`(x, top)` 是槽位左上角，`(max_w, max_h)` 是槽位可画区。
+///
+/// 0.12 的 `XObjectTransform::get_ctms`（Scale(dpi) → Scale(ratio) → Translate）与 0.7 的
+/// `ImageTransform::add_to_layer` 逐项一致，故这里的比例/居中数学**原样保留**；
+/// 唯一差别是 translate 字段在 0.12 是 `Pt`（0.7 是 `Mm`）—— `Mm(..).into()` 即 1:1 换算。
+fn place_image(c: &mut Canvas<'_>, img: &PdfImage, x: f32, top: f32, max_w: f32, max_h: f32) {
+    let bytes = match std::fs::read(&img.path) {
+        Ok(b) => b,
         Err(e) => {
             log::warn!("读取附件图片失败 {}: {e}", img.path.display());
             return;
         }
     };
-    let (w_px, h_px) = (dyn_img.width() as f32, dyn_img.height() as f32);
+    // 0.7 用 image crate 解码成 RGBA 再交给 printpdf；0.12 有自带的 PNG/JPEG 解码器
+    // （`RawImage::decode_from_bytes`），省一次解码，也避开 image 0.24 / 0.25 的类型不兼容。
+    let raw = match RawImage::decode_from_bytes(&bytes, &mut Vec::new()) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("解码附件图片失败 {}: {e}", img.path.display());
+            return;
+        }
+    };
+    let (w_px, h_px) = (raw.width as f32, raw.height as f32);
     if w_px <= 0.0 || h_px <= 0.0 {
         return;
     }
-    let image = Image::from_dynamic_image(&dyn_img);
+    let img_id = c.doc.add_image(&raw);
 
     // printpdf 默认 300dpi：px * 25.4 / 300 = mm
     let default_w_mm = w_px * 25.4 / 300.0;
@@ -1199,16 +1228,17 @@ fn place_image(
     let h = default_h_mm * ratio;
     let dx = x + (max_w - w) / 2.0;
     let dy_top = top + (max_h - h) / 2.0;
-    image.add_to_layer(
-        layer.clone(),
-        ImageTransform {
-            translate_x: Some(Mm(dx)),
-            translate_y: Some(Mm(PAGE_H - dy_top - h)),
+    c.ops.push(Op::UseXobject {
+        id: img_id,
+        transform: XObjectTransform {
+            translate_x: Some(Mm(dx).into()),
+            translate_y: Some(Mm(PAGE_H - dy_top - h).into()),
             scale_x: Some(ratio),
             scale_y: Some(ratio),
+            dpi: Some(300.0),
             ..Default::default()
         },
-    );
+    });
 }
 
 /// 按目标宽度估算可容纳的字符数（CJK 全宽 ≈ 字号 pt；ASCII ≈ 一半）
@@ -1249,7 +1279,12 @@ pub fn find_cjk_font() -> Option<PathBuf> {
     font_candidates().into_iter().find(|p| p.is_file())
 }
 
-fn load_cjk_font(doc: &printpdf::PdfDocumentReference) -> Result<IndirectFontRef> {
+/// 注册中文字体：0.7 是 `doc.add_external_font(File)`，0.12 要先用
+/// `ParsedFont::from_bytes` 解析（TTC 取 face 0），再 `doc.add_font`。
+///
+/// **subsetting 的前提**：printpdf 0.12 只有在 `text_layout` feature 下才会真正做子集化，
+/// 否则整份字体入库（≈9.4MB/份）。Cargo.toml 因此显式开了 `text_layout`，见那里的注释。
+fn load_cjk_font(doc: &mut PdfDocument) -> Result<PdfFontHandle> {
     let mut candidates = font_candidates();
     if let Ok(p) = std::env::var("VOUCHER_PDF_FONT") {
         let path = PathBuf::from(p);
@@ -1262,15 +1297,28 @@ fn load_cjk_font(doc: &printpdf::PdfDocumentReference) -> Result<IndirectFontRef
         if !c.is_file() {
             continue;
         }
-        match std::fs::File::open(&c) {
-            Ok(file) => match doc.add_external_font(file) {
-                Ok(f) => return Ok(f),
-                Err(e) => {
-                    log::info!("字体 {} 加载失败，尝试下一个: {e}", c.display());
-                    last_err = format!("{}: {e}", c.display());
-                }
-            },
-            Err(e) => last_err = e.to_string(),
+        let bytes = match std::fs::read(&c) {
+            Ok(b) => b,
+            Err(e) => {
+                last_err = format!("{}: {e}", c.display());
+                continue;
+            }
+        };
+        let mut warnings = Vec::new();
+        match ParsedFont::from_bytes(&bytes, 0, &mut warnings) {
+            Some(parsed) => {
+                let id = doc.add_font(&parsed);
+                return Ok(PdfFontHandle::External(id));
+            }
+            None => {
+                log::info!(
+                    "字体 {} 解析失败（{} 条警告），尝试下一个: {:?}",
+                    c.display(),
+                    warnings.len(),
+                    warnings.first()
+                );
+                last_err = format!("{}: 无法解析字体文件", c.display());
+            }
         }
     }
     Err(CoreError::Invalid(format!(

@@ -18,7 +18,13 @@ sha2 = "0.10"
 keyring = { version = "3", features = ["apple-native"] }
 directories = "5"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
-printpdf = { version = "0.7", features = ["embedded_images", "font_subsetting"] }
+# v0.23：printpdf 0.7 → 0.12.8（修 RUSTSEC-2026-0187：0.7 经 lopdf 0.31 传入；
+# 0.12.8 用 lopdf ^0.44）。default features 会拉 azul 的 HTML 渲染栈，故关掉只留需要的能力：
+#   - png / jpeg：附件图片解码（`RawImage::decode_from_bytes`）
+#   - **text_layout：必须开**——0.12 的字体子集化（`PdfSaveOptions::subset_fonts`）
+#     只在 `text_layout` feature 下真实生效；不开就整份字体入库（Hiragino ≈9.4MB/份）。
+#     它带来 azul-layout / rust-fontconfig 依赖，但纯 Rust、无系统库，编译约 +45s。
+printpdf = { version = "0.12.8", default-features = false, features = ["png", "jpeg", "text_layout"] }
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
 # v0.6 文档扫描矫正与增强（5.5 方案）：opencv-rust 绑定 OpenCV 4.x
 # +30MB 装包、首次编译 3-8 分钟。链接到系统 OpenCV 4.x（环境变量 OpenCV_DIR + OPENCV_LINK_*）。

@@ -6,7 +6,7 @@
       "pass": true
     },
     "cjk_no_tofu": {
-      "evidence": "FontFile2 embedded + Identity-H CID encoding + manual sample review",
+      "evidence": "CJK 字体程序已嵌入（HEIGID+HiraginoSansGB-W3）+ Identity-H CID 编码 + 子集化前缀 + 样张人工复核（PyMuPDF 提取 44/44 凭证号、摘要连贯、无 U+FFFD）",
       "manual_review": "spikes/print-poc/sample-daily-report.pdf",
       "pass": true
     },
@@ -20,7 +20,8 @@
     }
   },
   "date": "2026-10-16",
-  "known_tradeoff": "字体已启用子集化（printpdf font_subsetting，2026-09-23 起）：样张约 170-230 KB；此前的『嵌入整字体 ~10MB/份』问题已消除",
+  "embedded_font": "HEIGID+HiraginoSansGB-W3",
+  "known_tradeoff": "字体已启用子集化（0.7 用 font_subsetting feature；0.12.8 改为 PdfSaveOptions::subset_fonts，且**必须**开 text_layout feature 才真生效，见 crates/voucher-core/Cargo.toml 注释）：本样张 155613 B；未子集化时整份 Hiragino Sans GB 约 9.4MB/份（2026-09-23 之前的状态）",
   "layout": {
     "images": "横图 2×2（省纸模板竖图 3×3）；caption 10pt",
     "kind": "按天日报（v0.22 A1 版式）",
@@ -31,6 +32,8 @@
     "macos": "automated assertions pass on macOS (arm64); manual sample walkthrough pending (see 挂账). Font candidates include PingFang/Hiragino/STHeiti/Songti",
     "windows": "historical: verified under v0.6 (automated + manual sample); Windows support removed in v0.17.0 — see docs/开发日志.md"
   },
+  "printpdf": "0.12.8（2026-10-18 自 0.7 升级，修 RUSTSEC-2026-0187；features = png/jpeg/text_layout，default-features = false）",
+  "sample_bytes": 155613,
   "spike": "A-print",
   "v022_note": "卡片版式与「单份 PDF」于 2026-10-16 下线（方案 v2 批次①b）：本报告只覆盖日报版式；几何不变量另由 pdf.rs 单测（daily_layout_invariants / daily_pagination_never_overflows / summary_wraps_to_two_lines）锁定"
 }

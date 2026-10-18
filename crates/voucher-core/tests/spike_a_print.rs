@@ -6,7 +6,7 @@
 //!
 //! | 原标准 | 现在的验证方式 |
 //! |---|---|
-//! | ① 中文无豆腐块 | 嵌入 CJK 字体（FontFile2）且文本走 Identity-H CID 编码；样张人工复核 |
+//! | ① 中文无豆腐块 | 嵌入 CJK 字体（`/FontFile2` 或 `/FontFile3`，随字体是 glyf 还是 CFF）+ 文本走 Identity-H CID 编码；+ 样张体积断言锁定「字体子集化」仍生效；样张人工复核 |
 //! | ② A4 与 @page 边距 | 每页 MediaBox = 595.27563 × 841.88983 pt（210×297mm）；边距由绘制几何常量保证 |
 //! | ③ 分页精确 | 按 v0.22 A1 版式（12pt、行高 8mm / 摘要折两行 12mm、贪心分页）算表页；图片页横图 2×2 → 4/页 |
 //! | ④ 控制区不出现在输出 | PDF 由数据生成而非截屏；表格页内容流零位图 XObject |
@@ -100,12 +100,28 @@ fn write_poc_sample_and_report() {
 
     let text = pdf_text(&out);
     let pages = page_count(&text);
-    let font_embedded = text.matches("FontFile2").count() >= 1;
+    // printpdf 0.12.8 起字体程序按字体风味落盘：TrueType(glyf) → /FontFile2，
+    // CFF（如 Hiragino Sans GB TTC）→ /FontFile3 + /CIDFontType0C。两者都算「字体已嵌入」。
+    let font_embedded = text.matches("FontFile").count() >= 1;
     let cid = text.contains("/Encoding/Identity-H");
     let a4 = text
         .match_indices("MediaBox")
         .all(|(i, _)| text[i..i + 34].contains(A4_W_PT) && text[i..i + 34].contains(A4_H_PT));
     let raster = text.matches("/Subtype/Image").count();
+    let pdf_bytes = std::fs::metadata(&out).unwrap().len();
+    // 子集化前缀（如 `HEIGID+HiraginoSansGB-W3`）：printpdf 0.12 的 `subset_fonts`
+    // 只在开了 `text_layout` feature 时才打这个 6 字母前缀，故它是最直接的特征探针。
+    let font_name = text
+        .match_indices("/FontName/")
+        .map(|(i, _)| {
+            text[i + "/FontName/".len()..]
+                .split(['/', '>', ' ', '\n', '\r'])
+                .next()
+                .unwrap_or_default()
+        })
+        .find(|n| n.contains('+'))
+        .unwrap_or_default()
+        .to_string();
 
     // v0.22 A1 版式（摘要 24 字 → 折两行 12mm）：首页 16 行 + 次页 18 行 + 末页 10 行 = 3 个表页；
     // 6 张横图（96×72）走 2×2 → 2 个图片页；没有关联 → 无清单页；合计 5 页。
@@ -113,6 +129,16 @@ fn write_poc_sample_and_report() {
     assert!(
         font_embedded && cid,
         "判定①：CJK 字体嵌入 + Identity-H CID 编码"
+    );
+    // 判定①的子集化探针：整份字体入库时（printpdf 0.12 未开 text_layout feature 的行为）
+    // 单是 Hiragino Sans GB 就要 ≈9.4MB/份；子集化后本样张（5 页、6 张 96×72 附件）< 1MB。
+    assert!(
+        pdf_bytes < 1_500_000,
+        "判定①：样张 {pdf_bytes} 字节 —— 字体疑似未子集化（整字体入库约 9.4MB/份）"
+    );
+    assert!(
+        !font_name.is_empty(),
+        "判定①：字体名缺少子集化前缀（如 HEIGID+…），subset_fonts 未生效"
     );
     assert!(a4, "判定②：每页 MediaBox 均为 A4（210×297mm）");
     assert_eq!(
@@ -132,6 +158,9 @@ fn write_poc_sample_and_report() {
     let report = serde_json::json!({
         "spike": "A-print",
         "date": "2026-10-16",
+        "printpdf": "0.12.8（2026-10-18 自 0.7 升级，修 RUSTSEC-2026-0187；features = png/jpeg/text_layout，default-features = false）",
+        "sample_bytes": pdf_bytes,
+        "embedded_font": font_name,
         "approach": "printpdf (Rust backend, direct data-to-PDF) instead of WebView print",
         "layout": {
             "kind": "按天日报（v0.22 A1 版式）",
@@ -142,7 +171,7 @@ fn write_poc_sample_and_report() {
         "criteria": {
             "cjk_no_tofu": {
                 "pass": font_embedded && cid,
-                "evidence": "FontFile2 embedded + Identity-H CID encoding + manual sample review",
+                "evidence": format!("CJK 字体程序已嵌入（{font_name}）+ Identity-H CID 编码 + 子集化前缀 + 样张人工复核（PyMuPDF 提取 44/44 凭证号、摘要连贯、无 U+FFFD）"),
                 "manual_review": "spikes/print-poc/sample-daily-report.pdf"
             },
             "a4_and_margins": {
@@ -163,7 +192,7 @@ fn write_poc_sample_and_report() {
             "windows": "historical: verified under v0.6 (automated + manual sample); Windows support removed in v0.17.0 — see docs/开发日志.md",
             "macos": "automated assertions pass on macOS (arm64); manual sample walkthrough pending (see 挂账). Font candidates include PingFang/Hiragino/STHeiti/Songti"
         },
-        "known_tradeoff": "字体已启用子集化（printpdf font_subsetting，2026-09-23 起）：样张约 170-230 KB；此前的『嵌入整字体 ~10MB/份』问题已消除"
+        "known_tradeoff": format!("字体已启用子集化（0.7 用 font_subsetting feature；0.12.8 改为 PdfSaveOptions::subset_fonts，且**必须**开 text_layout feature 才真生效，见 crates/voucher-core/Cargo.toml 注释）：本样张 {pdf_bytes} B；未子集化时整份 Hiragino Sans GB 约 9.4MB/份（2026-09-23 之前的状态）")
     });
     std::fs::write(
         poc_dir.join("report.json"),
