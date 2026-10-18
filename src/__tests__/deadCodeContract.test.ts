@@ -11,32 +11,17 @@
  * 或**文件名主干**（`import { useFoo } from "../composables/foo"`）即算被引用。
  * 页面（`src/pages`）不在此守卫范围：它们由 `registrationContract.test.ts` 按 router/侧栏/命令面板三处登记来管。
  */
-import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { repoFile, walkFiles } from "./helpers/designGuard";
 
 const ROOTS = ["src/components", "src/composables", "src/stores"];
-
-function read(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
-
-function walk(dir: string): string[] {
-  const out: string[] = [];
-  for (const e of readdirSync(new URL(`../../${dir}`, import.meta.url), { withFileTypes: true })) {
-    const rel = `${dir}/${e.name}`;
-    if (e.isDirectory()) {
-      if (e.name !== "__tests__") out.push(...walk(rel));
-    } else if (/\.(ts|vue)$/.test(e.name)) out.push(rel);
-  }
-  return out;
-}
 
 describe("死代码", () => {
   it("components / composables / stores 里的每个文件都被别处引用（写了就要接线）", () => {
     // 引用方必须是**全部**源码（`src/layouts` 这类目录也常是组件/组合式函数的唯一调用点；
     // 少了它们会误报 SidebarResizeHandle.vue 这种在布局里引用的文件）
-    const all = walk("src");
-    const sources = new Map(all.map((rel) => [rel, read(rel)]));
+    const all = walkFiles("src", [".ts", ".vue"]);
+    const sources = new Map(all.map((rel) => [rel, repoFile(rel)]));
     const orphans: string[] = [];
     for (const rel of sources.keys()) {
       if (!ROOTS.some((r) => rel.startsWith(`${r}/`))) continue;

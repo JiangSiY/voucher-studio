@@ -14,12 +14,10 @@
  * 旧称仍在**代码注释**里作为架构名/历史说明出现（`inbox` store、`InboxPage.vue` 的
  * 文件名与注释等），所以断言前先剥掉注释再找——注释里写历史是允许的，用户看得见的地方不行。
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 /** 剥掉 HTML / 块 / 行注释（行注释要求前面是行首或空白，避免误伤 `https://` 这类内容） */
 function stripComments(text: string): string {

@@ -19,12 +19,9 @@
  *
  * 纯文本解析源码（与其它 *Contract.test.ts 一致，不 mount 组件）。
  */
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");

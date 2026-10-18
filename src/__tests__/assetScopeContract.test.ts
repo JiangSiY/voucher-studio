@@ -15,13 +15,11 @@
  * 本测试把「scope 等于 macOS 数据根形态」「前端不得自行拼附件路径」「Windows
  * 平台配置/脚本不得回归」固化成断言。
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 const pathsSrc = repoFile("crates/voucher-core/src/utils/paths.rs");
 const baseConf = repoFile("src-tauri/tauri.conf.json");

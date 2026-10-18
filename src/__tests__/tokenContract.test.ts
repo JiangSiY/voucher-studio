@@ -12,12 +12,8 @@
  * ⚠️ **已知盲区**：本测试对 `var(--x, #fff)` 这类"有 fallback 但 fallback 与主题无关"的写法
  * 不敏感（那正是 A6 的原始形态）；现在的防线是禁名断言 + 语义令牌本身不带字面量 fallback。
  */
-import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
+import { repoFile, srcSourceFiles } from "./helpers/designGuard";
 
 /** 运行时由 JS 写入、不来自 tokens.css 的自定义属性（见 useSidebarResize.ts 的 setProperty） */
 const RUNTIME_VARS = ["--sidebar-w"];
@@ -35,20 +31,17 @@ function definedTokens(): Set<string> {
 
 /** `src/**` 里被引用的令牌：name → 是否存在**无 fallback** 的用法 */
 function usedTokens(): Map<string, string[]> {
-  const root = new URL("../../src", import.meta.url);
-  const files = readdirSync(root, { recursive: true })
-    .map((f) => String(f))
-    .filter((f) => /\.(vue|css|ts)$/.test(f) && !f.includes("__tests__"));
+  const files = srcSourceFiles([".vue", ".css", ".ts"]);
   const out = new Map<string, string[]>();
   for (const rel of files) {
-    const text = repoFile(`src/${rel}`);
+    const text = repoFile(rel);
     // var(--x) 或 var(--x, fallback)
     for (const m of text.matchAll(/var\(\s*(--[A-Za-z0-9-]+)\s*([,)])/g)) {
       const [, name, next] = m;
       const hasFallback = next === ",";
       if (hasFallback) continue; // 有 fallback 的引用不在本测试的判据内（见文件头"已知盲区"）
       const list = out.get(name) ?? [];
-      list.push(`src/${rel}`);
+      list.push(rel);
       out.set(name, list);
     }
   }
@@ -65,14 +58,11 @@ const RETIRED_TOKENS = [
 
 /** 全量 var() 引用（含带 fallback 的写法——禁名判据不能漏掉它们） */
 function allVarReferences(): string[] {
-  const root = new URL("../../src", import.meta.url);
-  const files = readdirSync(root, { recursive: true })
-    .map((f) => String(f))
-    .filter((f) => /\.(vue|css|ts)$/.test(f) && !f.includes("__tests__"));
+  const files = srcSourceFiles([".vue", ".css", ".ts"]);
   const out: string[] = [];
   for (const rel of files) {
-    for (const m of repoFile(`src/${rel}`).matchAll(/var\(\s*(--[A-Za-z0-9-]+)/g)) {
-      out.push(`${m[1]} @ src/${rel}`);
+    for (const m of repoFile(rel).matchAll(/var\(\s*(--[A-Za-z0-9-]+)/g)) {
+      out.push(`${m[1]} @ ${rel}`);
     }
   }
   return out;
@@ -132,16 +122,14 @@ describe("CSS 令牌契约（引用必须有定义）", () => {
  * - 已下线的旧视觉族不得回归（v0.22 卡片版式与旧列表工具类，见审计 §2.2）。
  */
 describe("排版与视觉语言契约（U1/U2 收编）", () => {
-  const styleFiles = readdirSync(new URL("../../src", import.meta.url), { recursive: true })
-    .map((f) => String(f))
-    .filter((f) => /\.(vue|css)$/.test(f) && !f.includes("__tests__") && !f.endsWith("styles/tokens.css"));
-  const texts = new Map(styleFiles.map((rel) => [rel, repoFile(`src/${rel}`)] as const));
+  const styleFiles = srcSourceFiles([".vue", ".css"]).filter((f) => !f.endsWith("styles/tokens.css"));
+  const texts = new Map(styleFiles.map((rel) => [rel, repoFile(rel)] as const));
 
   it("样式文件里不得再出现 font-size 字面量（必须走 --fs-*）", () => {
     const offenders: string[] = [];
     for (const [rel, text] of texts) {
       text.split("\n").forEach((line, i) => {
-        if (/font-size:\s*[0-9.]+px/.test(line)) offenders.push(`src/${rel}:${i + 1} ${line.trim()}`);
+        if (/font-size:\s*[0-9.]+px/.test(line)) offenders.push(`${rel}:${i + 1} ${line.trim()}`);
       });
     }
     expect(
@@ -156,7 +144,7 @@ describe("排版与视觉语言契约（U1/U2 收编）", () => {
       text.split("\n").forEach((line, i) => {
         const trimmed = line.trim();
         if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.startsWith("//")) return;
-        if (/#[0-9a-fA-F]{3,8}\b/.test(trimmed)) offenders.push(`src/${rel}:${i + 1} ${trimmed}`);
+        if (/#[0-9a-fA-F]{3,8}\b/.test(trimmed)) offenders.push(`${rel}:${i + 1} ${trimmed}`);
       });
     }
     expect(

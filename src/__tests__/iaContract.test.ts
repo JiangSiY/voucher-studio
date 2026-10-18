@@ -10,13 +10,11 @@
  * 故把不变量固化成断言：首页是收件箱、侧栏是一列**扁平入口**（2026-10-16 用户要求去掉分组标题，
  * 开合语义改由"整栏收起"承担）、命令面板入口与侧栏一致、旧的 /dashboard 只保留重定向。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");

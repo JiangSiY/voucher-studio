@@ -9,26 +9,8 @@
  * 间距出现 13/14/28px 等非节奏值——它们单看不刺眼，叠在一起就是"手工感"。
  * 统一到有限枚举后，新人照抄旁边代码也不会再引入新值。
  */
-import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
-
-/** src 下所有源码文件（相对路径），排除测试目录与令牌定义文件本身 */
-function srcSourceFiles(exts: string[]): string[] {
-  const root = new URL("../../src", import.meta.url);
-  return readdirSync(root, { recursive: true })
-    .map((f) => String(f))
-    .filter((f) => exts.some((e) => f.endsWith(e)) && !f.includes("__tests__"))
-    .sort();
-}
-
-/** 取出 .vue 的 `<style>` 块（scoped/style 都算），没有则返回空串 */
-function styleBlocks(vue: string): string {
-  return [...vue.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
-}
+import { repoFile, srcFilesRelative as srcSourceFiles, styleBlocks } from "./helpers/designGuard";
 
 /** 图标尺寸枚举：12 行内小标 / 14 行内与按钮 / 16 工具条 / 18 侧栏 / 24 插图 / 42 空状态 */
 const ICON_SIZES = new Set([12, 14, 16, 18, 24, 42]);

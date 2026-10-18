@@ -12,13 +12,11 @@
  * 2) 抽出资料库 `readQuery()` 里读取的键（`q.<key>` 形式）；
  * 3) 断言前者 ⊆ 后者——多出来的键会被打印出来，直接指向漏读的那一个。
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 /** 所有页面里"跳到 /vouchers 并带 query"的键集合 */
 function pushedKeys(): Map<string, Set<string>> {

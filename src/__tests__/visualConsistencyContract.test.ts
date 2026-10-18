@@ -12,27 +12,12 @@
  * - 设置页六个 Tab 各写一套内联样式（86 处、43 种），同一语义在不同 Tab 数值不一；
  *   收编到 `.settings-*` 后，只允许动态绑定（`:style`）存在。
  */
-import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
-
-function srcSourceFiles(exts: string[]): string[] {
-  const root = new URL("../../src", import.meta.url);
-  return readdirSync(root, { recursive: true })
-    .map((f) => String(f))
-    .filter((f) => exts.some((e) => f.endsWith(e)) && !f.includes("__tests__"))
-    .sort();
-}
-
-/** 取出 .vue 的 `<style>` 块；.css 文件整篇即样式 */
-function styleText(rel: string): string {
-  const text = repoFile(`src/${rel}`);
-  if (rel.endsWith(".css")) return text;
-  return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
-}
+import {
+  repoFile,
+  srcFilesRelative as srcSourceFiles,
+  srcStyleText as styleText,
+} from "./helpers/designGuard";
 
 /** 取出 .vue 的 `<template>` 块 */
 function templateText(rel: string): string {

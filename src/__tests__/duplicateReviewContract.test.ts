@@ -10,12 +10,9 @@
  * 本测试把三处登记固化成断言，并顺带守住：图标名必须在 `FluentIcon.vue` 里存在
  * （写错名字只会渲染成空白，不报错）。
  */
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { repoFile } from "./helpers/designGuard";
 
-function repoFile(rel: string): string {
-  return readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
-}
 
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
