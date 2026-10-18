@@ -406,6 +406,8 @@
 | 月度透视 | 月份 × 对方 / 月份 × 标签，每月的键按金额倒序取前 N 个；标签用 `json_each` 展开，**一张多标签凭证分别计数**（与 `tag_stats` 同口径）；空对方归为「(未填)」 | `monthly_breakdown` | 打开洞察页 |
 | 导出覆盖度 | 「从未导出」= `export_items` 中无该凭证记录（**含已归档**，历史遗留件会落此项——正是要暴露的缺口）；`byFormat` 按批次统计 | `export_coverage` | 打开洞察页 |
 | 存储占用 | 原图体积走 SQL（`attachments.file_size`）；**增强版体积 DB 无该列**（可重建缓存不落体积），需显式开启逐文件 stat；OCR 缓存只报条数 | `storage_usage` | 打开洞察页 / 手动点「计算体积」 |
+| 无图凭证 | `NOT EXISTS(attachments)` 的凭证数；说明条目/备忘/分割单本就没有图，因此它既是"忘了补图"的入口也是说明条目的自然视图；与列表 `noImage` 筛选**同口径** | `data_health` / `VoucherQuery.noImage` | 打开洞察页 / 切换筛选 |
+| 数据健康（无图 / 待识别 / 未被佐证） | 洞察页「数据健康」卡的三项**全库口径**计数，分母为全库凭证数；三项分别对应列表 `noImage` / `ocrStatus=pending,failed` / `unlinked`，**下钻后计数与列表总数同口径** | `data_health` | 打开洞察页 |
 | 未被佐证 | 无任何 `voucher_links`（任一方向）且不在任何 `voucher_group_items` 里的凭证数；与列表 `unlinked` 筛选**同口径**（`build_filter_where` 一处 SQL 同时覆盖 list / list_ids / neighbor） | `VoucherQuery.unlinked` | 打开列表 / 切换筛选 |
 | 事项组内合计 | **派生展示值，不登记为指标**：只供右栏展示，不参与导出、统计、批次与「从未导出」口径（关联 ≠ 抵消） | `VoucherGroup::members_amount_cents` | 右栏渲染时 |
 | 金额（元↔分） | 严格校验：可选负号 + 最多两位小数；空串 = 未填（配 `clearAmount` 提交）。**唯一实现**在 `src/composables/money.ts`（v0.19 起只由右栏编辑器使用） | 纯函数 | ——（提交时） |
