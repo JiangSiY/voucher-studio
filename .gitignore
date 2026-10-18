@@ -17,3 +17,6 @@ src-tauri/target/
 
 # 发布产物校验文件（正式校验随 GitHub Release 资产发布，不入库）
 /sha256sums.txt
+
+# 工具残留（brooks 静态检查历史，2026-10-18 清理）
+.brooks-lint-history.json
