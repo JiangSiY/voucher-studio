@@ -210,15 +210,5 @@ onMounted(() => {
   font-weight: 600;
 }
 
-/* 解锁按钮（危险加强版；与扫描矫正 Tab 保持一致） */
-.btn.btn-danger {
-  /* v0.18：不再自绘红色渐变（Fluent 时代遗留）——改用统一的危险按钮语言：
-     文字红 + hover 淡红底，由 base.css 的 .btn-danger 提供 */
-  background: var(--bg-control);
-  border-color: var(--danger-soft);
-  color: var(--danger);
-}
-.btn.btn-danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
+/* 危险按钮样式统一由 base.css 的 .btn-danger 提供（原局部覆盖与全局完全重复，2026-10-18 删除） */
 </style>

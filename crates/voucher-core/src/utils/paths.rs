@@ -17,9 +17,11 @@ use directories::ProjectDirs;
 /// ├── exports/               # 导出 PDF
 /// ├── models/                # 本地 OCR 模型（首次启动从安装源复制）
 /// ├── config/app.json        # 用户配置（不含密钥）
-/// ├── logs/
+/// ├── logs/                # 空壳（保留给 `paths.logs` 诊断字段；真实日志见下方说明）
 /// └── temp/
 /// ```
+/// 真实日志位置：`~/Library/Logs/<identifier>/`（`tauri-plugin-log` 的 `TargetKind::LogDir`，
+/// 由壳层 `src-tauri/src/main.rs` 配置），**不在**数据目录的 `logs/` 下——排查问题时别去那里找。
 #[derive(Debug, Clone)]
 pub struct AppPaths {
     pub base: PathBuf,

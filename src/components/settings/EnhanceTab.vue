@@ -558,15 +558,7 @@ onUnmounted(() => {
   0%, 100% { background: rgba(220, 38, 38, 0.1); }
   50%      { background: rgba(220, 38, 38, 0.22); }
 }
-/* 释放空间按钮（危险加强版；与期间解锁按钮保持一致） */
-.btn.btn-danger {
-  background: var(--bg-control);
-  border-color: var(--danger-soft);
-  color: var(--danger);
-}
-.btn.btn-danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
+/* 危险按钮样式统一由 base.css 的 .btn-danger 提供（原局部覆盖与全局完全重复，2026-10-18 删除） */
 
 /* .enhance-hit-bar 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
    base.css，会让全局断点失效，故移出组件）。 */

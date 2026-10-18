@@ -348,7 +348,7 @@ body {
   color: var(--danger);
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: var(--danger-soft);
 }
 
