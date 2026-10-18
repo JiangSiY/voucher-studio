@@ -86,11 +86,25 @@ RUST_UNIT=$(grep -rhoE '#\[test\]' crates/voucher-core/src | wc -l | tr -d ' ')
 RUST_INTEG=$(grep -rhoE '#\[test\]' crates/voucher-core/tests | wc -l | tr -d ' ')
 RUST_TAURI=$(grep -rhoE '#\[test\]' src-tauri/src | wc -l | tr -d ' ')
 RUST_TOTAL=$((RUST_UNIT + RUST_INTEG + RUST_TAURI))
-# 前端：it( / test( 计数（排除 node_modules）
-FE_FILES=$(find src -name '*.test.ts' | wc -l | tr -d ' ')
-FE_TESTS=$(grep -rhoE '^\s*(it|test)\(' src --include='*.test.ts' | wc -l | tr -d ' ')
+# 前端：vitest **实测**（`--reporter=json`）。
+# 为什么不用 grep `it(`：有动态生成用例（`for … { it(…) }`），静态计数会长期少 1，
+# 文档又要求写实测值（AGENTS.md 文档纪律第 3 条），两边对不上就是一条永久 WARN。
+FE_JSON="$(mktemp -t audit-fe)"
+FE_FILES=""
+FE_TESTS=""
+if npx vitest run --reporter=json --outputFile="${FE_JSON}" >/dev/null 2>&1 && [ -s "${FE_JSON}" ]; then
+  FE_NUMS="$(node -e 'const fs = require("fs"); const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(`${r.testResults.length} ${r.numTotalTests}`)' "${FE_JSON}" 2>/dev/null)"
+  FE_FILES="${FE_NUMS%% *}"
+  FE_TESTS="${FE_NUMS##* }"
+fi
+rm -f "${FE_JSON}"
+if [ -z "${FE_TESTS}" ]; then
+  FE_FILES=$(find src -name '*.test.ts' | wc -l | tr -d ' ')
+  FE_TESTS=$(grep -rhoE '^\s*(it|test)\(' src --include='*.test.ts' | wc -l | tr -d ' ')
+  warn "vitest 实测不可用，前端用例数退回静态计数（可能少算动态用例）"
+fi
 
-printf '  实测：Rust %s（单元 %s + 集成 %s + 壳 %s）；前端 %s 文件 %s 用例\n' \
+printf '  实测：Rust %s（单元 %s + 集成 %s + 壳 %s）；前端 %s 文件 %s 用例（vitest 实测）\n' \
   "${RUST_TOTAL}" "${RUST_UNIT}" "${RUST_INTEG}" "${RUST_TAURI}" "${FE_FILES}" "${FE_TESTS}"
 
 # 期望：README 的 "cargo test" 注释行、清单1 修订注记、开发日志最新条目三者与实测一致
