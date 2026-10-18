@@ -17,7 +17,7 @@ import TopListsPanel from "../components/dashboard/TopListsPanel.vue";
 import ReconcilePanel from "../components/dashboard/ReconcilePanel.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import SkeletonLines from "../components/SkeletonLines.vue";
-import { api, type BreakdownRow, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
+import { api, type BreakdownRow, type DataHealth, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { fmtAmount, fmtSize } from "../composables/format";
 import {
@@ -64,6 +64,36 @@ const storageBytesBusy = ref(false);
 /** 失败终态：面板不再用「加载中…」掩盖失败（见 loadWindowed / loadLedgers 的 catch） */
 const windowedFailed = ref(false);
 const storageFailed = ref(false);
+
+/** v0.22.3 数据健康：全库口径的三项计数（无图 / 待识别 / 未被佐证），每项可下钻 */
+const health = ref<DataHealth | null>(null);
+const healthFailed = ref(false);
+
+/**
+ * 「数据健康」三项的下钻（2026-10-18）。
+ *
+ * 三个 push 都写成**显式字面量**并保留 `path: "/vouchers", query: { … }` 的紧邻格式：
+ * `drilldownContract.test.ts` 靠这个格式解析下钻键，拼在变量上会让守卫失明。
+ */
+function openHealth(target: "noImage" | "ocrPending" | "unlinked") {
+  if (target === "noImage") {
+    void router.push({ path: "/vouchers", query: { noImage: "1" } });
+  } else if (target === "ocrPending") {
+    void router.push({ path: "/vouchers", query: { ocrStatus: "pending,failed" } });
+  } else {
+    void router.push({ path: "/vouchers", query: { unlinked: "1" } });
+  }
+}
+
+async function loadHealth() {
+  try {
+    health.value = await api.dataHealth();
+    healthFailed.value = false;
+  } catch (e) {
+    healthFailed.value = true;
+    toastError(e);
+  }
+}
 
 async function loadWindowed() {
   try {
@@ -132,7 +162,7 @@ async function loadEnhancedBytes() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadWindowed(), loadLedgers()]);
+  await Promise.all([loadWindowed(), loadLedgers(), loadHealth()]);
 });
 
 // 对账（只读：选账单 CSV 与库内凭证比对，报告仅在会话内保留）
@@ -216,6 +246,54 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
           导出覆盖度加载失败。<button class="link" @click="loadWindowed()">重试</button>
         </p>
         <SkeletonLines v-else :lines="4" />
+      </section>
+
+      <section class="panel">
+        <header class="sh">
+          <h3>数据健康</h3>
+          <span class="scope">全库 · 三项各有同名筛选</span>
+        </header>
+        <template v-if="health">
+          <div class="kv">
+            <div>
+              <dt>无图凭证</dt>
+              <dd :class="{ warn: health.noImage > 0 }">
+                {{ health.noImage }} / {{ health.total }} 张
+                <button
+                  v-if="health.noImage > 0"
+                  class="link"
+                  @click="openHealth('noImage')"
+                >去看</button>
+              </dd>
+            </div>
+            <div>
+              <dt>待识别</dt>
+              <dd :class="{ warn: health.ocrPending > 0 }">
+                {{ health.ocrPending }} 张
+                <button
+                  v-if="health.ocrPending > 0"
+                  class="link"
+                  @click="openHealth('ocrPending')"
+                >去看</button>
+              </dd>
+            </div>
+            <div>
+              <dt>未被佐证</dt>
+              <dd :class="{ warn: health.unlinked > 0 }">
+                {{ health.unlinked }} 张
+                <button
+                  v-if="health.unlinked > 0"
+                  class="link"
+                  @click="openHealth('unlinked')"
+                >去看</button>
+              </dd>
+            </div>
+          </div>
+        </template>
+        <p v-else-if="healthFailed" class="muted">
+          数据健康加载失败。<button class="link" @click="loadHealth()">重试</button>
+        </p>
+        <SkeletonLines v-else :lines="3" />
       </section>
 
       <section class="panel">

@@ -273,6 +273,12 @@ pub fn dashboard_todos(ctx: Ctx) -> std::result::Result<qsvc::DashboardTodos, Ap
     err_api(qsvc::dashboard_todos(&ctx))
 }
 
+/// 数据健康（洞察页卡片）：无图凭证 / 待识别附件 / 未被佐证，均可在资料库下钻
+#[tauri::command]
+pub fn data_health(ctx: Ctx) -> std::result::Result<qsvc::DataHealth, ApiError> {
+    err_api(qsvc::data_health(&ctx))
+}
+
 /// 疑似重复轻量计数（徽标 / 待办卡）：不构造队列，口径与核查队列一致
 #[tauri::command]
 pub fn duplicate_pending_count(ctx: Ctx) -> std::result::Result<qsvc::DupPendingCount, ApiError> {

@@ -281,6 +281,7 @@ fn main() {
             commands::duplicate_pending_count,
             commands::dashboard_overview,
             commands::dashboard_todos,
+            commands::data_health,
             commands::list_voucher_ids,
             commands::monthly_breakdown,
             commands::export_coverage,

@@ -65,11 +65,14 @@ const PENDING_OPTIONS = [
   { value: "amountEmpty", label: "金额未填" },
   { value: "counterpartyEmpty", label: "对方未填" },
   { value: "unlinked", label: "未被佐证" },
+  // v0.22.3：无图凭证（没有任何附件）——说明条目是正常形态，也是"忘了补图"的信号
+  { value: "noImage", label: "无图凭证" },
 ];
 const PENDING_LABEL: Record<string, string> = {
   amountEmpty: "金额未填",
   counterpartyEmpty: "对方未填",
   unlinked: "未被佐证",
+  noImage: "无图凭证",
 };
 /** 陈旧天数（对应收件箱"陈旧草稿"待办；与 dashboard_todos 同口径） */
 const staleDays = ref<number | null>(null);
@@ -113,6 +116,7 @@ function query() {
     ocrStatus: ocrStatuses.value.length ? ocrStatuses.value.join(",") : null,
     exported: (exported.value || null) as "never" | "any" | null,
     unlinked: pendingFilters.value.includes("unlinked") ? true : null,
+    noImage: pendingFilters.value.includes("noImage") ? true : undefined,
     sort: sort.value,
     page: page.value,
     pageSize,
@@ -186,6 +190,7 @@ function readQuery() {
   if (q.amountEmpty === "1" || q.amountEmpty === "true") pending.push("amountEmpty");
   if (q.counterpartyEmpty === "1") pending.push("counterpartyEmpty");
   if (q.unlinked === "1" || q.unlinked === "true") pending.push("unlinked");
+  if (q.noImage === "1" || q.noImage === "true") pending.push("noImage");
   setList(pendingFilters, pending);
   const sd = Number(q.staleDays);
   staleDays.value = Number.isFinite(sd) && sd > 0 ? sd : null;

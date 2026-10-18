@@ -92,7 +92,7 @@ describe("下钻参数契约（/vouchers）", () => {
     const pushed = pushedKeys();
     const all = new Set<string>();
     for (const keys of pushed.values()) keys.forEach((k) => all.add(k));
-    for (const k of ["counterparty", "tags", "counterpartyEmpty", "amountEmpty", "ocrStatus"]) {
+    for (const k of ["counterparty", "tags", "counterpartyEmpty", "amountEmpty", "ocrStatus", "noImage"]) {
       expect([...all], `缺少下钻源覆盖：${k}`).toContain(k);
     }
   });

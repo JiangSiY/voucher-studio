@@ -64,6 +64,48 @@ pub struct Overview {
     pub this_month: u64,
 }
 
+/// 数据健康（洞察页「数据健康」卡；三项计数都是**全库口径**，每项都能下钻到资料库同名筛选）
+///
+/// 为什么单列而不是并进 `Todos`：`Todos` 是**待办**（收件箱的"现在该做什么"），
+/// 而这里回答的是"库本身健不健康"——没有图、识别没跑完、付款截图还没有说明。
+/// 两者口径相同（同一 SQL 谓词），但使用场景不同，混在一起会让收件箱出现纯查询类数字。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DataHealth {
+    /// 全库凭证数（三项计数的分母，界面上显示为"3 / 265"这类比例）
+    pub total: u64,
+    /// 无图凭证（没有任何附件）——与列表 `noImage=true` 同口径
+    pub no_image: u64,
+    /// 待识别附件（`ocr_status IN ('pending','failed')`）——与列表 `ocrStatus=pending,failed` 同口径
+    pub ocr_pending: u64,
+    /// 未被佐证（无任何关联且不在事项组）——与列表 `unlinked=true` 同口径
+    pub unlinked: u64,
+}
+
+/// 数据健康计数（一次查询取全，避免洞察页开三条往返）
+pub fn data_health(ctx: &CoreContext) -> Result<DataHealth> {
+    ctx.db.with_conn(|conn| {
+        let one = |sql: &str| -> Result<u64> {
+            Ok(conn.query_row(sql, [], |r| r.get::<_, i64>(0))? as u64)
+        };
+        Ok(DataHealth {
+            total: one("SELECT COUNT(*) FROM vouchers")?,
+            no_image: one(
+                "SELECT COUNT(*) FROM vouchers v
+                 WHERE NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)",
+            )?,
+            ocr_pending: one(
+                "SELECT COUNT(*) FROM attachments WHERE ocr_status IN ('pending','failed')",
+            )?,
+            unlinked: one(
+                "SELECT COUNT(*) FROM vouchers v
+                 WHERE NOT EXISTS (SELECT 1 FROM voucher_links vl WHERE vl.a_id = v.id OR vl.b_id = v.id)
+                   AND NOT EXISTS (SELECT 1 FROM voucher_group_items gi WHERE gi.voucher_id = v.id)",
+            )?,
+        })
+    })
+}
+
 /// 待办与健康度（每项都可点进对应筛选；数值为 0 时界面隐藏该项）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -380,6 +422,63 @@ mod tests {
 
         let (sql, _) = window_where(None, None, None);
         assert!(sql.is_empty(), "无口径时不应产生 WHERE");
+    }
+
+    /// 无图 / 待识别 / 未被佐证 三项计数与各自 SQL 谓词一致（含"有图不算无图"）
+    #[test]
+    fn data_health_counts_each_dimension() {
+        use crate::CoreContext;
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = CoreContext::init(Some(dir.path().to_path_buf())).unwrap();
+        ctx.db
+            .with_conn(|conn| {
+                for (i, (no, status)) in [("A-1", "draft"), ("A-2", "draft"), ("A-3", "reviewed")]
+                    .iter()
+                    .enumerate()
+                {
+                    conn.execute(
+                        "INSERT INTO vouchers (voucher_no, voucher_date, status, created_at, updated_at)
+                         VALUES (?1, '2026-10-01', ?2, '2026-10-01T00:00:00', '2026-10-01T00:00:00')",
+                        rusqlite::params![no, status],
+                    )
+                    .unwrap();
+                    let _ = i;
+                }
+                // A-1 有图（pending）、A-2 有图（done）、A-3 无图
+                conn.execute(
+                    "INSERT INTO attachments (voucher_id, file_name, file_path, file_hash, ocr_status, created_at)
+                     VALUES (1, 'a.jpg', 'p/a.jpg', 'h1', 'pending', '2026-10-01T00:00:00')",
+                    [],
+                )
+                .unwrap();
+                conn.execute(
+                    "INSERT INTO attachments (voucher_id, file_name, file_path, file_hash, ocr_status, created_at)
+                     VALUES (2, 'b.jpg', 'p/b.jpg', 'h2', 'done', '2026-10-01T00:00:00')",
+                    [],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let h = data_health(&ctx).unwrap();
+        assert_eq!(h.total, 3);
+        assert_eq!(h.no_image, 1, "只有 A-3 没有附件");
+        assert_eq!(h.ocr_pending, 1, "pending 计入、done 不计入");
+        assert_eq!(h.unlinked, 3, "尚无任何关联/分组时全部未被佐证");
+
+        // 建一条关联（A-1 ↔ A-2）→ 两张都算"有佐证"
+        ctx.db
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO voucher_links (a_id, b_id, kind, note, created_at)
+                     VALUES (1, 2, 'explains', '', '2026-10-01T00:00:00')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(data_health(&ctx).unwrap().unlinked, 1, "A-3 仍是未被佐证");
     }
 }
 

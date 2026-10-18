@@ -47,8 +47,8 @@ pub use crate::models::dup_decision::DupDecision;
 
 /// v0.18 工作台（仪表盘）只读聚合：窗口概览 / 待办与健康度 / 轻量重复计数
 pub use crate::services::dashboard::{
-    BreakdownRow, ExportCoverage, FormatCount, Overview as DashboardOverview, StorageUsage,
-    Todos as DashboardTodos,
+    BreakdownRow, DataHealth, ExportCoverage, FormatCount, Overview as DashboardOverview,
+    StorageUsage, Todos as DashboardTodos,
 };
 pub use crate::services::dup_review::PendingCount as DupPendingCount;
 
@@ -155,6 +155,11 @@ pub fn dashboard_overview(
 /// （待识别 / 未填金额 / 陈旧草稿 / 未封账往月 / 备份新鲜度 / 疑似重复）。
 pub fn dashboard_todos(ctx: &CoreContext) -> Result<DashboardTodos> {
     dashboard::todos(ctx)
+}
+
+/// 数据健康（洞察页「数据健康」卡）：全库口径的无图 / 待识别 / 未被佐证三项计数
+pub fn data_health(ctx: &CoreContext) -> Result<DataHealth> {
+    dashboard::data_health(ctx)
 }
 
 /// 疑似重复**轻量**计数（徽标/待办卡用）：不构造队列、不查证据；
@@ -264,6 +269,44 @@ mod tests {
             is_expected,
             "不存在的附件应返回 NotFound 且带附件 id，实际 {err:?}"
         );
+    }
+
+    #[test]
+    fn no_image_filter_keeps_only_vouchers_without_attachment() {
+        let (_dir, ctx) = temp_ctx();
+        ctx.db
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO vouchers (voucher_no, voucher_date, created_at, updated_at)
+                     VALUES ('N-1', '2026-10-01', '2026-10-01T00:00:00', '2026-10-01T00:00:00')",
+                    [],
+                )?;
+                conn.execute(
+                    "INSERT INTO vouchers (voucher_no, voucher_date, created_at, updated_at)
+                     VALUES ('N-2', '2026-10-02', '2026-10-02T00:00:00', '2026-10-02T00:00:00')",
+                    [],
+                )?;
+                conn.execute(
+                    "INSERT INTO attachments (voucher_id, file_name, file_path, file_hash, created_at)
+                     VALUES (1, 'only.jpg', 'p/only.jpg', 'h-only', '2026-10-01T00:00:00')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let with_image = voucher_ids(
+            &ctx,
+            &VoucherQuery {
+                no_image: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(with_image, vec![2], "只应返回没有附件的那张（N-2）");
+
+        let all = voucher_ids(&ctx, &VoucherQuery::default()).unwrap();
+        assert_eq!(all.len(), 2, "默认不过滤时两张都在");
     }
 
     #[test]

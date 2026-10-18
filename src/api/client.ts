@@ -128,6 +128,8 @@ export interface VoucherQuery {
   unlinked?: boolean | null;
   /** v0.22：收支方向「未标」——标签里既没有「收入」也没有「支出」（方向本身走 `tags` 精确匹配） */
   directionNone?: boolean | null;
+  /** v0.22.3：只筛**无图凭证**（没有附件）——洞察「数据健康」卡「无图凭证」下钻 */
+  noImage?: boolean;
   /** v0.18：排序 date_desc（默认）| date_asc | updated_desc | amount_desc | amount_asc */
   sort?: string | null;
   /** 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后翻张与搜索结果同口径） */
@@ -378,6 +380,18 @@ export interface DashboardTodos {
   dupPairs: number;
   dupHighPairs: number;
   dupGroups: number;
+}
+
+/** v0.22.3：数据健康（洞察页卡片；全库口径，三项各有对应筛选） */
+export interface DataHealth {
+  /** 全库凭证数（三项计数的分母） */
+  total: number;
+  /** 无图凭证（没有附件）→ 资料库 `noImage=true` */
+  noImage: number;
+  /** 待识别附件（pending + failed）→ 资料库 `ocrStatus=pending,failed` */
+  ocrPending: number;
+  /** 未被佐证（无关联且不在事项组）→ 资料库 `unlinked=true` */
+  unlinked: number;
 }
 
 /** v0.18：月度透视行（月份 × 对方/标签；每月只取前 N 个键） */
@@ -791,6 +805,8 @@ export const api = {
   dashboardTodos: () => invoke<DashboardTodos>("dashboard_todos"),
   /** 疑似重复**轻量**计数（徽标 / 待办卡）：不构造队列，口径与核查队列一致 */
   duplicatePendingCount: () => invoke<DupPendingCount>("duplicate_pending_count"),
+  /** v0.22.3：数据健康（洞察页卡片）——无图 / 待识别 / 未被佐证，均可下钻资料库同名筛选 */
+  dataHealth: () => invoke<DataHealth>("data_health"),
   /** 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集；顺序同列表） */
   listVoucherIds: (query: VoucherQuery) => invoke<number[]>("list_voucher_ids", { query }),
   /** v0.18：月度透视（dim = counterparty | tag；每月前 perMonth 个键，按金额倒序） */

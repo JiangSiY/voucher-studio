@@ -58,6 +58,10 @@ pub struct VoucherQuery {
     /// v0.22 收支方向：`true` 只筛**没有任何收支方向标签**（`收入`/`支出`）的凭证。
     /// 「收入/支出」两个方向本身的筛选走既有的 `tags`（精确等值，任一命中）。
     pub direction_none: bool,
+    /// v0.22.3：只筛**无图凭证**（没有任何附件）——洞察「数据健康」卡的「无图凭证」下钻。
+    /// 「一张图片就是一张凭证」是主线，但说明条目 / 备忘 / 分割单本来没有图片；
+    /// 该维度既能找出"忘了补图"的，也是说明条目的自然视图。
+    pub no_image: bool,
     /// 排序：`date_desc`（默认，与历史一致）| `date_asc` | `updated_desc` | `amount_desc` | `amount_asc`
     pub sort: Option<String>,
 }
@@ -460,6 +464,14 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
               OR NOT EXISTS (SELECT 1 FROM json_each(vouchers.tags) je
                              WHERE je.value IN ('收入','支出')))"
                 .to_string(),
+        );
+    }
+
+    // v0.22.3：无图凭证——没有任何附件。`attachments.voucher_id` 唯一索引保证每张最多一图，
+    // 因此 EXISTS 即"有图"，NOT EXISTS 即"无图"。
+    if q.no_image {
+        where_clauses.push(
+            "NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)".to_string(),
         );
     }
 
