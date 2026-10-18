@@ -282,7 +282,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 <style scoped>
 .insights { display: flex; flex-direction: column; gap: var(--s-4); }
 .head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
-.head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: calc(20px * var(--font-scale)); }
+.head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: var(--fs-display); }
 .scope { font: var(--type-caption); color: var(--label-tertiary); }
 .flex-1 { flex: 1; }
 .ledgers { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--s-3); }

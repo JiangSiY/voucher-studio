@@ -7,7 +7,7 @@
  * - 旧 Fluent 令牌（`--surface*` / `--text*` / `--stroke*` / `--r-*` / `--shadow-*` /
  *   `--mica-tint`）**全部保留为别名**，指向新令牌——既有 300+ 处引用与
  *   `tokenContract.test.ts` 的 5 个锚点名（`--surface`/`--text`/`--stroke`/`--accent`/
- *   `--sidebar-w`）因此不需要一次性改动（引用迁移放到批次 6）。
+ *   `--sidebar-w`）因此不需要一次性改动（引用迁移（批次 6）已于 2026-10-18 的 U1 收编完成）。
  * - 浅色为默认；深色由 `html[data-theme="dark"]` 提供，并在文件末尾用一条
  *   `@media (prefers-color-scheme: dark)` 给**首帧兜底**（主题属性由 JS 写入，
  *   写入前的极短窗口内需要跟随系统；CSP 是 `default-src 'self'`，**不能用内联脚本**）。
@@ -81,12 +81,21 @@ html[data-theme="light"] {
   /* 字号**基线偏大**（用户视力需要，见规范 §1.3）：正文 15、辅助 13、标题 17。
      任何"为了多塞信息而缩小字号"的做法都不成立——宁可减少首屏信息量。
      `--font-scale` 由设置里的"界面字号"写入（1 = 标准，另有 1.15 / 1.3），
-     只作用于本文件定义的 `--type-*` 与 `--control-h-*`；旧组件里写死的 px 由批次 6 收编。 */
+     只作用于本文件定义的 `--type-*` / `--fs-*` 与 `--control-h-*`；旧组件里写死的字号
+     已于 2026-10-18（U1）全部收编为 `--fs-*`。 */
   --font-scale: 1;
   --type-title: 600 calc(17px * var(--font-scale)) / 1.35 var(--font);
   --type-body: 400 calc(15px * var(--font-scale)) / 1.5 var(--font);
   --type-caption: 400 calc(13px * var(--font-scale)) / 1.4 var(--font);
   --type-mono-sm: 400 calc(14px * var(--font-scale)) / 1.45 var(--font-mono);
+
+  /* 字号**尺寸**令牌（批次 U1，2026-10-18）：只改字号、需保留原字重/行高的场景用它们；
+     与 `--type-*` 同源同比例（标题 17 / 正文 15 / 辅助 13 × --font-scale）。
+     历史：旧组件里 159 处 `font-size: Npx` 字面量与令牌双轨，导致「界面字号」档位只改约 1/3 界面。 */
+  --fs-title: calc(17px * var(--font-scale));
+  --fs-body: calc(15px * var(--font-scale));
+  --fs-caption: calc(13px * var(--font-scale));
+  --fs-display: calc(20px * var(--font-scale));
 
   /* ===== 新语义层：阴影（内容区不用阴影，仅浮层）===== */
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
@@ -116,7 +125,7 @@ html[data-theme="light"] {
   --toolbar-h: 52px;
   --toolbar-inset-start: 84px;
 
-  /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6）===== */
+  /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6，2026-10-18 U1 已完成字号收编）===== */
   --bg: var(--bg-window);
   --surface: var(--bg-content);
   --surface-2: #fafafa;

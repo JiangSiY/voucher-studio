@@ -276,7 +276,7 @@ onUnmounted(() => {
         <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--stroke)">
           <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
             <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" />
-            <span style="color: var(--text-3); font-size: 12px">至</span>
+            <span style="color: var(--text-3); font-size: var(--fs-caption)">至</span>
             <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" />
             <select v-model="filterStatus" class="input" style="width: 100px">
               <option value="all">全部状态</option>
@@ -351,7 +351,7 @@ onUnmounted(() => {
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
             <div>
-              <div style="font-size: 13px; font-weight: 600">附带附件图片页</div>
+              <div style="font-size: var(--fs-caption); font-weight: 600">附带附件图片页</div>
               <div class="muted-small">在日报汇总表后追加当日图片附录（横图 2×2 / 竖图 3×3）</div>
             </div>
             <label class="toggle">
@@ -361,7 +361,7 @@ onUnmounted(() => {
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
             <div>
-              <div style="font-size: 13px; font-weight: 600">附带相关凭证清单</div>
+              <div style="font-size: var(--fs-caption); font-weight: 600">附带相关凭证清单</div>
               <div class="muted-small">
                 在日报汇总表后追加「相关凭证清单」页：按关系类型分类小计，参考金额不并入日报合计
               </div>
@@ -385,7 +385,7 @@ onUnmounted(() => {
     <div>
       <!-- v0.10 表格式导出预览：与导出文件同列序，只展示前 12 行 -->
       <div v-if="exportFormat !== 'pdf'" class="print-area">
-        <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 8px">
+        <div style="text-align: center; font-weight: 700; font-size: var(--fs-body); margin-bottom: 8px">
           {{ exportFormat === "xlsx" ? "Excel" : "CSV" }} 导出预览（{{ previewVouchers.length }} 张）
         </div>
         <div class="dtable-wrap" v-if="previewVouchers.length">
@@ -414,13 +414,13 @@ onUnmounted(() => {
         <div v-if="previewVouchers.length > 12" class="muted-center small">
           仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
         </div>
-        <div style="font-size: 11px; color: var(--text-4); text-align: center; margin-top: 8px">
+        <div style="font-size: var(--fs-caption); color: var(--text-4); text-align: center; margin-top: 8px">
           文件另含 收支方向 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
         </div>
       </div>
 
       <div v-else class="print-area">
-        <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 8px">{{ title }}</div>
+        <div style="text-align: center; font-weight: 700; font-size: var(--fs-body); margin-bottom: 8px">{{ title }}</div>
 
         <!-- v0.22 批次①b：卡片预览已随「单份 PDF」下线——日报按 12pt 表格排版，
              预览区只保留图片附录（与 PDF 同取图规则），版式细节以导出的 PDF 为准 -->

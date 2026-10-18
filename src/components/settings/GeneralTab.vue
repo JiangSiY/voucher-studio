@@ -80,7 +80,7 @@ async function openDataDir() {
                 <input type="checkbox" v-model="draftCfg.print.preferEnhancedImages" />
                 <span class="slider"></span>
               </label>
-              <span style="font-size: 12px; color: var(--text-3)">扫描件用矫正后增强版；关闭则始终用原图</span>
+              <span style="font-size: var(--fs-caption); color: var(--text-3)">扫描件用矫正后增强版；关闭则始终用原图</span>
             </div>
           </div>
         </div>
@@ -89,7 +89,7 @@ async function openDataDir() {
             <input type="checkbox" v-model="draftCfg.print.includeImages" />
             <span class="slider"></span>
           </label>
-          <span style="font-size: 12px; color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
+          <span style="font-size: var(--fs-caption); color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
         </div>
         <div class="desc">进入「打印与导出」时按此默认值初始化；页内的临时调整不影响这里。</div>
       </div>

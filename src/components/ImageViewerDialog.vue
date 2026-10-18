@@ -271,22 +271,22 @@ async function openExternal() {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgba(30, 30, 30, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 .viewer-zoom {
   min-width: 44px;
   text-align: center;
-  font-size: 12px;
-  color: #d5d5d5;
+  font-size: var(--fs-caption);
+  color: rgba(255, 255, 255, 0.82);
   font-variant-numeric: tabular-nums;
 }
 .vbtn {
   border: none;
   background: transparent;
-  color: #e8e8e8;
-  font-size: 13px;
+  color: var(--label-on-accent);
+  font-size: var(--fs-caption);
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -306,8 +306,8 @@ async function openExternal() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  color: #b9b9b9;
+  font-size: var(--fs-caption);
+  color: rgba(255, 255, 255, 0.7);
   background: rgba(30, 30, 30, 0.75);
   padding: 4px 12px;
   border-radius: 999px;

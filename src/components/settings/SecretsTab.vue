@@ -41,7 +41,7 @@ onMounted(async () => {
         </div>
       </div>
       <div v-for="s in secrets" :key="s.alias" class="field"
-        style="border: 1px solid var(--stroke); border-radius: 6px; padding: 12px">
+        style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 12px">
         <label>{{ s.label }} <span class="tag" :class="s.exists ? 'tag-success' : 'tag-muted'">{{ s.exists ? "已设置" : "未设置" }}</span></label>
         <div style="display: flex; gap: 8px">
           <input v-model="secretDrafts[s.alias]" class="input" type="password" autocomplete="new-password"

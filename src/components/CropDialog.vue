@@ -306,11 +306,11 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 
 .crop-dialog h3 {
   margin: 0 0 10px;
-  font-size: 15px;
+  font-size: var(--fs-body);
 }
 
 .crop-sub {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   font-weight: 400;
 }
@@ -320,7 +320,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   margin: 0 auto;
   user-select: none;
   background:
-    repeating-conic-gradient(#eee 0% 25%, #fafafa 0% 50%) 0 0 / 16px 16px;
+    repeating-conic-gradient(var(--bg-window) 0% 25%, var(--bg-control) 0% 50%) 0 0 / 16px 16px;
   border: 1px solid var(--stroke);
   cursor: move;
   overflow: hidden;
@@ -338,7 +338,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 
 .crop-box {
   position: absolute;
-  border: 1.5px solid var(--accent, #0078d4);
+  border: 1.5px solid var(--accent);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
   cursor: move;
 }
@@ -347,9 +347,9 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   position: absolute;
   width: 12px;
   height: 12px;
-  background: var(--accent, #0078d4);
-  border: 2px solid #fff;
-  border-radius: 2px;
+  background: var(--accent);
+  border: 2px solid var(--label-on-accent);
+  border-radius: var(--radius-small);
 }
 
 .h-nw { left: -7px; top: -7px; cursor: nwse-resize; }
@@ -377,7 +377,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-2);
 }
 
@@ -398,7 +398,7 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 }
 
 .crop-hint {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-4);
   margin-right: 4px;
 }

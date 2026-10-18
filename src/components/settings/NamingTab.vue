@@ -193,7 +193,7 @@ onMounted(() => {
 }
 
 .period-row.locked {
-  border-color: var(--warning, #c88a17);
+  border-color: var(--warning);
   background: rgba(200, 138, 23, 0.06);
 }
 
@@ -201,12 +201,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
 }
 
 .period-row.locked .period-label {
-  color: var(--warning, #a06a00);
+  color: var(--warning);
   font-weight: 600;
 }
 

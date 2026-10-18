@@ -453,36 +453,36 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dup-page { display: flex; flex-direction: column; gap: 14px; }
-.dup-sub { font-size: 12px; color: var(--text-3); font-weight: 400; max-width: 62ch; }
+.dup-sub { font-size: var(--fs-caption); color: var(--text-3); font-weight: 400; max-width: 62ch; }
 .dup-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.dup-stat { font-size: 13px; color: var(--text-2); }
+.dup-stat { font-size: var(--fs-caption); color: var(--text-2); }
 .dup-num { font-weight: 600; color: var(--text); }
 .dup-tabs { display: flex; gap: 8px; align-items: center; }
 .dup-loading { padding: 24px; text-align: center; color: var(--text-3); }
 
 .dup-group .fluent-panel-body { padding: 0; }
-.dup-progress { font-size: 12px; color: var(--text-3); }
+.dup-progress { font-size: var(--fs-caption); color: var(--text-3); }
 .dup-pair { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border-subtle, transparent); }
 .dup-pair:last-child { border-bottom: none; }
 .dup-pair.active { background: var(--surface-2, transparent); }
 .dup-pair-main { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dup-link { color: var(--accent, inherit); text-decoration: none; }
 .dup-vs { color: var(--text-3); }
-.dup-why { font-size: 12px; color: var(--text-3); }
-.dup-later { font-size: 11px; color: var(--text-3); }
+.dup-why { font-size: var(--fs-caption); color: var(--text-3); }
+.dup-later { font-size: var(--fs-caption); color: var(--text-3); }
 
 .dup-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-.dup-side { border: 1px solid var(--stroke); border-radius: 8px; padding: 8px; }
+.dup-side { border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 8px; }
 .dup-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .dup-img { height: 220px; display: flex; align-items: center; justify-content: center; background: var(--surface-2, rgba(0, 0, 0, 0.02)); border-radius: 6px; overflow: hidden; }
 .dup-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.dup-img-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; }
+.dup-img-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-caption); }
 
 .dup-diff { margin-bottom: 12px; }
 .dup-differ td { background: var(--warning-bg, rgba(255, 196, 0, 0.12)); }
 .dup-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dup-hint { font-size: 12px; color: var(--text-3); margin-top: 8px; }
+.dup-hint { font-size: var(--fs-caption); color: var(--text-3); margin-top: 8px; }
 .dup-trace { display: flex; flex-direction: column; gap: 6px; }
-.dup-trace-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; font-size: 13px; }
+.dup-trace-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; font-size: var(--fs-caption); }
 .dup-trace-row > span { color: var(--text-3); }
 </style>

@@ -134,7 +134,7 @@ function onDescKeydown(e: KeyboardEvent) {
   border-radius: 4px;
   background: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   text-align: left;
   color: var(--text);
 }
@@ -151,7 +151,7 @@ function onDescKeydown(e: KeyboardEvent) {
 }
 
 .desc-count {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   flex-shrink: 0;
 }

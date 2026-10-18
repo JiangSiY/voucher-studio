@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
 .msel-caret {
   flex: none;
   color: var(--label-tertiary);
-  font-size: 10px;
+  font-size: var(--fs-caption);
 }
 .msel-pop {
   position: absolute;

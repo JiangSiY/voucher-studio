@@ -206,7 +206,7 @@ watch(
 .cp-panel {
   width: min(560px, 92vw);
   background: var(--surface);
-  border-radius: 10px;
+  border-radius: var(--radius-toast);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
   overflow: hidden;
 }
@@ -224,13 +224,13 @@ watch(
   flex: 1;
   border: none;
   outline: none;
-  font-size: 14px;
+  font-size: var(--fs-body);
   background: transparent;
   color: var(--text);
 }
 
 .cp-esc {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-4);
   white-space: nowrap;
 }
@@ -254,7 +254,7 @@ watch(
   cursor: pointer;
   text-align: left;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-caption);
 }
 
 .cp-item.active {
@@ -276,7 +276,7 @@ watch(
 }
 
 .cp-hint {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   flex-shrink: 0;
 }
@@ -284,7 +284,7 @@ watch(
 .cp-empty {
   padding: 28px 16px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
 }
 </style>

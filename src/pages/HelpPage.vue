@@ -45,24 +45,24 @@ const navMap: { name: string; what: string }[] = [
     <div class="fluent-panel-header"><h3>三步上手</h3></div>
     <div class="fluent-panel-body">
       <div class="help-grid">
-        <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
+        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>
-          <div style="font-size: 12px; color: var(--text-3)">
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">
             把票据/凭证图片拖进「全部凭证」，自动建卡入库；支持批量拖放，一图一凭证；重复图片自动去重。
           </div>
         </div>
-        <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
+        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="edit" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">2 · 整理</div>
-          <div style="font-size: 12px; color: var(--text-3)">
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">
             补全摘要、金额、收支方向；一键 OCR 提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
           </div>
         </div>
-        <div style="border: 1px solid var(--stroke); border-radius: 6px; padding: 16px">
+        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
           <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="print" :size="24" /></div>
           <div style="font-weight: 600; margin-bottom: 4px">3 · 打印归档</div>
-          <div style="font-size: 12px; color: var(--text-3)">
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">
             「打印与导出」页勾选凭证，选卡片风格与列数，生成 A4 省墨整理单 PDF，用系统查看器打印归档。
           </div>
         </div>
@@ -100,7 +100,7 @@ const navMap: { name: string; what: string }[] = [
 
   <div class="fluent-panel">
     <div class="fluent-panel-header"><h3>常见问题</h3></div>
-    <div class="fluent-panel-body" style="font-size: 13px; line-height: 1.8">
+    <div class="fluent-panel-body" style="font-size: var(--fs-caption); line-height: 1.8">
       <p><strong>数据存在哪里？</strong>全部在本机：<code>{{ dataDir }}</code>（数据库 + 附件图片 + 备份）。不上传任何数据（WebDAV 备份由你显式配置；云端 OCR 需你显式切换到云端引擎）。</p>
       <p><strong>密钥安全吗？</strong>云端 OCR API Key、WebDAV 密码保存在系统钥匙串（macOS 钥匙串），不会写入文件。</p>
       <p><strong>误删了怎么办？</strong>删除前系统自动留存快照记录；数据目录损坏时用「备份与恢复」页的备份还原（恢复 = 写入待恢复文件 + 重启生效）。</p>
@@ -110,7 +110,7 @@ const navMap: { name: string; what: string }[] = [
   </div>
 
   <div class="fluent-panel">
-    <div class="fluent-panel-body" style="font-size: 12px; color: var(--text-3)">
+    <div class="fluent-panel-body" style="font-size: var(--fs-caption); color: var(--text-3)">
       Voucher Studio v{{ version }} · Tauri 2 + Rust + Vue 3 重写版（完全无包袱重写，不迁移旧版数据）。
       本地 OCR（离线识别）已内置：RapidOCR PP-OCRv5 模型，识别全程在本机完成。
     </div>
@@ -119,9 +119,9 @@ const navMap: { name: string; what: string }[] = [
 
 <style scoped>
 .helplist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.helplist li { display: flex; align-items: baseline; gap: var(--s-3); font-size: 13px; }
+.helplist li { display: flex; align-items: baseline; gap: var(--s-3); font-size: var(--fs-caption); }
 .hl-name, .hl-keys { flex-shrink: 0; min-width: 96px; color: var(--label-primary); font-weight: 600; }
 .hl-keys { min-width: 108px; font: 600 12.6px / 1.6 var(--font-mono); }
 .hl-what { color: var(--label-secondary); }
-.hl-note { margin: var(--s-3) 0 0; font-size: 12px; color: var(--text-3); line-height: 1.7; }
+.hl-note { margin: var(--s-3) 0 0; font-size: var(--fs-caption); color: var(--text-3); line-height: 1.7; }
 </style>

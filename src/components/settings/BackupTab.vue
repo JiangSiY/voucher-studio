@@ -67,8 +67,8 @@ async function testWebdavConnection() {
     <div class="fluent-panel-body">
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">自动备份</div>
-          <div style="font-size: 12px; color: var(--text-3)">应用运行期间按间隔自动打包数据库、配置与全部附件原图</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">自动备份</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">应用运行期间按间隔自动打包数据库、配置与全部附件原图</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.backup.autoEnabled" />
@@ -92,8 +92,8 @@ async function testWebdavConnection() {
       </div>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">关闭前自动备份</div>
-          <div style="font-size: 12px; color: var(--text-3)">每次退出应用前执行一次本地快速备份（跳过 WebDAV/异盘双写，避免关闭卡顿）；60 分钟内已备份则跳过</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">关闭前自动备份</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">每次退出应用前执行一次本地快速备份（跳过 WebDAV/异盘双写，避免关闭卡顿）；60 分钟内已备份则跳过</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.backup.autoBackupOnClose" />
@@ -104,8 +104,8 @@ async function testWebdavConnection() {
       <!-- v0.14-A：备份加密（age 信封 AEAD 整文件密封；密码存凭据管理器） -->
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">备份加密 <FluentIcon name="lock" :size="13" /></div>
-          <div style="font-size: 12px; color: var(--text-3)">
+          <div style="font-size: var(--fs-caption); font-weight: 600">备份加密 <FluentIcon name="lock" :size="13" /></div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">
             开启后备份文件以 age 加密（ChaCha20-Poly1305 AEAD）整文件密封保护（本地 / 异盘 / WebDAV 云端全覆盖），恢复时自动解密。
             密码在「密钥管理 → 备份加密密码」设置，<strong style="color: var(--warning)">忘记密码将无法恢复备份，请牢记</strong>。
             旧版备份（含 v0.13 AES 加密备份）仍可兼容恢复。
@@ -133,8 +133,8 @@ async function testWebdavConnection() {
 
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">WebDAV 云备份</div>
-          <div style="font-size: 12px; color: var(--text-3)">每次备份（含手动）自动上传，失败自动重试</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">WebDAV 云备份</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">每次备份（含手动）自动上传，失败自动重试</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.backup.webdav.enabled" />
@@ -170,8 +170,8 @@ async function testWebdavConnection() {
       </div>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 0">
         <div>
-          <div style="font-size: 13px; font-weight: 600">云端每日一份（流量保护）</div>
-          <div style="font-size: 12px; color: var(--text-3)">坚果云等免费服务有上传流量配额；开启后当日云端已有备份则跳过上传（本地备份不受影响）</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">云端每日一份（流量保护）</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">坚果云等免费服务有上传流量配额；开启后当日云端已有备份则跳过上传（本地备份不受影响）</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.backup.webdav.onceDaily" />

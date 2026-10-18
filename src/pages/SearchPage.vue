@@ -126,17 +126,17 @@ onUnmounted(() => {
       <!-- v0.11 组合筛选：日期范围 + 金额范围（与关键词 AND 组合） -->
       <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px">
         <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" @keyup.enter="search" />
-        <span style="color: var(--text-3); font-size: 12px">至</span>
+        <span style="color: var(--text-3); font-size: var(--fs-caption)">至</span>
         <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" @keyup.enter="search" />
-        <span style="color: var(--text-3); font-size: 12px; margin-left: 4px">金额</span>
+        <span style="color: var(--text-3); font-size: var(--fs-caption); margin-left: 4px">金额</span>
         <input v-model="filterAmountFrom" class="input" style="width: 110px" inputmode="decimal"
           placeholder="≥ 元" title="金额下限（元）" @keyup.enter="search" />
-        <span style="color: var(--text-3); font-size: 12px">—</span>
+        <span style="color: var(--text-3); font-size: var(--fs-caption)">—</span>
         <input v-model="filterAmountTo" class="input" style="width: 110px" inputmode="decimal"
           placeholder="≤ 元" title="金额上限（元）" @keyup.enter="search" />
         <button v-if="hasFilters()" class="btn" @click="clearFilters">清除筛选</button>
       </div>
-      <div v-if="hasFilters()" style="font-size: 12px; color: var(--text-3); margin-top: 6px">
+      <div v-if="hasFilters()" style="font-size: var(--fs-caption); color: var(--text-3); margin-top: 6px">
         筛选条件与关键词同时生效（AND）；金额按凭证金额精确匹配，空金额凭证在设定金额范围时不出现
       </div>
     </div>
@@ -145,9 +145,9 @@ onUnmounted(() => {
   <div class="fluent-panel" v-if="searched">
     <div class="fluent-panel-header">
       <h3>搜索结果（{{ hits.length }}{{ truncated ? "+" : "" }}）</h3>
-      <span v-if="keyword.trim()" style="font-size: 12px; color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在「全部凭证」中打开，返回仍在搜索页</span>
+      <span v-if="keyword.trim()" style="font-size: var(--fs-caption); color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在「全部凭证」中打开，返回仍在搜索页</span>
     </div>
-    <div v-if="truncated" style="padding: 8px 12px; border-bottom: 1px solid var(--separator); font-size: 12px; color: var(--label-secondary)">
+    <div v-if="truncated" style="padding: 8px 12px; border-bottom: 1px solid var(--separator); font-size: var(--fs-caption); color: var(--label-secondary)">
       结果较多，只显示前 {{ SEARCH_LIMIT }} 条 —— 请把关键词写得更具体，或加上日期 / 金额筛选，避免漏看后面的凭证
     </div>
     <div class="fluent-panel-body" style="padding: 0">

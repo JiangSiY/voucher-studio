@@ -150,7 +150,7 @@ onUnmounted(() => {
    base.css，会让全局断点失效，故移出组件）。 */
 
 .dist-sum {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-disabled);
 }
 
@@ -175,7 +175,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   border-radius: 50%;
   background: var(--stroke);
   color: var(--text-2);
@@ -191,7 +191,7 @@ onUnmounted(() => {
 .cp-name {
   flex: none;
   width: 140px;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -205,7 +205,7 @@ onUnmounted(() => {
 
 .cp-bar {
   height: 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-small);
   background: var(--accent);
   transition: opacity 0.15s ease;
 }
@@ -217,7 +217,7 @@ onUnmounted(() => {
 .cp-amount {
   flex: none;
   width: 110px;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -226,7 +226,7 @@ onUnmounted(() => {
 .cp-count {
   flex: none;
   width: 52px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-4);
   text-align: right;
   font-variant-numeric: tabular-nums;

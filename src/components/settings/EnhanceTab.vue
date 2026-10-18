@@ -225,8 +225,8 @@ onUnmounted(() => {
       <!-- 总开关 + 仅对扫描件 -->
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">启用扫描矫正</div>
-          <div style="font-size: 12px; color: var(--text-3)">关闭后导入图片保留原图，不再生成增强版</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">启用扫描矫正</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭后导入图片保留原图，不再生成增强版</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.enhance.enabled" />
@@ -235,8 +235,8 @@ onUnmounted(() => {
       </div>
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">仅对扫描件生效</div>
-          <div style="font-size: 12px; color: var(--text-3)">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">仅对扫描件生效</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.enhance.onlyScans" :disabled="!draftCfg.enhance.enabled" />
@@ -280,7 +280,7 @@ onUnmounted(() => {
           <button class="btn" :disabled="reEnhancing" @click="reEnhanceAll">
             {{ reEnhancing ? `重新增强中 ${reEnhanceDone}/${reEnhanceTotal}…` : "重新增强全部" }}
           </button>
-          <span style="font-size: 12px; color: var(--text-3)">
+          <span style="font-size: var(--fs-caption); color: var(--text-3)">
             自动裁边算法已修复（旧版会把票据边缘裁掉）；点击后按新算法重算全部已有增强版，原图与凭证数据不变
           </span>
         </div>
@@ -485,11 +485,11 @@ onUnmounted(() => {
   min-width: 0;
 }
 .step-label {
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 600;
 }
 .step-desc {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   margin-top: 2px;
 }
@@ -502,14 +502,14 @@ onUnmounted(() => {
   padding: 8px 0;
 }
 .stat-num {
-  font-size: 20px;
+  font-size: var(--fs-display);
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   margin-right: 4px;
 }
 .stat-label {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
 }
 .stat-split {
@@ -522,7 +522,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 500;
   padding: 3px 10px;
   border-radius: 4px;
@@ -563,14 +563,14 @@ onUnmounted(() => {
    base.css，会让全局断点失效，故移出组件）。 */
 .hit-cell { text-align: center; }
 .hit-num {
-  font-size: 22px;
+  font-size: var(--fs-display);
   font-weight: 600;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 .hit-label {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   margin-top: 2px;
 }
@@ -585,7 +585,7 @@ onUnmounted(() => {
 /* D-10：命中趋势堆叠柱状图 */
 .hit-trend {
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 12px;
   margin-bottom: 16px;
   background: var(--surface);
@@ -597,7 +597,7 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 .ht-title {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--text-2);
 }
@@ -606,7 +606,7 @@ onUnmounted(() => {
   gap: 4px;
 }
 .ht-day {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   padding: 2px 8px;
   border: 1px solid var(--stroke);
   border-radius: 4px;
@@ -646,7 +646,7 @@ onUnmounted(() => {
 }
 .ht-seg {
   width: 100%;
-  border-radius: 1px;
+  border-radius: var(--radius-small);
   min-height: 0;
   transition: height 0.25s ease;
 }
@@ -654,7 +654,7 @@ onUnmounted(() => {
 .ht-seg.seg-export { background: var(--success); }
 .ht-seg.seg-viewer { background: var(--label-tertiary); }
 .ht-day-label {
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   text-align: center;
   margin-top: 4px;
@@ -667,14 +667,14 @@ onUnmounted(() => {
   gap: 12px;
   align-items: center;
   margin-top: 8px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
 }
 .ht-dot {
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   margin-right: 4px;
   vertical-align: -1px;
 }
@@ -685,13 +685,13 @@ onUnmounted(() => {
 
 .clear-strategy {
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 12px;
   margin-bottom: 16px;
   background: var(--surface);
 }
 .cs-title {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--text-2);
   margin-bottom: 8px;
@@ -706,7 +706,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -716,29 +716,29 @@ onUnmounted(() => {
 }
 .cs-num {
   width: 56px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   padding: 2px 6px;
   border: 1px solid var(--stroke);
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   background: var(--surface-2);
   color: var(--text);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 .cs-hint {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   margin-top: 8px;
 }
 
 .recent-enhanced {
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 12px;
   background: var(--surface);
 }
 .re-title {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--text-2);
   margin-bottom: 8px;
@@ -746,7 +746,7 @@ onUnmounted(() => {
 .re-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-caption);
 }
 .re-table th {
   text-align: left;
@@ -771,7 +771,7 @@ onUnmounted(() => {
   max-width: 220px;
 }
 .re-vno {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
   margin-top: 1px;
@@ -780,7 +780,7 @@ onUnmounted(() => {
   display: inline-block;
   min-width: 22px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -790,6 +790,6 @@ onUnmounted(() => {
   padding: 16px;
   text-align: center;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-caption);
 }
 </style>

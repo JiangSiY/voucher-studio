@@ -80,8 +80,8 @@ onUnmounted(() => {
     <div class="fluent-panel-body">
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
         <div>
-          <div style="font-size: 13px; font-weight: 600">启用 OCR</div>
-          <div style="font-size: 12px; color: var(--text-3)">关闭后导入图片不再自动识别文字</div>
+          <div style="font-size: var(--fs-caption); font-weight: 600">启用 OCR</div>
+          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭后导入图片不再自动识别文字</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.ocr.enabled" />
@@ -128,7 +128,7 @@ onUnmounted(() => {
           <button class="btn" :disabled="ocrPendingBusy" @click="runOcrPending">
             {{ ocrPendingBusy ? "识别中…" : "识别全部待处理" }}
           </button>
-          <span style="font-size: 12px; color: var(--text-3)">
+          <span style="font-size: var(--fs-caption); color: var(--text-3)">
             处理所有待识别附件（列表页导入、识别失败件），识别后自动填单（只填空字段）
           </span>
         </div>
@@ -157,20 +157,20 @@ onUnmounted(() => {
 .ocr-progress-track {
   flex: 1;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: var(--stroke);
   overflow: hidden;
 }
 
 .ocr-progress-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: var(--accent);
   transition: width 0.2s ease;
 }
 
 .ocr-progress-text {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

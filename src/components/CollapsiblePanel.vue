@@ -78,7 +78,7 @@ defineExpose({ collapse, isOpen: () => open.value });
   text-align: left;
 }
 .cp-toggle h3 {
-  font-size: 15px;
+  font-size: var(--fs-body);
   font-weight: 600;
   margin: 0;
   white-space: nowrap;

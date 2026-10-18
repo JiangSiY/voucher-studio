@@ -210,10 +210,10 @@ onUnmounted(() => unlistenBackupDone?.());
       <template v-else><strong>不含附件实体</strong></template>
       {{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
       <button class="btn btn-sm btn-primary" style="margin-left: 8px" @click="restart">立即重启应用</button>
-      <span v-if="staged.attachmentsIncluded" style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
+      <span v-if="staged.attachmentsIncluded" style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)">
         重启后自动替换数据库与附件目录；如需取消，重启前删除数据目录下 voucher.db.pending / attachments.pending 即可。
       </span>
-      <span v-else style="display: block; font-size: 12px; margin-top: 4px; color: var(--warning)">
+      <span v-else style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--warning)">
         该备份不含附件实体：重启后只替换数据库与配置，附件目录保持不变。凭证信息可恢复，图片将自动回退到原图显示；
         如需增强版，可在 设置 → 扫描矫正 一键重建。如需取消，重启前删除数据目录下 voucher.db.pending 即可。
       </span>
@@ -225,7 +225,7 @@ onUnmounted(() => unlistenBackupDone?.());
     <div class="ct">
       <strong>演练通过：</strong>{{ drill.batch }}（{{ fmtDate(drill.createdAt) || drill.createdAt }}）
       校验 {{ drill.filesChecked }} 个文件、{{ drill.attachmentCount }} 个附件，数据库可正常打开。
-      <span style="display: block; font-size: 12px; margin-top: 4px; color: var(--text-3)">
+      <span style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)">
         {{ drill.checksumsVerified ? "sha256 完整性校验全部通过" : "v1 备份：无校验和清单，未做完整性校验" }}
       </span>
     </div>

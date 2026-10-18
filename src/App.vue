@@ -230,7 +230,7 @@ onUnmounted(() => {
           上次会话（{{ recovery.lastSession ? fmtDate(recovery.lastSession.startedAt) : "时间未知" }}）未能正常关闭，
           可能由崩溃、强制结束进程或断电引起。已对数据做了只读健康检查：
         </p>
-        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-caption)">
           <li style="display: flex; align-items: flex-start; gap: 6px">
             <template v-if="recovery.dbOk"><span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="15" /></span><span>数据库完整性检查通过</span></template>
             <template v-else>
@@ -272,7 +272,7 @@ onUnmounted(() => {
         </ul>
         <p
           v-if="!recovery.dbOk || recovery.attachmentMissingCount > 0"
-          style="margin-top: 12px; color: var(--danger); font-size: 13px"
+          style="margin-top: 12px; color: var(--danger); font-size: var(--fs-caption)"
         >
           建议从最近的备份恢复数据。
         </p>

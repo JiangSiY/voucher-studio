@@ -46,7 +46,7 @@ const hasExtracted = computed(() => {
       </button>
     </template>
     <div>
-      <div v-if="fieldsBusy" style="font-size: 13px; color: var(--text-2)">正在提取字段…</div>
+      <div v-if="fieldsBusy" style="font-size: var(--fs-caption); color: var(--text-2)">正在提取字段…</div>
       <template v-else-if="extracted">
         <div class="ext-row">
           <span class="ext-label">日期</span>
@@ -105,14 +105,14 @@ const hasExtracted = computed(() => {
 .ext-label {
   flex: none;
   width: 72px;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text-2);
 }
 
 .ext-value {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -128,7 +128,7 @@ const hasExtracted = computed(() => {
 
 .ext-tip {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-4);
 }
 </style>

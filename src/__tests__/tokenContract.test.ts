@@ -123,3 +123,63 @@ describe("CSS 令牌契约（引用必须有定义）", () => {
     expect(dangling, `别名目标未定义：\n${dangling.join("\n")}`).toEqual([]);
   });
 });
+
+/**
+ * 排版与视觉语言契约（2026-10-18 U1/U2 收编）：
+ * - 字号只允许走 `--fs-*`，不得再出现 `font-size: Npx` 字面量（历史上 159 处字面量与令牌双轨，
+ *   导致「界面字号」档位只改了约 1/3 界面——见 docs/voucher-studio-audit-2026-10-18.md §1.1）；
+ * - 颜色只允许语义令牌，不得再出现 hex 字面量（hex 不被深色主题/提高对比度接管）；
+ * - 已下线的旧视觉族不得回归（v0.22 卡片版式与旧列表工具类，见审计 §2.2）。
+ */
+describe("排版与视觉语言契约（U1/U2 收编）", () => {
+  const styleFiles = readdirSync(new URL("../../src", import.meta.url), { recursive: true })
+    .map((f) => String(f))
+    .filter((f) => /\.(vue|css)$/.test(f) && !f.includes("__tests__") && !f.endsWith("styles/tokens.css"));
+  const texts = new Map(styleFiles.map((rel) => [rel, repoFile(`src/${rel}`)] as const));
+
+  it("样式文件里不得再出现 font-size 字面量（必须走 --fs-*）", () => {
+    const offenders: string[] = [];
+    for (const [rel, text] of texts) {
+      text.split("\n").forEach((line, i) => {
+        if (/font-size:\s*[0-9.]+px/.test(line)) offenders.push(`src/${rel}:${i + 1} ${line.trim()}`);
+      });
+    }
+    expect(
+      offenders,
+      `以下位置仍写死字号（改用 --fs-title / --fs-body / --fs-caption）：\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("样式文件里不得再出现 hex 颜色字面量（必须走语义令牌）", () => {
+    const offenders: string[] = [];
+    for (const [rel, text] of texts) {
+      text.split("\n").forEach((line, i) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.startsWith("//")) return;
+        if (/#[0-9a-fA-F]{3,8}\b/.test(trimmed)) offenders.push(`src/${rel}:${i + 1} ${trimmed}`);
+      });
+    }
+    expect(
+      offenders,
+      `以下位置仍写死颜色（改用 --accent / --label-* / --separator / --bg-* / --surface*）：\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("已下线的旧视觉族不得回归（v0.22 卡片版式 / 旧列表工具类）", () => {
+    const css = repoFile("src/styles/base.css");
+    for (const dead of ["vcard", "fchip", "filter-chips", "print-grid", "list-thumb", "cell-ellipsis", "card-body", "card-header"]) {
+      expect(css.includes(dead), `base.css 不应再定义 ${dead}（旧视觉族，见审计 §2.2）`).toBe(false);
+    }
+    expect(css).not.toContain("#6366f1");
+    expect(css).not.toContain("#8b5cf6");
+    expect(css).not.toContain("#0078d4");
+  });
+
+  it("字号令牌与 --type-* 同源（都以 --font-scale 为基数）", () => {
+    const css = repoFile("src/styles/tokens.css");
+    expect(css).toMatch(/--fs-title:\s*calc\(17px \* var\(--font-scale\)\)/);
+    expect(css).toMatch(/--fs-body:\s*calc\(15px \* var\(--font-scale\)\)/);
+    expect(css).toMatch(/--fs-caption:\s*calc\(13px \* var\(--font-scale\)\)/);
+    expect(css).toMatch(/--fs-display:\s*calc\(20px \* var\(--font-scale\)\)/);
+  });
+});

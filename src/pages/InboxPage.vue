@@ -307,7 +307,7 @@ onUnmounted(() => {
 .inbox { display: flex; flex-direction: column; gap: var(--s-4); }
 
 .inbox-head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
-.inbox-head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: calc(20px * var(--font-scale)); }
+.inbox-head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: var(--fs-display); }
 .flex-1 { flex: 1; }
 
 /* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间。

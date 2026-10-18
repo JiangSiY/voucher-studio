@@ -86,28 +86,28 @@ const router = useRouter();
   flex-direction: column;
   align-items: center;
   padding: 10px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
 }
 
 .recap-cell.ok {
-  border-color: var(--success, #107c10);
+  border-color: var(--success);
   background: rgba(16, 124, 16, 0.06);
 }
 
 .recap-cell.warn {
-  border-color: var(--warning, #c88a17);
+  border-color: var(--warning);
   background: rgba(200, 138, 23, 0.06);
 }
 
 .rc-num {
-  font-size: 22px;
+  font-size: var(--fs-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .rc-label {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   margin-top: 2px;
 }

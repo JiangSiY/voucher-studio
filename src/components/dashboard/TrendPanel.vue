@@ -358,19 +358,19 @@ onUnmounted(() => {
 }
 
 .q-label {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--text-2);
 }
 
 .q-count {
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .q-amount {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -403,18 +403,18 @@ onUnmounted(() => {
 
 .bar-val {
   fill: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   text-anchor: middle;
 }
 
 .bar-label {
   fill: var(--text-disabled);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   text-anchor: middle;
 }
 
 .dist-sum {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--text-disabled);
 }
 
@@ -429,7 +429,7 @@ onUnmounted(() => {
 
 .metric-toggle button {
   padding: 3px 12px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -450,7 +450,7 @@ onUnmounted(() => {
 .dist-bar {
   display: flex;
   height: 14px;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   overflow: hidden;
   background: var(--stroke);
 }
@@ -495,7 +495,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   color: var(--text);
 }
 
