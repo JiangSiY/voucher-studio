@@ -126,10 +126,10 @@ onMounted(() => {
           默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01 的编号。
         </div>
         <div v-if="templateError" class="desc" style="color: var(--danger); display: flex; align-items: center; gap: 4px">
-          <FluentIcon name="warning" :size="13" />{{ templateError }}
+          <FluentIcon name="warning" :size="14" />{{ templateError }}
         </div>
         <div v-else-if="templatePreview" class="desc" style="color: var(--success); display: flex; align-items: center; gap: 4px">
-          <FluentIcon name="check" :size="13" />保存后新凭证编号形如：{{ templatePreview }}
+          <FluentIcon name="check" :size="14" />保存后新凭证编号形如：{{ templatePreview }}
         </div>
       </div>
       <div class="callout info" style="margin: 0">
@@ -189,7 +189,7 @@ onMounted(() => {
   gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 .period-row.locked {
@@ -200,7 +200,7 @@ onMounted(() => {
 .period-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-caption);
   color: var(--text);
 }

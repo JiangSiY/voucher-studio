@@ -157,7 +157,7 @@ onUnmounted(() => {
 /* v0.9 下钻：可点击行的 hover 反馈 */
 .cp-click:hover {
   background: var(--accent-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 
 /* v0.7 R-1：Top 对方账户排行行（排名 / 名称 / 条形 / 金额 / 张数） */
@@ -165,7 +165,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 0;
+  padding: 4px 0;
 }
 
 .cp-rank {

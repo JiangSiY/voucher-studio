@@ -232,9 +232,9 @@ onUnmounted(() => {
         </p>
         <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-caption)">
           <li style="display: flex; align-items: flex-start; gap: 6px">
-            <template v-if="recovery.dbOk"><span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="15" /></span><span>数据库完整性检查通过</span></template>
+            <template v-if="recovery.dbOk"><span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="16" /></span><span>数据库完整性检查通过</span></template>
             <template v-else>
-              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>
+              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>
               <span>数据库完整性检查发现问题：
                 <span class="mono" style="color: var(--danger)">{{
                   recovery.integrityErrors.join("；") || "未知错误"
@@ -244,30 +244,30 @@ onUnmounted(() => {
           </li>
           <li v-if="recovery.attachmentTotal > 0" style="display: flex; align-items: flex-start; gap: 6px">
             <template v-if="recovery.attachmentMissingCount === 0">
-              <span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="15" /></span>
+              <span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="16" /></span>
               <span>附件文件核对通过（{{ recovery.attachmentTotal }} 张图片全部在位）</span>
             </template>
             <template v-else>
-              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>
+              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>
               <span>有 {{ recovery.attachmentMissingCount }} 张附件图片文件缺失（如
                 {{ recovery.attachmentMissing[0] }}）
               </span>
             </template>
           </li>
           <li v-else style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="info" :size="15" /></span>尚无附件图片
+            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="info" :size="16" /></span>尚无附件图片
           </li>
           <li v-if="recovery.attachmentMissingEnhanced > 0" style="display: flex; align-items: flex-start; gap: 6px">
-            <span style="color: var(--warning); flex-shrink: 0"><FluentIcon name="info" :size="15" /></span>
+            <span style="color: var(--warning); flex-shrink: 0"><FluentIcon name="info" :size="16" /></span>
             <span>有 {{ recovery.attachmentMissingEnhanced }} 张图片的「增强版」文件不在磁盘上——增强版是可重建缓存、
               不随备份保存（恢复备份后必然出现）。界面已自动改用原图显示，可在 设置 → 扫描矫正 一键重建增强。</span>
           </li>
           <li v-if="recovery.lastBackup" style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="save" :size="15" /></span>
+            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="save" :size="16" /></span>
             最近备份：{{ fmtDate(recovery.lastBackup.createdAt) }}
           </li>
           <li v-else style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="15" /></span>尚无任何备份
+            <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>尚无任何备份
           </li>
         </ul>
         <p

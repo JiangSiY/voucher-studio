@@ -288,7 +288,7 @@ async function openExternal() {
   color: var(--label-on-accent);
   font-size: var(--fs-caption);
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .vbtn:hover {

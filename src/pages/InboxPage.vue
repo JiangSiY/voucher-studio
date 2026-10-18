@@ -236,13 +236,13 @@ onUnmounted(() => {
       <ul>
         <li v-for="i in todoItems" :key="i.key" class="todo-row">
           <button class="todo" :disabled="i.action.disabled" @click="i.action.run()">
-            <span class="todo-icon"><FluentIcon :name="i.icon" :size="17" /></span>
+            <span class="todo-icon"><FluentIcon :name="i.icon" :size="18" /></span>
             <span class="todo-title">{{ i.title }}</span>
             <span class="todo-count">{{ i.count }}<small>{{ i.unit }}</small></span>
             <span class="todo-hint">{{ i.hint }}</span>
             <span class="flex-1"></span>
             <span class="todo-action">{{ i.action.label }}</span>
-            <FluentIcon name="chevronRight" :size="13" />
+            <FluentIcon name="chevronRight" :size="14" />
           </button>
           <!-- 次要动作独立成按钮：原先写在主按钮内部（span @click），Tab 落不到、
                screen reader 也只当它是主按钮的文字；而且主按钮 disabled（如「识别中…」）
@@ -256,7 +256,7 @@ onUnmounted(() => {
 
     <!-- 全部处理完：只留一条细横幅，不占版面 -->
     <div v-else-if="inbox.todos" class="all-clear">
-      <FluentIcon name="checkCircle" :size="17" />
+      <FluentIcon name="checkCircle" :size="18" />
       <span>待办都清空了 —— 没有待识别的图片、待核对的草稿、待打印的凭证，也没有未处置的疑似重复。</span>
       <span class="flex-1"></span>
       <button class="link" @click="router.push('/vouchers')">打开「全部凭证」</button>
@@ -331,7 +331,7 @@ onUnmounted(() => {
 .todo-icon { color: var(--label-secondary); display: inline-flex; }
 .todo-title { font: var(--type-body); font-weight: 600; color: var(--label-primary); white-space: nowrap; }
 .todo-count { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.todo-count small { margin-left: 3px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
+.todo-count small { margin-left: 4px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
 .todo-hint { font: var(--type-caption); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .todo-action { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
 .todo-secondary {

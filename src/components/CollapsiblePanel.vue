@@ -95,6 +95,6 @@ defineExpose({ collapse, isOpen: () => open.value });
 .cp-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 </style>

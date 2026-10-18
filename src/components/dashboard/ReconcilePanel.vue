@@ -68,7 +68,7 @@ const router = useRouter();
         </table>
       </div>
       <div v-else class="empty-state" style="padding: 28px">
-        <div class="es-icon"><FluentIcon name="checkCircle" :size="36" /></div>
+        <div class="es-icon"><FluentIcon name="checkCircle" :size="42" /></div>
         <div class="es-title">账单与凭证全部匹配</div>
         <div class="es-desc">范围内没有差异项</div>
       </div>

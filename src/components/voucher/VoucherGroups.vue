@@ -201,7 +201,7 @@ function groupTotal(g: VoucherGroup): number {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 3px 0;
+  padding: 4px 0;
 }
 .vg-member-desc {
   flex: 1 1 0;
@@ -220,7 +220,7 @@ function groupTotal(g: VoucherGroup): number {
   font: var(--type-caption);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 .vg-remove:hover {
   color: var(--danger);

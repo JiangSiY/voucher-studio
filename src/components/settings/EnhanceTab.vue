@@ -524,8 +524,8 @@ onUnmounted(() => {
   justify-content: center;
   font-size: var(--fs-caption);
   font-weight: 500;
-  padding: 3px 10px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-small);
   border: 1px solid var(--stroke);
   background: var(--surface-2);
   color: var(--text-2);
@@ -609,7 +609,7 @@ onUnmounted(() => {
   font-size: var(--fs-caption);
   padding: 2px 8px;
   border: 1px solid var(--stroke);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   background: var(--surface-2);
   color: var(--text-3);
   cursor: pointer;

@@ -165,13 +165,13 @@ watch(
           <template v-for="(it, i) in items" :key="it.key">
             <button v-if="it.kind === 'cmd'" class="cp-item" :class="{ active: i === active }"
               @mouseenter="active = i" @click="execute()">
-              <span class="cp-icon"><FluentIcon :name="it.icon" :size="15" /></span>
+              <span class="cp-icon"><FluentIcon :name="it.icon" :size="16" /></span>
               <span class="cp-label">{{ it.label }}</span>
               <span class="cp-hint">{{ it.hint }}</span>
             </button>
             <button v-else class="cp-item" :class="{ active: i === active }"
               @mouseenter="active = i" @click="execute()">
-              <span class="cp-icon"><FluentIcon name="image" :size="15" /></span>
+              <span class="cp-icon"><FluentIcon name="image" :size="16" /></span>
               <span class="cp-label">
                 <span class="mono">{{ it.hit.voucher.voucherNo }}</span>
                 <span style="color: var(--text-3); margin-left: 6px">{{ it.hit.voucher.description || "（无摘要）" }}</span>
@@ -249,7 +249,7 @@ watch(
   width: 100%;
   padding: 8px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: none;
   cursor: pointer;
   text-align: left;
@@ -282,7 +282,7 @@ watch(
 }
 
 .cp-empty {
-  padding: 28px 16px;
+  padding: 24px 16px;
   text-align: center;
   font-size: var(--fs-caption);
   color: var(--text-3);

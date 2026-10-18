@@ -94,7 +94,7 @@ function onDescKeydown(e: KeyboardEvent) {
         class="desc-option" :class="{ active: i === descHighlight }"
         @mousedown.prevent="pickDescription(s.description)"
         @mousemove="descHighlight = i">
-        <FluentIcon v-if="s.pinned" name="pin" :size="11" />
+        <FluentIcon v-if="s.pinned" name="pin" :size="12" />
         <span class="desc-text">{{ s.description }}</span>
         <span v-if="s.count != null" class="desc-count">{{ s.count }} 次</span>
       </button>
@@ -117,7 +117,7 @@ function onDescKeydown(e: KeyboardEvent) {
   margin-top: 4px;
   background: var(--surface);
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   max-height: 240px;
   overflow-y: auto;
@@ -131,7 +131,7 @@ function onDescKeydown(e: KeyboardEvent) {
   width: 100%;
   padding: 6px 8px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   background: none;
   cursor: pointer;
   font-size: var(--fs-caption);

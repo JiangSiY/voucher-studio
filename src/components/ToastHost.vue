@@ -32,7 +32,7 @@ function runAction(t: ToastItem) {
         {{ t.action.label }}
       </button>
       <button class="btn-icon" style="width: var(--control-h-xs); height: var(--control-h-xs)" aria-label="关闭"
-        @click="store.dismiss(t.id)"><FluentIcon name="close" :size="11" /></button>
+        @click="store.dismiss(t.id)"><FluentIcon name="close" :size="12" /></button>
     </div>
   </div>
 </template>

@@ -108,7 +108,7 @@ body {
   transform: translateY(-50%);
   width: 3px;
   height: 20px;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: var(--accent);
 }
 
@@ -287,7 +287,7 @@ body {
   /* 与输入框同一高度来源（截图里的"大小不一致"主要就是这两类对不齐） */
   box-sizing: border-box;
   height: var(--control-h-md);
-  padding: 0 14px;
+  padding: 0 12px;
   border-radius: var(--radius-control);
   border: 1px solid var(--separator-strong);
   font: var(--type-body);
@@ -394,7 +394,7 @@ body {
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   padding: 1px 8px;
   border-radius: 100px;
   font-size: var(--fs-caption);
@@ -560,7 +560,7 @@ select.input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L2 4h8z' fill='%23606060'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 28px;
+  padding-right: 24px;
 }
 
 .form-grid {
@@ -707,7 +707,7 @@ select.input {
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0 0 0 22px; /* 左侧给放大镜图标留位（见下方 ::before） */
+  padding: 0 0 0 20px; /* 左侧给放大镜图标留位（见下方 ::before） */
   border: none;
   outline: none;
   background: transparent;
@@ -789,7 +789,7 @@ select.input {
 
 .pager button {
   min-width: 28px;
-  height: 28px;
+  height: var(--control-h-sm);
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
   background: var(--surface);
@@ -862,7 +862,7 @@ select.input {
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  padding: 3px 6px;
+  padding: 4px 6px;
   font-size: var(--fs-caption);
   color: var(--label-secondary);
   border-top: 1px solid var(--separator);
@@ -955,7 +955,7 @@ select.input {
   border: 1px solid var(--separator);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-28);
-  padding: 28px 32px;
+  padding: 24px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1020,7 +1020,7 @@ select.input {
   right: 4px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   font-size: var(--fs-caption);
   font-weight: 600;
   padding: 2px 6px;
@@ -1103,7 +1103,7 @@ select.input {
   top: 4px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   font-size: var(--fs-caption);
   font-weight: 600;
   padding: 2px 6px;
@@ -1131,7 +1131,7 @@ select.input {
   padding: 6px 8px;
   background: var(--surface-3);
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 .att-card .att-compare-label {
   font-size: var(--fs-caption);
@@ -1147,7 +1147,7 @@ select.input {
   -webkit-appearance: none;
   appearance: none;
   background: var(--separator);
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   outline: none;
   cursor: ew-resize;
   margin: 0;
@@ -1373,7 +1373,7 @@ select.input {
 
 ::-webkit-scrollbar-thumb {
   background: var(--separator-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-small);
   border: 2px solid transparent;
   background-clip: content-box;
 }
@@ -1438,7 +1438,7 @@ select.input {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  padding: 14px 16px 6px;
+  padding: 12px 16px 6px;
 }
 
 .enhance-hit-bar {
@@ -1449,7 +1449,7 @@ select.input {
   padding: 12px;
   background: var(--surface-2);
   border: 1px solid var(--separator);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 .help-grid {

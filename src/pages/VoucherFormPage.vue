@@ -117,7 +117,7 @@ onUnmounted(() => unlistenImportDone?.());
           <div class="dropzone" style="padding: 48px 24px" role="button" tabindex="0"
             aria-label="选择图片创建凭证" @click="createByImage"
             @keydown.enter.prevent="createByImage" @keydown.space.prevent="createByImage">
-            <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
+            <div class="dz-icon"><FluentIcon name="image" :size="24" /></div>
             <div style="font-weight: 600">点击选择图片，或拖放到此处</div>
             <div style="font-size: var(--fs-caption); margin-top: 4px">
               支持 jpg / png / bmp / webp；多张图片会各自创建凭证，相同图片自动去重

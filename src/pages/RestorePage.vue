@@ -270,11 +270,11 @@ onUnmounted(() => unlistenBackupDone?.());
               <td>{{ b.attachmentCount || "—" }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)"><FluentIcon name="undo" :size="15" /></button>
-                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)"><FluentIcon name="cloudUp" :size="15" /></button>
+                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)"><FluentIcon name="undo" :size="14" /></button>
+                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)"><FluentIcon name="cloudUp" :size="14" /></button>
                   <!-- v0.9：快照可导出为单个完整 zip（拷走一份不依赖附件包） -->
                   <button v-if="b.kind === 'snapshot'" class="icon-btn" :title="exporting === b.fileName ? '导出中…' : '导出完整备份 zip（合成单文件，便于拷走）'"
-                    :disabled="exporting === b.fileName" @click="exportFull(b)"><FluentIcon name="download" :size="15" /></button>
+                    :disabled="exporting === b.fileName" @click="exportFull(b)"><FluentIcon name="download" :size="14" /></button>
                 </div>
               </td>
             </tr>
@@ -325,7 +325,7 @@ onUnmounted(() => unlistenBackupDone?.());
                 <div class="action-row">
                   <button class="icon-btn" title="下载到本地备份目录"
                     :disabled="downloading !== '' || isLocal(r.fileName)" @click="downloadRemote(r.fileName)">
-                    <FluentIcon name="download" :size="15" />
+                    <FluentIcon name="download" :size="14" />
                   </button>
                 </div>
               </td>

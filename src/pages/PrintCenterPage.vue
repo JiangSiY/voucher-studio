@@ -261,7 +261,7 @@ onUnmounted(() => {
       <button class="btn" :disabled="!filteredVouchers.length || busy" @click="selectAll">全选筛选结果</button>
       <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
       <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
-        <FluentIcon v-if="!busy" name="print" :size="15" /> {{ generateLabel }}
+        <FluentIcon v-if="!busy" name="print" :size="16" /> {{ generateLabel }}
       </button>
     </div>
 
@@ -439,7 +439,7 @@ onUnmounted(() => {
               <figcaption>
                 <span class="mono">{{ r.voucher.voucherNo }}</span>
                 <span v-if="r.thumb.enhancedSource === 'scan' && r.thumb.enhancedPath" class="appendix-badge"
-                  title="PDF 附录将印 5 步矫正后的增强版"><FluentIcon name="sparkle" :size="9" /> 增强版</span>
+                  title="PDF 附录将印 5 步矫正后的增强版"><FluentIcon name="sparkle" :size="12" /> 增强版</span>
               </figcaption>
             </figure>
           </div>

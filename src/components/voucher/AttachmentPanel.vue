@@ -153,10 +153,10 @@ async function onCropSave(
               <div class="att-compare-divider" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }"></div>
               <!-- 滑块手柄 -->
               <div class="att-compare-handle" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }">
-                <FluentIcon name="compare" :size="13" />
+                <FluentIcon name="compare" :size="14" />
               </div>
               <!-- 角标：左=增强 右=原图 -->
-              <span class="att-compare-tag att-compare-tag-left"><FluentIcon name="sparkle" :size="10" /> 增强</span>
+              <span class="att-compare-tag att-compare-tag-left"><FluentIcon name="sparkle" :size="12" /> 增强</span>
               <span class="att-compare-tag att-compare-tag-right">原图</span>
             </template>
             <!-- 非对比模式：单图（thumbSrc 受 useEnhanced 切换） -->
@@ -165,7 +165,7 @@ async function onCropSave(
             </template>
             <!-- v0.6 增强状态角标 -->
             <span v-if="a.enhancedPath && !isCompareOpen(a)" class="att-enhanced-badge" title="已通过 5 步算法矫正（用于 OCR / 查看器）">
-              <FluentIcon name="sparkle" :size="10" /> 已增强
+              <FluentIcon name="sparkle" :size="12" /> 已增强
             </span>
             <!-- D-1：原图/增强版切换器（无增强版时隐藏；对比模式下隐藏避免双控制） -->
             <button v-if="a.enhancedPath && !isCompareOpen(a)" class="att-thumb-toggle"
@@ -213,7 +213,7 @@ async function onCropSave(
             </div>
             <!-- D-4：对比模式滑块行（仅打开时显示） -->
             <div v-if="isCompareOpen(a) && a.enhancedPath" class="att-compare-row">
-              <span class="att-compare-label"><FluentIcon name="sparkle" :size="10" /> 增强</span>
+              <span class="att-compare-label"><FluentIcon name="sparkle" :size="12" /> 增强</span>
               <input type="range" min="0" max="100" step="1"
                 class="att-compare-slider"
                 :value="Math.round((compareSplit[a.id] ?? 0.5) * 100)"
@@ -229,7 +229,7 @@ async function onCropSave(
       <div v-else class="dropzone" role="button" tabindex="0" aria-label="选择图片补挂到这张凭证"
         @click="emit('replaceImage')"
         @keydown.enter.prevent="emit('replaceImage')" @keydown.space.prevent="emit('replaceImage')">
-        <div class="dz-icon"><FluentIcon name="image" :size="32" /></div>
+        <div class="dz-icon"><FluentIcon name="image" :size="24" /></div>
         <div style="font-weight: 600">点击选择图片补挂到这张凭证</div>
         <div style="font-size: var(--fs-caption); margin-top: 4px">一图一凭证：每张凭证只关联一张图片</div>
       </div>

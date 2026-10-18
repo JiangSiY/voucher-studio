@@ -44,7 +44,7 @@ function stateIcon(t: TaskItem): string {
     <div v-show="!store.collapsed" id="task-center-list" class="tc-list">
       <div v-for="t in store.items" :key="t.id" class="tc-item" :class="t.state">
         <span class="tc-icon" :title="t.state === 'failed' ? t.error : t.title">
-          <FluentIcon :name="stateIcon(t)" :size="15" />
+          <FluentIcon :name="stateIcon(t)" :size="14" />
         </span>
         <div class="tc-body">
           <div class="tc-line">
@@ -67,7 +67,7 @@ function stateIcon(t: TaskItem): string {
         </button>
         <button class="btn-icon tc-close" :style="{ width: 'var(--control-h-xs)', height: 'var(--control-h-xs)' }"
           aria-label="关闭这条任务" @click="store.dismiss(t.id)">
-          <FluentIcon name="close" :size="11" />
+          <FluentIcon name="close" :size="12" />
         </button>
       </div>
       <div v-if="store.finished.length > 1" class="tc-foot">
@@ -134,7 +134,7 @@ function stateIcon(t: TaskItem): string {
 .tc-error { margin-left: auto; font: var(--type-caption); color: var(--danger); }
 .tc-detail { font: var(--type-caption); color: var(--label-tertiary); margin-top: 2px; }
 
-.tc-bar { position: relative; height: 3px; margin-top: 6px; border-radius: 2px; background: var(--separator); overflow: hidden; }
+.tc-bar { position: relative; height: 3px; margin-top: 6px; border-radius: var(--radius-small); background: var(--separator); overflow: hidden; }
 .tc-fill { display: block; height: 100%; background: var(--accent); transition: width var(--motion-normal) var(--motion-curve); }
 .tc-bar.is-indeterminate .tc-fill {
   width: 40%;

@@ -341,7 +341,7 @@ onUnmounted(() => {
   gap: 2px;
   padding: 8px 4px;
   border: 1px solid var(--stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease;
@@ -423,12 +423,12 @@ onUnmounted(() => {
   display: flex;
   gap: 0;
   border: 1px solid var(--stroke);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   overflow: hidden;
 }
 
 .metric-toggle button {
-  padding: 3px 12px;
+  padding: 4px 12px;
   font-size: var(--fs-caption);
   border: none;
   background: transparent;

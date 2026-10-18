@@ -78,7 +78,7 @@ function toggleSidebar() {
         >
           <!-- 角标压在图标右上角：不再占行尾宽度，侧栏因此可以更窄（用户 2026-10-16 要求） -->
           <span class="nav-icon">
-            <FluentIcon :name="item.icon" :size="17" />
+            <FluentIcon :name="item.icon" :size="18" />
             <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} ${item.badgeLabel}`">
               {{ badgeText(item.badge) }}
             </span>
@@ -98,7 +98,7 @@ function toggleSidebar() {
         aria-controls="app-sidebar"
         @click="toggleSidebar"
       >
-        <span class="nav-icon"><FluentIcon name="sidebar" :size="17" /></span>
+        <span class="nav-icon"><FluentIcon name="sidebar" :size="18" /></span>
         <span class="nav-label">{{ sidebarCollapsed ? "展开侧边栏" : "收起侧边栏" }}</span>
       </button>
       <div class="sidebar-footer">v{{ version }} · 数据本地存储</div>

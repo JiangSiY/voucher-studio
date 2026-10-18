@@ -296,8 +296,8 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 
 .crop-dialog {
   background: var(--surface);
-  border-radius: 10px;
-  padding: 16px 20px 14px;
+  border-radius: var(--radius-window);
+  padding: 16px 20px 12px;
   max-width: 92vw;
   max-height: 92vh;
   overflow: auto;

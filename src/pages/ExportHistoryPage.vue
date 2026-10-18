@@ -94,8 +94,8 @@ onMounted(load);
               <td>{{ fmtDate(b.createdAt) }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="查看批次包含的凭证" @click="showVouchers(b)"><FluentIcon name="list" :size="15" /></button>
-                  <button class="icon-btn" :title="`打开 ${formatLabel(b)} 文件`" @click="open(b)"><FluentIcon name="file" :size="15" /></button>
+                  <button class="icon-btn" title="查看批次包含的凭证" @click="showVouchers(b)"><FluentIcon name="list" :size="14" /></button>
+                  <button class="icon-btn" :title="`打开 ${formatLabel(b)} 文件`" @click="open(b)"><FluentIcon name="file" :size="14" /></button>
                 </div>
               </td>
             </tr>

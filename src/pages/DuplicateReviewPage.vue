@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
             已处理<span v-if="decisions.length">（{{ decisions.length }}）</span>
           </button>
           <button class="icon-btn" title="刷新" @click="load(); if (tab === 'handled') loadHandled()">
-            <FluentIcon name="refresh" :size="15" />
+            <FluentIcon name="refresh" :size="14" />
           </button>
         </div>
       </div>
@@ -333,9 +333,9 @@ onBeforeUnmount(() => {
                 <td>
                   <div class="action-row">
                     <button v-if="d.decision === 'duplicate_removed'" class="icon-btn" title="查看留痕（被删凭证快照）"
-                      @click="showTrace(d)"><FluentIcon name="file" :size="15" /></button>
+                      @click="showTrace(d)"><FluentIcon name="file" :size="14" /></button>
                     <button v-if="d.keepId != null" class="icon-btn" title="打开保留的凭证"
-                      @click="openVoucher(d.keepId)"><FluentIcon name="list" :size="15" /></button>
+                      @click="openVoucher(d.keepId)"><FluentIcon name="list" :size="14" /></button>
                   </div>
                 </td>
               </tr>
@@ -355,7 +355,7 @@ onBeforeUnmount(() => {
           {{ evidenceReasons(sel.pair.evidence).join(" · ") }} ·
           {{ rows.length }} 项字段中 {{ diffs }} 项不同
         </span>
-        <button class="icon-btn" title="收起" @click="closeCompare"><FluentIcon name="close" :size="15" /></button>
+        <button class="icon-btn" title="收起" @click="closeCompare"><FluentIcon name="close" :size="14" /></button>
       </div>
       <div class="fluent-panel-body">
         <div class="dup-sides">
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
             <div class="dup-img">
               <img v-if="imgUrl(v, side === 0 ? 'a' : 'b')" :src="imgUrl(v, side === 0 ? 'a' : 'b')!"
                 :alt="v.voucherNo" @error="onImgError(v, side === 0 ? 'a' : 'b')" />
-              <div v-else class="dup-img-empty"><FluentIcon name="image" :size="22" /><span>无附件或图片不可显示</span></div>
+              <div v-else class="dup-img-empty"><FluentIcon name="image" :size="24" /><span>无附件或图片不可显示</span></div>
             </div>
           </div>
         </div>
@@ -452,7 +452,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.dup-page { display: flex; flex-direction: column; gap: 14px; }
+.dup-page { display: flex; flex-direction: column; gap: 12px; }
 .dup-sub { font-size: var(--fs-caption); color: var(--text-3); font-weight: 400; max-width: 62ch; }
 .dup-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .dup-stat { font-size: var(--fs-caption); color: var(--text-2); }
@@ -462,7 +462,7 @@ onBeforeUnmount(() => {
 
 .dup-group .fluent-panel-body { padding: 0; }
 .dup-progress { font-size: var(--fs-caption); color: var(--text-3); }
-.dup-pair { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border-subtle, transparent); }
+.dup-pair { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle, transparent); }
 .dup-pair:last-child { border-bottom: none; }
 .dup-pair.active { background: var(--surface-2, transparent); }
 .dup-pair-main { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
 .dup-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .dup-side { border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 8px; }
 .dup-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.dup-img { height: 220px; display: flex; align-items: center; justify-content: center; background: var(--surface-2, rgba(0, 0, 0, 0.02)); border-radius: 6px; overflow: hidden; }
+.dup-img { height: 220px; display: flex; align-items: center; justify-content: center; background: var(--surface-2, rgba(0, 0, 0, 0.02)); border-radius: var(--radius-control); overflow: hidden; }
 .dup-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .dup-img-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-caption); }
 

@@ -155,7 +155,7 @@ async function unlink(l: LinkedVoucher) {
           </button>
           <span v-if="l.note" class="rel-note-text">{{ l.note }}</span>
           <button class="rel-unlink" title="解除关联" aria-label="解除关联" @click="unlink(l)">
-            <FluentIcon name="close" :size="13" />
+            <FluentIcon name="close" :size="14" />
           </button>
         </li>
       </ul>
@@ -249,7 +249,7 @@ async function unlink(l: LinkedVoucher) {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 5px 0;
+  padding: 4px 0;
 }
 .rel-list li + li {
   border-top: 1px solid var(--separator);
@@ -259,7 +259,7 @@ async function unlink(l: LinkedVoucher) {
   font: var(--type-caption);
   color: var(--label-secondary);
   background: var(--bg-selection);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   padding: 1px 6px;
 }
 .rel-other {
@@ -281,7 +281,7 @@ async function unlink(l: LinkedVoucher) {
   color: var(--label-tertiary);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 .rel-unlink:hover {
   color: var(--danger);
