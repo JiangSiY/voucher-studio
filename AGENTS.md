@@ -10,7 +10,7 @@
 只在发布点打包：版本号 bump、发 Release，或用户明确说"打包"——打包只走 `bash package-macos.sh`（见 README「构建」）。
 
 ```bash
-npm run typecheck && npm run lint && npm run test && npm run build   # 前端四门
+npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build   # 前端五门
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI 同口径（含 #[ignore] 真跑）
@@ -23,11 +23,12 @@ cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI �
 - libclang：`$HOME/lib/libclang.dylib` → Command Line Tools 的同名库（符号链接）。`DYLD_*` 会被系统剥离，`LIBCLANG_PATH` 无效，只能靠这个固定路径
 - 需要判断"是不是环境问题"时：`pkg-config --modversion opencv4` 必须打印 `4.10.0`
 
-## 文档纪律（三条）
+## 文档纪律（四条）
 
 1. **改动代码后**：`README.md` 与 `docs/开发方案.md` 中与之相关的数字/描述必须同步（尤其用例数、依赖版本、文件路径、功能开关）。规范类文档**以代码实况为准**直接改写；涉及历史决策处保留「（原 X，自 vY 起改为 Z）」形式，不抹演进痕迹。
 2. **`docs/voucher-studio-*` 报告是时点快照**（`-health-check-*`、`-project-analysis-*`、`-fix-status-*`、`-status-audit-*`、`-audit-*` 五族）：**正文永不修改**。需要更新时只在文件头部追加「校正注记」，并在其中指向当前真源。审计报告统一命名 `docs/voucher-studio-audit-YYYY-MM-DD.md`（日期粒度，模板见 `docs/审计指南.md`）；自动核对：`bash scripts/audit.sh` 第 7.4 节按 glob 检查全部快照是否带头部注记。
-3. **用例数只有一个口径**：Rust 用 `#[test]` 静态计数（单元 = `crates/voucher-core/src`，集成 = `crates/voucher-core/tests`）。它同时出现在 `README.md` 测试命令段、`docs/验收基线/清单1-非GUI测试映射.md` 修订注记、`docs/开发日志.md` 即时条目——三处必须一致。**前端 vitest 一律写「实测」**（`npm run test` 报的「文件数 + 用例数」；2026-10-18 起不再写 `it(` 静态计数：有动态生成用例，静态数会长期差 1）。自动核对：`bash scripts/audit.sh`（见 `docs/审计指南.md`）。
+3. **排版由 Prettier 统一**（挂账 #6，2026-10-18）：格式一律不手调，提交前跑 `npm run format`；门禁里 `npm run format:check` 与 typecheck/lint 并列。ESLint 只管正确性（已接 `eslint-config-prettier/flat` 关掉冲突规则），Prettier 只管排版。`.prettierignore` 排除 `docs/`、`*.md`、`package-lock.json`、`.github/` 与 shell 脚本——文档是中文散文+表格，格式化只会制造无意义 diff。
+4. **用例数只有一个口径**：Rust 用 `#[test]` 静态计数（单元 = `crates/voucher-core/src`，集成 = `crates/voucher-core/tests`）。它同时出现在 `README.md` 测试命令段、`docs/验收基线/清单1-非GUI测试映射.md` 修订注记、`docs/开发日志.md` 即时条目——三处必须一致。**前端 vitest 一律写「实测」**（`npm run test` 报的「文件数 + 用例数」；2026-10-18 起不再写 `it(` 静态计数：有动态生成用例，静态数会长期差 1）。自动核对：`bash scripts/audit.sh`（见 `docs/审计指南.md`）。
 
 ## 开发日志纪律（强制）
 
@@ -49,5 +50,5 @@ cargo test --workspace --no-fail-fast -- --include-ignored            # 与 CI �
 
 - 中文 conventional commits：`feat(scope):` / `fix(scope):` / `docs:` / `test:` / `refactor:` / `chore:` / `ci:`；scope 常用 `core` / `frontend` / `tauri` / `test` / `ci`。
 - 一个逻辑变更一笔提交；文档与代码**分开提交**。
-- 提交前确保：`git status` 无意外文件混入；上表四门 + Rust 三门 + 两道 grep 门禁通过（本地环境见上文 macOS 段）。门禁的**唯一真源**是 `scripts/guards.sh`（`bash scripts/guards.sh layering` / `platform`，`--selftest` 可自证模式有效；CI 与 `scripts/audit.sh` 都调它，不得再各自内联一份——2026-09-27 审计发现两处定义已漂移）。
+- 提交前确保：`git status` 无意外文件混入；上表五门 + Rust 三门 + 两道 grep 门禁通过（本地环境见上文 macOS 段）。门禁的**唯一真源**是 `scripts/guards.sh`（`bash scripts/guards.sh layering` / `platform`，`--selftest` 可自证模式有效；CI 与 `scripts/audit.sh` 都调它，不得再各自内联一份——2026-09-27 审计发现两处定义已漂移）。
 - **推送前先 `git fetch`**，确认与 `origin/main` 的关系再推（历史上出现过"本地领先/落后各若干"的分叉情形）。
