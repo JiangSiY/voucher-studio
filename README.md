@@ -141,7 +141,8 @@ bash scripts/release.sh 0.22.3            # 预览：只打印步骤，不改任
 bash scripts/release.sh 0.22.3 --apply    # 真正发版
 ```
 
-`scripts/release.sh` 把发版全流程固化成 7 步：预检（干净/在 main/已推送/日志与说明就绪）→ 门禁 →
+`scripts/release.sh` 把发版全流程固化成 7 步：预检（干净/在 main/已推送/**锁文件一致性**——`cargo metadata --locked`
++ `npm ci --dry-run`，防依赖漂移/日志与说明就绪）→ 门禁 →
 **过期产物清理**（`clean-build.sh --apply`：清 dev 档 + 旧版本 dmg / release-artifacts）→ 版本号 bump 三处 →
 `tauri build` + **`package-macos.sh`**（OpenCV dylib 收进包内、改 @rpath、重签、出 dmg）→
 **产物自包含硬校验**（主二进制不得引用本机绝对路径 / `Contents/Frameworks` 必须含 6 个 dylib / 引用必须 @rpath /

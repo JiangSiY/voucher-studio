@@ -12,7 +12,8 @@
 #   bash scripts/release.sh 0.22.3 --apply --keep-build   # 发版后不清理构建缓存
 #   bash scripts/release.sh 0.22.3 --apply --skip-gates   # 跳过门禁（不推荐）
 #
-# 前置（脚本会检查）：工作区干净、在 main 上、已推送、`docs/开发日志.md` 已写本版条目、
+# 前置（脚本会检查）：工作区干净、在 main 上、已推送、锁文件与 manifest 一致（`cargo metadata --locked`
+#                     + `npm ci --dry-run`，防依赖漂移）、`docs/开发日志.md` 已写本版条目、
 #                     `docs/release-notes/<version>.md` 存在（Release 说明）、
 #                     自动更新签名私钥存在（`~/.tauri/voucher-studio-updater.key`，可用
 #                     `TAURI_SIGNING_PRIVATE_KEY_PATH` 覆盖）。
@@ -72,7 +73,14 @@ git fetch -q origin main || fail "git fetch 失败"
 grep -q "${VERSION}" docs/开发日志.md || fail "docs/开发日志.md 里还没有 ${VERSION} 的条目（先写开发日志）"
 [ -f "docs/release-notes/${VERSION}.md" ] || fail "缺少 Release 说明：docs/release-notes/${VERSION}.md"
 [ -f "${UPDATER_KEY}" ] || fail "缺少自动更新签名私钥：${UPDATER_KEY}（先用 npx tauri signer generate 生成）"
-echo "  ✓ 工作区干净 / main / 已推送 / 开发日志与 Release 说明就绪 / 更新签名私钥就绪"
+
+# 锁文件一致性：没有 CI 做第二环境验证时，靠这里拦住"本地能编、别的机器拉不到同一套依赖"
+cargo metadata --locked --format-version 1 >/dev/null 2>&1 \
+  || fail "Cargo.lock 与 Cargo.toml 不一致（跑 cargo update 并提交 Cargo.lock）"
+npm ci --dry-run >/dev/null 2>&1 \
+  || fail "package-lock.json 与 package.json 不一致（跑 npm install 并提交 package-lock.json）"
+
+echo "  ✓ 工作区干净 / main / 已推送 / 锁文件一致 / 开发日志与 Release 说明就绪 / 更新签名私钥就绪"
 
 step "2/7 门禁"
 if [ "${SKIP_GATES}" -eq 1 ]; then
