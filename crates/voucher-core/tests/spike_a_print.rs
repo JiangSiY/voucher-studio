@@ -108,7 +108,9 @@ fn write_poc_sample_and_report() {
         .match_indices("MediaBox")
         .all(|(i, _)| text[i..i + 34].contains(A4_W_PT) && text[i..i + 34].contains(A4_H_PT));
     let raster = text.matches("/Subtype/Image").count();
-    let pdf_bytes = std::fs::metadata(&out).unwrap().len();
+    // PDF 里 DocumentID / 时间戳是随机的，同一样张两次保存会差几个字节；
+    // 报告只做量级留档，按 KiB 取整，避免每次跑测试都把 report.json 弄脏。
+    let pdf_bytes = (std::fs::metadata(&out).unwrap().len() / 1024) * 1024;
     // 子集化前缀（如 `HEIGID+HiraginoSansGB-W3`）：printpdf 0.12 的 `subset_fonts`
     // 只在开了 `text_layout` feature 时才打这个 6 字母前缀，故它是最直接的特征探针。
     let font_name = text
