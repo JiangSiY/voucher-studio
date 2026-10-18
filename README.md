@@ -90,6 +90,19 @@ bash scripts/clean-build.sh --apply --sweep  # 叠跑 cargo sweep（需 cargo in
 `Cargo.toml` 已对 dev 档减重（`debug = "line-tables-only"` + 第三方依赖 `debug = false`），
 `target/debug` 通常只有原来的一半以下。
 
+### 视觉回归（改样式后跑一遍）
+
+改 CSS / 版式后，用它确认没有肉眼没注意到的回归（Playwright + `__TAURI_INTERNALS__` mock，无需真机）：
+
+```bash
+npm run dev                          # 先起前端（脚本也会尝试自起 vite:5173）
+node scripts/visual/capture.mjs      # 重截 6 个页面 → docs/验收基线/视觉基线/
+node scripts/visual/compare.mjs      # 与基线逐像素对比（阈值 0.5%，超了非零退出）
+```
+
+基线在 `docs/验收基线/视觉基线/`；每张图对应一个页面（资料库列表/编辑器、洞察、打印中心、设置、帮助）。
+**确认要改版式时**才跑 `capture.mjs` 更新基线，并把副本归档到 `docs/验收基线/证据/<日期>-G3-<版本>/`（见该目录 README）。
+
 ## 构建
 
 ```bash
