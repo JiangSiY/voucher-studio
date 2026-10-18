@@ -101,6 +101,24 @@ macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对�
 
 安装包自动携带本地 OCR 模型（约 16 MB），首次启动复制到用户数据目录。
 
+### 发版（一条命令）
+
+```bash
+# 前置：先在本版开发日志写条目 + 写 docs/release-notes/<版本>.md（脚本会强制检查）
+bash scripts/release.sh 0.22.3            # 预览：只打印步骤，不改任何文件
+bash scripts/release.sh 0.22.3 --apply    # 真正发版
+```
+
+`scripts/release.sh` 把发版全流程固化成 7 步：预检（干净/在 main/已推送/日志与说明就绪）→ 门禁 →
+**过期产物清理**（`clean-build.sh --apply`：清 dev 档 + 旧版本 dmg / release-artifacts）→ 版本号 bump 三处 →
+`tauri build` + **`package-macos.sh`**（OpenCV dylib 收进包内、改 @rpath、重签、出 dmg）→
+**产物自包含硬校验**（主二进制不得引用本机绝对路径 / `Contents/Frameworks` 必须含 6 个 dylib / 引用必须 @rpath /
+包内版本号一致 / sha256 校验）→ 提交 + tag + `gh release create` + 下载回来复核（`shasum -c` + `cmp`）+
+收尾清理（`--keep-build` 可跳过）。
+
+> 2026-10-18 教训：手工发版连续三次漏了 `package-macos.sh`，发布件在别的机器上会 dyld `Library not loaded`。
+> 现在第 6 步会**直接拒绝**这种产物，从流程上堵死。
+
 ## 目录结构
 
 ```
