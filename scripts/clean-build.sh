@@ -91,8 +91,12 @@ else
     done < <(find target/release/bundle/dmg -maxdepth 1 -name "*.dmg" -type f 2>/dev/null)
   fi
   if [ -d target/release-artifacts ]; then
-    echo "  · 清理 target/release-artifacts 中的旧件（保留当前版本）"
-    find target/release-artifacts -maxdepth 1 -type f ! -name "*${CUR_VERSION}*" -print -delete 2>/dev/null
+    echo "  · 清理 target/release-artifacts 中的旧件（保留当前版本 + 更新清单/校验和）"
+    # latest.json 与 sha256sums.txt 文件名不含版本号，但属于本版发布件，必须保留
+    # （否则发版收尾清理会把刚要复核/重传的清单删掉）
+    find target/release-artifacts -maxdepth 1 -type f \
+      ! -name "*${CUR_VERSION}*" \
+      ! -name "sha256sums.txt" ! -name "latest.json" -print -delete 2>/dev/null
   fi
 fi
 
