@@ -101,6 +101,23 @@ macOS 必须走 `package-macos.sh`：Rust 侧链接的 OpenCV dylib 是**绝对�
 
 安装包自动携带本地 OCR 模型（约 16 MB），首次启动复制到用户数据目录。
 
+### 安装（分发给别人时）
+
+没有 Apple Developer ID，安装包只做了 **ad-hoc 签名、无法公证**，所以第一次打开会被 Gatekeeper 拦下。
+给同事或另一台机器装，按下面任一种方式打开：
+
+1. **右键 → 打开**：双击 dmg → 把 `Voucher Studio.app` 拖进「应用程序」→ 在「应用程序」里**右键点图标 → 打开** → 弹窗再点「打开」（只需一次）。
+2. **命令行去隔离标记**（适合脚本/远程分发）：
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Voucher Studio.app"
+   open "/Applications/Voucher Studio.app"
+   ```
+
+打不开时的自检：`codesign --verify --strict "/Applications/Voucher Studio.app"`（ad-hoc 也应通过）、
+`otool -L "/Applications/Voucher Studio.app/Contents/MacOS/voucher-studio" | grep -v @rpath`（**不应**出现
+`/Users/…` 这类本机绝对路径——出现说明拿的是 v0.22.2 及更早的坏包，请换 v0.22.3+）。
+
 ### 发版（一条命令）
 
 ```bash
