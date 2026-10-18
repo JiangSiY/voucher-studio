@@ -17,6 +17,16 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 
+# dev 档减重（2026-10-18）：默认 debug=2 会把完整调试信息写进 target/debug，通常占一半以上体积；
+# 682 个依赖 + 15 个测试目标（每个都独立链接整套依赖）会把它放大到十几 GB。
+# - 自己的代码保留行号（line-tables-only，栈回溯仍可读）
+# - 第三方 crate 完全不要调试信息（出问题时照样能定位到调用栈与行号）
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = true
 codegen-units = 1

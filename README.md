@@ -77,6 +77,19 @@ cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
 ```
 
+构建缓存长期会长得很大（682 个依赖 × debug/release/test 三套 profile × 15 个测试目标，`target/` 曾涨到 39 GB）。
+定期清理用仓库脚本（默认只预览，`--apply` 才删；只动 `target/`，不碰源码与 `.git`）：
+
+```bash
+bash scripts/clean-build.sh                  # 预览体积与将清理的内容
+bash scripts/clean-build.sh --apply          # 清 dev 档 + 旧版本发布件（保留 release 依赖缓存）
+bash scripts/clean-build.sh --apply --all    # 全量 cargo clean（下次构建全量重编）
+bash scripts/clean-build.sh --apply --sweep  # 叠跑 cargo sweep（需 cargo install cargo-sweep）
+```
+
+`Cargo.toml` 已对 dev 档减重（`debug = "line-tables-only"` + 第三方依赖 `debug = false`），
+`target/debug` 通常只有原来的一半以下。
+
 ## 构建
 
 ```bash
