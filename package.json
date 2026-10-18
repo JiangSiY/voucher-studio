@@ -10,7 +10,9 @@
     "test": "vitest run",
     "lint": "eslint src --ext .vue,.ts",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

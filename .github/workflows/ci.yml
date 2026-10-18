@@ -38,6 +38,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # 排版门禁（挂账 #6）：Prettier 只做格式化，与 ESLint/类型检查互不重叠
+      - name: Format check
+        run: npm run format:check
+
       - name: Unit tests
         run: npm run test
 
@@ -238,6 +242,7 @@ jobs:
         run: |
           npm run typecheck
           npm run lint
+          npm run format:check
           npm run test
           npm run build
 

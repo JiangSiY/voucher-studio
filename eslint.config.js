@@ -3,6 +3,7 @@ import js from "@eslint/js";
 import pluginVue from "eslint-plugin-vue";
 import tseslint from "typescript-eslint";
 import globals from "globals";
+import prettier from "eslint-config-prettier/flat";
 
 /**
  * ESLint flat config（体检 Q-11 / 第三批第 12 项）：
@@ -22,6 +23,8 @@ export default tseslint.config(
       parserOptions: { parser: tseslint.parser },
     },
   },
+  // Prettier 负责排版（挂账 #6）：关掉与格式化冲突的 ESLint 规则，两者不争同一件事
+  prettier,
   {
     languageOptions: {
       globals: { ...globals.browser },

@@ -6,7 +6,7 @@
 # 加 `--strict` 时出现 FAIL 则退出码 1（便于后续接 CI）。
 #
 # 用法：bash scripts/audit.sh [--strict] [--fast] [--deps]
-#   --fast  跳过门禁（前端四门 + Rust 三门），只跑静态检查（本地迭代用）
+#   --fast  跳过门禁（前端五门 + Rust 三门），只跑静态检查（本地迭代用）
 #   --deps  额外跑依赖漏洞扫描（cargo audit / npm audit --omit=dev；需网络与工具，
 #           默认**不跑**——避免离线环境把它变成长期 WARN 噪声）
 set -uo pipefail
@@ -35,12 +35,13 @@ section() { printf '\n=== %s ===\n' "$1"; }
 
 # ---------- 1. 门禁复用 ----------
 if [ "${FAST}" -eq 0 ]; then
-  section "1. 门禁（前端四门 + Rust 三门 + 两道 grep 守卫）"
+  section "1. 门禁（前端五门 + Rust 三门 + 两道 grep 守卫）"
   if npm run typecheck >/dev/null 2>&1 && npm run lint >/dev/null 2>&1 \
+     && npm run format:check >/dev/null 2>&1 \
      && npm run test >/dev/null 2>&1 && npm run build >/dev/null 2>&1; then
-    ok "前端四门通过"
+    ok "前端五门通过（typecheck / lint / format:check / test / build）"
   else
-    fail "前端四门未通过（分别跑 npm run typecheck / lint / test / build 看详情）"
+    fail "前端五门未通过（分别跑 npm run typecheck / lint / format:check / test / build 看详情）"
   fi
   # shellcheck disable=SC1090
   [ -f "${HOME}/.cargo/env" ] && . "${HOME}/.cargo/env"
