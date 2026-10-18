@@ -22,9 +22,14 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 14, "y": 18 },
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 18
+        },
         "windowEffects": {
-          "effects": ["underWindowBackground"],
+          "effects": [
+            "underWindowBackground"
+          ],
           "state": "active"
         }
       }
@@ -33,16 +38,32 @@
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$DATA/VoucherStudio/attachments/**/*"]
+        "scope": [
+          "$DATA/VoucherStudio/attachments/**/*"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
-    "icon": ["icons/icon.png"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
     "resources": {
       "../assets/ocr-models/": "ocr-models/"
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/JiangSiY/voucher-studio/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2RUYyRTM2RDU3RTc2NApSV1JrNTFkdDQvSnVCaHY3U0JmVzVwZ2FSOXV2N0E2Sm5PZTUxV1JZbEhzd05mYkxCRHczNjV6aQo="
     }
   }
 }

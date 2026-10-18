@@ -176,7 +176,7 @@
 | 对话框 | 宽 420–560、圆角 12、`--bg-popover` + `--shadow-popover`、按钮右对齐（取消在左） |
 | 通知条（toast） | 右上角、圆角 10、`--bg-popover`、宽 320、`--motion-normal` 滑入 |
 | 空状态 | 图标 42（`--label-quaternary`）+ 标题 13/600 + 说明 13px（`--fs-caption`，此前误写 11px，违反 §0.6 下限）+ 主操作 |
-| 设置页 | 分区标题行 `.settings-head`（左说明右控件）、分区 `.settings-section`、窄控件 `.settings-narrow`(240)/`.settings-narrow-sm`(110)、底部保存条 `.settings-actions`；**Tab 内禁止静态内联样式**（只允许 `:style` 动态绑定） |
+| 设置页 | 分区标题行 `.settings-head`（左说明右控件）、分区 `.settings-section`、窄控件 `.settings-narrow`(240)/`.settings-narrow-sm`(110)、底部保存条 `.settings-actions`；**Tab 内禁止静态内联样式**（只允许 `:style` 动态绑定）。「软件更新」区（2026-10-18，挂账 #39）：左「当前版本 v…」+ 右「检查更新」按钮，发现新版时就地出现「下载并安装」（按钮内显示下载百分比）与一行说明；开发模式只显示「不检查更新」，不连更新源 |
 
 ### 1.5.1 尺度枚举（U3 收编，2026-10-18）
 

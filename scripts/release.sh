@@ -13,13 +13,22 @@
 #   bash scripts/release.sh 0.22.3 --apply --skip-gates   # 跳过门禁（不推荐）
 #
 # 前置（脚本会检查）：工作区干净、在 main 上、已推送、`docs/开发日志.md` 已写本版条目、
-#                     `docs/release-notes/<version>.md` 存在（Release 说明）。
+#                     `docs/release-notes/<version>.md` 存在（Release 说明）、
+#                     自动更新签名私钥存在（`~/.tauri/voucher-studio-updater.key`，可用
+#                     `TAURI_SIGNING_PRIVATE_KEY_PATH` 覆盖）。
+#
+# 自动更新（挂账 #39）：第 5 步 package-macos.sh 之后**重新**打 `.app.tar.gz` 并签名——不能直接用
+# tauri bundler 在打包时生成的更新包，因为那时 OpenCV dylib 还没被收进 Frameworks（正是 2026-10-18
+# 发布缺陷的同一根因）。第 6 步会解包校验更新包，第 7 步把 dmg / update tar.gz / .sig / latest.json 一起上传。
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 export PATH="${HOME}/.cargo/bin:${PATH}"
 export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-${HOME}/.local/opencv-4.10/lib/pkgconfig}"
+
+UPDATER_KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH:-${HOME}/.tauri/voucher-studio-updater.key}"
+REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
 
 VERSION=""
 APPLY=0
@@ -62,7 +71,8 @@ git fetch -q origin main || fail "git fetch 失败"
 [ "$(git rev-list --count origin/main..HEAD)" -eq 0 ] || fail "本地有未推送提交，先 push"
 grep -q "${VERSION}" docs/开发日志.md || fail "docs/开发日志.md 里还没有 ${VERSION} 的条目（先写开发日志）"
 [ -f "docs/release-notes/${VERSION}.md" ] || fail "缺少 Release 说明：docs/release-notes/${VERSION}.md"
-echo "  ✓ 工作区干净 / main / 已推送 / 开发日志与 Release 说明就绪"
+[ -f "${UPDATER_KEY}" ] || fail "缺少自动更新签名私钥：${UPDATER_KEY}（先用 npx tauri signer generate 生成）"
+echo "  ✓ 工作区干净 / main / 已推送 / 开发日志与 Release 说明就绪 / 更新签名私钥就绪"
 
 step "2/7 门禁"
 if [ "${SKIP_GATES}" -eq 1 ]; then
@@ -108,6 +118,37 @@ step "5/7 构建 + 打包（**必须** package-macos.sh：收 OpenCV dylib + 改
 run npm run tauri build
 run bash package-macos.sh
 
+if [ "${APPLY}" -eq 1 ]; then
+  UPD_TGZ="target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz"
+  tar -czf "${UPD_TGZ}" -C "target/release/bundle/macos" "Voucher Studio.app" || fail "打更新包失败"
+  npx tauri signer sign -f "${UPDATER_KEY}" -p "" "${UPD_TGZ}" >/dev/null || fail "更新包签名失败"
+  python3 - "${VERSION}" "${UPD_TGZ}.sig" "target/release-artifacts/latest.json" "docs/release-notes/${VERSION}.md" "${REPO_SLUG}" <<'PYUPD'
+import datetime, json, pathlib, sys
+version, sig_path, out, notes_path, slug = sys.argv[1:6]
+sig = pathlib.Path(sig_path).read_text().strip()
+notes = ""
+try:
+    raw = pathlib.Path(notes_path).read_text()
+    body = [ln.strip() for ln in raw.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    notes = " ".join(body)[:600]
+except OSError:
+    pass
+url = f"https://github.com/{slug}/releases/download/v{version}/Voucher.Studio_{version}_arm64.app.tar.gz"
+data = {
+    "version": version,
+    "notes": notes,
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "platforms": {"darwin-aarch64": {"signature": sig, "url": url}},
+}
+pathlib.Path(out).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+print(f"  ✓ 更新包 + latest.json 就绪（{out}）")
+PYUPD
+else
+  echo "  [预览] tar 打包 target/release/bundle/macos/Voucher Studio.app → *.app.tar.gz"
+  echo "  [预览] npx tauri signer sign -f ${UPDATER_KEY} <tar.gz>（生成 .sig）"
+  echo "  [预览] 写 target/release-artifacts/latest.json（version / notes / pub_date / darwin-aarch64.url+signature）"
+fi
+
 step "6/7 产物自包含校验（堵住 2026-10-18 的发布缺陷）"
 APP="target/release/bundle/macos/Voucher Studio.app"
 if [ "${APPLY}" -eq 0 ]; then
@@ -137,6 +178,24 @@ else
   ( cd target/release-artifacts && shasum -a 256 -c sha256sums.txt ) || fail "sha256 校验失败"
   echo "  ✓ 自包含校验通过：Frameworks 6 个 dylib / 引用 @rpath / 无本机绝对路径"
   echo "  ✓ $(cd target/release-artifacts && cat sha256sums.txt)"
+
+  # ⑤ 自动更新包：解包后必须同样自包含（否则用户更新后打不开）
+  UPD_TGZ="target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz"
+  [ -f "${UPD_TGZ}" ] || fail "缺少更新包：${UPD_TGZ}"
+  [ -f "${UPD_TGZ}.sig" ] || fail "缺少更新包签名：${UPD_TGZ}.sig"
+  [ -f "target/release-artifacts/latest.json" ] || fail "缺少 latest.json"
+  UPD_TMP="$(mktemp -d)"
+  tar -xzf "${UPD_TGZ}" -C "${UPD_TMP}" || fail "更新包解压失败"
+  UPD_EXEC="${UPD_TMP}/Voucher Studio.app/Contents/MacOS/${EXEC_NAME}"
+  [ -x "${UPD_EXEC}" ] || fail "更新包里找不到主二进制"
+  [ -n "$(ls "${UPD_TMP}/Voucher Studio.app/Contents/Frameworks"/libopencv_core.410.dylib 2>/dev/null)" ] \
+    || fail "更新包缺 Frameworks（更新后会 dyld 崩）"
+  [ -z "$(otool -L "${UPD_EXEC}" | grep -E '^[[:space:]]*/(Users|opt/homebrew|usr/local)' || true)" ] \
+    || fail "更新包主二进制仍引用本机绝对路径"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["version"]==sys.argv[2]; sig=d["platforms"]["darwin-aarch64"]["signature"]; assert len(sig)>40' "target/release-artifacts/latest.json" "${VERSION}" \
+    || fail "latest.json 内容不合法"
+  rm -rf "${UPD_TMP}"
+  echo "  ✓ 自动更新包自包含校验通过（Frameworks / 无绝对路径 / latest.json）"
 fi
 
 step "7/7 提交 / tag / 发布 / 核验"
@@ -145,6 +204,7 @@ if [ "${APPLY}" -eq 0 ]; then
   echo "  [预览] git push origin main；git tag -a v${VERSION} -m \"v${VERSION}\"；git push origin v${VERSION}"
   echo "  [预览] gh release create v${VERSION} --title ... --notes-file docs/release-notes/${VERSION}.md"
   echo "         target/release-artifacts/Voucher.Studio_${VERSION}_arm64.dmg target/release-artifacts/sha256sums.txt"
+  echo "         target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz{,.sig} target/release-artifacts/latest.json"
   echo "  [预览] 下载回来 shasum -c + cmp 核验"
   [ "${KEEP_BUILD}" -eq 1 ] || echo "  [预览] 收尾：bash scripts/clean-build.sh --apply（清 dev 档 + 旧 dmg）"
 else
@@ -157,7 +217,10 @@ else
     --title "v${VERSION}" \
     --notes-file "docs/release-notes/${VERSION}.md" \
     "target/release-artifacts/Voucher.Studio_${VERSION}_arm64.dmg" \
-    "target/release-artifacts/sha256sums.txt" || fail "gh release create 失败"
+    "target/release-artifacts/sha256sums.txt" \
+    "target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz" \
+    "target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz.sig" \
+    "target/release-artifacts/latest.json" || fail "gh release create 失败"
   echo "  ✓ Release 已发布：https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/v${VERSION}"
   # 发布后核验：下载回来与服务端 digest 对比 + 逐字节 cmp
   VTMP="$(mktemp -d)"

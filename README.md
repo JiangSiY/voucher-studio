@@ -149,6 +149,23 @@ bash scripts/release.sh 0.22.3 --apply    # 真正发版
 > 2026-10-18 教训：手工发版连续三次漏了 `package-macos.sh`，发布件在别的机器上会 dyld `Library not loaded`。
 > 现在第 6 步会**直接拒绝**这种产物，从流程上堵死。
 
+### 自动更新（维护者）
+
+应用内置「设置 → 通用 → 软件更新 → 检查更新」；打包版会读 GitHub Release 的
+`latest.json`，比对版本后自动下载、验签、替换并重启。**开发模式（`tauri dev`）不检查更新**。
+
+维护者需要知道的三件事：
+
+1. **签名私钥**（只在本机 / CI secret，绝不入库）：`~/.tauri/voucher-studio-updater.key`
+   ——丢失或泄露都要立刻重新生成并替换 `src-tauri/tauri.conf.json` 里的 `plugins.updater.pubkey`。
+   CI 发版时通过仓库 secret `TAURI_SIGNING_PRIVATE_KEY`（或 `TAURI_SIGNING_PRIVATE_KEY_PATH`）注入。
+2. **更新包不在 bundler 里生成**：`bundle.createUpdaterArtifacts` 故意设为 `false`。更新包必须由
+   `scripts/release.sh` 在 `package-macos.sh` **之后**重新打（`.app.tar.gz` + `.sig`），
+   否则会把没修好 dylib 的旧包当成更新发出去（与 2026-10-18 发布缺陷同一根因）。
+3. **`latest.json`** 由发版脚本生成并随 Release 上传：`version` / `notes` / `pub_date` /
+   `platforms.darwin-aarch64.{signature,url}`。签名与包必须成对更新——只传包不传新 `latest.json`，
+   客户端会因验签失败拒绝更新。
+
 ## 目录结构
 
 ```

@@ -4,7 +4,8 @@
  * draftCfg 为共享编辑缓冲（stores/settingsDraft，体检 #22 单向流改造）：
  * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { UI_SCALE_OPTIONS } from "../../config-defaults";
 import { storeToRefs } from "pinia";
 import { api } from "../../api/client";
@@ -15,6 +16,67 @@ import { useSettingsDraft } from "../../stores/settingsDraft";
 const configStore = useConfigStore();
 const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 const dataDir = computed(() => configStore.appInfo?.dataDir ?? "");
+const appVersion = computed(() => configStore.appInfo?.version ?? "");
+
+/** 自动更新（挂账 #39）：打包版查 GitHub Release 的 latest.json；开发模式不连更新源 */
+type UpdateState = "idle" | "checking" | "latest" | "available" | "installing" | "installed" | "dev" | "error";
+const updateState = ref<UpdateState>("idle");
+const availableVersion = ref("");
+const availableNotes = ref("");
+const progress = ref(0);
+const errorText = ref("");
+const checking = computed(() => updateState.value === "checking");
+const installing = computed(() => updateState.value === "installing");
+let pendingUpdate: Update | null = null;
+
+async function checkUpdate() {
+  if (import.meta.env.DEV) {
+    updateState.value = "dev";
+    return;
+  }
+  updateState.value = "checking";
+  errorText.value = "";
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const up = await check();
+    if (!up) {
+      updateState.value = "latest";
+      return;
+    }
+    pendingUpdate = up;
+    availableVersion.value = up.version;
+    availableNotes.value = up.body ?? "";
+    updateState.value = "available";
+  } catch (e) {
+    errorText.value = e instanceof Error ? e.message : String(e);
+    updateState.value = "error";
+  }
+}
+
+async function installUpdate() {
+  if (!pendingUpdate) return;
+  updateState.value = "installing";
+  progress.value = 0;
+  try {
+    let total = 0;
+    let received = 0;
+    await pendingUpdate.downloadAndInstall((ev) => {
+      if (ev.event === "Started") {
+        total = ev.data.contentLength ?? 0;
+      } else if (ev.event === "Progress") {
+        received += ev.data.chunkLength;
+        if (total > 0) progress.value = Math.min(99, Math.round((received / total) * 100));
+      } else if (ev.event === "Finished") {
+        progress.value = 100;
+      }
+    });
+    updateState.value = "installed";
+    await api.restartApp();
+  } catch (e) {
+    errorText.value = e instanceof Error ? e.message : String(e);
+    updateState.value = "error";
+  }
+}
 
 async function openDataDir() {
   try {
@@ -92,6 +154,34 @@ async function openDataDir() {
           <span class="settings-caption">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
         </div>
         <div class="desc">进入「打印与导出」时按此默认值初始化；页内的临时调整不影响这里。</div>
+      </div>
+
+      <div class="field settings-section">
+        <label>软件更新</label>
+        <div class="settings-inline">
+          <span class="settings-caption">当前版本 v{{ appVersion }}</span>
+          <button class="btn" :disabled="checking || installing" @click="checkUpdate">
+            {{ checking ? "检查中…" : "检查更新" }}
+          </button>
+          <button
+            v-if="updateState === 'available'"
+            class="btn btn-primary"
+            :disabled="installing"
+            @click="installUpdate"
+          >
+            {{ installing ? `正在下载 ${progress}%` : "下载并安装" }}
+          </button>
+        </div>
+        <div v-if="updateState === 'available'" class="desc">
+          新版本 v{{ availableVersion }} 可用{{ availableNotes ? `：${availableNotes}` : "" }}（安装完成后应用会自动重启）
+        </div>
+        <div v-else-if="updateState === 'latest'" class="desc">已是最新版本。</div>
+        <div v-else-if="updateState === 'dev'" class="desc">开发模式不检查更新（打包版才连更新源）。</div>
+        <div v-else-if="updateState === 'installed'" class="desc">更新已安装，正在重启…</div>
+        <div v-else-if="updateState === 'error'" class="desc">检查更新失败：{{ errorText }}</div>
+        <div v-else class="desc">
+          从 GitHub Release 的 latest.json 取更新（需签名校验）；不想用自动更新时也可直接下载新的 dmg 覆盖安装。
+        </div>
       </div>
     </div>
   </div>
