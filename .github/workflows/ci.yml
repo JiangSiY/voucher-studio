@@ -253,5 +253,8 @@ jobs:
         run: |
           # 在 shell 里 export 才能展开 $HOME（Actions 的 env: 块不做变量展开）
           export OPENCV_LIB="$HOME/.local/opencv-4.10/lib"
-          npm run tauri build
+          # 只让 tauri CLI 出 .app：它内置的 dmg 步骤依赖 AppleScript/Finder，
+          # 在 GitHub 的 headless runner 上会随机失败（v0.22.4 tag run 39094049678 即此）；
+          # dmg 由 package-macos.sh 自己用 hdiutil 生成，那才是真实发布路径。
+          npm run tauri build -- --bundles app
           bash package-macos.sh
