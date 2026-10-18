@@ -125,21 +125,21 @@ onMounted(() => {
           可用令牌：<code>{date}</code>（20260819）、<code>{date-}</code>（2026-08-19）、<code>{seq}</code>（001 起）、<code>{n}</code>（01 起）。
           默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01 的编号。
         </div>
-        <div v-if="templateError" class="desc" style="color: var(--danger); display: flex; align-items: center; gap: 4px">
+        <div v-if="templateError" class="desc settings-inline settings-inline--gap4 settings-err">
           <FluentIcon name="warning" :size="14" />{{ templateError }}
         </div>
-        <div v-else-if="templatePreview" class="desc" style="color: var(--success); display: flex; align-items: center; gap: 4px">
+        <div v-else-if="templatePreview" class="desc settings-inline settings-inline--gap4 settings-ok">
           <FluentIcon name="check" :size="14" />保存后新凭证编号形如：{{ templatePreview }}
         </div>
       </div>
-      <div class="callout info" style="margin: 0">
+      <div class="callout info settings-flush">
         <span class="ci"><FluentIcon name="bulb" :size="18" /></span>
         <div class="ct">修改模板只影响之后新建的凭证，已有编号不会变。</div>
       </div>
       <!-- v0.10：常用摘要模板（编辑页联想置顶项） -->
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px">
+      <div class="field settings-section settings-section--gap">
         <label>常用摘要模板（每行一条）</label>
-        <textarea v-model="descTemplatesText" class="input" rows="5" style="resize: vertical"
+        <textarea v-model="descTemplatesText" class="input settings-resize-y" rows="5"
           placeholder="如：&#10;办公用品采购&#10;差旅住宿费&#10;市内交通费"></textarea>
         <div class="desc">
           编辑凭证时聚焦「摘要」输入框，会联想这些模板（置顶）并合并历史高频摘要，点选即填，减少重复录入。
@@ -147,7 +147,7 @@ onMounted(() => {
       </div>
 
       <!-- v0.11：期间管理（按月封账） -->
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px">
+      <div class="field settings-section settings-section--gap">
         <label>期间管理（按月封账）</label>
         <div class="period-grid">
           <div v-for="p in periodOptions" :key="p.period" class="period-row" :class="{ locked: p.locked }">

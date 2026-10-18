@@ -16,6 +16,7 @@ import TrendPanel from "../components/dashboard/TrendPanel.vue";
 import TopListsPanel from "../components/dashboard/TopListsPanel.vue";
 import ReconcilePanel from "../components/dashboard/ReconcilePanel.vue";
 import FluentIcon from "../components/FluentIcon.vue";
+import SkeletonLines from "../components/SkeletonLines.vue";
 import { api, type BreakdownRow, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { fmtAmount, fmtSize } from "../composables/format";
@@ -214,7 +215,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
         <p v-else-if="windowedFailed" class="muted">
           导出覆盖度加载失败。<button class="link" @click="loadWindowed()">重试</button>
         </p>
-        <p v-else class="muted">加载中…</p>
+        <SkeletonLines v-else :lines="4" />
       </section>
 
       <section class="panel">
@@ -242,7 +243,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
         <p v-else-if="storageFailed" class="muted">
           存储占用加载失败。<button class="link" @click="loadLedgers()">重试</button>
         </p>
-        <p v-else class="muted">加载中…</p>
+        <SkeletonLines v-else :lines="4" />
       </section>
     </div>
 

@@ -213,7 +213,7 @@ onUnmounted(() => {
 <template>
   <div class="fluent-panel">
     <div class="fluent-panel-body">
-      <div class="callout info" style="margin: 0 0 16px">
+      <div class="callout info settings-note">
         <span class="ci"><FluentIcon name="sparkle" :size="18" /></span>
         <div class="ct">
           <strong>文档扫描矫正</strong>：对导入的图片自动跑 7 步算法（Hough 倾斜矫正 → 透视矫正 → 自动裁边 → 中值去噪 → Unsharp 锐化 → 灰度化 → 自适应二值化），
@@ -223,20 +223,20 @@ onUnmounted(() => {
       </div>
 
       <!-- 总开关 + 仅对扫描件 -->
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
+      <div class="settings-head">
         <div>
-          <div style="font-size: var(--fs-caption); font-weight: 600">启用扫描矫正</div>
-          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭后导入图片保留原图，不再生成增强版</div>
+          <div class="settings-caption-strong">启用扫描矫正</div>
+          <div class="settings-caption">关闭后导入图片保留原图，不再生成增强版</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.enhance.enabled" />
           <span class="slider"></span>
         </label>
       </div>
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
+      <div class="settings-head">
         <div>
-          <div style="font-size: var(--fs-caption); font-weight: 600">仅对扫描件生效</div>
-          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
+          <div class="settings-caption-strong">仅对扫描件生效</div>
+          <div class="settings-caption">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.enhance.onlyScans" :disabled="!draftCfg.enhance.enabled" />
@@ -244,7 +244,7 @@ onUnmounted(() => {
         </label>
       </div>
 
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+      <div class="field settings-section">
         <label>7 步流水线（按顺序执行，单步失败跳过）</label>
         <div class="step-list">
           <div v-for="s in enhanceActiveSteps" :key="s.key" class="step-row" :class="{ disabled: !draftCfg.enhance.enabled }">
@@ -265,7 +265,7 @@ onUnmounted(() => {
 
       <!-- 增强版缺失提示：备份把增强版当可重建缓存排除在外，恢复快照后必然出现。
            界面已自动回退原图（后端不再下发失效路径），这里给出重建入口。 -->
-      <div v-if="missingEnhanced > 0" class="callout warning" style="margin-bottom: 12px">
+      <div v-if="missingEnhanced > 0" class="callout warning settings-mb">
         <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
           有 <strong>{{ missingEnhanced }}</strong> 张图片的「增强版」文件不在磁盘上——增强版属可重建缓存、
@@ -274,27 +274,27 @@ onUnmounted(() => {
       </div>
 
       <!-- v0.8：存量重新增强（autocrop 算法修复后按新算法重算已有增强版） -->
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+      <div class="field settings-section">
         <label>重新增强存量图片（v0.8）</label>
-        <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px">
+        <div class="settings-inline settings-inline--gap12 settings-mt-sm">
           <button class="btn" :disabled="reEnhancing" @click="reEnhanceAll">
             {{ reEnhancing ? `重新增强中 ${reEnhanceDone}/${reEnhanceTotal}…` : "重新增强全部" }}
           </button>
-          <span style="font-size: var(--fs-caption); color: var(--text-3)">
+          <span class="settings-caption">
             自动裁边算法已修复（旧版会把票据边缘裁掉）；点击后按新算法重算全部已有增强版，原图与凭证数据不变
           </span>
         </div>
       </div>
 
       <!-- D-2 增强缓存管理：摘要 + 命中率 + 释放策略 + 最近列表 -->
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
-        <label style="display: flex; align-items: center; gap: 8px">
+      <div class="field settings-section">
+        <label class="settings-inline">
           增强缓存
           <button class="btn-mini" @click="refreshEnhancePanel" title="刷新"><FluentIcon name="refresh" :size="12" /></button>
         </label>
 
         <!-- 摘要卡：总数 / 大小 / 截图 / 扫描件 -->
-        <div v-if="enhanceStatV2" class="enhance-stat" style="margin-top: 4px">
+        <div v-if="enhanceStatV2" class="enhance-stat settings-mt-sm">
           <div>
             <span class="stat-num">{{ enhanceStatV2.total }}</span>
             <span class="stat-label">个增强版</span>
@@ -418,11 +418,11 @@ onUnmounted(() => {
           <table class="re-table">
             <thead>
               <tr>
-                <th style="width: 38%">文件</th>
-                <th style="width: 18%">来源</th>
-                <th style="width: 14%; text-align: right">大小</th>
-                <th style="width: 10%; text-align: right">命中</th>
-                <th style="width: 20%; text-align: right">操作</th>
+                <th>文件</th>
+                <th>来源</th>
+                <th>大小</th>
+                <th>命中</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -436,13 +436,13 @@ onUnmounted(() => {
                   <span v-else-if="r.enhancedSource === 'screenshot'" class="tag tag-muted">截图</span>
                   <span v-else class="tag tag-muted">来源未知</span>
                 </td>
-                <td style="text-align: right; font-variant-numeric: tabular-nums">
+                <td class="settings-num">
                   {{ (r.enhancedSize / 1024).toFixed(0) }} KB
                 </td>
-                <td style="text-align: right; font-variant-numeric: tabular-nums">
+                <td class="settings-num">
                   <span :class="['re-hit', r.hitCount > 0 ? 'on' : 'off']">{{ r.hitCount }}</span>
                 </td>
-                <td style="text-align: right">
+                <td class="re-ops">
                   <button v-if="pendingDeleteOne === r.attachmentId" class="btn-mini danger"
                     title="再次点击确认释放（5 秒内有效）" @click="deleteOneEnhanced(r)">
                     再点确认
@@ -463,6 +463,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 最近增强表：列宽与右对齐原本是内联样式（U4 收编），表结构固定故按列序号定宽 */
+.re-table th:nth-child(1) { width: 38%; }
+.re-table th:nth-child(2) { width: 18%; }
+.re-table th:nth-child(3) { width: 14%; }
+.re-table th:nth-child(4) { width: 10%; }
+.re-table th:nth-child(5) { width: 20%; }
+.re-table th:nth-child(n + 3),
+.re-table .re-ops { text-align: right; }
+
 /* 7 步流水线步骤列表 */
 .step-list {
   display: flex;
@@ -475,7 +484,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 8px 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-curve);
 }
 .step-row.disabled {
   opacity: 0.5;
@@ -530,7 +539,7 @@ onUnmounted(() => {
   background: var(--surface-2);
   color: var(--text-2);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--motion-fast) var(--motion-curve), border-color var(--motion-fast) var(--motion-curve);
   line-height: 1.4;
 }
 .btn-mini:hover {
@@ -543,7 +552,7 @@ onUnmounted(() => {
   border-color: rgba(220, 38, 38, 0.4);
   color: var(--danger);
   font-weight: 600;
-  animation: d2-pulse 1.2s ease-in-out infinite;
+  animation: d2-pulse var(--motion-slow) ease-in-out infinite;
 }
 @keyframes d2-pulse {
   0%, 100% { background: rgba(220, 38, 38, 0.1); }
@@ -613,7 +622,7 @@ onUnmounted(() => {
   background: var(--surface-2);
   color: var(--text-3);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all var(--motion-fast) var(--motion-curve);
 }
 .ht-day:hover {
   color: var(--text);
@@ -648,7 +657,7 @@ onUnmounted(() => {
   width: 100%;
   border-radius: var(--radius-small);
   min-height: 0;
-  transition: height 0.25s ease;
+  transition: height var(--motion-normal) var(--motion-curve);
 }
 .ht-seg.seg-ocr    { background: var(--accent); }
 .ht-seg.seg-export { background: var(--success); }

@@ -138,7 +138,7 @@ function stateIcon(t: TaskItem): string {
 .tc-fill { display: block; height: 100%; background: var(--accent); transition: width var(--motion-normal) var(--motion-curve); }
 .tc-bar.is-indeterminate .tc-fill {
   width: 40%;
-  animation: tc-slide 1.2s ease-in-out infinite;
+  animation: tc-slide var(--motion-slow) ease-in-out infinite;
 }
 @keyframes tc-slide {
   0% { margin-left: -40%; }

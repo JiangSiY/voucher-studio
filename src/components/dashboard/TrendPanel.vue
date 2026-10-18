@@ -344,7 +344,7 @@ onUnmounted(() => {
   border-radius: var(--radius-control);
   background: transparent;
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--motion-fast) var(--motion-curve), background var(--motion-fast) var(--motion-curve);
 }
 
 .quarter-card:hover:not(:disabled) {
@@ -388,7 +388,7 @@ onUnmounted(() => {
 
 .bar {
   fill: var(--accent);
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-curve);
   cursor: pointer;
 }
 
@@ -434,7 +434,7 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--motion-fast) var(--motion-curve), color var(--motion-fast) var(--motion-curve);
 }
 
 .metric-toggle button + button {
@@ -457,7 +457,7 @@ onUnmounted(() => {
 
 .seg {
   min-width: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-curve);
 }
 
 .seg:hover {

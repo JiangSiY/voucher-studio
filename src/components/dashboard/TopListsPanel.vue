@@ -207,7 +207,7 @@ onUnmounted(() => {
   height: 10px;
   border-radius: var(--radius-small);
   background: var(--accent);
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-curve);
 }
 
 .cp-bar:hover {

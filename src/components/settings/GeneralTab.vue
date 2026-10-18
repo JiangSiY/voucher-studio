@@ -30,7 +30,7 @@ async function openDataDir() {
     <div class="fluent-panel-body">
       <div class="field">
         <label>界面主题</label>
-        <select v-model="draftCfg.appearance.theme" class="input" style="max-width: 240px">
+        <select v-model="draftCfg.appearance.theme" class="input settings-narrow">
           <option value="system">跟随系统</option>
           <option value="light">浅色</option>
           <option value="dark">深色</option>
@@ -39,7 +39,7 @@ async function openDataDir() {
       <!-- 界面字号（用户视力需要，见设计规范 §1.3）：保存后立即生效，无需重启 -->
       <div class="field">
         <label>界面字号</label>
-        <select v-model.number="draftCfg.appearance.uiScale" class="input" style="max-width: 240px">
+        <select v-model.number="draftCfg.appearance.uiScale" class="input settings-narrow">
           <option v-for="o in UI_SCALE_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
         <div class="desc">
@@ -49,14 +49,14 @@ async function openDataDir() {
       </div>
       <div class="field">
         <label>数据目录</label>
-        <div style="display: flex; gap: 8px; align-items: center">
-          <input :value="dataDir" class="input mono" disabled style="flex: 1" />
+        <div class="settings-inline">
+          <input :value="dataDir" class="input mono settings-grow" disabled />
           <button class="btn" @click="openDataDir">打开目录</button>
         </div>
         <div class="desc">所有数据（数据库、附件图片、备份）都保存在本机此目录下。</div>
       </div>
 
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+      <div class="field settings-section">
         <label>打印默认值</label>
         <div class="form-grid">
           <div class="field">
@@ -64,7 +64,7 @@ async function openDataDir() {
             <input v-model="draftCfg.print.title" class="input" placeholder="如：凭证日报" />
           </div>
         </div>
-        <div class="form-grid" style="margin-top: 8px">
+        <div class="form-grid settings-mt-2">
           <div class="field">
             <label>日报模板（v0.8）</label>
             <select v-model="draftCfg.print.dailyTemplate" class="input">
@@ -75,21 +75,21 @@ async function openDataDir() {
           </div>
           <div class="field">
             <label>打印优先增强版图片</label>
-            <div style="display: flex; gap: 8px; align-items: center; padding-top: 6px">
+            <div class="settings-inline settings-mt-sm">
               <label class="toggle">
                 <input type="checkbox" v-model="draftCfg.print.preferEnhancedImages" />
                 <span class="slider"></span>
               </label>
-              <span style="font-size: var(--fs-caption); color: var(--text-3)">扫描件用矫正后增强版；关闭则始终用原图</span>
+              <span class="settings-caption">扫描件用矫正后增强版；关闭则始终用原图</span>
             </div>
           </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
+        <div class="settings-inline settings-mt-2">
           <label class="toggle">
             <input type="checkbox" v-model="draftCfg.print.includeImages" />
             <span class="slider"></span>
           </label>
-          <span style="font-size: var(--fs-caption); color: var(--text-3)">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
+          <span class="settings-caption">附带附件图片页（竖票 3×3 / 横票 2×2 自动分桶）</span>
         </div>
         <div class="desc">进入「打印与导出」时按此默认值初始化；页内的临时调整不影响这里。</div>
       </div>

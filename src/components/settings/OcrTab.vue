@@ -78,10 +78,10 @@ onUnmounted(() => {
 <template>
   <div class="fluent-panel">
     <div class="fluent-panel-body">
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px">
+      <div class="settings-head">
         <div>
-          <div style="font-size: var(--fs-caption); font-weight: 600">启用 OCR</div>
-          <div style="font-size: var(--fs-caption); color: var(--text-3)">关闭后导入图片不再自动识别文字</div>
+          <div class="settings-caption-strong">启用 OCR</div>
+          <div class="settings-caption">关闭后导入图片不再自动识别文字</div>
         </div>
         <label class="toggle">
           <input type="checkbox" v-model="draftCfg.ocr.enabled" />
@@ -90,13 +90,13 @@ onUnmounted(() => {
       </div>
       <div class="field">
         <label>识别引擎</label>
-        <select v-model="draftCfg.ocr.engine" class="input" style="max-width: 280px">
+        <select v-model="draftCfg.ocr.engine" class="input settings-narrow-lg">
           <option value="local" :disabled="!localOcr?.installed">本地（离线 · 推荐）</option>
           <option value="cloud">云端（HTTP API）</option>
         </select>
         <div class="desc">本地引擎完全离线运行，数据不出本机（PP-OCRv5）。</div>
       </div>
-      <div v-if="localOcr?.installed" class="callout success" style="margin: 0 0 16px">
+      <div v-if="localOcr?.installed" class="callout success settings-note">
         <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
         <div class="ct">
           <strong>本地模型已安装</strong>
@@ -104,7 +104,7 @@ onUnmounted(() => {
           ：RapidOCR PP-OCRv5 检测 + 方向分类 + 识别，首次识别时加载约 0.2 秒。
         </div>
       </div>
-      <div v-else class="callout warning" style="margin: 0 0 16px">
+      <div v-else class="callout warning settings-note">
         <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
           <strong>本地模型未安装</strong>——将模型文件（ch_PP-OCRv5_mobile_det.onnx 等 3 个）放入
@@ -122,13 +122,13 @@ onUnmounted(() => {
           <input v-model="draftCfg.ocr.model" class="input" placeholder="如：voucher-ocr-v1" />
         </div>
       </template>
-      <div class="field" style="border-top: 1px solid var(--stroke); padding-top: 16px">
+      <div class="field settings-section">
         <label>批量识别</label>
-        <div style="display: flex; gap: 8px; align-items: center">
+        <div class="settings-inline">
           <button class="btn" :disabled="ocrPendingBusy" @click="runOcrPending">
             {{ ocrPendingBusy ? "识别中…" : "识别全部待处理" }}
           </button>
-          <span style="font-size: var(--fs-caption); color: var(--text-3)">
+          <span class="settings-caption">
             处理所有待识别附件（列表页导入、识别失败件），识别后自动填单（只填空字段）
           </span>
         </div>
@@ -166,7 +166,7 @@ onUnmounted(() => {
   height: 100%;
   border-radius: var(--radius-small);
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width var(--motion-normal) var(--motion-curve);
 }
 
 .ocr-progress-text {

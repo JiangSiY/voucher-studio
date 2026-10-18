@@ -87,7 +87,7 @@ onMounted(load);
   <SecretsTab v-show="tab === 'secrets'" />
   <BackupTab v-show="tab === 'backup'" />
 
-  <div style="display: flex; justify-content: flex-end; margin-top: 8px">
+  <div class="settings-actions">
     <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? "保存中…" : "保存设置" }}</button>
   </div>
 </template>

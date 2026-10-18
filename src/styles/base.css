@@ -905,7 +905,7 @@ select.input {
   padding: var(--s-8) var(--s-4);
   text-align: center;
   color: var(--text-3);
-  transition: all 0.15s;
+  transition: all var(--motion-fast);
   background: var(--surface-2);
 }
 
@@ -1068,7 +1068,7 @@ select.input {
 }
 .att-card .att-img-compare-top {
   /* clip-path 通过内联 style 绑定 compareClipRight(a) */
-  transition: clip-path 0.06s linear;
+  transition: clip-path var(--motion-fast) linear;
 }
 .att-card .att-compare-divider {
   position: absolute;
@@ -1110,16 +1110,16 @@ select.input {
   border-radius: var(--radius-control);
   color: var(--label-on-accent);
   pointer-events: none;
-}
-.att-card .att-compare-tag-left {
-  left: 4px;
-  background: rgba(0, 0, 0, 0.55);
-}
-.att-card .att-compare-tag-right {
-  right: 4px;
+  /* A/B 两侧标签共用同一材质：底色 + 背景模糊（此前只有右侧带模糊，两侧观感不一致） */
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+}
+.att-card .att-compare-tag-left {
+  left: 4px;
+}
+.att-card .att-compare-tag-right {
+  right: 4px;
 }
 
 /* D-4：att-meta 区内的滑块行 */
@@ -1500,7 +1500,7 @@ select.input {
   left: 2px;
   width: 2px;
   background: transparent;
-  transition: background 120ms ease;
+  transition: background var(--motion-fast) var(--motion-curve);
 }
 
 .sidebar-resize-handle:hover::after,
@@ -1753,3 +1753,60 @@ select.input {
     display: none;
   }
 }
+
+/* ===== 设置页（U4）：六个分区共用一套分区/行/说明类 =====
+   改造前每个 Tab 各写一遍内联样式（86 处、43 种），同一语义在不同 Tab 里数值不一。
+   这里收敛为一份实现，Tab 只写语义类名。 */
+.settings-section { border-top: 1px solid var(--stroke); padding-top: var(--s-4); }
+.settings-section--gap { margin-top: var(--s-4); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s-2) 0 var(--s-4); }
+.settings-head--tight { padding: var(--s-1) 0 var(--s-3); }
+.settings-head--flush { padding: var(--s-2) 0 0; }
+.settings-inline { display: flex; align-items: center; gap: var(--s-2); }
+.settings-inline--gap12 { gap: var(--s-3); }
+.settings-caption { font-size: var(--fs-caption); color: var(--text-3); }
+.settings-caption-strong { font-size: var(--fs-caption); font-weight: 600; }
+.settings-narrow { max-width: 240px; }
+.settings-narrow-sm { max-width: 110px; }
+.settings-grow { flex: 1; min-width: 0; }
+.settings-num { text-align: right; font-variant-numeric: tabular-nums; }
+.settings-aside { align-self: center; color: var(--text-3); }
+.settings-note { margin: 0 0 var(--s-4); }
+.settings-mb { margin-bottom: var(--s-3); }
+.settings-mt { margin-top: var(--s-3); }
+.settings-mt-sm { margin-top: var(--s-1); }
+.settings-warn { color: var(--warning); }
+.settings-divider { border-top: 1px solid var(--stroke); margin: var(--s-2) 0 var(--s-4); }
+
+/* ===== 加载骨架（U4）=====
+   三态（加载/空/失败）里的「加载」不再只有一行文字：首次加载显示与真实内容同形的骨架，
+   已有数据时保留旧内容（避免刷新时闪屏）。 */
+.skeleton {
+  display: block;
+  background: var(--bg-selection);
+  border-radius: var(--radius-small);
+  animation: skeleton-pulse var(--motion-slow) ease-in-out infinite;
+}
+.sk-line { height: calc(12px * var(--font-scale)); }
+.sk-line-sm { height: calc(10px * var(--font-scale)); }
+.sk-thumb { width: 44px; height: 56px; flex-shrink: 0; }
+.sk-row { cursor: default; }
+.sk-stack { display: flex; flex-direction: column; gap: var(--s-2); }
+.sk-card { height: calc(64px * var(--font-scale)); }
+.sk-chart { height: 160px; }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; opacity: 0.6; }
+}
+.settings-mt-2 { margin-top: var(--s-2); }
+.settings-inline--gap4 { gap: var(--s-1); }
+.settings-ok { color: var(--success); }
+.settings-err { color: var(--danger); }
+.settings-flush { margin: 0; }
+.settings-resize-y { resize: vertical; }
+.settings-narrow-lg { max-width: 280px; }
+.settings-box { border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: var(--s-3); }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: var(--s-2); }

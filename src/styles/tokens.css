@@ -104,6 +104,8 @@ html[data-theme="light"] {
   /* ===== 新语义层：动效（Apple 常用曲线）===== */
   --motion-fast: 120ms;
   --motion-normal: 200ms;
+  /* 慢速：仅用于循环脉冲（加载骨架、等待指示）；不用于交互反馈 */
+  --motion-slow: 1200ms;
   --motion-curve: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* ===== 间距（沿用既有 4px 基数）===== */
@@ -258,6 +260,7 @@ html[data-theme="dark"] {
   :root {
     --motion-fast: 0ms;
     --motion-normal: 0ms;
+    --motion-slow: 0ms;
   }
 
   *,

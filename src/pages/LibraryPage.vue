@@ -747,7 +747,15 @@ watch(keyword, () => {
     <!-- 主体：左列表（双行）+ 右编辑器（v0.19：右栏即编辑器；双击/回车展开） -->
     <div class="split" :class="{ 'split--wide': wide }">
       <section class="list-pane">
-        <div v-if="loading" class="hint">加载中…</div>
+        <ul v-if="loading && !items.length" class="rows" aria-busy="true" aria-label="正在加载凭证">
+          <li v-for="i in 6" :key="i" class="row sk-row" aria-hidden="true">
+            <span class="skeleton sk-thumb"></span>
+            <div class="row-main sk-stack">
+              <span class="skeleton sk-line" style="width: 64%"></span>
+              <span class="skeleton sk-line sk-line-sm" style="width: 38%"></span>
+            </div>
+          </li>
+        </ul>
         <EmptyState v-else-if="!items.length" icon="folder" title="没有符合条件的凭证"
           desc="试试清除筛选，或把图片拖进窗口导入。">
           <button v-if="hasAnyFilter" class="btn" @click="clearAllFilters()">清空全部筛选</button>
@@ -900,7 +908,8 @@ watch(keyword, () => {
   z-index: 5;
   padding: var(--s-2) 0;
   background: var(--bg-content);
-  box-shadow: 0 1px 0 var(--separator);
+  /* 分隔线用 border 而非 box-shadow：阴影在 sticky 吸顶时会随滚动叠出灰边 */
+  border-bottom: 1px solid var(--separator);
 }
 .flex-1 { flex: 1; }
 .count { font: var(--type-caption); color: var(--label-tertiary); }
@@ -930,7 +939,7 @@ watch(keyword, () => {
   display: flex; align-items: center; gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
   border: 1px solid transparent;
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-control);
   cursor: default;
 }
 .row:hover { background: var(--bg-selection); }
@@ -945,7 +954,7 @@ watch(keyword, () => {
   color: var(--label-quaternary);
   overflow: hidden;
 }
-.row-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.row-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .line1 { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
 .desc { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

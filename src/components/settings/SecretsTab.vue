@@ -40,12 +40,10 @@ onMounted(async () => {
           换电脑需要重新录入。
         </div>
       </div>
-      <div v-for="s in secrets" :key="s.alias" class="field"
-        style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 12px">
+      <div v-for="s in secrets" :key="s.alias" class="field settings-box">
         <label>{{ s.label }} <span class="tag" :class="s.exists ? 'tag-success' : 'tag-muted'">{{ s.exists ? "已设置" : "未设置" }}</span></label>
-        <div style="display: flex; gap: 8px">
-          <input v-model="secretDrafts[s.alias]" class="input" type="password" autocomplete="new-password"
-            :placeholder="s.exists ? '输入新值覆盖' : '输入密钥'" style="flex: 1" />
+        <div class="settings-inline">
+          <input v-model="secretDrafts[s.alias]" class="input settings-grow" type="password" autocomplete="new-password" :placeholder="s.exists ? '输入新值覆盖' : '输入密钥'" />
           <button class="btn btn-primary" @click="useSecretSave(s.alias)">保存</button>
           <button class="btn" :disabled="!s.exists" @click="removeSecret(s.alias)">删除</button>
         </div>

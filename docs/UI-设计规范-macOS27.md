@@ -48,7 +48,7 @@
 --space-*     间距（沿用既有 --s-*，4px 基数）
 --type-*      字号/行高/字重（见 §1.3）
 --shadow-*    阴影（popover / menu / window；**内容区不用阴影**）
---motion-*    动效（fast / normal / curve）
+--motion-*    动效（fast / normal / slow / curve）
 ```
 
 ### 1.2 数值（浅色 / 深色）
@@ -79,6 +79,7 @@
 | `--shadow-menu` | `0 4px 12px rgba(0,0,0,.14)` | 同左 | 下拉/上下文菜单 |
 | `--motion-fast` | `120ms` | | hover/按下反馈 |
 | `--motion-normal` | `200ms` | | 面板出现、选中迁移 |
+| `--motion-slow` | `1200ms` | | **仅**循环脉冲（加载骨架、等待指示）；不用于交互反馈 |
 | `--motion-curve` | `cubic-bezier(.32,.72,0,1)` | | Apple 常用曲线（替代 ease/ease-in-out） |
 
 **兼容别名（必须保留，契约测试依赖）**：`--surface`、`--text`、`--stroke`、`--accent`、
@@ -175,10 +176,11 @@
 | 对话框 | 宽 420–560、圆角 12、`--bg-popover` + `--shadow-popover`、按钮右对齐（取消在左） |
 | 通知条（toast） | 右上角、圆角 10、`--bg-popover`、宽 320、`--motion-normal` 滑入 |
 | 空状态 | 图标 42（`--label-quaternary`）+ 标题 13/600 + 说明 13px（`--fs-caption`，此前误写 11px，违反 §0.6 下限）+ 主操作 |
+| 设置页 | 分区标题行 `.settings-head`（左说明右控件）、分区 `.settings-section`、窄控件 `.settings-narrow`(240)/`.settings-narrow-sm`(110)、底部保存条 `.settings-actions`；**Tab 内禁止静态内联样式**（只允许 `:style` 动态绑定） |
 
 ### 1.5.1 尺度枚举（U3 收编，2026-10-18）
 
-统一到有限枚举后，照抄旁边代码就不会再引入新值。守卫：`src/__tests__/designScalesContract.test.ts`（5 例）。
+统一到有限枚举后，照抄旁边代码就不会再引入新值。守卫：`src/__tests__/designScalesContract.test.ts`（5 例，尺度）+ `src/__tests__/visualConsistencyContract.test.ts`（11 例，动效/设置页/骨架/列表细节）。
 
 | 维度 | 允许值 | 说明 |
 |---|---|---|
@@ -186,6 +188,7 @@
 | 圆角 | 只用令牌：`--radius-small`(4) / `--radius-control`(6) / `--radius-window`·`--radius-toast`(10) / `--radius-panel`(12) | 胶囊 `100px`/`999px`、圆形 `50%` 保留；**禁止任何其他 px 圆角** |
 | 间距 | **0 / 1 / 2 / 4 / 6 / 8 / 10 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64** px | `padding` / `margin` / `gap` 的正数；负值（如 −14px 居中手柄、−3px 骑跨侧栏）是几何补偿，放行 |
 | 控件高度 | 只走 `--control-h-xs/sm/md/lg`（20/26/32/36 × `--font-scale`） | 样式里不得出现 `height: 26px/32px/36px`；分页按钮走 `--control-h-sm` |
+| 动效时长 | 只走 `--motion-fast`(120) / `--motion-normal`(200) / `--motion-slow`(1200，仅循环脉冲) | `transition`/`animation` 里禁止 `0.12s`/`150ms`/`1.2s` 这类字面量；减少动效时令牌置 0（通配兜底保留） |
 
 ### 1.6 强调色策略（依据 M6）
 
@@ -330,7 +333,7 @@
 | 列表搜索不含 OCR、搜索页含 OCR 且截断 100 条 | 统一口径（`includeOcr` 开关）+ 分页与总数提示 |
 | 对账入口藏在仪表盘一个小按钮、报告切页即丢 | 入口常驻（工作台 + ⌘K）+ 报告会话内保留 + "账单无凭证"行可补录预填 |
 | 长任务反馈不均（按钮路径连 `import:started` 都不发） | ✅ **2026-10-16 实装任务中心**（全局浮层、可最小化）：导入 / 关闭前备份 / 生成导出 / 批量识别 / 重建增强统一进度；实现见 `src/components/TaskCenter.vue` + `src/stores/tasks.ts`，门前由 `taskCenterContract.test.ts` 锁定 |
-| 加载/失败/无数据三态不分 | 统一骨架 + `EmptyState` + 显式失败降级；`load()` 并行化 |
+| 加载/失败/无数据三态不分 | 统一骨架 + `EmptyState` + 显式失败降级；`load()` 并行化。**2026-10-18 U4 实装**：凭证列表首次加载显示 6 行同形骨架（`.skeleton`/`sk-row`），洞察两面板用 `SkeletonLines.vue`；已有数据时保留旧内容不闪屏 |
 | 右栏有未保存修改时切凭证/离开页面会静默丢弃 | ✅ 2026-10-16 实装：切凭证、`focus` 深链跳走、离开本页（路由）前都弹一次确认，**默认焦点在「留在此页」**，`Esc` 等同「留在此页」；`beforeunload` 兜住刷新与关窗（Tauri 关窗路径由 Rust 侧关闭前备份负责，见挂账）|
 
 ### 2.3 键盘总表
@@ -417,7 +420,7 @@
 | 聚焦环 | `:focus-visible` 统一 3px `--accent` 25% 外环 + 2px 实色边，**不得** `outline: none` 无替代 |
 | 焦点管理 | 对话框/命令面板：打开时聚焦首个可操作元素，**Tab 循环留在浮层内**，Esc 关闭并**归还焦点**。**2026-10-16 实装**：抽 `composables/useModal.ts`（`visible` → 聚焦 `[data-autofocus]` 或首个可操作元素；`Tab`/`Shift+Tab` 在面板内回绕；`Esc` 关闭并 `document.contains` 校验后归还焦点），已接入 `ConfirmDialog.vue`（危险确认框默认焦点落在「取消」）、`CropDialog.vue`、`ImageViewerDialog.vue`（后者自带 Esc，以 `escape: false` 接入避免两次关闭）；命令面板按键只由 window 一份处理器接管（原先输入框又挂一份 → ↓ 跳 2 项、Enter 跑两遍） |
 | 减少透明度 | `prefers-reduced-transparency: reduce` → 侧栏/工具栏/浮层全部改实色（`--bg-sidebar`/`--bg-popover`） |
-| 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭。**2026-10-16 实装补强**：只把 `--motion-*` 置 0 不够，样式表里还有硬编码时长（`transition: all .15s`、`clip-path .06s`、`animation: toast-in .2s`），故再加 `*, *::before, *::after` 通配兜底把 `transition-duration`/`animation-duration` 压到 `0.01ms`（`tokens.css` 末尾） |
+| 减少动效 | `prefers-reduced-motion: reduce` → 所有 `transition/animation` 关闭。**2026-10-16 实装补强**：只把 `--motion-*` 置 0 不够，样式表里还有硬编码时长（`transition: all .15s`、`clip-path .06s`、`animation: toast-in .2s`），故再加 `*, *::before, *::after` 通配兜底把 `transition-duration`/`animation-duration` 压到 `0.01ms`（`tokens.css` 末尾）。**2026-10-18 U5**：15 处硬编码时长已全部收编到 `--motion-fast/normal/slow`（新增 `--motion-slow`），通配兜底保留作最后防线 |
 | 提高对比度 | `prefers-contrast: more` → 分隔线改 `--separator-strong`、次要文字升为 `--label-primary`。**2026-10-16 实装**（此前零命中）：在 `tokens.css` 末尾同时改写 `--separator`/`--text-2`/`--text-3`/`--text-4` 四组语义令牌，组件不改 |
 | 字号可调 | 标准/大/更大三档（`--font-scale`，默认「大」）；放大后不得出现截断、横向溢出或文字重叠 |
 | 现有基线 | 保留并补强既有 16 处 `role` 与 25 处 `aria-*`（ToastHost `aria-live`、对话框 `aria-modal`、侧栏手柄 aria-value 等）。**2026-10-16**：危险 toast 改 `role="alert"` + `aria-live="assertive"`（普通提示仍 polite），见 `components/ToastHost.vue`；`src/__tests__/a11yContract.test.ts` 锁住上述四条回退 |
@@ -465,7 +468,9 @@
 | 10 | **右栏编辑器改造（v0.19.0）** | 编辑页并入资料库右栏（唯一编辑器 + 展宽 + `focus` 深链），双击/回车 = 展开并聚焦 | 
 | 11a | **字号与视觉语言收编（U1/U2，2026-10-18）** | 159 处 `font-size` 字面量 → `--fs-*`；`base.css` 删 49 条零引用规则（2030→1754 行）；紫渐变 / Fluent 蓝 / hex 字面量归零；新增 4 条契约守卫（字号/颜色/旧视觉族/令牌同源）。验收：四门 + 契约；真机三档字号截图待 G3 | 
 | 11 | **打印日报改版 + 凭证关联（v0.22，2026-10-16）** | 日报 12pt/A1 且不重叠（几何单测 + 样张探针）；`SCHEMA_V9` 四表 + 右栏「相关凭证 / 所属事项组」+「未被佐证」筛选 + 无图凭证入口；日报默认带佐证且**附页不写 `export_items`** | 
-| 11b | **尺度枚举收编（U3，2026-10-18）** | 图标 16 种 → 6 档枚举（43 处）、圆角字面量 22 处 → 令牌、间距归一 20 处、分页按钮高度走 `--control-h-sm`；新增 1 份契约守卫（5 例）。验收：四门 + 契约；真机目视三档字号已通过（2026-10-18） |
+| 11b | **尺度枚举收编（U3，2026-10-18）** |
+| 11c | **设置页统一 + 加载骨架 + 细节一致性（U4+U5，2026-10-18）** | 设置页 6 个 Tab 的 86 处/43 种内联样式 → `.settings-*` 共享类（静态内联样式归零）；新增骨架（列表 6 行 + 洞察两面板）；15 处动效时长收编到 `--motion-fast/normal/slow`；筛选栏改 border 分隔、列表行圆角 6px、缩略图 contain、A/B 标签两侧同材质；新增 1 份契约守卫（11 例）。验收：四门 + 契约 + 真机目视 |
+ 图标 16 种 → 6 档枚举（43 处）、圆角字面量 22 处 → 令牌、间距归一 20 处、分页按钮高度走 `--control-h-sm`；新增 1 份契约守卫（5 例）。验收：四门 + 契约；真机目视三档字号已通过（2026-10-18） |
 
 **样张验收清单（用户逐条核对）**
 - 视觉 12 项：**正文字号是否够大（默认 15px×1.15 ≈ 17px；三档可调）** · 侧栏材质浅/深对比度 · 交通灯留白 · 正文层级 · 圆角同心 · 分隔线层级 ·
