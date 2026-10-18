@@ -17,7 +17,10 @@ export const OCR_META: Record<string, { label: string; tag: string }> = {
 
 export function fmtAmount(cents: number | null): string {
   if (cents == null) return "—";
-  return (cents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (cents / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export function fmtSize(bytes: number): string {

@@ -22,8 +22,8 @@ const CLIENT = "src/api/client.ts";
 describe("v0.22 关联批契约", () => {
   it("右栏挂载「相关凭证」「所属事项组」两个区块，且都用 shown.id", () => {
     const src = read(LIBRARY);
-    expect(src).toContain("<RelatedVouchers :voucher-id=\"shown.id\"");
-    expect(src).toContain("<VoucherGroups :voucher-id=\"shown.id\"");
+    expect(src).toContain('<RelatedVouchers :voucher-id="shown.id"');
+    expect(src).toContain('<VoucherGroups :voucher-id="shown.id"');
     // 两个区块都在右栏（.inspector）之内、ins-meta 之前
     const inspector = src.indexOf('class="inspector"');
     const related = src.indexOf("<RelatedVouchers");
@@ -38,8 +38,8 @@ describe("v0.22 关联批契约", () => {
 
   it("关联区块只做语义关系：类型是中英一一对应的两种、且不做金额合计", () => {
     const src = read(RELATED);
-    expect(src).toContain("explains: \"附件说明\"");
-    expect(src).toContain("detail: \"明细\"");
+    expect(src).toContain('explains: "附件说明"');
+    expect(src).toContain('detail: "明细"');
     // 调用的三个关联命令
     expect(src).toContain("api.listVoucherLinks");
     expect(src).toContain("api.linkVouchers");

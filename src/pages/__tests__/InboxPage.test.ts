@@ -60,7 +60,9 @@ async function mountPage(): Promise<VueWrapper> {
 
 beforeEach(() => {
   setActivePinia(createPinia());
-  mockApi.dashboardTodos.mockResolvedValue(todos({ ocrPending: 5, dupPairs: 6, dupHighPairs: 2, amountMissing: 3 }));
+  mockApi.dashboardTodos.mockResolvedValue(
+    todos({ ocrPending: 5, dupPairs: 6, dupHighPairs: 2, amountMissing: 3 }),
+  );
   mockApi.voucherStats.mockResolvedValue({
     total: 194,
     draft: 4,
@@ -117,7 +119,12 @@ describe("收件箱待办清单", () => {
       thisMonth: 1,
     });
     // 「待打印」的计数来自"从未导出"（审计 P1-3 改的口径）
-    mockApi.exportCoverage.mockResolvedValue({ total: 1, exported: 1, neverExported: 0, byFormat: [] });
+    mockApi.exportCoverage.mockResolvedValue({
+      total: 1,
+      exported: 1,
+      neverExported: 0,
+      byFormat: [],
+    });
     const w = await mountPage();
     const text = w.text();
     expect(text).toContain("待识别");
@@ -141,7 +148,12 @@ describe("收件箱待办清单", () => {
       attachments: 5,
       thisMonth: 0,
     });
-    mockApi.exportCoverage.mockResolvedValue({ total: 5, exported: 5, neverExported: 0, byFormat: [] });
+    mockApi.exportCoverage.mockResolvedValue({
+      total: 5,
+      exported: 5,
+      neverExported: 0,
+      byFormat: [],
+    });
     const w = await mountPage();
     expect(w.text()).toContain("待办都清空了");
     expect(w.find(".todo").exists()).toBe(false);

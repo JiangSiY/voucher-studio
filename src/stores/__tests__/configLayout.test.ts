@@ -101,7 +101,9 @@ describe("config store 布局应用", () => {
     await store.toggleSidebarCollapsed();
     await nextTick();
     expect(document.documentElement.dataset.sidebarCollapsed).toBe("false");
-    expect(vi.mocked(api.saveConfig).mock.calls.at(-1)?.[0].appearance.sidebarCollapsed).toBe(false);
+    expect(vi.mocked(api.saveConfig).mock.calls.at(-1)?.[0].appearance.sidebarCollapsed).toBe(
+      false,
+    );
   });
 
   it("配置未加载时切换只改界面不落盘（浏览器预览模式）", async () => {

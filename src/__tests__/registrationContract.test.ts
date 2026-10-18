@@ -22,7 +22,6 @@
 import { describe, expect, it } from "vitest";
 import { repoFile } from "./helpers/designGuard";
 
-
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
 const paletteSrc = repoFile("src/components/CommandPalette.vue");
@@ -34,15 +33,17 @@ const SIDEBAR_OPTIONAL = ["/search", "/vouchers/new"];
 /** router 里的叶子路由（排除父级 "" 与带 redirect 的兼容条目） */
 function leafRoutes(src: string): string[] {
   const hits = [...src.matchAll(/path:\s*"([^"]*)"/g)];
-  return hits
-    .map((m, i) => ({
-      path: m[1],
-      // 本条正文 = 本条 path 到下一处 path（router 表是扁平数组，比花括号配对更稳）
-      body: src.slice(m.index!, i + 1 < hits.length ? hits[i + 1].index! : src.length),
-    }))
-    // 只取子路由：空 path 是索引重定向，以 "/" 开头的是父级（本仓只有布局那一条）
-    .filter((e) => e.path !== "" && !e.path.startsWith("/") && !/redirect:/.test(e.body))
-    .map((e) => `/${e.path}`);
+  return (
+    hits
+      .map((m, i) => ({
+        path: m[1],
+        // 本条正文 = 本条 path 到下一处 path（router 表是扁平数组，比花括号配对更稳）
+        body: src.slice(m.index!, i + 1 < hits.length ? hits[i + 1].index! : src.length),
+      }))
+      // 只取子路由：空 path 是索引重定向，以 "/" 开头的是父级（本仓只有布局那一条）
+      .filter((e) => e.path !== "" && !e.path.startsWith("/") && !/redirect:/.test(e.body))
+      .map((e) => `/${e.path}`)
+  );
 }
 
 /** 侧栏登记的 to（模板里的 :to="item.to" 不匹配，只取 navGroups 里的字面量） */
@@ -108,7 +109,10 @@ describe("页面登记：router ↔ 侧栏 ↔ 命令面板", () => {
     ].map((m) => m[1]);
     expect(used.length, "侧栏/面板 icon 解析失败").toBeGreaterThan(5);
     const missing = [...new Set(used)].filter((n) => !defined.includes(n));
-    expect(missing, `图标名未在 FluentIcon.ICONS 定义（会渲染成空白）：\n${missing.join("\n")}`).toEqual([]);
+    expect(
+      missing,
+      `图标名未在 FluentIcon.ICONS 定义（会渲染成空白）：\n${missing.join("\n")}`,
+    ).toEqual([]);
   });
 
   it("动态段排在静态兄弟之后（否则 /vouchers/new 会被 /vouchers/:id 吃掉）", () => {
@@ -116,7 +120,10 @@ describe("页面登记：router ↔ 侧栏 ↔ 命令面板", () => {
     for (const dyn of dynamicRoutes) {
       const prefix = dyn.slice(0, dyn.indexOf("/:"));
       for (const stat of staticRoutes.filter((r) => r.startsWith(`${prefix}/`))) {
-        if (routerSrc.indexOf(`path: "${stat.slice(1)}"`) > routerSrc.indexOf(`path: "${dyn.slice(1)}"`)) {
+        if (
+          routerSrc.indexOf(`path: "${stat.slice(1)}"`) >
+          routerSrc.indexOf(`path: "${dyn.slice(1)}"`)
+        ) {
           problems.push(`${stat} 必须写在 ${dyn} 之前（vue-router 先匹配先胜）`);
         }
       }

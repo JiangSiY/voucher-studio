@@ -15,7 +15,13 @@ describe("任务中心 store", () => {
     const id = s.start("import", "导入 12 张图片", 12);
 
     expect(s.items).toHaveLength(1);
-    expect(s.items[0]).toMatchObject({ id, kind: "import", title: "导入 12 张图片", total: 12, state: "running" });
+    expect(s.items[0]).toMatchObject({
+      id,
+      kind: "import",
+      title: "导入 12 张图片",
+      total: 12,
+      state: "running",
+    });
     // 有新活儿就展开：最小化状态下悄悄开跑等于没有任务中心
     expect(s.collapsed).toBe(false);
     expect(s.runningCount).toBe(1);

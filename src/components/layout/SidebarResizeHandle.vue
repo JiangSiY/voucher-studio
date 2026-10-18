@@ -19,11 +19,7 @@ import {
   steppedSidebarWidth,
   widthFromPointer,
 } from "../../composables/useSidebarResize";
-import {
-  SIDEBAR_WIDTH_DEFAULT,
-  SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_MIN,
-} from "../../config-defaults";
+import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from "../../config-defaults";
 
 const store = useConfigStore();
 

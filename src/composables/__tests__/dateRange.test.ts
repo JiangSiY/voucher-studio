@@ -85,7 +85,9 @@ describe("monthRange", () => {
 
 describe("presetOfRange", () => {
   it("已知区间能反推回预设（列表页返回工作台时回显口径）", () => {
-    expect(presetOfRange({ dateFrom: "2026-09-01", dateTo: "2026-09-30" }, TODAY)).toBe("thisMonth");
+    expect(presetOfRange({ dateFrom: "2026-09-01", dateTo: "2026-09-30" }, TODAY)).toBe(
+      "thisMonth",
+    );
     expect(presetOfRange({ dateFrom: "2026-01-01", dateTo: "2026-12-31" }, TODAY)).toBe("thisYear");
   });
 

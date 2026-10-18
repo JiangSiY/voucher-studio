@@ -9,7 +9,14 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pickCandidate } from "../composables/useAttachmentFallback";
-import { api, errMsg, type ExportBatch, type Voucher, type VoucherStatus, type VoucherThumb } from "../api/client";
+import {
+  api,
+  errMsg,
+  type ExportBatch,
+  type Voucher,
+  type VoucherStatus,
+  type VoucherThumb,
+} from "../api/client";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtAmount } from "../composables/format";
@@ -143,8 +150,7 @@ function rowThumbUrl(v: Voucher): string | null {
 
 function appendixThumbUrl(t: VoucherThumb): string {
   // 地址用后端拼好的绝对路径（不要在前端拼分隔符）
-  const abs =
-    t.enhancedSource === "scan" && t.enhancedAbs ? t.enhancedAbs : t.fileAbs;
+  const abs = t.enhancedSource === "scan" && t.enhancedAbs ? t.enhancedAbs : t.fileAbs;
   return abs ? convertFileSrc(abs) : "";
 }
 
@@ -173,7 +179,8 @@ async function generate() {
   }
   busy.value = true;
   // 长任务进全局任务中心：生成期间可以换页，回来还看得见进度与「打开文件」
-  const stopLabel = exportFormat.value === "pdf" ? "PDF" : exportFormat.value === "xlsx" ? "Excel" : "CSV";
+  const stopLabel =
+    exportFormat.value === "pdf" ? "PDF" : exportFormat.value === "xlsx" ? "Excel" : "CSV";
   const taskId = taskStore.start("export", `生成${stopLabel}（${selected.value.size} 张凭证）`);
   try {
     // v0.10：表格式导出（Excel / CSV）——列：凭证号/日期/摘要/对方/金额/状态/收支方向/备注 + 合计行
@@ -201,17 +208,17 @@ async function generate() {
       dailyTemplate: configStore.config?.print.dailyTemplate ?? "compact",
     };
 
-      const batches = await api.exportPdfDaily([...selected.value], options);
-      lastBatches.value = batches;
-      taskStore.finish(taskId, {
-        detail: `按 ${batches.length} 天生成 ${batches.length} 份日报`,
-        action: batches.length ? { label: "打开文件", onClick: () => void openLastPdf() } : undefined,
-      });
-      toast.success(
-        batches.length === 1
-          ? `凭证日报已生成：${batches[0].batchNo}（${batches[0].voucherCount} 张凭证）`
-          : `已按 ${batches.length} 天生成 ${batches.length} 份凭证日报（合计 ${batches.reduce((n, b) => n + b.voucherCount, 0)} 张凭证）`,
-      );
+    const batches = await api.exportPdfDaily([...selected.value], options);
+    lastBatches.value = batches;
+    taskStore.finish(taskId, {
+      detail: `按 ${batches.length} 天生成 ${batches.length} 份日报`,
+      action: batches.length ? { label: "打开文件", onClick: () => void openLastPdf() } : undefined,
+    });
+    toast.success(
+      batches.length === 1
+        ? `凭证日报已生成：${batches[0].batchNo}（${batches[0].voucherCount} 张凭证）`
+        : `已按 ${batches.length} 天生成 ${batches.length} 份凭证日报（合计 ${batches.reduce((n, b) => n + b.voucherCount, 0)} 张凭证）`,
+    );
   } catch (e) {
     taskStore.fail(taskId, errMsg(e));
     toastError(e);
@@ -246,224 +253,401 @@ onUnmounted(() => {
     <!-- 顶部操作条（v0.18）：一眼看到"选了几张 / 导出什么格式 / 去哪导出" -->
     <div class="action-bar">
       <div class="segmented" role="tablist">
-        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'pdf'"
-          :class="{ active: exportFormat === 'pdf' }" @click="exportFormat = 'pdf'">PDF（打印归档）</button>
-        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'xlsx'"
-          :class="{ active: exportFormat === 'xlsx' }" @click="exportFormat = 'xlsx'">Excel</button>
-        <button class="seg-item" role="tab" :aria-selected="exportFormat === 'csv'"
-          :class="{ active: exportFormat === 'csv' }" @click="exportFormat = 'csv'">CSV</button>
+        <button
+          class="seg-item"
+          role="tab"
+          :aria-selected="exportFormat === 'pdf'"
+          :class="{ active: exportFormat === 'pdf' }"
+          @click="exportFormat = 'pdf'"
+        >
+          PDF（打印归档）
+        </button>
+        <button
+          class="seg-item"
+          role="tab"
+          :aria-selected="exportFormat === 'xlsx'"
+          :class="{ active: exportFormat === 'xlsx' }"
+          @click="exportFormat = 'xlsx'"
+        >
+          Excel
+        </button>
+        <button
+          class="seg-item"
+          role="tab"
+          :aria-selected="exportFormat === 'csv'"
+          :class="{ active: exportFormat === 'csv' }"
+          @click="exportFormat = 'csv'"
+        >
+          CSV
+        </button>
       </div>
-      <span class="scope">已选 {{ selected.size }} 张 · 筛选出 {{ filteredVouchers.length }} 张 · 共 {{ vouchers.length }} 张</span>
+      <span class="scope"
+        >已选 {{ selected.size }} 张 · 筛选出 {{ filteredVouchers.length }} 张 · 共
+        {{ vouchers.length }} 张</span
+      >
       <span class="flex-1"></span>
       <!-- 「全选筛选结果」只在**确实没有可选项**时禁用：
            此前用 !selected.size 判断，导致"一张都没勾"时无法一键全选，
            必须先手动勾一张（资料库页早已是"未选→显示全选"的写法，两页口径曾相反）。 -->
-      <button class="btn" :disabled="!filteredVouchers.length || busy" @click="selectAll">全选筛选结果</button>
+      <button class="btn" :disabled="!filteredVouchers.length || busy" @click="selectAll">
+        全选筛选结果
+      </button>
       <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
       <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
         <FluentIcon v-if="!busy" name="print" :size="16" /> {{ generateLabel }}
       </button>
     </div>
 
-  <div class="print-split">
-    <!-- 左：选择 + 选项 -->
-    <div>
-      <div class="fluent-panel">
-        <div class="fluent-panel-header">
-          <h3>选择凭证</h3>
-        </div>
-        <!-- 筛选器 -->
-        <div class="fluent-panel-body" style="padding: 8px 12px; border-bottom: 1px solid var(--stroke)">
-          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
-            <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" />
-            <span style="color: var(--text-3); font-size: var(--fs-caption)">至</span>
-            <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" />
-            <select v-model="filterStatus" class="input" style="width: 100px">
-              <option value="all">全部状态</option>
-              <option value="draft">草稿</option>
-              <option value="reviewed">已复核</option>
-              <option value="exported">已导出</option>
-              <option value="archived">已归档</option>
-            </select>
-            <select v-model="filterDirection" class="input" style="flex: 1; min-width: 120px"
-              title="按收支方向筛选">
-              <option value="">收支方向</option>
-              <option value="收入">收入</option>
-              <option value="支出">支出</option>
-              <option value="none">未标</option>
-            </select>
-            <button class="btn btn-subtle" @click="clearFilters">清除筛选</button>
+    <div class="print-split">
+      <!-- 左：选择 + 选项 -->
+      <div>
+        <div class="fluent-panel">
+          <div class="fluent-panel-header">
+            <h3>选择凭证</h3>
           </div>
-          <div style="display: flex; gap: 4px; margin-top: 8px">
-            <!-- 全选/清空已在顶部操作条；这里只留"反选"这个局部操作 -->
-            <button class="btn" @click="invertSelection">反选</button>
+          <!-- 筛选器 -->
+          <div
+            class="fluent-panel-body"
+            style="padding: 8px 12px; border-bottom: 1px solid var(--stroke)"
+          >
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <input
+                type="date"
+                v-model="filterDateFrom"
+                class="input"
+                style="width: 130px"
+                title="起始日期"
+              />
+              <span style="color: var(--text-3); font-size: var(--fs-caption)">至</span>
+              <input
+                type="date"
+                v-model="filterDateTo"
+                class="input"
+                style="width: 130px"
+                title="结束日期"
+              />
+              <select v-model="filterStatus" class="input" style="width: 100px">
+                <option value="all">全部状态</option>
+                <option value="draft">草稿</option>
+                <option value="reviewed">已复核</option>
+                <option value="exported">已导出</option>
+                <option value="archived">已归档</option>
+              </select>
+              <select
+                v-model="filterDirection"
+                class="input"
+                style="flex: 1; min-width: 120px"
+                title="按收支方向筛选"
+              >
+                <option value="">收支方向</option>
+                <option value="收入">收入</option>
+                <option value="支出">支出</option>
+                <option value="none">未标</option>
+              </select>
+              <button class="btn btn-subtle" @click="clearFilters">清除筛选</button>
+            </div>
+            <div style="display: flex; gap: 4px; margin-top: 8px">
+              <!-- 全选/清空已在顶部操作条；这里只留"反选"这个局部操作 -->
+              <button class="btn" @click="invertSelection">反选</button>
+            </div>
+          </div>
+          <div class="fluent-panel-body print-selected-list" style="padding: 0">
+            <!-- v0.18：与资料库一致的**双行列表**（表格 5 列在放大字号下太挤；这里只需要"挑哪几张"） -->
+            <ul class="pick-rows" v-if="filteredVouchers.length">
+              <li
+                v-for="v in visibleRows"
+                :key="v.id"
+                class="pick-row"
+                :class="{ on: selected.has(v.id) }"
+                @click="toggle(v.id)"
+              >
+                <input
+                  type="checkbox"
+                  class="cb"
+                  :checked="selected.has(v.id)"
+                  @click.stop="toggle(v.id)"
+                />
+                <div class="pick-thumb">
+                  <img
+                    v-if="rowThumbUrl(v)"
+                    :src="rowThumbUrl(v)!"
+                    :alt="v.voucherNo"
+                    loading="lazy"
+                  />
+                  <FluentIcon v-else name="image" :size="16" />
+                </div>
+                <div class="pick-main">
+                  <div class="line1">
+                    <span class="desc">{{ v.description || "（无摘要）" }}</span>
+                    <span class="flex-1"></span>
+                    <span class="amount">{{ fmtAmount(v.amountCents) }}</span>
+                  </div>
+                  <div class="line2">
+                    <span class="mono">{{ v.voucherNo }}</span>
+                    <span class="dot">·</span>
+                    <span>{{ v.voucherDate }}</span>
+                    <span class="flex-1"></span>
+                    <span class="tag" :class="STATUS_META[v.status].tag">{{
+                      STATUS_META[v.status].label
+                    }}</span>
+                  </div>
+                </div>
+              </li>
+              <li v-if="truncated > 0" class="pick-more">
+                仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
+              </li>
+            </ul>
+            <EmptyState
+              v-else
+              icon="folder"
+              :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'"
+              :desc="vouchers.length === 0 ? '先到「全部凭证」导入或新建' : '试试调整筛选条件'"
+            />
           </div>
         </div>
-        <div class="fluent-panel-body print-selected-list" style="padding: 0">
-          <!-- v0.18：与资料库一致的**双行列表**（表格 5 列在放大字号下太挤；这里只需要"挑哪几张"） -->
-          <ul class="pick-rows" v-if="filteredVouchers.length">
-            <li
-              v-for="v in visibleRows"
-              :key="v.id"
-              class="pick-row"
-              :class="{ on: selected.has(v.id) }"
-              @click="toggle(v.id)"
+
+        <div class="fluent-panel">
+          <div class="fluent-panel-header">
+            <h3>{{ exportFormat === "pdf" ? "打印选项" : "导出选项" }}</h3>
+          </div>
+          <div class="fluent-panel-body">
+            <!-- v0.18：导出格式已提到顶部操作条（唯一入口），此处不再重复 -->
+            <div class="desc" v-if="exportFormat !== 'pdf'">
+              表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 收支方向 / 备注 +
+              合计行），适合对账与导入记账软件
+            </div>
+            <template v-if="exportFormat === 'pdf'">
+              <div class="field">
+                <label>日报标题</label>
+                <input v-model="title" class="input" />
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 8px 0;
+                "
+              >
+                <div>
+                  <div style="font-size: var(--fs-caption); font-weight: 600">附带附件图片页</div>
+                  <div class="muted-small">
+                    在日报汇总表后追加当日图片附录（横图 2×2 / 竖图 3×3）
+                  </div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" v-model="includeImages" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 8px 0;
+                "
+              >
+                <div>
+                  <div style="font-size: var(--fs-caption); font-weight: 600">附带相关凭证清单</div>
+                  <div class="muted-small">
+                    在日报汇总表后追加「相关凭证清单」页：按关系类型分类小计，参考金额不并入日报合计
+                  </div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" v-model="includeLinks" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </template>
+            <!-- v0.18：导出主操作已提到顶部操作条（唯一入口），此处不再重复 -->
+            <button
+              v-if="lastBatches.length"
+              class="btn btn-subtle"
+              style="width: 100%; justify-content: center; margin-top: 8px"
+              @click="openLastPdf"
             >
-              <input type="checkbox" class="cb" :checked="selected.has(v.id)" @click.stop="toggle(v.id)" />
-              <div class="pick-thumb">
-                <img v-if="rowThumbUrl(v)" :src="rowThumbUrl(v)!" :alt="v.voucherNo" loading="lazy" />
-                <FluentIcon v-else name="image" :size="16" />
-              </div>
-              <div class="pick-main">
-                <div class="line1">
-                  <span class="desc">{{ v.description || "（无摘要）" }}</span>
-                  <span class="flex-1"></span>
-                  <span class="amount">{{ fmtAmount(v.amountCents) }}</span>
-                </div>
-                <div class="line2">
-                  <span class="mono">{{ v.voucherNo }}</span>
-                  <span class="dot">·</span>
-                  <span>{{ v.voucherDate }}</span>
-                  <span class="flex-1"></span>
-                  <span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span>
-                </div>
-              </div>
-            </li>
-            <li v-if="truncated > 0" class="pick-more">
-              仅预览前 {{ RENDER_CAP }} 条（另有 {{ truncated }} 条未显示，导出不受影响）
-            </li>
-          </ul>
-          <EmptyState v-else icon="folder" :title="vouchers.length === 0 ? '还没有凭证' : '筛选后无结果'" :desc="vouchers.length === 0 ? '先到「全部凭证」导入或新建' : '试试调整筛选条件'" />
+              打开上一次生成的文件（{{
+                lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报`
+              }}）
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="fluent-panel">
-        <div class="fluent-panel-header"><h3>{{ exportFormat === "pdf" ? "打印选项" : "导出选项" }}</h3></div>
-        <div class="fluent-panel-body">
-          <!-- v0.18：导出格式已提到顶部操作条（唯一入口），此处不再重复 -->
-          <div class="desc" v-if="exportFormat !== 'pdf'">
-            表格式导出（凭证号 / 日期 / 摘要 / 对方 / 金额 / 状态 / 收支方向 / 备注 + 合计行），适合对账与导入记账软件
+      <!-- 右：实时预览（PDF：卡片/日报预览；Excel/CSV：导出表格预览） -->
+      <div>
+        <!-- v0.10 表格式导出预览：与导出文件同列序，只展示前 12 行 -->
+        <div v-if="exportFormat !== 'pdf'" class="print-area">
+          <div
+            style="
+              text-align: center;
+              font-weight: 700;
+              font-size: var(--fs-body);
+              margin-bottom: 8px;
+            "
+          >
+            {{ exportFormat === "xlsx" ? "Excel" : "CSV" }} 导出预览（{{ previewVouchers.length }}
+            张）
           </div>
-          <template v-if="exportFormat === 'pdf'">
-          <div class="field">
-            <label>日报标题</label>
-            <input v-model="title" class="input" />
+          <div class="dtable-wrap" v-if="previewVouchers.length">
+            <table class="dtable">
+              <thead>
+                <tr>
+                  <th>凭证号</th>
+                  <th>日期</th>
+                  <th>摘要</th>
+                  <th>对方账户</th>
+                  <th style="text-align: right">金额（元）</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="v in previewVouchers.slice(0, 12)" :key="v.id">
+                  <td>
+                    <span class="mono">{{ v.voucherNo }}</span>
+                  </td>
+                  <td>{{ v.voucherDate }}</td>
+                  <td
+                    style="
+                      max-width: 140px;
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                    "
+                  >
+                    {{ v.description || "—" }}
+                  </td>
+                  <td
+                    style="
+                      max-width: 100px;
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                    "
+                  >
+                    {{ v.counterparty || "—" }}
+                  </td>
+                  <td style="text-align: right" class="mono">
+                    {{ v.amountCents != null ? fmtAmount(v.amountCents) : "" }}
+                  </td>
+                  <td>
+                    {{
+                      v.status === "draft"
+                        ? "草稿"
+                        : v.status === "reviewed"
+                          ? "已复核"
+                          : v.status === "exported"
+                            ? "已导出"
+                            : "已归档"
+                    }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
-            <div>
-              <div style="font-size: var(--fs-caption); font-weight: 600">附带附件图片页</div>
-              <div class="muted-small">在日报汇总表后追加当日图片附录（横图 2×2 / 竖图 3×3）</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" v-model="includeImages" />
-              <span class="slider"></span>
-            </label>
+          <div v-else class="muted-center">勾选左侧凭证后预览导出内容</div>
+          <div v-if="previewVouchers.length > 12" class="muted-center small">
+            仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
           </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0">
-            <div>
-              <div style="font-size: var(--fs-caption); font-weight: 600">附带相关凭证清单</div>
-              <div class="muted-small">
-                在日报汇总表后追加「相关凭证清单」页：按关系类型分类小计，参考金额不并入日报合计
-              </div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" v-model="includeLinks" />
-              <span class="slider"></span>
-            </label>
+          <div
+            style="
+              font-size: var(--fs-caption);
+              color: var(--text-4);
+              text-align: center;
+              margin-top: 8px;
+            "
+          >
+            文件另含 收支方向 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
           </div>
-          </template>
-          <!-- v0.18：导出主操作已提到顶部操作条（唯一入口），此处不再重复 -->
-          <button v-if="lastBatches.length" class="btn btn-subtle" style="width: 100%; justify-content: center; margin-top: 8px"
-            @click="openLastPdf">
-            打开上一次生成的文件（{{ lastBatches.length === 1 ? lastBatches[0].batchNo : `${lastBatches.length} 份日报` }}）
-          </button>
         </div>
-      </div>
-    </div>
 
-    <!-- 右：实时预览（PDF：卡片/日报预览；Excel/CSV：导出表格预览） -->
-    <div>
-      <!-- v0.10 表格式导出预览：与导出文件同列序，只展示前 12 行 -->
-      <div v-if="exportFormat !== 'pdf'" class="print-area">
-        <div style="text-align: center; font-weight: 700; font-size: var(--fs-body); margin-bottom: 8px">
-          {{ exportFormat === "xlsx" ? "Excel" : "CSV" }} 导出预览（{{ previewVouchers.length }} 张）
-        </div>
-        <div class="dtable-wrap" v-if="previewVouchers.length">
-          <table class="dtable">
-            <thead>
-              <tr>
-                <th>凭证号</th><th>日期</th><th>摘要</th><th>对方账户</th>
-                <th style="text-align: right">金额（元）</th><th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="v in previewVouchers.slice(0, 12)" :key="v.id">
-                <td><span class="mono">{{ v.voucherNo }}</span></td>
-                <td>{{ v.voucherDate }}</td>
-                <td style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
-                <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.counterparty || "—" }}</td>
-                <td style="text-align: right" class="mono">{{ v.amountCents != null ? fmtAmount(v.amountCents) : "" }}</td>
-                <td>{{ v.status === 'draft' ? '草稿' : v.status === 'reviewed' ? '已复核' : v.status === 'exported' ? '已导出' : '已归档' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="muted-center">
-          勾选左侧凭证后预览导出内容
-        </div>
-        <div v-if="previewVouchers.length > 12" class="muted-center small">
-          仅预览前 12 行（共 {{ previewVouchers.length }} 行 + 合计行），文件中完整输出
-        </div>
-        <div style="font-size: var(--fs-caption); color: var(--text-4); text-align: center; margin-top: 8px">
-          文件另含 收支方向 / 备注 两列与合计行；金额为数值单元格（Excel 可直接求和）
-        </div>
-      </div>
+        <div v-else class="print-area">
+          <div
+            style="
+              text-align: center;
+              font-weight: 700;
+              font-size: var(--fs-body);
+              margin-bottom: 8px;
+            "
+          >
+            {{ title }}
+          </div>
 
-      <div v-else class="print-area">
-        <div style="text-align: center; font-weight: 700; font-size: var(--fs-body); margin-bottom: 8px">{{ title }}</div>
-
-        <!-- v0.22 批次①b：卡片预览已随「单份 PDF」下线——日报按 12pt 表格排版，
+          <!-- v0.22 批次①b：卡片预览已随「单份 PDF」下线——日报按 12pt 表格排版，
              预览区只保留图片附录（与 PDF 同取图规则），版式细节以导出的 PDF 为准 -->
-        <div class="preview-empty">
-          <FluentIcon name="print" :size="16" />
-          <span>日报按 12pt 表格排版导出（汇总表 + 相关凭证清单 + 图片附录）；导出后打开 PDF 核对版式</span>
-        </div>
+          <div class="preview-empty">
+            <FluentIcon name="print" :size="16" />
+            <span
+              >日报按 12pt 表格排版导出（汇总表 + 相关凭证清单 + 图片附录）；导出后打开 PDF
+              核对版式</span
+            >
+          </div>
 
-        <!-- D-9：图片附录预览（与 PDF 附录同取图规则：扫描件用增强版，截图用原图） -->
-        <template v-if="includeImages && previewThumbRows.length">
-          <div class="appendix-divider"></div>
-          <div class="appendix-title">图片附录预览（PDF 每页 2×2）</div>
-          <div class="appendix-grid">
-            <figure v-for="r in previewThumbRows.slice(0, 8)" :key="r.voucher.id" class="appendix-cell">
-              <img :src="appendixThumbUrl(r.thumb)" :alt="r.voucher.voucherNo" loading="lazy" />
-              <figcaption>
-                <span class="mono">{{ r.voucher.voucherNo }}</span>
-                <span v-if="r.thumb.enhancedSource === 'scan' && r.thumb.enhancedPath" class="appendix-badge"
-                  title="PDF 附录将印 5 步矫正后的增强版"><FluentIcon name="sparkle" :size="12" /> 增强版</span>
-              </figcaption>
-            </figure>
-          </div>
-          <div v-if="previewThumbRows.length > 8" class="muted-center small">
-            其余 {{ previewThumbRows.length - 8 }} 张图片在 PDF 附录中完整输出
-          </div>
-        </template>
+          <!-- D-9：图片附录预览（与 PDF 附录同取图规则：扫描件用增强版，截图用原图） -->
+          <template v-if="includeImages && previewThumbRows.length">
+            <div class="appendix-divider"></div>
+            <div class="appendix-title">图片附录预览（PDF 每页 2×2）</div>
+            <div class="appendix-grid">
+              <figure
+                v-for="r in previewThumbRows.slice(0, 8)"
+                :key="r.voucher.id"
+                class="appendix-cell"
+              >
+                <img :src="appendixThumbUrl(r.thumb)" :alt="r.voucher.voucherNo" loading="lazy" />
+                <figcaption>
+                  <span class="mono">{{ r.voucher.voucherNo }}</span>
+                  <span
+                    v-if="r.thumb.enhancedSource === 'scan' && r.thumb.enhancedPath"
+                    class="appendix-badge"
+                    title="PDF 附录将印 5 步矫正后的增强版"
+                    ><FluentIcon name="sparkle" :size="12" /> 增强版</span
+                  >
+                </figcaption>
+              </figure>
+            </div>
+            <div v-if="previewThumbRows.length > 8" class="muted-center small">
+              其余 {{ previewThumbRows.length - 8 }} 张图片在 PDF 附录中完整输出
+            </div>
+          </template>
+        </div>
+        <div class="muted-center small">预览仅供参考，实际打印以 PDF 输出为准</div>
       </div>
-      <div class="muted-center small">预览仅供参考，实际打印以 PDF 输出为准</div>
     </div>
-  </div>
   </div>
 </template>
 
 <style scoped>
 /* v0.18：本页此前**没有 style 块**（样式散在 base.css 与内联 style 里），
    新增的双行选择列表因此毫无样式、渲染成一堆块级元素——补上这一节。 */
-.print-page { display: flex; flex-direction: column; gap: var(--s-3); }
+.print-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
 
-.action-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
-.action-bar .scope { font: var(--type-caption); color: var(--label-tertiary); }
-.flex-1 { flex: 1; }
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.action-bar .scope {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
+.flex-1 {
+  flex: 1;
+}
 
-.pick-rows { list-style: none; margin: 0; padding: var(--s-2); display: flex; flex-direction: column; gap: 2px; }
+.pick-rows {
+  list-style: none;
+  margin: 0;
+  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .pick-row {
   display: flex;
   align-items: center;
@@ -473,8 +657,13 @@ onUnmounted(() => {
   border-radius: var(--radius-control);
   cursor: default;
 }
-.pick-row:hover { background: var(--bg-selection); }
-.pick-row.on { background: var(--bg-selection); border-color: var(--accent); }
+.pick-row:hover {
+  background: var(--bg-selection);
+}
+.pick-row.on {
+  background: var(--bg-selection);
+  border-color: var(--accent);
+}
 .pick-thumb {
   width: 36px;
   height: 46px;
@@ -488,21 +677,67 @@ onUnmounted(() => {
   color: var(--label-quaternary);
   overflow: hidden;
 }
-.pick-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.line1 { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
-.desc { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.amount { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; }
-.line2 { display: flex; align-items: center; gap: var(--s-2); font: var(--type-caption); color: var(--label-tertiary); min-width: 0; }
-.dot { color: var(--label-quaternary); }
-.pick-more { padding: var(--s-2); text-align: center; font: var(--type-caption); color: var(--label-tertiary); }
+.pick-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pick-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.line1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.desc {
+  font: var(--type-body);
+  color: var(--label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.amount {
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--label-primary);
+  font-variant-numeric: tabular-nums;
+}
+.line2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  min-width: 0;
+}
+.dot {
+  color: var(--label-quaternary);
+}
+.pick-more {
+  padding: var(--s-2);
+  text-align: center;
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
 
-.field-strong { font: var(--type-body); font-weight: 600; color: var(--label-primary); }
+.field-strong {
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--label-primary);
+}
 
 /* 预览面板：由内容决定高度（自适应）；预览区给"纸面"观感但不撑高容器 */
-.preview-panel { align-self: start; }
+.preview-panel {
+  align-self: start;
+}
 .preview-panel .fluent-panel-body {
-  display: block;            /* 不用 flex:1 —— 否则空态会被拉满整列高度 */
+  display: block; /* 不用 flex:1 —— 否则空态会被拉满整列高度 */
   padding: var(--s-3);
 }
 .preview-empty {
@@ -515,9 +750,20 @@ onUnmounted(() => {
   color: var(--label-tertiary);
   font: var(--type-caption);
 }
-.muted-small { font: var(--type-caption); color: var(--label-tertiary); }
+.muted-small {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
 
 /* 原先写死 #8e8e8e 的说明文字 → 语义令牌（深浅两色自动适配） */
-.muted-center { text-align: center; color: var(--label-tertiary); padding: var(--s-8) 0; font: var(--type-body); }
-.muted-center.small { padding: 4px 0 0; font: var(--type-caption); }
+.muted-center {
+  text-align: center;
+  color: var(--label-tertiary);
+  padding: var(--s-8) 0;
+  font: var(--type-body);
+}
+.muted-center.small {
+  padding: 4px 0 0;
+  font: var(--type-caption);
+}
 </style>

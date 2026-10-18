@@ -10,6 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { flat } from "./helpers/designGuard";
 
 const read = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
 
@@ -21,15 +22,19 @@ const command = read("src-tauri/src/commands/vouchers.rs");
 
 describe("洞察排行跟随时间窗", () => {
   it("页面把窗口区间传给排行面板", () => {
-    expect(page).toMatch(/<TopListsPanel :date-from="range\.dateFrom" :date-to="range\.dateTo" \/>/);
+    expect(page).toMatch(
+      /<TopListsPanel :date-from="range\.dateFrom" :date-to="range\.dateTo" \/>/,
+    );
   });
 
   it("面板接收区间、透传给两个接口，并在窗口变化时重查", () => {
-    expect(panel).toMatch(/defineProps<\{ dateFrom\?: string \| null; dateTo\?: string \| null \}>/);
+    expect(panel).toMatch(
+      /defineProps<\{ dateFrom\?: string \| null; dateTo\?: string \| null \}>/,
+    );
     expect(panel).toMatch(/api\.topCounterparties\(0, CP_TOP, props\.dateFrom, props\.dateTo\)/);
     expect(panel).toMatch(/api\.tagStats\(0, TAG_TOP, props\.dateFrom, props\.dateTo\)/);
     // 只在 onMounted 拉一次就是老 bug，必须有 watch
-    expect(panel).toMatch(/watch\(\(\) => \[props\.dateFrom, props\.dateTo\]/);
+    expect(flat(panel)).toMatch(/watch\(\s*\(\) => \[props\.dateFrom, props\.dateTo\]/);
     // 口径标注（规范 §3.1 第 5 条）：窗口内 / 全历史
     expect(panel).toContain("窗口内");
     expect(panel).toContain("全历史");
@@ -37,14 +42,24 @@ describe("洞察排行跟随时间窗", () => {
   });
 
   it("接口层透传 dateFrom/dateTo", () => {
-    expect(client).toMatch(/topCounterparties: \(months\?: number, limit\?: number, dateFrom\?: string \| null, dateTo\?: string \| null\)/);
-    expect(client).toMatch(/tagStats: \(months\?: number, limit\?: number, dateFrom\?: string \| null, dateTo\?: string \| null\)/);
-    expect(client).toMatch(/invoke<CounterpartyRow\[\]>\("top_counterparties", \{ months, limit, dateFrom, dateTo \}\)/);
+    expect(flat(client)).toMatch(
+      /topCounterparties: \(\s*months\?: number, limit\?: number, dateFrom\?: string \| null, dateTo\?: string \| null/,
+    );
+    expect(client).toMatch(
+      /tagStats: \(months\?: number, limit\?: number, dateFrom\?: string \| null, dateTo\?: string \| null\)/,
+    );
+    expect(client).toMatch(
+      /invoke<CounterpartyRow\[\]>\("top_counterparties", \{ months, limit, dateFrom, dateTo \}\)/,
+    );
   });
 
   it("命令层把区间交给 core", () => {
-    expect(command).toMatch(/pub fn top_counterparties\([\s\S]{0,400}?date_from: Option<String>,[\s\S]{0,200}?date_to: Option<String>/);
-    expect(command).toMatch(/pub fn tag_stats\([\s\S]{0,400}?date_from: Option<String>,[\s\S]{0,200}?date_to: Option<String>/);
+    expect(command).toMatch(
+      /pub fn top_counterparties\([\s\S]{0,400}?date_from: Option<String>,[\s\S]{0,200}?date_to: Option<String>/,
+    );
+    expect(command).toMatch(
+      /pub fn tag_stats\([\s\S]{0,400}?date_from: Option<String>,[\s\S]{0,200}?date_to: Option<String>/,
+    );
     expect(command).toMatch(/date_from\.as_deref\(\)/);
   });
 
@@ -57,6 +72,8 @@ describe("洞察排行跟随时间窗", () => {
     // months == 0 || has_range → 不再按月份过滤（区间优先）
     expect(service).toMatch(/if months == 0 \|\| has_range \{/);
     // 两个函数都走它
-    expect(service.match(/RangeFilter::new\(months, date_from, date_to\)\?/g) ?? []).toHaveLength(2);
+    expect(service.match(/RangeFilter::new\(months, date_from, date_to\)\?/g) ?? []).toHaveLength(
+      2,
+    );
   });
 });

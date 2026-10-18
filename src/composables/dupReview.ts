@@ -63,7 +63,12 @@ export function compareRows(a: Voucher, b: Voucher): CompareRow[] {
     ["amountCents", "金额", fmtAmount(a.amountCents), fmtAmount(b.amountCents)],
     ["description", "摘要", text(a.description), text(b.description)],
     ["counterparty", "对方账户", text(a.counterparty), text(b.counterparty)],
-    ["status", "状态", STATUS_META[a.status]?.label ?? text(a.status), STATUS_META[b.status]?.label ?? text(b.status)],
+    [
+      "status",
+      "状态",
+      STATUS_META[a.status]?.label ?? text(a.status),
+      STATUS_META[b.status]?.label ?? text(b.status),
+    ],
     ["tags", "标签", text(a.tags?.join("、")), text(b.tags?.join("、"))],
     ["note", "备注", text(a.note), text(b.note)],
   ];
@@ -84,9 +89,9 @@ export function diffCount(rows: CompareRow[]): number {
 /** 处置结论摘要（已处理页签一行说清"谁留谁删"） */
 export function decisionSummary(d: DupDecision): string {
   if (d.decision === "not_duplicate") return "不是重复（未改动凭证）";
-  const removedNo = d.removedPayload?.voucher?.voucherNo ?? (d.removedId != null ? `#${d.removedId}` : "?");
-  const keptNo =
-    d.removedPayload?.keptVoucherNo ?? (d.keepId != null ? `#${d.keepId}` : "?");
+  const removedNo =
+    d.removedPayload?.voucher?.voucherNo ?? (d.removedId != null ? `#${d.removedId}` : "?");
+  const keptNo = d.removedPayload?.keptVoucherNo ?? (d.keepId != null ? `#${d.keepId}` : "?");
   return `保留 ${keptNo} · 删除 ${removedNo}`;
 }
 
@@ -98,7 +103,11 @@ export function decisionTag(d: DupDecision): { label: string; tag: string } {
 }
 
 /** 组头文案：`2026-08-05 · ¥1,234.56 × 2 张` */
-export function groupHeadline(g: { voucherDate: string; amountCents: number; vouchers: Voucher[] }): string {
+export function groupHeadline(g: {
+  voucherDate: string;
+  amountCents: number;
+  vouchers: Voucher[];
+}): string {
   return `${g.voucherDate} · ¥${fmtAmount(g.amountCents)} × ${g.vouchers.length} 张`;
 }
 

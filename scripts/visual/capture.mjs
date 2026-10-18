@@ -178,8 +178,15 @@ export async function captureAll(opts = {}) {
       await page.screenshot({ path: file, fullPage: false, animations: "disabled" });
       if (evidenceDir) await copyFile(file, path.join(evidenceDir, `${shot.name}.png`));
       const info = await stat(file);
-      if (!quiet) console.log(`  ✓ ${path.relative(REPO_ROOT, file)} (${(info.size / 1024).toFixed(0)} KB)`);
-      shots.push({ name: shot.name, label: shot.label, file, bytes: info.size, at: new Date().toISOString() });
+      if (!quiet)
+        console.log(`  ✓ ${path.relative(REPO_ROOT, file)} (${(info.size / 1024).toFixed(0)} KB)`);
+      shots.push({
+        name: shot.name,
+        label: shot.label,
+        file,
+        bytes: info.size,
+        at: new Date().toISOString(),
+      });
     }
   } finally {
     await context.close();
@@ -203,14 +210,19 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log("用法: node scripts/visual/capture.mjs [--base-url URL] [--out DIR] [--no-evidence]");
+    console.log(
+      "用法: node scripts/visual/capture.mjs [--base-url URL] [--out DIR] [--no-evidence]",
+    );
     return;
   }
   const server = await ensureServer({ baseUrl: args.baseUrl });
   try {
     const result = await captureAll({ ...args, baseUrl: server.baseUrl });
-    console.log(`\n✅ 已生成 ${result.shots.length} 张截图（${VIEWPORT.width}×${VIEWPORT.height} @${DEVICE_SCALE_FACTOR}x）`);
-    if (args.evidenceDir) console.log(`   证据副本: ${path.relative(REPO_ROOT, args.evidenceDir)}/`);
+    console.log(
+      `\n✅ 已生成 ${result.shots.length} 张截图（${VIEWPORT.width}×${VIEWPORT.height} @${DEVICE_SCALE_FACTOR}x）`,
+    );
+    if (args.evidenceDir)
+      console.log(`   证据副本: ${path.relative(REPO_ROOT, args.evidenceDir)}/`);
   } finally {
     await server.stop();
   }

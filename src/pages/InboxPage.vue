@@ -64,7 +64,11 @@ const todoItems = computed(() => {
       count: t?.ocrPending ?? 0,
       unit: "张",
       hint: "识别后可自动填单（日期 / 金额 / 对方 / 摘要）",
-      action: { label: busy.value === "ocr" ? "识别中…" : "开始识别", run: runOcr, disabled: busy.value === "ocr" },
+      action: {
+        label: busy.value === "ocr" ? "识别中…" : "开始识别",
+        run: runOcr,
+        disabled: busy.value === "ocr",
+      },
       // 精确下钻：与上面计数**同口径**（计数含 pending + failed，下钻必须带两者，
       // 否则"待识别 3 张"点进去只看到 1 张——2026-09-27 审计 P1-1）
       secondary: {
@@ -81,7 +85,10 @@ const todoItems = computed(() => {
       hint: recentDrafts.value.length
         ? `最近一张：${recentDrafts.value[0].voucherNo}（点击右侧"继续核对"进入核对序列）`
         : "草稿尚未复核",
-      action: { label: "继续核对", run: () => router.push({ path: "/vouchers", query: { status: "draft" } }) },
+      action: {
+        label: "继续核对",
+        run: () => router.push({ path: "/vouchers", query: { status: "draft" } }),
+      },
     },
     {
       key: "print",
@@ -103,7 +110,9 @@ const todoItems = computed(() => {
       title: "疑似重复待处置",
       count: t?.dupPairs ?? 0,
       unit: "对",
-      hint: t?.dupHighPairs ? `其中 ${t.dupHighPairs} 对证据较强（同图或同对方同摘要）` : "同日期同金额，需人工判定",
+      hint: t?.dupHighPairs
+        ? `其中 ${t.dupHighPairs} 对证据较强（同图或同对方同摘要）`
+        : "同日期同金额，需人工判定",
       action: { label: "去核查", run: () => router.push("/duplicates") },
     },
     {
@@ -114,7 +123,10 @@ const todoItems = computed(() => {
       unit: "张",
       hint: "金额为空（不参与统计与重复判定）",
       // 精确下钻：只列"金额为空"的凭证（批次 5 的 amountEmpty 维度）
-      action: { label: "去补填", run: () => router.push({ path: "/vouchers", query: { amountEmpty: "1" } }) },
+      action: {
+        label: "去补填",
+        run: () => router.push({ path: "/vouchers", query: { amountEmpty: "1" } }),
+      },
     },
     {
       key: "stale",
@@ -238,7 +250,9 @@ onUnmounted(() => {
           <button class="todo" :disabled="i.action.disabled" @click="i.action.run()">
             <span class="todo-icon"><FluentIcon :name="i.icon" :size="18" /></span>
             <span class="todo-title">{{ i.title }}</span>
-            <span class="todo-count">{{ i.count }}<small>{{ i.unit }}</small></span>
+            <span class="todo-count"
+              >{{ i.count }}<small>{{ i.unit }}</small></span
+            >
             <span class="todo-hint">{{ i.hint }}</span>
             <span class="flex-1"></span>
             <span class="todo-action">{{ i.action.label }}</span>
@@ -257,7 +271,10 @@ onUnmounted(() => {
     <!-- 全部处理完：只留一条细横幅，不占版面 -->
     <div v-else-if="inbox.todos" class="all-clear">
       <FluentIcon name="checkCircle" :size="18" />
-      <span>待办都清空了 —— 没有待识别的图片、待核对的草稿、待打印的凭证，也没有未处置的疑似重复。</span>
+      <span
+        >待办都清空了 ——
+        没有待识别的图片、待核对的草稿、待打印的凭证，也没有未处置的疑似重复。</span
+      >
       <span class="flex-1"></span>
       <button class="link" @click="router.push('/vouchers')">打开「全部凭证」</button>
     </div>
@@ -275,7 +292,9 @@ onUnmounted(() => {
             <span class="mono">{{ v.voucherNo }}</span>
             <span class="muted">{{ v.description || "（无摘要）" }}</span>
             <span class="flex-1"></span>
-            <span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span>
+            <span class="tag" :class="STATUS_META[v.status].tag">{{
+              STATUS_META[v.status].label
+            }}</span>
           </li>
         </ul>
         <p v-else class="empty-hint">没有草稿。</p>
@@ -304,45 +323,121 @@ onUnmounted(() => {
 
 <style scoped>
 /* 收件箱：首屏只讲"该做什么"；样式全部使用设计正本 §1 的语义令牌 */
-.inbox { display: flex; flex-direction: column; gap: var(--s-4); }
+.inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
 
-.inbox-head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
-.inbox-head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: var(--fs-display); }
-.flex-1 { flex: 1; }
+.inbox-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.inbox-head h2 {
+  font: var(--type-title);
+  color: var(--label-primary);
+  margin: 0;
+  font-size: var(--fs-display);
+}
+.flex-1 {
+  flex: 1;
+}
 
 /* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间。
    行 = 主按钮（整行动作）+ 可选次要按钮；背景与描边挂在行上，视觉上仍是一整行。 */
-.todos ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.todos ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .todo-row {
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: var(--bg-content);
 }
-.todo-row:hover { background: var(--bg-selection); border-color: var(--separator); }
+.todo-row:hover {
+  background: var(--bg-selection);
+  border-color: var(--separator);
+}
 .todo {
-  display: flex; align-items: center; gap: var(--s-3); flex: 1; min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex: 1;
+  min-width: 0;
   padding: 10px var(--s-3);
   border: 0;
   background: transparent;
-  text-align: left; cursor: default;
+  text-align: left;
+  cursor: default;
 }
-.todo:disabled { opacity: 0.6; }
-.todo-icon { color: var(--label-secondary); display: inline-flex; }
-.todo-title { font: var(--type-body); font-weight: 600; color: var(--label-primary); white-space: nowrap; }
-.todo-count { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.todo-count small { margin-left: 4px; font: var(--type-caption); font-weight: 400; color: var(--label-tertiary); }
-.todo-hint { font: var(--type-caption); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.todo-action { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
+.todo:disabled {
+  opacity: 0.6;
+}
+.todo-icon {
+  color: var(--label-secondary);
+  display: inline-flex;
+}
+.todo-title {
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--label-primary);
+  white-space: nowrap;
+}
+.todo-count {
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--label-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.todo-count small {
+  margin-left: 4px;
+  font: var(--type-caption);
+  font-weight: 400;
+  color: var(--label-tertiary);
+}
+.todo-hint {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.todo-action {
+  font: var(--type-caption);
+  color: var(--accent);
+  white-space: nowrap;
+}
 .todo-secondary {
-  flex-shrink: 0; margin-right: var(--s-3); padding: 2px 6px;
-  border: 0; border-radius: var(--radius-small); background: transparent;
-  font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; cursor: default;
+  flex-shrink: 0;
+  margin-right: var(--s-3);
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  white-space: nowrap;
+  cursor: default;
 }
-.todo-secondary:hover { color: var(--accent); text-decoration: underline; }
+.todo-secondary:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 
 .all-clear {
-  display: flex; align-items: center; gap: var(--s-2);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
   border: 1px solid var(--separator);
   border-radius: var(--radius-control);
@@ -351,16 +446,65 @@ onUnmounted(() => {
   font: var(--type-body);
 }
 
-.section-head h3 { font: var(--type-title); color: var(--label-primary); margin: 0; }
+.section-head h3 {
+  font: var(--type-title);
+  color: var(--label-primary);
+  margin: 0;
+}
 
-.activity { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s-3); }
-.panel { padding: var(--s-3); border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--bg-content); }
-.section-head { display: flex; align-items: baseline; gap: var(--s-2); }
-.mini-list { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.mini-list li { display: flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-2); border-radius: var(--radius-small); font: var(--type-body); cursor: default; }
-.mini-list li:hover { background: var(--bg-selection); }
-.muted { color: var(--label-tertiary); font: var(--type-caption); }
-.link { border: none; background: none; color: var(--accent); font: var(--type-caption); cursor: default; }
-.link:hover { text-decoration: underline; }
-.empty-hint { color: var(--label-tertiary); font: var(--type-body); margin: var(--s-2) 0; }
+.activity {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-3);
+}
+.panel {
+  padding: var(--s-3);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--bg-content);
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.mini-list {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mini-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px var(--s-2);
+  border-radius: var(--radius-small);
+  font: var(--type-body);
+  cursor: default;
+}
+.mini-list li:hover {
+  background: var(--bg-selection);
+}
+.muted {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
+.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: var(--type-caption);
+  cursor: default;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.empty-hint {
+  color: var(--label-tertiary);
+  font: var(--type-body);
+  margin: var(--s-2) 0;
+}
 </style>

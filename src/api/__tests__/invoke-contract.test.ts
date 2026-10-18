@@ -16,16 +16,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../..",
-);
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 function extractClientInvokeNames(): string[] {
-  const clientSrc = readFileSync(
-    path.join(projectRoot, "src", "api", "client.ts"),
-    "utf8",
-  );
+  const clientSrc = readFileSync(path.join(projectRoot, "src", "api", "client.ts"), "utf8");
   // 只匹配调用点 `invoke<...>("name", ...)` 或 `invoke("name", ...)`，第一个参数必须是字符串字面量。
   // 有意排除本地声明 `function invoke<T>(cmd: string, ...)`（generic 后跟 cmd，不是引号）。
   const names: string[] = [];
@@ -37,10 +31,7 @@ function extractClientInvokeNames(): string[] {
 }
 
 function extractRustHandlerNames(): string[] {
-  const mainSrc = readFileSync(
-    path.join(projectRoot, "src-tauri", "src", "main.rs"),
-    "utf8",
-  );
+  const mainSrc = readFileSync(path.join(projectRoot, "src-tauri", "src", "main.rs"), "utf8");
   const start = mainSrc.indexOf("generate_handler![");
   if (start < 0) {
     throw new Error("main.rs 中找不到 generate_handler![ ... ]");
@@ -66,7 +57,9 @@ describe("前后端 invoke 契约", () => {
     lines.push(`client.ts invoke 数：${client.length}`);
     lines.push(`main.rs handler 数：${rust.length}`);
     if (onlyClient.length) {
-      lines.push(`仅在 client.ts（Rust 未注册，调用会报 command not found）：${onlyClient.join(", ")}`);
+      lines.push(
+        `仅在 client.ts（Rust 未注册，调用会报 command not found）：${onlyClient.join(", ")}`,
+      );
     }
     if (onlyRust.length) {
       lines.push(`仅在 main.rs（前端未封装，功能不可达）：${onlyRust.join(", ")}`);

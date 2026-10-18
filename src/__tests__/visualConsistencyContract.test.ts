@@ -67,7 +67,8 @@ describe("设置页视觉统一（U4）", () => {
     const bad: string[] = [];
     for (const rel of SETTINGS_FILES) {
       const tpl = templateText(rel);
-      for (const m of tpl.matchAll(/(?<![:@\w-])style="([^"]*)"/g)) bad.push(`${rel}: style="${m[1]}"`);
+      for (const m of tpl.matchAll(/(?<![:@\w-])style="([^"]*)"/g))
+        bad.push(`${rel}: style="${m[1]}"`);
     }
     expect(bad, `静态内联样式应改成 .settings-* 类：\n${bad.join("\n")}`).toEqual([]);
   });

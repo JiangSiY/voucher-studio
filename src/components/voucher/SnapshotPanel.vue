@@ -21,6 +21,12 @@ const badge = computed(() => {
   return latest ? `${n} 条 · 最近 ${latest.slice(5, 16).replace("T", " ")}` : `${n} 条`;
 });
 
+/** 快照 payload 是任意 JSON；摘要取 description 字段（缺失时回退占位） */
+function snapshotNote(payload: Record<string, unknown>): string {
+  const d = payload["description"];
+  return typeof d === "string" && d ? d : "（无摘要）";
+}
+
 const SNAPSHOT_LABELS: Record<string, string> = {
   update: "修改前快照",
   status: "状态变更前快照",
@@ -40,9 +46,7 @@ const SNAPSHOT_LABELS: Record<string, string> = {
           <span>{{ SNAPSHOT_LABELS[s.reason] ?? s.reason }}</span>
           <span>{{ fmtDate(s.createdAt) }}</span>
         </div>
-        <div style="color: var(--text-2)">
-          {{ (s.payload as Record<string, unknown>).description || "（无摘要）" }}
-        </div>
+        <div style="color: var(--text-2)">{{ snapshotNote(s.payload) }}</div>
       </div>
     </div>
   </CollapsiblePanel>

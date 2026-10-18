@@ -88,6 +88,8 @@ onMounted(load);
   <BackupTab v-show="tab === 'backup'" />
 
   <div class="settings-actions">
-    <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? "保存中…" : "保存设置" }}</button>
+    <button class="btn btn-primary" :disabled="saving" @click="save">
+      {{ saving ? "保存中…" : "保存设置" }}
+    </button>
   </div>
 </template>

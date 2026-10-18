@@ -151,7 +151,8 @@ async function unlink(l: LinkedVoucher) {
         <li v-for="l in links" :key="l.linkId">
           <span class="rel-kind-tag">{{ KIND_LABEL[l.kind] }}</span>
           <button class="link rel-other" @click="emit('focus', l.other.id)">
-            {{ l.other.voucherNo }} · {{ l.other.voucherDate }} · {{ fmtAmount(l.other.amountCents) }}
+            {{ l.other.voucherNo }} · {{ l.other.voucherDate }} ·
+            {{ fmtAmount(l.other.amountCents) }}
           </button>
           <span v-if="l.note" class="rel-note-text">{{ l.note }}</span>
           <button class="rel-unlink" title="解除关联" aria-label="解除关联" @click="unlink(l)">

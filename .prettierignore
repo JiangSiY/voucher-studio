@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+dist/
+target/
+src-tauri/gen/
+src-tauri/target/
+
+# 历史 Spike 与评测数据（不参与格式化）
+spikes/
+voucher-ocr-eval/
+
+# 文档与说明（中文散文、表格，格式化只会制造无意义 diff）
+*.md
+docs/
+
+# 第三方锁文件（npm 生成，不手改）
+package-lock.json
+
+# CI 与脚本（yaml/shell 不在本次格式化范围）
+.github/
+scripts/clean-build.sh
+scripts/guards.sh
+scripts/audit.sh
+scripts/release.sh

@@ -18,7 +18,6 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { repoFile } from "./helpers/designGuard";
 
-
 /** 剥掉 HTML / 块 / 行注释（行注释要求前面是行首或空白，避免误伤 `https://` 这类内容） */
 function stripComments(text: string): string {
   return text
@@ -52,14 +51,14 @@ function navLabels(): Map<string, string> {
   return map;
 }
 
-/** 路由标题：`{ path: "x", ... meta: { title: "名字" } }`（同一行内） */
+/** 路由标题：`{ path: "x", meta: { title: "名字" } }`——Prettier 后两者常不在同一行，按 path 切段解析 */
 function routeTitles(): Map<string, string> {
   const src = repoFile(ROUTER);
   const map = new Map<string, string>();
-  for (const line of src.split("\n")) {
-    const p = line.match(/path:\s*"([^"]+)"/);
-    const t = line.match(/meta:\s*\{\s*title:\s*"([^"]+)"/);
-    if (p && t) map.set(`/${p[1]}`, t[1]);
+  for (const chunk of src.split(/path:\s*"/).slice(1)) {
+    const path = chunk.slice(0, chunk.indexOf('"'));
+    const title = chunk.match(/title:\s*"([^"]+)"/);
+    if (title) map.set(path.startsWith("/") ? path : `/${path}`, title[1]);
   }
   return map;
 }
@@ -72,7 +71,8 @@ describe("术语统一", () => {
       const text = stripComments(repoFile(rel));
       for (const term of legacy) {
         for (const [i, line] of text.split("\n").entries()) {
-          if (line.includes(term)) offenders.push(`${rel}:${i + 1} 出现旧称「${term}」：${line.trim().slice(0, 80)}`);
+          if (line.includes(term))
+            offenders.push(`${rel}:${i + 1} 出现旧称「${term}」：${line.trim().slice(0, 80)}`);
         }
       }
     }
@@ -86,7 +86,8 @@ describe("术语统一", () => {
     const mismatched: string[] = [];
     for (const [path, label] of nav) {
       const title = titles.get(path);
-      if (title !== label) mismatched.push(`${path}：侧栏「${label}」 vs 标题「${title ?? "(缺 meta.title)"}」`);
+      if (title !== label)
+        mismatched.push(`${path}：侧栏「${label}」 vs 标题「${title ?? "(缺 meta.title)"}」`);
     }
     expect(mismatched, `侧栏与标题不一致：\n${mismatched.join("\n")}`).toEqual([]);
   });

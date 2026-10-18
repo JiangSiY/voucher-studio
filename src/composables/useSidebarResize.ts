@@ -8,11 +8,7 @@
  * **不写元素内联 width**——内联样式特异性高于 `@media (max-width: 760px)` 的
  * `.sidebar { width: 56px }`，会破坏极窄窗的图标栏。
  */
-import {
-  SIDEBAR_WIDTH_DEFAULT,
-  SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_MIN,
-} from "../config-defaults";
+import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from "../config-defaults";
 
 /** 键盘步进（px） */
 export const SIDEBAR_KEYBOARD_STEP = 16;

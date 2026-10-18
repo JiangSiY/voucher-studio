@@ -34,8 +34,13 @@ function stateIcon(t: TaskItem): string {
 <template>
   <div v-if="store.items.length" class="task-center" :class="{ 'is-collapsed': store.collapsed }">
     <!-- 头部即最小化开关：收起态只剩这一行胶囊 -->
-    <button class="tc-header" :aria-expanded="!store.collapsed" aria-controls="task-center-list"
-      :title="store.collapsed ? '展开任务中心' : '最小化任务中心'" @click="store.toggleCollapsed()">
+    <button
+      class="tc-header"
+      :aria-expanded="!store.collapsed"
+      aria-controls="task-center-list"
+      :title="store.collapsed ? '展开任务中心' : '最小化任务中心'"
+      @click="store.toggleCollapsed()"
+    >
       <FluentIcon name="chevronRight" :size="12" class="tc-caret" />
       <span class="tc-title">任务中心</span>
       <span class="tc-summary" role="status" aria-live="polite">{{ store.summary }}</span>
@@ -55,18 +60,38 @@ function stateIcon(t: TaskItem): string {
           </div>
           <div v-if="t.detail" class="tc-detail">{{ t.detail }}</div>
           <!-- 有总量才画确定态进度条；不知道进度就画不确定条纹（不是"卡在 0%"） -->
-          <div v-if="t.state === 'running'" class="tc-bar" :class="{ 'is-indeterminate': t.total <= 0 }"
-            role="progressbar" :aria-valuenow="t.total > 0 ? percent(t) : undefined"
-            :aria-valuemin="t.total > 0 ? 0 : undefined" :aria-valuemax="t.total > 0 ? 100 : undefined"
-            :aria-label="`${t.title} 进度`">
-            <span class="tc-fill" :style="t.total > 0 ? { width: percent(t) + '%' } : undefined"></span>
+          <div
+            v-if="t.state === 'running'"
+            class="tc-bar"
+            :class="{ 'is-indeterminate': t.total <= 0 }"
+            role="progressbar"
+            :aria-valuenow="t.total > 0 ? percent(t) : undefined"
+            :aria-valuemin="t.total > 0 ? 0 : undefined"
+            :aria-valuemax="t.total > 0 ? 100 : undefined"
+            :aria-label="`${t.title} 进度`"
+          >
+            <span
+              class="tc-fill"
+              :style="t.total > 0 ? { width: percent(t) + '%' } : undefined"
+            ></span>
           </div>
         </div>
-        <button v-if="t.action && t.state !== 'running'" class="btn btn-sm" @click="t.action.onClick(); store.dismiss(t.id)">
+        <button
+          v-if="t.action && t.state !== 'running'"
+          class="btn btn-sm"
+          @click="
+            t.action.onClick();
+            store.dismiss(t.id);
+          "
+        >
           {{ t.action.label }}
         </button>
-        <button class="btn-icon tc-close" :style="{ width: 'var(--control-h-xs)', height: 'var(--control-h-xs)' }"
-          aria-label="关闭这条任务" @click="store.dismiss(t.id)">
+        <button
+          class="btn-icon tc-close"
+          :style="{ width: 'var(--control-h-xs)', height: 'var(--control-h-xs)' }"
+          aria-label="关闭这条任务"
+          @click="store.dismiss(t.id)"
+        >
           <FluentIcon name="close" :size="12" />
         </button>
       </div>
@@ -115,39 +140,123 @@ function stateIcon(t: TaskItem): string {
   text-align: left;
   cursor: default;
 }
-.tc-header:hover { background: var(--bg-selection); }
-.tc-caret { transition: transform var(--motion-fast) var(--motion-curve); transform: rotate(90deg); }
-.task-center.is-collapsed .tc-caret { transform: none; }
-.tc-title { font-weight: 600; }
-.tc-summary { margin-left: auto; color: var(--label-secondary); }
+.tc-header:hover {
+  background: var(--bg-selection);
+}
+.tc-caret {
+  transition: transform var(--motion-fast) var(--motion-curve);
+  transform: rotate(90deg);
+}
+.task-center.is-collapsed .tc-caret {
+  transform: none;
+}
+.tc-title {
+  font-weight: 600;
+}
+.tc-summary {
+  margin-left: auto;
+  color: var(--label-secondary);
+}
 
-.tc-list { border-top: 1px solid var(--separator); max-height: 40vh; overflow-y: auto; }
-.tc-item { display: flex; align-items: flex-start; gap: var(--s-2); padding: var(--s-2) var(--s-3); }
-.tc-item + .tc-item { border-top: 1px solid var(--separator); }
-.tc-icon { color: var(--label-secondary); padding-top: 2px; }
-.tc-item.done .tc-icon { color: var(--success); }
-.tc-item.failed .tc-icon { color: var(--danger); }
-.tc-body { flex: 1; min-width: 0; }
-.tc-line { display: flex; align-items: baseline; gap: var(--s-2); }
-.tc-name { font: var(--type-caption); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tc-count { margin-left: auto; font: var(--type-caption); color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
-.tc-error { margin-left: auto; font: var(--type-caption); color: var(--danger); }
-.tc-detail { font: var(--type-caption); color: var(--label-tertiary); margin-top: 2px; }
+.tc-list {
+  border-top: 1px solid var(--separator);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.tc-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+}
+.tc-item + .tc-item {
+  border-top: 1px solid var(--separator);
+}
+.tc-icon {
+  color: var(--label-secondary);
+  padding-top: 2px;
+}
+.tc-item.done .tc-icon {
+  color: var(--success);
+}
+.tc-item.failed .tc-icon {
+  color: var(--danger);
+}
+.tc-body {
+  flex: 1;
+  min-width: 0;
+}
+.tc-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.tc-name {
+  font: var(--type-caption);
+  color: var(--label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-count {
+  margin-left: auto;
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.tc-error {
+  margin-left: auto;
+  font: var(--type-caption);
+  color: var(--danger);
+}
+.tc-detail {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  margin-top: 2px;
+}
 
-.tc-bar { position: relative; height: 3px; margin-top: 6px; border-radius: var(--radius-small); background: var(--separator); overflow: hidden; }
-.tc-fill { display: block; height: 100%; background: var(--accent); transition: width var(--motion-normal) var(--motion-curve); }
+.tc-bar {
+  position: relative;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: var(--radius-small);
+  background: var(--separator);
+  overflow: hidden;
+}
+.tc-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--motion-normal) var(--motion-curve);
+}
 .tc-bar.is-indeterminate .tc-fill {
   width: 40%;
   animation: tc-slide var(--motion-slow) ease-in-out infinite;
 }
 @keyframes tc-slide {
-  0% { margin-left: -40%; }
-  100% { margin-left: 100%; }
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tc-bar.is-indeterminate .tc-fill { animation: none; width: 100%; opacity: 0.4; margin-left: 0; }
+  .tc-bar.is-indeterminate .tc-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+    margin-left: 0;
+  }
 }
 
-.tc-close { color: var(--label-tertiary); flex-shrink: 0; }
-.tc-foot { padding: var(--s-2) var(--s-3); border-top: 1px solid var(--separator); text-align: right; }
+.tc-close {
+  color: var(--label-tertiary);
+  flex-shrink: 0;
+}
+.tc-foot {
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--separator);
+  text-align: right;
+}
 </style>

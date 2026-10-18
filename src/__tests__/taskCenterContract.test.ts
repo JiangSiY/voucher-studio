@@ -34,7 +34,9 @@ describe("任务中心", () => {
     expect(center).toContain('aria-controls="task-center-list"');
     expect(center).toMatch(/v-show="!store\.collapsed"/);
     expect(store).toContain("function toggleCollapsed()");
-    expect(store).toMatch(/collapsed\.value = false; \/\/ 有新任务就展开|collapsed\.value = false;/);
+    expect(store).toMatch(
+      /collapsed\.value = false; \/\/ 有新任务就展开|collapsed\.value = false;/,
+    );
   });
 
   it("进度条：有总量才画确定态，不知道进度走不确定态（不假装卡在 0%）", () => {
@@ -45,9 +47,13 @@ describe("任务中心", () => {
 
   it("不跟 toast 抢角落：toast 在右上角，任务中心在内容区左下并跟随侧栏宽度", () => {
     // 规范 §1.5：通知条在右上角（2026-10-16 按规范改正，见 toastSpecContract）
-    expect(baseCss).toMatch(/\.toast-host \{[\s\S]{0,400}?top: var\(--s-5\);[\s\S]{0,80}right: var\(--s-5\)/);
+    expect(baseCss).toMatch(
+      /\.toast-host \{[\s\S]{0,400}?top: var\(--s-5\);[\s\S]{0,80}right: var\(--s-5\)/,
+    );
     const css = center.slice(center.indexOf("<style scoped>"));
-    expect(css).toMatch(/\.task-center \{[\s\S]{0,160}left: calc\(var\(--sidebar-w\) \+ var\(--s-5\)\)/);
+    expect(css).toMatch(
+      /\.task-center \{[\s\S]{0,160}left: calc\(var\(--sidebar-w\) \+ var\(--s-5\)\)/,
+    );
     // 收起态/窄窗是 56px 图标栏，靠 --sidebar-w 跟不动，必须单独纠
     expect(css).toContain(':root[data-sidebar-collapsed="true"] .task-center');
     expect(css).toMatch(/@media \(max-width: 760px\)/);

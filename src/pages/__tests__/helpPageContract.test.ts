@@ -9,6 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { flat } from "../../__tests__/helpers/designGuard";
 
 const page = readFileSync(new URL("../HelpPage.vue", import.meta.url), "utf8");
 const layout = readFileSync(new URL("../../layouts/WorkbenchLayout.vue", import.meta.url), "utf8");
@@ -54,8 +55,8 @@ describe("帮助页：入口名与侧栏一致", () => {
 
   it("平台说明为 macOS（无 Windows 残留），并记录侧栏收起与搜索上限", () => {
     expect(page).not.toContain("Windows 凭据管理器");
-    expect(page).toContain("macOS 钥匙串");
-    expect(page).toContain("收起侧边栏");
-    expect(page).toContain("100 条");
+    expect(flat(page)).toContain("macOS 钥匙串");
+    expect(flat(page)).toContain("收起侧边栏");
+    expect(flat(page)).toContain("100 条");
   });
 });

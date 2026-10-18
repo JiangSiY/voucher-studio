@@ -25,7 +25,9 @@ describe("侧栏外观项的整包提交覆盖", () => {
     expect(helper).toContain("export function withLiveAppearance(");
     expect(helper).toContain('live: AppConfig["appearance"] | null | undefined');
     expect(helper).toContain("sidebarWidth: live?.sidebarWidth ?? cfg.appearance.sidebarWidth");
-    expect(helper).toContain("sidebarCollapsed: live?.sidebarCollapsed ?? cfg.appearance.sidebarCollapsed");
+    expect(helper).toContain(
+      "sidebarCollapsed: live?.sidebarCollapsed ?? cfg.appearance.sidebarCollapsed",
+    );
     // store 里既不该再有这个方法，也不该把它挂上返回对象（否则又会被实例缓存坑一次）
     expect(store).not.toContain("function withLiveAppearance");
     expect(store).not.toMatch(/return \{[\s\S]*withLiveAppearance,/);

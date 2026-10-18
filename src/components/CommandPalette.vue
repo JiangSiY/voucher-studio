@@ -25,17 +25,83 @@ type Command = {
 
 /** 快速动作（异步动作用 toast 反馈，面板即关） */
 const commands: Command[] = [
-  { key: "nav:inbox", label: "前往 待处理", hint: "今天要办的事（流程）", icon: "inbox", run: () => router.push("/inbox") },
-  { key: "nav:list", label: "前往 全部凭证", hint: "筛选 / 批量操作", icon: "list", run: () => router.push("/vouchers") },
-  { key: "nav:duplicates", label: "前往 重复核查", hint: "疑似重复的比对与处置", icon: "duplicate", run: () => router.push("/duplicates") },
-  { key: "nav:new", label: "新建凭证", hint: "选图建卡 + OCR", icon: "plus", run: () => router.push("/vouchers/new") },
-  { key: "nav:search", label: "前往 全文搜索", hint: "编号 / 摘要 / OCR 文本", icon: "search", run: () => router.push("/search") },
-  { key: "nav:insights", label: "前往 洞察", hint: "趋势 / 排行 / 对账", icon: "chart", run: () => router.push("/insights") },
-  { key: "nav:print", label: "前往 打印与导出", hint: "PDF / Excel / CSV", icon: "print", run: () => router.push("/print") },
-  { key: "nav:exports", label: "前往 导出历史", hint: "批次反查", icon: "file", run: () => router.push("/exports") },
-  { key: "nav:restore", label: "前往 备份与恢复", hint: "备份列表 / 演练", icon: "save", run: () => router.push("/restore") },
-  { key: "nav:settings", label: "前往 设置", hint: "参数 / 密钥 / 期间管理", icon: "settings", run: () => router.push("/settings") },
-  { key: "nav:help", label: "前往 帮助", hint: "使用说明", icon: "help", run: () => router.push("/help") },
+  {
+    key: "nav:inbox",
+    label: "前往 待处理",
+    hint: "今天要办的事（流程）",
+    icon: "inbox",
+    run: () => router.push("/inbox"),
+  },
+  {
+    key: "nav:list",
+    label: "前往 全部凭证",
+    hint: "筛选 / 批量操作",
+    icon: "list",
+    run: () => router.push("/vouchers"),
+  },
+  {
+    key: "nav:duplicates",
+    label: "前往 重复核查",
+    hint: "疑似重复的比对与处置",
+    icon: "duplicate",
+    run: () => router.push("/duplicates"),
+  },
+  {
+    key: "nav:new",
+    label: "新建凭证",
+    hint: "选图建卡 + OCR",
+    icon: "plus",
+    run: () => router.push("/vouchers/new"),
+  },
+  {
+    key: "nav:search",
+    label: "前往 全文搜索",
+    hint: "编号 / 摘要 / OCR 文本",
+    icon: "search",
+    run: () => router.push("/search"),
+  },
+  {
+    key: "nav:insights",
+    label: "前往 洞察",
+    hint: "趋势 / 排行 / 对账",
+    icon: "chart",
+    run: () => router.push("/insights"),
+  },
+  {
+    key: "nav:print",
+    label: "前往 打印与导出",
+    hint: "PDF / Excel / CSV",
+    icon: "print",
+    run: () => router.push("/print"),
+  },
+  {
+    key: "nav:exports",
+    label: "前往 导出历史",
+    hint: "批次反查",
+    icon: "file",
+    run: () => router.push("/exports"),
+  },
+  {
+    key: "nav:restore",
+    label: "前往 备份与恢复",
+    hint: "备份列表 / 演练",
+    icon: "save",
+    run: () => router.push("/restore"),
+  },
+  {
+    key: "nav:settings",
+    label: "前往 设置",
+    hint: "参数 / 密钥 / 期间管理",
+    icon: "settings",
+    run: () => router.push("/settings"),
+  },
+  {
+    key: "nav:help",
+    label: "前往 帮助",
+    hint: "使用说明",
+    icon: "help",
+    run: () => router.push("/help"),
+  },
 ];
 
 const query = ref("");
@@ -156,25 +222,41 @@ watch(
           <FluentIcon name="search" :size="16" />
           <!-- 按键只由 window 上的 onKeydown 处理（见上）：此前输入框又绑了一份同一处理器，
                ↓/↑ 一次跳 2 项、Enter 触发两次 execute()（第二项或同一项被跑两遍） -->
-          <input ref="inputEl" v-model="query" class="cp-input"
-            placeholder="输入页面 / 动作名，或直接搜凭证（编号、摘要、OCR 文本）…" />
+          <input
+            ref="inputEl"
+            v-model="query"
+            class="cp-input"
+            placeholder="输入页面 / 动作名，或直接搜凭证（编号、摘要、OCR 文本）…"
+          />
           <span class="cp-esc">Esc 关闭</span>
         </div>
 
         <div class="cp-list" v-if="items.length">
           <template v-for="(it, i) in items" :key="it.key">
-            <button v-if="it.kind === 'cmd'" class="cp-item" :class="{ active: i === active }"
-              @mouseenter="active = i" @click="execute()">
+            <button
+              v-if="it.kind === 'cmd'"
+              class="cp-item"
+              :class="{ active: i === active }"
+              @mouseenter="active = i"
+              @click="execute()"
+            >
               <span class="cp-icon"><FluentIcon :name="it.icon" :size="16" /></span>
               <span class="cp-label">{{ it.label }}</span>
               <span class="cp-hint">{{ it.hint }}</span>
             </button>
-            <button v-else class="cp-item" :class="{ active: i === active }"
-              @mouseenter="active = i" @click="execute()">
+            <button
+              v-else
+              class="cp-item"
+              :class="{ active: i === active }"
+              @mouseenter="active = i"
+              @click="execute()"
+            >
               <span class="cp-icon"><FluentIcon name="image" :size="16" /></span>
               <span class="cp-label">
                 <span class="mono">{{ it.hit.voucher.voucherNo }}</span>
-                <span style="color: var(--text-3); margin-left: 6px">{{ it.hit.voucher.description || "（无摘要）" }}</span>
+                <span style="color: var(--text-3); margin-left: 6px">{{
+                  it.hit.voucher.description || "（无摘要）"
+                }}</span>
               </span>
               <span class="cp-hint">
                 {{ it.hit.voucher.voucherDate }} · {{ fmtAmount(it.hit.voucher.amountCents) }} ·
@@ -184,7 +266,13 @@ watch(
           </template>
         </div>
         <div v-else class="cp-empty">
-          {{ busy ? "搜索中…" : query.trim() ? "没有匹配的命令或凭证" : "↑↓ 选择 · Enter 执行 · Esc 关闭" }}
+          {{
+            busy
+              ? "搜索中…"
+              : query.trim()
+                ? "没有匹配的命令或凭证"
+                : "↑↓ 选择 · Enter 执行 · Esc 关闭"
+          }}
         </div>
       </div>
     </div>

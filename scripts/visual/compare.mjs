@@ -138,7 +138,12 @@ async function main() {
   let captureMeta;
   try {
     console.log(`\n重新截图 → ${path.relative(REPO_ROOT, currentDir)}/`);
-    captureMeta = await captureAll({ baseUrl: server.baseUrl, outDir: currentDir, evidenceDir: null, quiet: true });
+    captureMeta = await captureAll({
+      baseUrl: server.baseUrl,
+      outDir: currentDir,
+      evidenceDir: null,
+      quiet: true,
+    });
     const currentFiles = new Set(captureMeta.shots.map((s) => `${s.name}.png`));
     const baselineSet = new Set(files);
 
@@ -151,12 +156,23 @@ async function main() {
         const baselinePath = path.join(BASELINE_DIR, file);
         const currentPath = path.join(currentDir, file);
         if (!currentFiles.has(file)) {
-          results.push({ name, file, missingCurrent: true, ratio: 1, diffPixels: 0, totalPixels: 0 });
+          results.push({
+            name,
+            file,
+            missingCurrent: true,
+            ratio: 1,
+            diffPixels: 0,
+            totalPixels: 0,
+          });
           continue;
         }
         const a = (await readFile(baselinePath)).toString("base64");
         const b = (await readFile(currentPath)).toString("base64");
-        const r = await diffInBrowser(page, `data:image/png;base64,${a}`, `data:image/png;base64,${b}`);
+        const r = await diffInBrowser(
+          page,
+          `data:image/png;base64,${a}`,
+          `data:image/png;base64,${b}`,
+        );
         const entry = { name, file, baselinePath, currentPath, ...r };
         if (!r.sizeMismatch) {
           const diffFile = path.join(diffDir, `${name}.diff.png`);
@@ -165,7 +181,9 @@ async function main() {
         }
         results.push(entry);
         const pct = r.sizeMismatch ? "尺寸不同" : `${(r.ratio * 100).toFixed(4)}%`;
-        console.log(`  ${file.padEnd(24)} ${pct.padStart(11)}  ${r.sizeMismatch ? "" : `(${r.diffPixels} / ${r.totalPixels} px)`}`);
+        console.log(
+          `  ${file.padEnd(24)} ${pct.padStart(11)}  ${r.sizeMismatch ? "" : `(${r.diffPixels} / ${r.totalPixels} px)`}`,
+        );
       }
       // 基线里没有、但本次截出来的图：提示多余，不阻断
       for (const extra of [...currentFiles].filter((f) => !baselineSet.has(f))) {
@@ -178,8 +196,13 @@ async function main() {
     await server.stop();
   }
 
-  const failed = results.filter((r) => r.missingCurrent || r.sizeMismatch || r.ratio * 100 > args.threshold);
-  const maxRatio = results.reduce((m, r) => Math.max(m, r.missingCurrent || r.sizeMismatch ? 1 : r.ratio), 0);
+  const failed = results.filter(
+    (r) => r.missingCurrent || r.sizeMismatch || r.ratio * 100 > args.threshold,
+  );
+  const maxRatio = results.reduce(
+    (m, r) => Math.max(m, r.missingCurrent || r.sizeMismatch ? 1 : r.ratio),
+    0,
+  );
   const summary = {
     generatedAt: new Date().toISOString(),
     baseUrl: server.baseUrl,

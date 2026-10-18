@@ -34,6 +34,8 @@ describe("死代码", () => {
       });
       if (!referenced) orphans.push(rel);
     }
-    expect(orphans, `这些文件没有任何引用（死代码，删掉或接线）：\n${orphans.join("\n")}`).toEqual([]);
+    expect(orphans, `这些文件没有任何引用（死代码，删掉或接线）：\n${orphans.join("\n")}`).toEqual(
+      [],
+    );
   });
 });

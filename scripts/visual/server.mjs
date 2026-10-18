@@ -39,7 +39,9 @@ export async function ensureServer(opts = {}) {
     return { baseUrl, owned: false, stop: async () => {} };
   }
   if (!/^http:\/\/(127\.0\.0\.1|localhost):5173$/.test(baseUrl)) {
-    throw new Error(`无法连接 ${baseUrl}，且只会在端口 5173 上自动启动 Vite。请先启动 npm run dev。`);
+    throw new Error(
+      `无法连接 ${baseUrl}，且只会在端口 5173 上自动启动 Vite。请先启动 npm run dev。`,
+    );
   }
 
   console.log(`ℹ️  ${baseUrl} 未运行，自动启动 vite（npm run dev -- --port 5173 --strictPort）…`);

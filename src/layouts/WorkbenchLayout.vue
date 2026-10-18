@@ -32,9 +32,21 @@ function badgeText(n: number): string {
 
 const navItems = computed(() => [
   // v0.18 收件箱驱动：首页即"今天要处理什么"，角标显示待处理项数
-  { to: "/inbox", icon: "inbox", label: "待处理", badge: inboxStore.pendingCount, badgeLabel: "项待办" },
+  {
+    to: "/inbox",
+    icon: "inbox",
+    label: "待处理",
+    badge: inboxStore.pendingCount,
+    badgeLabel: "项待办",
+  },
   { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0, badgeLabel: "" },
-  { to: "/duplicates", icon: "duplicate", label: "重复核查", badge: dupStore.pending.groups, badgeLabel: "组疑似重复" },
+  {
+    to: "/duplicates",
+    icon: "duplicate",
+    label: "重复核查",
+    badge: dupStore.pending.groups,
+    badgeLabel: "组疑似重复",
+  },
   { to: "/insights", icon: "chart", label: "洞察", badge: 0, badgeLabel: "" },
   { to: "/print", icon: "print", label: "打印与导出", badge: 0, badgeLabel: "" },
   { to: "/exports", icon: "chart", label: "导出历史", badge: 0, badgeLabel: "" },
@@ -57,7 +69,6 @@ const sidebarCollapsed = computed(() => configStore.sidebarCollapsed);
 function toggleSidebar() {
   void configStore.toggleSidebarCollapsed().catch((e) => toastError(e));
 }
-
 </script>
 
 <template>
@@ -74,12 +85,18 @@ function toggleSidebar() {
           :key="item.to"
           :to="item.to"
           :title="item.badge > 0 ? `${item.label}（${item.badge} ${item.badgeLabel}）` : item.label"
-          :aria-label="item.badge > 0 ? `${item.label}，${item.badge} ${item.badgeLabel}` : undefined"
+          :aria-label="
+            item.badge > 0 ? `${item.label}，${item.badge} ${item.badgeLabel}` : undefined
+          "
         >
           <!-- 角标压在图标右上角：不再占行尾宽度，侧栏因此可以更窄（用户 2026-10-16 要求） -->
           <span class="nav-icon">
             <FluentIcon :name="item.icon" :size="18" />
-            <span v-if="item.badge > 0" class="nav-badge" :title="`${item.badge} ${item.badgeLabel}`">
+            <span
+              v-if="item.badge > 0"
+              class="nav-badge"
+              :title="`${item.badge} ${item.badgeLabel}`"
+            >
               {{ badgeText(item.badge) }}
             </span>
           </span>

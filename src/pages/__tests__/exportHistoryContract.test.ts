@@ -15,7 +15,9 @@ const page = readFileSync(new URL("../ExportHistoryPage.vue", import.meta.url), 
 describe("导出历史：格式列与可追溯性", () => {
   it("批次列表有「格式」列，取后端 format 字段，三种格式都有标签", () => {
     expect(page).toContain("<th>格式</th>");
-    expect(page).toMatch(/FORMAT_LABEL[^=]*=\s*\{\s*pdf:\s*"PDF",\s*xlsx:\s*"Excel",\s*csv:\s*"CSV"\s*\}/);
+    expect(page).toMatch(
+      /FORMAT_LABEL[^=]*=\s*\{\s*pdf:\s*"PDF",\s*xlsx:\s*"Excel",\s*csv:\s*"CSV"\s*\}/,
+    );
     expect(page).toContain("formatLabel(b)");
   });
 

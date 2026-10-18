@@ -280,10 +280,10 @@ function receiptSvg({ no, date, party, desc, amountCents, accent, enhanced }) {
   <text x="672" y="306" text-anchor="end" font-family="Helvetica" font-size="16" fill="${sub}">AMOUNT</text>
   <text x="48" y="352" font-family="PingFang SC, Helvetica, sans-serif" font-size="20" fill="${ink}">${item1}</text>
   <text x="482" y="352" font-family="Helvetica" font-size="18" fill="${ink}">2</text>
-  <text x="672" y="352" text-anchor="end" font-family="Helvetica" font-size="18" fill="${ink}">${(amountCents * 0.42 / 100).toFixed(2)}</text>
+  <text x="672" y="352" text-anchor="end" font-family="Helvetica" font-size="18" fill="${ink}">${((amountCents * 0.42) / 100).toFixed(2)}</text>
   <text x="48" y="398" font-family="PingFang SC, Helvetica, sans-serif" font-size="20" fill="${ink}">${item2}</text>
   <text x="482" y="398" font-family="Helvetica" font-size="18" fill="${ink}">1</text>
-  <text x="672" y="398" text-anchor="end" font-family="Helvetica" font-size="18" fill="${ink}">${(amountCents * 0.58 / 100).toFixed(2)}</text>
+  <text x="672" y="398" text-anchor="end" font-family="Helvetica" font-size="18" fill="${ink}">${((amountCents * 0.58) / 100).toFixed(2)}</text>
   <line x1="48" y1="444" x2="672" y2="444" stroke="#c9c0ad" stroke-width="2"/>
   <text x="48" y="500" font-family="PingFang SC, Helvetica, sans-serif" font-size="22" font-weight="700" fill="${ink}">合计</text>
   <text x="672" y="500" text-anchor="end" font-family="PingFang SC, Helvetica, sans-serif" font-size="40" font-weight="700" fill="${ink}">¥ ${amount}</text>
@@ -372,19 +372,99 @@ for (const v of VOUCHERS) {
 // ---------- 洞察：月度 / 年度 / 透视 / 覆盖度 / 存储 ----------
 
 const MONTHLY = [
-  { month: "2026-05", count: 9, amountCents: 812300, draft: 1, reviewed: 5, exported: 2, archived: 1 },
-  { month: "2026-06", count: 11, amountCents: 1204800, draft: 0, reviewed: 6, exported: 3, archived: 2 },
-  { month: "2026-07", count: 8, amountCents: 956600, draft: 2, reviewed: 3, exported: 2, archived: 1 },
-  { month: "2026-08", count: 13, amountCents: 1542000, draft: 1, reviewed: 7, exported: 3, archived: 2 },
-  { month: "2026-09", count: 4, amountCents: 801590, draft: 1, reviewed: 1, exported: 1, archived: 1 },
-  { month: "2026-10", count: 8, amountCents: 1940550, draft: 1, reviewed: 4, exported: 2, archived: 1 },
+  {
+    month: "2026-05",
+    count: 9,
+    amountCents: 812300,
+    draft: 1,
+    reviewed: 5,
+    exported: 2,
+    archived: 1,
+  },
+  {
+    month: "2026-06",
+    count: 11,
+    amountCents: 1204800,
+    draft: 0,
+    reviewed: 6,
+    exported: 3,
+    archived: 2,
+  },
+  {
+    month: "2026-07",
+    count: 8,
+    amountCents: 956600,
+    draft: 2,
+    reviewed: 3,
+    exported: 2,
+    archived: 1,
+  },
+  {
+    month: "2026-08",
+    count: 13,
+    amountCents: 1542000,
+    draft: 1,
+    reviewed: 7,
+    exported: 3,
+    archived: 2,
+  },
+  {
+    month: "2026-09",
+    count: 4,
+    amountCents: 801590,
+    draft: 1,
+    reviewed: 1,
+    exported: 1,
+    archived: 1,
+  },
+  {
+    month: "2026-10",
+    count: 8,
+    amountCents: 1940550,
+    draft: 1,
+    reviewed: 4,
+    exported: 2,
+    archived: 1,
+  },
 ];
 
 const YEARLY = [
-  { month: "2026-01", count: 10, amountCents: 986300, draft: 0, reviewed: 5, exported: 3, archived: 2 },
-  { month: "2026-02", count: 6, amountCents: 512400, draft: 1, reviewed: 2, exported: 2, archived: 1 },
-  { month: "2026-03", count: 12, amountCents: 1320800, draft: 1, reviewed: 6, exported: 3, archived: 2 },
-  { month: "2026-04", count: 9, amountCents: 1042700, draft: 0, reviewed: 4, exported: 3, archived: 2 },
+  {
+    month: "2026-01",
+    count: 10,
+    amountCents: 986300,
+    draft: 0,
+    reviewed: 5,
+    exported: 3,
+    archived: 2,
+  },
+  {
+    month: "2026-02",
+    count: 6,
+    amountCents: 512400,
+    draft: 1,
+    reviewed: 2,
+    exported: 2,
+    archived: 1,
+  },
+  {
+    month: "2026-03",
+    count: 12,
+    amountCents: 1320800,
+    draft: 1,
+    reviewed: 6,
+    exported: 3,
+    archived: 2,
+  },
+  {
+    month: "2026-04",
+    count: 9,
+    amountCents: 1042700,
+    draft: 0,
+    reviewed: 4,
+    exported: 3,
+    archived: 2,
+  },
   ...MONTHLY,
   { month: "2026-11", count: 0, amountCents: 0, draft: 0, reviewed: 0, exported: 0, archived: 0 },
   { month: "2026-12", count: 0, amountCents: 0, draft: 0, reviewed: 0, exported: 0, archived: 0 },
@@ -681,9 +761,13 @@ export function installTauriMock(mock) {
     if (wanted.length) rows = rows.filter((v) => wanted.includes(v.status));
     if (q.dateFrom) rows = rows.filter((v) => v.voucherDate >= q.dateFrom);
     if (q.dateTo) rows = rows.filter((v) => v.voucherDate <= q.dateTo);
-    if (q.directionNone) rows = rows.filter((v) => !v.tags.includes("收入") && !v.tags.includes("支出"));
-    if (q.exported === "never") rows = rows.filter((v) => v.status !== "exported" && v.status !== "archived");
-    rows.sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : a.voucherDate > b.voucherDate ? -1 : b.id - a.id));
+    if (q.directionNone)
+      rows = rows.filter((v) => !v.tags.includes("收入") && !v.tags.includes("支出"));
+    if (q.exported === "never")
+      rows = rows.filter((v) => v.status !== "exported" && v.status !== "archived");
+    rows.sort((a, b) =>
+      a.voucherDate < b.voucherDate ? 1 : a.voucherDate > b.voucherDate ? -1 : b.id - a.id,
+    );
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.max(1, Number(q.pageSize) || 10);
     const items = rows.slice((page - 1) * pageSize, page * pageSize);
@@ -715,7 +799,9 @@ export function installTauriMock(mock) {
     },
     get_voucher_neighbor: (args) => {
       const id = Number(args?.id);
-      const ordered = mock.vouchers.slice().sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : -1));
+      const ordered = mock.vouchers
+        .slice()
+        .sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : -1));
       const idx = ordered.findIndex((v) => v.id === id);
       if (idx < 0) return null;
       return {
@@ -730,7 +816,8 @@ export function installTauriMock(mock) {
     list_voucher_groups: () => mock.groups,
     voucher_groups_of: () => [],
     list_period_locks: () => mock.periodLocks,
-    ocr_preview_fields: (args) => mock.extracted[Number(args?.attachmentId)] ?? mock.extracted[Number(args?.id)] ?? null,
+    ocr_preview_fields: (args) =>
+      mock.extracted[Number(args?.attachmentId)] ?? mock.extracted[Number(args?.id)] ?? null,
     check_voucher_duplicates: () => [],
     monthly_summary: () => mock.monthly,
     yearly_summary: () => mock.yearly,
@@ -746,7 +833,8 @@ export function installTauriMock(mock) {
     list_secrets: () => mock.secrets,
     list_export_batches: () => [],
     frequent_descriptions: () => [],
-    validate_naming_template: (args) => `模板可用：示例 ${args?.template === "{date-}-{n}" ? "2026-10-18-01" : "2026-10-18-001"}`,
+    validate_naming_template: (args) =>
+      `模板可用：示例 ${args?.template === "{date-}-{n}" ? "2026-10-18-01" : "2026-10-18-001"}`,
     preview_voucher_no: () => "2026-10-18-01",
     test_webdav: () => 42,
     open_path: () => null,

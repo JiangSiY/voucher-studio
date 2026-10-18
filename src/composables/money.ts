@@ -13,9 +13,7 @@
 
 export const AMOUNT_FORMAT_HINT = "金额格式不正确：应为数字，最多两位小数（如 123.45）";
 
-export type ParseAmountResult =
-  | { ok: true; cents: number | null }
-  | { ok: false; reason: string };
+export type ParseAmountResult = { ok: true; cents: number | null } | { ok: false; reason: string };
 
 /** 元字符串 → 分（空串是合法输入，表示"不填金额"） */
 export function parseYuanToCents(input: string): ParseAmountResult {

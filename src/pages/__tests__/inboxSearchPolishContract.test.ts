@@ -16,13 +16,18 @@ const search = readFileSync(new URL("../SearchPage.vue", import.meta.url), "utf8
 const restore = readFileSync(new URL("../RestorePage.vue", import.meta.url), "utf8");
 
 describe("收件箱待办行：次要动作是独立可聚焦按钮", () => {
-  it("次要动作是 <button class=\"todo-secondary\">，不再是主按钮里的 span", () => {
-    expect(inbox).toMatch(/<button v-if="i\.secondary" class="todo-secondary"[^>]*@click="i\.secondary\.run\(\)"/);
+  it('次要动作是 <button class="todo-secondary">，不再是主按钮里的 span', () => {
+    expect(inbox).toMatch(
+      /<button v-if="i\.secondary" class="todo-secondary"[^>]*@click="i\.secondary\.run\(\)"/,
+    );
     expect(inbox).not.toMatch(/<span v-if="i\.secondary" class="todo-secondary"/);
   });
 
   it("主按钮里不再嵌可点击元素（行 = 行容器 + 两个并排按钮）", () => {
-    const main = inbox.slice(inbox.indexOf('<button class="todo"'), inbox.indexOf("</button>", inbox.indexOf('<button class="todo"')));
+    const main = inbox.slice(
+      inbox.indexOf('<button class="todo"'),
+      inbox.indexOf("</button>", inbox.indexOf('<button class="todo"')),
+    );
     expect(main).not.toContain("@click.stop");
     expect(main).not.toContain("todo-secondary");
     expect(inbox).toContain('<li v-for="i in todoItems" :key="i.key" class="todo-row">');
@@ -38,7 +43,7 @@ describe("全文搜索：截断必须明示", () => {
   });
 
   it("截断时标题带 +、并给出可执行的下一步提示", () => {
-    expect(search).toContain("{{ hits.length }}{{ truncated ? \"+\" : \"\" }}");
+    expect(search).toContain('{{ hits.length }}{{ truncated ? "+" : "" }}');
     expect(search).toContain("只显示前 {{ SEARCH_LIMIT }} 条");
   });
 });

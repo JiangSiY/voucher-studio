@@ -82,9 +82,13 @@ onMounted(load);
           </thead>
           <tbody>
             <tr v-for="b in batches" :key="b.id">
-              <td><span class="mono">{{ b.batchNo }}</span></td>
+              <td>
+                <span class="mono">{{ b.batchNo }}</span>
+              </td>
               <td>{{ b.voucherCount }}</td>
-              <td><span class="tag">{{ formatLabel(b) }}</span></td>
+              <td>
+                <span class="tag">{{ formatLabel(b) }}</span>
+              </td>
               <td>
                 <!-- 批次状态与凭证状态是两套体系：这里用「已完成 / 失败」，避免与凭证的「已导出」混淆 -->
                 <span class="tag" :class="b.status === 'done' ? 'tag-success' : 'tag-danger'">
@@ -94,26 +98,45 @@ onMounted(load);
               <td>{{ fmtDate(b.createdAt) }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="查看批次包含的凭证" @click="showVouchers(b)"><FluentIcon name="list" :size="14" /></button>
-                  <button class="icon-btn" :title="`打开 ${formatLabel(b)} 文件`" @click="open(b)"><FluentIcon name="file" :size="14" /></button>
+                  <button class="icon-btn" title="查看批次包含的凭证" @click="showVouchers(b)">
+                    <FluentIcon name="list" :size="14" />
+                  </button>
+                  <button class="icon-btn" :title="`打开 ${formatLabel(b)} 文件`" @click="open(b)">
+                    <FluentIcon name="file" :size="14" />
+                  </button>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <EmptyState v-else icon="chart" title="还没有导出记录"
-        desc="到「打印与导出」勾选凭证并生成导出文件（PDF / Excel / CSV）后，这里会显示每一次导出批次" />
+      <EmptyState
+        v-else
+        icon="chart"
+        title="还没有导出记录"
+        desc="到「打印与导出」勾选凭证并生成导出文件（PDF / Excel / CSV）后，这里会显示每一次导出批次"
+      />
     </div>
   </div>
 
   <!-- v0.9：批次凭证明细（点击行进编辑页核对） -->
   <div v-if="detailVisible" class="dialog-mask" @click.self="detailVisible = false">
-    <div class="dialog" role="dialog" aria-modal="true" :aria-label="`批次 ${detailBatch?.batchNo} 的凭证`">
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`批次 ${detailBatch?.batchNo} 的凭证`"
+    >
       <h3>批次 {{ detailBatch?.batchNo }}（{{ detailBatch?.voucherCount }} 张）</h3>
       <div class="dialog-body">
-        <div v-if="detailBusy" style="text-align: center; padding: 24px; color: var(--text-3)">加载中…</div>
-        <div v-else-if="detailVouchers.length" class="dtable-wrap" style="max-height: 50vh; overflow-y: auto">
+        <div v-if="detailBusy" style="text-align: center; padding: 24px; color: var(--text-3)">
+          加载中…
+        </div>
+        <div
+          v-else-if="detailVouchers.length"
+          class="dtable-wrap"
+          style="max-height: 50vh; overflow-y: auto"
+        >
           <table class="dtable">
             <thead>
               <tr>
@@ -125,13 +148,33 @@ onMounted(load);
               </tr>
             </thead>
             <tbody>
-              <tr v-for="v in detailVouchers" :key="v.id" style="cursor: pointer" title="在「全部凭证」中打开"
-                @click="openVoucher(v.id)">
-                <td><span class="mono">{{ v.voucherNo }}</span></td>
+              <tr
+                v-for="v in detailVouchers"
+                :key="v.id"
+                style="cursor: pointer"
+                title="在「全部凭证」中打开"
+                @click="openVoucher(v.id)"
+              >
+                <td>
+                  <span class="mono">{{ v.voucherNo }}</span>
+                </td>
                 <td>{{ v.voucherDate }}</td>
-                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.description || "—" }}</td>
+                <td
+                  style="
+                    max-width: 200px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                  "
+                >
+                  {{ v.description || "—" }}
+                </td>
                 <td class="num">{{ fmtAmount(v.amountCents) }}</td>
-                <td><span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span></td>
+                <td>
+                  <span class="tag" :class="STATUS_META[v.status].tag">{{
+                    STATUS_META[v.status].label
+                  }}</span>
+                </td>
               </tr>
             </tbody>
           </table>

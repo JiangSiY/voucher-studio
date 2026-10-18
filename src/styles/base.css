@@ -245,9 +245,6 @@ body {
 
 /* ===== Fluent 卡片/面板 ===== */
 
-
-
-
 .fluent-panel {
   /* 类名沿用（20+ 模板在用），观感按新规范：12px 圆角、发丝描边、**不投影**
      ——层级用分隔线与留白表达，不用重投影与嵌套卡片（规范 §0.2） */
@@ -296,7 +293,8 @@ body {
   font-family: var(--font);
   background: var(--bg-control);
   color: var(--label-primary);
-  transition: background var(--motion-fast) var(--motion-curve),
+  transition:
+    background var(--motion-fast) var(--motion-curve),
     border-color var(--motion-fast) var(--motion-curve);
   white-space: nowrap;
 }
@@ -374,7 +372,9 @@ body {
   cursor: pointer;
   color: var(--text-3);
   font-size: var(--fs-body);
-  transition: background var(--motion-fast) var(--motion-curve), border-color var(--motion-fast) var(--motion-curve);
+  transition:
+    background var(--motion-fast) var(--motion-curve),
+    border-color var(--motion-fast) var(--motion-curve);
 }
 
 .btn-icon:hover {
@@ -452,7 +452,9 @@ body {
   border: none;
 }
 
-.toggle .slider:hover { background: var(--label-tertiary); }
+.toggle .slider:hover {
+  background: var(--label-tertiary);
+}
 
 .toggle .slider::before {
   /* 旋钮：直径 = 轨道高 − 2px 内缩（随字号档位一起缩放） */
@@ -521,7 +523,8 @@ body {
   font-family: var(--font);
   background: var(--bg-control);
   color: var(--label-primary);
-  transition: border-color var(--motion-fast) var(--motion-curve),
+  transition:
+    border-color var(--motion-fast) var(--motion-curve),
     box-shadow var(--motion-fast) var(--motion-curve);
 }
 
@@ -592,7 +595,9 @@ select.input {
   transition: background var(--motion-fast) var(--motion-curve);
 }
 
-.segmented .seg-item:hover { color: var(--label-primary); }
+.segmented .seg-item:hover {
+  color: var(--label-primary);
+}
 
 /* 选中段：实底 + 发丝描边（不用重投影） */
 .segmented .seg-item.active {
@@ -664,7 +669,9 @@ select.input {
   cursor: pointer;
   font-size: var(--fs-body);
   color: var(--text-3);
-  transition: background var(--motion-fast) var(--motion-curve), border-color var(--motion-fast) var(--motion-curve);
+  transition:
+    background var(--motion-fast) var(--motion-curve),
+    border-color var(--motion-fast) var(--motion-curve);
 }
 
 .action-row .icon-btn:hover {
@@ -677,10 +684,6 @@ select.input {
 }
 
 /* ===== 筛选/搜索 ===== */
-
-
-
-
 
 /* 搜索框：**唯一实现**（资料库页曾自带一套，两套高度算法不同 → 与旁边控件对不齐）。
    容器走控件高度令牌，输入框在其中填满、自身不画边框。 */
@@ -727,8 +730,10 @@ select.input {
   height: 14px;
   background: var(--text-3);
   opacity: 0.65;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E") center/contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E") center/contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E")
+    center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E")
+    center/contain no-repeat;
 }
 
 /* ===== 提示条 ===== */
@@ -823,10 +828,6 @@ select.input {
   padding: var(--s-5);
 }
 
-
-
-
-
 /* ===== D-9 打印中心：图片附录预览（与 PDF 附录同取图规则） ===== */
 .appendix-divider {
   border-top: 1px dashed var(--separator);
@@ -873,30 +874,6 @@ select.input {
   color: var(--accent);
   white-space: nowrap;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /* ===== 拖放区 ===== */
 .dropzone {
@@ -1054,7 +1031,9 @@ select.input {
 }
 
 /* D-4：增强版 vs 原图 A/B 对比（双层 img 叠加，clip-path 切左半显示增强） */
-.att-card .att-img.is-compare { cursor: default; }
+.att-card .att-img.is-compare {
+  cursor: default;
+}
 .att-card .att-img-compare-base,
 .att-card .att-img-compare-top {
   position: absolute;
@@ -1731,10 +1710,7 @@ select.input {
 /* ---- 窄窗可压缩的省略号单元格 ----
    原为模板内联 style（内联优先级高于媒体查询、窄档无法收窄），故改为类。 */
 
-
-
 @media (max-width: 900px) {
-
 }
 
 /* ---- 附件操作按钮：窄档收成纯图标 ----
@@ -1757,26 +1733,78 @@ select.input {
 /* ===== 设置页（U4）：六个分区共用一套分区/行/说明类 =====
    改造前每个 Tab 各写一遍内联样式（86 处、43 种），同一语义在不同 Tab 里数值不一。
    这里收敛为一份实现，Tab 只写语义类名。 */
-.settings-section { border-top: 1px solid var(--stroke); padding-top: var(--s-4); }
-.settings-section--gap { margin-top: var(--s-4); }
-.settings-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s-2) 0 var(--s-4); }
-.settings-head--tight { padding: var(--s-1) 0 var(--s-3); }
-.settings-head--flush { padding: var(--s-2) 0 0; }
-.settings-inline { display: flex; align-items: center; gap: var(--s-2); }
-.settings-inline--gap12 { gap: var(--s-3); }
-.settings-caption { font-size: var(--fs-caption); color: var(--text-3); }
-.settings-caption-strong { font-size: var(--fs-caption); font-weight: 600; }
-.settings-narrow { max-width: 240px; }
-.settings-narrow-sm { max-width: 110px; }
-.settings-grow { flex: 1; min-width: 0; }
-.settings-num { text-align: right; font-variant-numeric: tabular-nums; }
-.settings-aside { align-self: center; color: var(--text-3); }
-.settings-note { margin: 0 0 var(--s-4); }
-.settings-mb { margin-bottom: var(--s-3); }
-.settings-mt { margin-top: var(--s-3); }
-.settings-mt-sm { margin-top: var(--s-1); }
-.settings-warn { color: var(--warning); }
-.settings-divider { border-top: 1px solid var(--stroke); margin: var(--s-2) 0 var(--s-4); }
+.settings-section {
+  border-top: 1px solid var(--stroke);
+  padding-top: var(--s-4);
+}
+.settings-section--gap {
+  margin-top: var(--s-4);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s-2) 0 var(--s-4);
+}
+.settings-head--tight {
+  padding: var(--s-1) 0 var(--s-3);
+}
+.settings-head--flush {
+  padding: var(--s-2) 0 0;
+}
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.settings-inline--gap12 {
+  gap: var(--s-3);
+}
+.settings-caption {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+.settings-caption-strong {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+.settings-narrow {
+  max-width: 240px;
+}
+.settings-narrow-sm {
+  max-width: 110px;
+}
+.settings-grow {
+  flex: 1;
+  min-width: 0;
+}
+.settings-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-aside {
+  align-self: center;
+  color: var(--text-3);
+}
+.settings-note {
+  margin: 0 0 var(--s-4);
+}
+.settings-mb {
+  margin-bottom: var(--s-3);
+}
+.settings-mt {
+  margin-top: var(--s-3);
+}
+.settings-mt-sm {
+  margin-top: var(--s-1);
+}
+.settings-warn {
+  color: var(--warning);
+}
+.settings-divider {
+  border-top: 1px solid var(--stroke);
+  margin: var(--s-2) 0 var(--s-4);
+}
 
 /* ===== 加载骨架（U4）=====
    三态（加载/空/失败）里的「加载」不再只有一行文字：首次加载显示与真实内容同形的骨架，
@@ -1787,26 +1815,74 @@ select.input {
   border-radius: var(--radius-small);
   animation: skeleton-pulse var(--motion-slow) ease-in-out infinite;
 }
-.sk-line { height: calc(12px * var(--font-scale)); }
-.sk-line-sm { height: calc(10px * var(--font-scale)); }
-.sk-thumb { width: 44px; height: 56px; flex-shrink: 0; }
-.sk-row { cursor: default; }
-.sk-stack { display: flex; flex-direction: column; gap: var(--s-2); }
-.sk-card { height: calc(64px * var(--font-scale)); }
-.sk-chart { height: 160px; }
+.sk-line {
+  height: calc(12px * var(--font-scale));
+}
+.sk-line-sm {
+  height: calc(10px * var(--font-scale));
+}
+.sk-thumb {
+  width: 44px;
+  height: 56px;
+  flex-shrink: 0;
+}
+.sk-row {
+  cursor: default;
+}
+.sk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.sk-card {
+  height: calc(64px * var(--font-scale));
+}
+.sk-chart {
+  height: 160px;
+}
 @keyframes skeleton-pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.9; }
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; opacity: 0.6; }
+  .skeleton {
+    animation: none;
+    opacity: 0.6;
+  }
 }
-.settings-mt-2 { margin-top: var(--s-2); }
-.settings-inline--gap4 { gap: var(--s-1); }
-.settings-ok { color: var(--success); }
-.settings-err { color: var(--danger); }
-.settings-flush { margin: 0; }
-.settings-resize-y { resize: vertical; }
-.settings-narrow-lg { max-width: 280px; }
-.settings-box { border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: var(--s-3); }
-.settings-actions { display: flex; justify-content: flex-end; margin-top: var(--s-2); }
+.settings-mt-2 {
+  margin-top: var(--s-2);
+}
+.settings-inline--gap4 {
+  gap: var(--s-1);
+}
+.settings-ok {
+  color: var(--success);
+}
+.settings-err {
+  color: var(--danger);
+}
+.settings-flush {
+  margin: 0;
+}
+.settings-resize-y {
+  resize: vertical;
+}
+.settings-narrow-lg {
+  max-width: 280px;
+}
+.settings-box {
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  padding: var(--s-3);
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--s-2);
+}

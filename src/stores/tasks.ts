@@ -95,7 +95,11 @@ export const useTaskStore = defineStore("tasks", () => {
     if (typeof patch.detail === "string") t.detail = patch.detail;
   }
 
-  function settle(id: number, state: "done" | "failed", patch: { detail?: string; error?: string; action?: TaskAction } = {}) {
+  function settle(
+    id: number,
+    state: "done" | "failed",
+    patch: { detail?: string; error?: string; action?: TaskAction } = {},
+  ) {
     const t = items.value.find((x) => x.id === id);
     if (!t) return;
     t.state = state;
@@ -106,7 +110,8 @@ export const useTaskStore = defineStore("tasks", () => {
     trim();
   }
 
-  const finish = (id: number, patch: { detail?: string; action?: TaskAction } = {}) => settle(id, "done", patch);
+  const finish = (id: number, patch: { detail?: string; action?: TaskAction } = {}) =>
+    settle(id, "done", patch);
   const fail = (id: number, error: string) => settle(id, "failed", { error });
 
   function dismiss(id: number) {

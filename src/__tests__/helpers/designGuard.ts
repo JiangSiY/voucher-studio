@@ -23,7 +23,9 @@ export function repoFile(rel: string): string {
 export function walkFiles(dir: string, exts: string[]): string[] {
   const out: string[] = [];
   const walk = (rel: string) => {
-    for (const e of readdirSync(new URL(`../../../${rel}`, import.meta.url), { withFileTypes: true })) {
+    for (const e of readdirSync(new URL(`../../../${rel}`, import.meta.url), {
+      withFileTypes: true,
+    })) {
       const child = `${rel}/${e.name}`;
       if (e.isDirectory()) {
         if (e.name !== "__tests__") walk(child);
@@ -71,4 +73,12 @@ export function cssRule(css: string, selector: string): string {
 /** `src` 下源码文件（相对 `src/` 的路径，**无** `src/` 前缀），排除测试目录；便于 `repoFile(`src/${rel}`)` 的旧写法迁移 */
 export function srcFilesRelative(exts: string[]): string[] {
   return walkFiles("src", exts).map((f) => f.slice(4));
+}
+
+/**
+ * 把源码压成「单行空白」形态：连续空白（含换行）折叠为一个空格。
+ * 用于断言**结构**而非排版——Prettier 会把长属性/文本节点折行，逐字断言排版会误报。
+ */
+export function flat(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }

@@ -44,13 +44,17 @@ describe("圆角只走令牌", () => {
       for (const m of css.matchAll(/border-radius:\s*([^;]+);/g)) {
         const value = m[1].trim();
         const ok =
-          value.includes("var(--radius-") || value === "100px" || value === "999px" || value === "50%";
+          value.includes("var(--radius-") ||
+          value === "100px" ||
+          value === "999px" ||
+          value === "50%";
         if (!ok) bad.push(`${rel}: border-radius: ${value}`);
       }
     }
-    expect(bad, `圆角字面量（请改用 --radius-small/control/window/panel）：\n${bad.join("\n")}`).toEqual(
-      [],
-    );
+    expect(
+      bad,
+      `圆角字面量（请改用 --radius-small/control/window/panel）：\n${bad.join("\n")}`,
+    ).toEqual([]);
   });
 });
 

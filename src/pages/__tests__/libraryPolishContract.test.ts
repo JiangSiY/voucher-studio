@@ -24,7 +24,9 @@ describe("资料库筛选与批量操作（打磨第五批）", () => {
   });
 
   it("列表空态给出可点的「清空全部筛选」，且无筛选时不显示", () => {
-    expect(src).toMatch(/const hasAnyFilter = computed\(\(\) => activeFilters\.value\.length > 0\)/);
+    expect(src).toMatch(
+      /const hasAnyFilter = computed\(\(\) => activeFilters\.value\.length > 0\)/,
+    );
     expect(src).toMatch(/v-if="hasAnyFilter"[^>]*@click="clearAllFilters\(\)"/);
   });
 

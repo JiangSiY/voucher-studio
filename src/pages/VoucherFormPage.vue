@@ -81,7 +81,8 @@ async function createMemo() {
 function reportImport(summary: ImportSummary) {
   const parts: string[] = [];
   if (summary.vouchers.length) parts.push(`已创建 ${summary.vouchers.length} 张凭证（一图一凭证）`);
-  if (summary.skippedDuplicates.length) parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
+  if (summary.skippedDuplicates.length)
+    parts.push(`跳过重复 ${summary.skippedDuplicates.length} 张`);
   if (summary.failed.length) parts.push(`失败 ${summary.failed.length} 张`);
   if (parts.length) toast.success(parts.join(" · "));
 }
@@ -114,9 +115,16 @@ onUnmounted(() => unlistenImportDone?.());
             </div>
           </div>
           <!-- 键盘可达：role=button + Tab 聚焦 + Enter/Space 触发（内含 div，故不用真 <button> 以免非法嵌套） -->
-          <div class="dropzone" style="padding: 48px 24px" role="button" tabindex="0"
-            aria-label="选择图片创建凭证" @click="createByImage"
-            @keydown.enter.prevent="createByImage" @keydown.space.prevent="createByImage">
+          <div
+            class="dropzone"
+            style="padding: 48px 24px"
+            role="button"
+            tabindex="0"
+            aria-label="选择图片创建凭证"
+            @click="createByImage"
+            @keydown.enter.prevent="createByImage"
+            @keydown.space.prevent="createByImage"
+          >
             <div class="dz-icon"><FluentIcon name="image" :size="24" /></div>
             <div style="font-weight: 600">点击选择图片，或拖放到此处</div>
             <div style="font-size: var(--fs-caption); margin-top: 4px">
@@ -128,8 +136,12 @@ onUnmounted(() => unlistenImportDone?.());
           <div class="field" style="margin-top: 16px">
             <label>没有图片的凭证？</label>
             <div style="display: flex; gap: 8px">
-              <input v-model="memoDesc" class="input" placeholder="说明（可留空，稍后在右栏补）"
-                @keydown.enter="createMemo" />
+              <input
+                v-model="memoDesc"
+                class="input"
+                placeholder="说明（可留空，稍后在右栏补）"
+                @keydown.enter="createMemo"
+              />
               <button class="btn" :disabled="creating" @click="createMemo">
                 新建说明条目（不选图）
               </button>
@@ -152,7 +164,16 @@ onUnmounted(() => unlistenImportDone?.());
       <div class="fluent-panel">
         <div class="fluent-panel-header"><h3>录入流程</h3></div>
         <div class="fluent-panel-body">
-          <ol style="padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: var(--fs-caption); color: var(--text-2)">
+          <ol
+            style="
+              padding-left: 20px;
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+              font-size: var(--fs-caption);
+              color: var(--text-2);
+            "
+          >
             <li>选择 / 拖放导入图片（支持批量，一图一凭证）</li>
             <li>自动建卡并 OCR 识别（离线引擎，数据不出本机）</li>
             <li>在右侧编辑区核对自动回填的日期、金额、对方账户，补充摘要与标签</li>

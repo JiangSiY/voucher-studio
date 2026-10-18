@@ -26,7 +26,9 @@ vi.mock("../../api/client", () => ({
 }));
 
 // 无桌面宿主：asset 转换与事件监听都 mock 掉
-vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `asset://localhost/${p}` }));
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (p: string) => `asset://localhost/${p}`,
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock("vue-router", () => ({
   useRoute: () => ({ query: {} }),
@@ -154,7 +156,10 @@ describe("旁列对比与两个动作", () => {
 
   it("「不是重复」带上备注调用后端，并重取队列（处置完不该还挂着）", async () => {
     const w = await mountPage();
-    await w.findAll("button").find((b) => b.text().includes("核对"))!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text().includes("核对"))!
+      .trigger("click");
     await flushPromises();
     await w.find(".dup-actions input").setValue("同一天两笔正常付款");
     const btn = w.findAll("button").find((b) => b.text().includes("不是重复"))!;
@@ -166,7 +171,10 @@ describe("旁列对比与两个动作", () => {
 
   it("「保留左 · 删除右」必须先过二次确认，确认文案要说清不可恢复与留痕", async () => {
     const w = await mountPage();
-    await w.findAll("button").find((b) => b.text().includes("核对"))!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text().includes("核对"))!
+      .trigger("click");
     await flushPromises();
     const delBtn = w.findAll("button").find((b) => b.text().includes("保留左"))!;
     await delBtn.trigger("click");
@@ -185,9 +193,15 @@ describe("旁列对比与两个动作", () => {
   it("删除失败走错误提示（不静默吞掉）", async () => {
     mockApi.removeDuplicateVoucher.mockRejectedValue(new Error("已封账：2026-08 不可修改"));
     const w = await mountPage();
-    await w.findAll("button").find((b) => b.text().includes("核对"))!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text().includes("核对"))!
+      .trigger("click");
     await flushPromises();
-    await w.findAll("button").find((b) => b.text().includes("保留左"))!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text().includes("保留左"))!
+      .trigger("click");
     await flushPromises();
     await w.findComponent({ name: "ConfirmDialog" }).vm.$emit("confirm");
     await flushPromises();
@@ -206,7 +220,10 @@ describe("已处理页签", () => {
         decision: "duplicate_removed",
         keepId: 1,
         removedId: 2,
-        removedPayload: { voucher: v({ id: 2, voucherNo: "记-2026-08-021" }), keptVoucherNo: "记-2026-08-020" },
+        removedPayload: {
+          voucher: v({ id: 2, voucherNo: "记-2026-08-021" }),
+          keptVoucherNo: "记-2026-08-020",
+        },
         note: "重复上传",
         createdAt: "2026-08-06T09:00:00",
       },

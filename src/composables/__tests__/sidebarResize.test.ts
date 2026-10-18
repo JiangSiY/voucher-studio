@@ -12,11 +12,7 @@ import {
   steppedSidebarWidth,
   widthFromPointer,
 } from "../useSidebarResize";
-import {
-  SIDEBAR_WIDTH_DEFAULT,
-  SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_MIN,
-} from "../../config-defaults";
+import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from "../../config-defaults";
 
 describe("clampSidebarWidth", () => {
   it("范围内原样返回，小数取整", () => {

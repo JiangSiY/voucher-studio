@@ -55,7 +55,9 @@ function buildFilters(): SearchFilters | null | undefined {
 
 /** 有筛选条件（用于「清除筛选」按钮显隐与提示） */
 const hasFilters = () =>
-  Boolean(filterDateFrom.value || filterDateTo.value || filterAmountFrom.value || filterAmountTo.value);
+  Boolean(
+    filterDateFrom.value || filterDateTo.value || filterAmountFrom.value || filterAmountTo.value,
+  );
 
 function clearFilters() {
   filterDateFrom.value = "";
@@ -118,25 +120,64 @@ onUnmounted(() => {
     <div class="fluent-panel-body" style="padding: 16px">
       <div style="display: flex; gap: 12px">
         <div class="search">
-          <input v-model="keyword" placeholder="输入关键词：编号、摘要、备注、标签或图片上的文字（OCR）…"
-            @keyup.enter="search" autofocus />
+          <input
+            v-model="keyword"
+            placeholder="输入关键词：编号、摘要、备注、标签或图片上的文字（OCR）…"
+            @keyup.enter="search"
+            autofocus
+          />
         </div>
-        <button class="btn btn-primary" :disabled="busy" @click="search">{{ busy ? "搜索中…" : "搜索" }}</button>
+        <button class="btn btn-primary" :disabled="busy" @click="search">
+          {{ busy ? "搜索中…" : "搜索" }}
+        </button>
       </div>
       <!-- v0.11 组合筛选：日期范围 + 金额范围（与关键词 AND 组合） -->
       <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px">
-        <input type="date" v-model="filterDateFrom" class="input" style="width: 130px" title="起始日期" @keyup.enter="search" />
+        <input
+          type="date"
+          v-model="filterDateFrom"
+          class="input"
+          style="width: 130px"
+          title="起始日期"
+          @keyup.enter="search"
+        />
         <span style="color: var(--text-3); font-size: var(--fs-caption)">至</span>
-        <input type="date" v-model="filterDateTo" class="input" style="width: 130px" title="结束日期" @keyup.enter="search" />
-        <span style="color: var(--text-3); font-size: var(--fs-caption); margin-left: 4px">金额</span>
-        <input v-model="filterAmountFrom" class="input" style="width: 110px" inputmode="decimal"
-          placeholder="≥ 元" title="金额下限（元）" @keyup.enter="search" />
+        <input
+          type="date"
+          v-model="filterDateTo"
+          class="input"
+          style="width: 130px"
+          title="结束日期"
+          @keyup.enter="search"
+        />
+        <span style="color: var(--text-3); font-size: var(--fs-caption); margin-left: 4px"
+          >金额</span
+        >
+        <input
+          v-model="filterAmountFrom"
+          class="input"
+          style="width: 110px"
+          inputmode="decimal"
+          placeholder="≥ 元"
+          title="金额下限（元）"
+          @keyup.enter="search"
+        />
         <span style="color: var(--text-3); font-size: var(--fs-caption)">—</span>
-        <input v-model="filterAmountTo" class="input" style="width: 110px" inputmode="decimal"
-          placeholder="≤ 元" title="金额上限（元）" @keyup.enter="search" />
+        <input
+          v-model="filterAmountTo"
+          class="input"
+          style="width: 110px"
+          inputmode="decimal"
+          placeholder="≤ 元"
+          title="金额上限（元）"
+          @keyup.enter="search"
+        />
         <button v-if="hasFilters()" class="btn" @click="clearFilters">清除筛选</button>
       </div>
-      <div v-if="hasFilters()" style="font-size: var(--fs-caption); color: var(--text-3); margin-top: 6px">
+      <div
+        v-if="hasFilters()"
+        style="font-size: var(--fs-caption); color: var(--text-3); margin-top: 6px"
+      >
         筛选条件与关键词同时生效（AND）；金额按凭证金额精确匹配，空金额凭证在设定金额范围时不出现
       </div>
     </div>
@@ -145,10 +186,21 @@ onUnmounted(() => {
   <div class="fluent-panel" v-if="searched">
     <div class="fluent-panel-header">
       <h3>搜索结果（{{ hits.length }}{{ truncated ? "+" : "" }}）</h3>
-      <span v-if="keyword.trim()" style="font-size: var(--fs-caption); color: var(--text-3)">关键词：{{ keyword.trim() }} · 点击在「全部凭证」中打开，返回仍在搜索页</span>
+      <span v-if="keyword.trim()" style="font-size: var(--fs-caption); color: var(--text-3)"
+        >关键词：{{ keyword.trim() }} · 点击在「全部凭证」中打开，返回仍在搜索页</span
+      >
     </div>
-    <div v-if="truncated" style="padding: 8px 12px; border-bottom: 1px solid var(--separator); font-size: var(--fs-caption); color: var(--label-secondary)">
-      结果较多，只显示前 {{ SEARCH_LIMIT }} 条 —— 请把关键词写得更具体，或加上日期 / 金额筛选，避免漏看后面的凭证
+    <div
+      v-if="truncated"
+      style="
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--separator);
+        font-size: var(--fs-caption);
+        color: var(--label-secondary);
+      "
+    >
+      结果较多，只显示前 {{ SEARCH_LIMIT }} 条 —— 请把关键词写得更具体，或加上日期 /
+      金额筛选，避免漏看后面的凭证
     </div>
     <div class="fluent-panel-body" style="padding: 0">
       <div class="dtable-wrap" v-if="hits.length">
@@ -164,28 +216,50 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="h in hits" :key="h.voucher.id" style="cursor: pointer"
-              @click="openHit(h.voucher.id)">
-              <td><span class="mono">{{ h.voucher.voucherNo }}</span></td>
+            <tr
+              v-for="h in hits"
+              :key="h.voucher.id"
+              style="cursor: pointer"
+              @click="openHit(h.voucher.id)"
+            >
+              <td>
+                <span class="mono">{{ h.voucher.voucherNo }}</span>
+              </td>
               <td>{{ h.voucher.voucherDate }}</td>
               <td>{{ h.voucher.description || "—" }}</td>
               <td class="num">{{ fmtAmount(h.voucher.amountCents) }}</td>
-              <td><span class="tag" :class="STATUS_META[h.voucher.status].tag">{{ STATUS_META[h.voucher.status].label }}</span></td>
               <td>
-                <span v-for="m in h.matchedIn" :key="m" class="tag tag-info" style="margin-right: 4px">{{ m }}</span>
+                <span class="tag" :class="STATUS_META[h.voucher.status].tag">{{
+                  STATUS_META[h.voucher.status].label
+                }}</span>
+              </td>
+              <td>
+                <span
+                  v-for="m in h.matchedIn"
+                  :key="m"
+                  class="tag tag-info"
+                  style="margin-right: 4px"
+                  >{{ m }}</span
+                >
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <EmptyState v-else icon="search" title="没有找到相关凭证"
-        desc="换个关键词试试；图片上的文字需要先完成 OCR 识别才可被搜到" />
+      <EmptyState
+        v-else
+        icon="search"
+        title="没有找到相关凭证"
+        desc="换个关键词试试；图片上的文字需要先完成 OCR 识别才可被搜到"
+      />
     </div>
   </div>
 
   <div v-else class="empty-state">
     <div class="es-icon"><FluentIcon name="search" :size="42" /></div>
     <div class="es-title">全文搜索</div>
-    <div class="es-desc">支持搜索凭证编号、摘要、备注、标签，以及附件图片上的文字（OCR 识别结果）</div>
+    <div class="es-desc">
+      支持搜索凭证编号、摘要、备注、标签，以及附件图片上的文字（OCR 识别结果）
+    </div>
   </div>
 </template>

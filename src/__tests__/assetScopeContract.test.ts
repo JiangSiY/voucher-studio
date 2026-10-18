@@ -20,7 +20,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { repoFile } from "./helpers/designGuard";
 
-
 const pathsSrc = repoFile("crates/voucher-core/src/utils/paths.rs");
 const baseConf = repoFile("src-tauri/tauri.conf.json");
 

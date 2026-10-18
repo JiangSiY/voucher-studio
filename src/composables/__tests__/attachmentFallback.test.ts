@@ -13,11 +13,7 @@
  * 「只消费绝对路径、原样透传不做任何替换、字段缺失按占位处理」，避免相对路径拼接回潮。
  */
 import { describe, expect, it } from "vitest";
-import {
-  candidatePaths,
-  nextFallbackStep,
-  pickCandidate,
-} from "../useAttachmentFallback";
+import { candidatePaths, nextFallbackStep, pickCandidate } from "../useAttachmentFallback";
 
 const ABS = "/Users/x/Library/Application Support/VoucherStudio/attachments";
 
@@ -27,10 +23,7 @@ describe("candidatePaths（绝对路径口径）", () => {
       fileAbs: `${ABS}/2026/08/x.jpg`,
       enhancedAbs: `${ABS}/2026/08/x.enhanced.jpg`,
     };
-    expect(candidatePaths(a)).toEqual([
-      `${ABS}/2026/08/x.enhanced.jpg`,
-      `${ABS}/2026/08/x.jpg`,
-    ]);
+    expect(candidatePaths(a)).toEqual([`${ABS}/2026/08/x.enhanced.jpg`, `${ABS}/2026/08/x.jpg`]);
   });
 
   it("绝对路径原样透传（不做任何分隔符替换，也不做归一化）", () => {

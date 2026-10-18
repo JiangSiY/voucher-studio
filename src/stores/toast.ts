@@ -53,8 +53,7 @@ export const useToastStore = defineStore("toast", () => {
 });
 
 /** 带动作的 toast 至少停留 8s（给用户点按钮的时间） */
-const durationFor = (base: number, action?: ToastAction) =>
-  action ? Math.max(base, 8000) : base;
+const durationFor = (base: number, action?: ToastAction) => (action ? Math.max(base, 8000) : base);
 
 /** 快捷方法 */
 export const toast = {

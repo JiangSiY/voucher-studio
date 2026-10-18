@@ -37,7 +37,7 @@ describe("浮层焦点契约", () => {
   });
 
   it("命令面板的按键只注册一次（window 与输入框不得各挂一份）", () => {
-    expect(palette).toContain("window.addEventListener(\"keydown\", onKeydown)");
+    expect(palette).toContain('window.addEventListener("keydown", onKeydown)');
     expect(palette).not.toContain('@keydown="onKeydown"');
   });
 });

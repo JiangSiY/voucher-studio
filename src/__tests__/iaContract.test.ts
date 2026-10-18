@@ -13,8 +13,8 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { flat } from "./helpers/designGuard";
 import { repoFile } from "./helpers/designGuard";
-
 
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
@@ -89,7 +89,7 @@ describe("主骨架：收件箱驱动", () => {
     // 三位数会糊：模板要有 99+ 截断
     expect(layoutSrc).toContain('n > 99 ? "99+"');
     // 无障碍：有角标时给出数字本身，而不是让读屏只念"待处理"
-    expect(layoutSrc).toMatch(/:aria-label="item\.badge > 0 \?/);
+    expect(flat(layoutSrc)).toMatch(/:aria-label="\s*item\.badge > 0 \?/);
   });
 
   it("左上角图标（VS 徽标 + 字标）已去掉：侧栏顶部只留可拖留白", () => {
@@ -98,7 +98,9 @@ describe("主骨架：收件箱驱动", () => {
     expect(layoutSrc).toContain('class="sidebar-header" data-tauri-drag-region="deep"');
     const css = repoFile("src/styles/base.css");
     expect(css).not.toMatch(/^\.sidebar-logo/m);
-    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/);
+    expect(css).toMatch(
+      /\.sidebar-header \{[\s\S]{0,400}padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/,
+    );
   });
 
   it("窗口拖动区用 deep（bare 只在直点元素本身时生效，点标题会拖不动）", () => {
@@ -120,13 +122,17 @@ describe("主骨架：收件箱驱动", () => {
     expect(layoutSrc).not.toContain("命令面板（⌘K）");
     expect(appSrc).toContain("togglePalette");
     // 对应样式随之删除（留着就是死代码）
-    expect(repoFile("src/styles/base.css")).not.toMatch(/\.unified-toolbar \.toolbar-(btn|actions|hint)\b/);
+    expect(repoFile("src/styles/base.css")).not.toMatch(
+      /\.unified-toolbar \.toolbar-(btn|actions|hint)\b/,
+    );
   });
 
   it("侧栏顶部让开交通灯带：上留白随 --toolbar-h 走（用户 2026-10-16 反馈「上方不协调」）", () => {
     const css = repoFile("src/styles/base.css");
     // 侧栏顶部只留留白：必须让开红绿灯（y≈18–30），不能只给 20px
-    expect(css).toMatch(/\.sidebar-header \{[\s\S]{0,400}?padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/);
+    expect(css).toMatch(
+      /\.sidebar-header \{[\s\S]{0,400}?padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/,
+    );
   });
 
   it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {

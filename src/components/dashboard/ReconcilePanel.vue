@@ -16,10 +16,17 @@ const router = useRouter();
 <template>
   <div class="fluent-panel">
     <div class="fluent-panel-header">
-      <h3>对账结果（{{ report.dateFrom }} ~ {{ report.dateTo }} · 账单 {{ report.billCount }} 笔）</h3>
+      <h3>
+        对账结果（{{ report.dateFrom }} ~ {{ report.dateTo }} · 账单 {{ report.billCount }} 笔）
+      </h3>
       <div style="display: flex; gap: 8px">
-        <button v-if="report.reportPath" class="btn btn-sm"
-          @click="api.openPath(report.reportPath!)"><FluentIcon name="file" :size="14" />打开报告 CSV</button>
+        <button
+          v-if="report.reportPath"
+          class="btn btn-sm"
+          @click="api.openPath(report.reportPath!)"
+        >
+          <FluentIcon name="file" :size="14" />打开报告 CSV
+        </button>
         <button class="btn btn-sm" @click="emit('close')">关闭</button>
       </div>
     </div>
@@ -43,7 +50,11 @@ const router = useRouter();
         <table class="dtable">
           <thead>
             <tr>
-              <th>类型</th><th>日期</th><th>金额</th><th>对方 / 摘要</th><th>说明</th>
+              <th>类型</th>
+              <th>日期</th>
+              <th>金额</th>
+              <th>对方 / 摘要</th>
+              <th>说明</th>
             </tr>
           </thead>
           <tbody>
@@ -51,16 +62,54 @@ const router = useRouter();
               <td><span class="tag tag-info">🔵 账单无凭证</span></td>
               <td>{{ b.date }}</td>
               <td class="num">{{ fmtAmount(b.amountCents) }}</td>
-              <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ b.counterparty || "—" }}</td>
-              <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ b.subject || "—" }}（{{ b.direction }}，需补拍图或录入）</td>
+              <td
+                style="
+                  max-width: 160px;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                "
+              >
+                {{ b.counterparty || "—" }}
+              </td>
+              <td
+                style="
+                  max-width: 200px;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                "
+              >
+                {{ b.subject || "—" }}（{{ b.direction }}，需补拍图或录入）
+              </td>
             </tr>
-            <tr v-for="v in report.voucherOnly" :key="`vo-${v.id}`" style="cursor: pointer"
-              @click="router.push({ path: '/vouchers', query: { focus: String(v.id) } })">
+            <tr
+              v-for="v in report.voucherOnly"
+              :key="`vo-${v.id}`"
+              style="cursor: pointer"
+              @click="router.push({ path: '/vouchers', query: { focus: String(v.id) } })"
+            >
               <td><span class="tag tag-muted">🔴 凭证无账单</span></td>
               <td>{{ v.voucherDate }}</td>
               <td class="num">{{ fmtAmount(v.amountCents) }}</td>
-              <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ v.counterparty || "—" }}</td>
-              <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+              <td
+                style="
+                  max-width: 160px;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                "
+              >
+                {{ v.counterparty || "—" }}
+              </td>
+              <td
+                style="
+                  max-width: 200px;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                "
+              >
                 {{ v.description || "（无摘要）" }}（现金交易或金额/日期与账单不符，点击核对）
               </td>
             </tr>

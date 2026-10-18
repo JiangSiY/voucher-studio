@@ -3,7 +3,14 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, errMsg, type BackupInfo, type DrillReport, type RestoreSummary, type WebdavBackupRow } from "../api/client";
+import {
+  api,
+  errMsg,
+  type BackupInfo,
+  type DrillReport,
+  type RestoreSummary,
+  type WebdavBackupRow,
+} from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -52,7 +59,9 @@ async function pickAndBackup() {
   if (typeof file !== "string") return;
   try {
     const summary = await api.inspectBackup(file);
-    toast.success(`有效备份：创建于 ${summary.createdAt}，含 ${summary.restoredFiles.length} 个文件`);
+    toast.success(
+      `有效备份：创建于 ${summary.createdAt}，含 ${summary.restoredFiles.length} 个文件`,
+    );
   } catch (e) {
     toastError(e);
   }
@@ -196,7 +205,8 @@ onUnmounted(() => unlistenBackupDone?.());
   <div class="callout warning">
     <span class="ci"><FluentIcon name="warning" :size="18" /></span>
     <div class="ct">
-      <strong>数据是生命线：</strong>恢复会用备份内容覆盖当前数据库与配置；<strong>备份含附件时</strong>才会同时替换附件目录（
+      <strong>数据是生命线：</strong
+      >恢复会用备份内容覆盖当前数据库与配置；<strong>备份含附件时</strong>才会同时替换附件目录（
       快照只含原图，增强版属可重建缓存、不入备份）。流程为「就绪 → 重启应用 → 生效」。
       恢复前建议先做一次当前数据的备份。
     </div>
@@ -209,13 +219,23 @@ onUnmounted(() => unlistenBackupDone?.());
       <template v-if="staged.attachmentsIncluded">含 {{ staged.attachmentCount }} 个附件</template>
       <template v-else><strong>不含附件实体</strong></template>
       {{ staged.checksumsVerified ? "，已通过完整性校验" : "" }}）。
-      <button class="btn btn-sm btn-primary" style="margin-left: 8px" @click="restart">立即重启应用</button>
-      <span v-if="staged.attachmentsIncluded" style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)">
-        重启后自动替换数据库与附件目录；如需取消，重启前删除数据目录下 voucher.db.pending / attachments.pending 即可。
+      <button class="btn btn-sm btn-primary" style="margin-left: 8px" @click="restart">
+        立即重启应用
+      </button>
+      <span
+        v-if="staged.attachmentsIncluded"
+        style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)"
+      >
+        重启后自动替换数据库与附件目录；如需取消，重启前删除数据目录下 voucher.db.pending /
+        attachments.pending 即可。
       </span>
-      <span v-else style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--warning)">
+      <span
+        v-else
+        style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--warning)"
+      >
         该备份不含附件实体：重启后只替换数据库与配置，附件目录保持不变。凭证信息可恢复，图片将自动回退到原图显示；
-        如需增强版，可在 设置 → 扫描矫正 一键重建。如需取消，重启前删除数据目录下 voucher.db.pending 即可。
+        如需增强版，可在 设置 → 扫描矫正 一键重建。如需取消，重启前删除数据目录下 voucher.db.pending
+        即可。
       </span>
     </div>
   </div>
@@ -223,10 +243,18 @@ onUnmounted(() => unlistenBackupDone?.());
   <div v-if="drill" class="callout success">
     <span class="ci"><FluentIcon name="check" :size="18" /></span>
     <div class="ct">
-      <strong>演练通过：</strong>{{ drill.batch }}（{{ fmtDate(drill.createdAt) || drill.createdAt }}）
-      校验 {{ drill.filesChecked }} 个文件、{{ drill.attachmentCount }} 个附件，数据库可正常打开。
-      <span style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)">
-        {{ drill.checksumsVerified ? "sha256 完整性校验全部通过" : "v1 备份：无校验和清单，未做完整性校验" }}
+      <strong>演练通过：</strong>{{ drill.batch }}（{{
+        fmtDate(drill.createdAt) || drill.createdAt
+      }}） 校验 {{ drill.filesChecked }} 个文件、{{ drill.attachmentCount }}
+      个附件，数据库可正常打开。
+      <span
+        style="display: block; font-size: var(--fs-caption); margin-top: 4px; color: var(--text-3)"
+      >
+        {{
+          drill.checksumsVerified
+            ? "sha256 完整性校验全部通过"
+            : "v1 备份：无校验和清单，未做完整性校验"
+        }}
       </span>
     </div>
   </div>
@@ -235,9 +263,13 @@ onUnmounted(() => unlistenBackupDone?.());
     <div class="fluent-panel-header">
       <h3>本地备份（{{ backups.length }}）</h3>
       <div style="display: flex; gap: 8px">
-        <button class="btn btn-sm" @click="pickAndBackup"><FluentIcon name="search" :size="14" />校验外部备份</button>
+        <button class="btn btn-sm" @click="pickAndBackup">
+          <FluentIcon name="search" :size="14" />校验外部备份
+        </button>
         <button class="btn btn-sm" :disabled="drilling || !backups.length" @click="runDrill">
-          <FluentIcon v-if="!drilling" name="flask" :size="14" />{{ drilling ? "演练中…" : "演练恢复" }}
+          <FluentIcon v-if="!drilling" name="flask" :size="14" />{{
+            drilling ? "演练中…" : "演练恢复"
+          }}
         </button>
         <button class="btn btn-sm btn-primary" :disabled="busy" @click="backupNow">
           <FluentIcon v-if="!busy" name="save" :size="14" />{{ busy ? "备份中…" : "立即备份" }}
@@ -261,20 +293,42 @@ onUnmounted(() => unlistenBackupDone?.());
               <td>
                 <span class="mono" style="color: var(--text-2)">{{ b.fileName }}</span>
                 <!-- v0.9：快照标记（附件在同目录附件包里，恢复/演练自动合成） -->
-                <span v-if="b.kind === 'snapshot'" class="tag tag-info" style="margin-left: 6px"
-                  title="增量快照：附件存于共享附件包，恢复时自动合成完整备份">快照</span>
-                <span v-else class="tag tag-muted" style="margin-left: 6px" title="单文件完整备份">全量</span>
+                <span
+                  v-if="b.kind === 'snapshot'"
+                  class="tag tag-info"
+                  style="margin-left: 6px"
+                  title="增量快照：附件存于共享附件包，恢复时自动合成完整备份"
+                  >快照</span
+                >
+                <span v-else class="tag tag-muted" style="margin-left: 6px" title="单文件完整备份"
+                  >全量</span
+                >
               </td>
               <td>{{ fmtDate(b.createdAt) || "—" }}</td>
               <td>{{ fmtSize(b.size) }}</td>
               <td>{{ b.attachmentCount || "—" }}</td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)"><FluentIcon name="undo" :size="14" /></button>
-                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)"><FluentIcon name="cloudUp" :size="14" /></button>
+                  <button class="icon-btn" title="恢复此备份" @click="askRestore(b)">
+                    <FluentIcon name="undo" :size="14" />
+                  </button>
+                  <button class="icon-btn" title="上传到 WebDAV" @click="uploadWebdav(b)">
+                    <FluentIcon name="cloudUp" :size="14" />
+                  </button>
                   <!-- v0.9：快照可导出为单个完整 zip（拷走一份不依赖附件包） -->
-                  <button v-if="b.kind === 'snapshot'" class="icon-btn" :title="exporting === b.fileName ? '导出中…' : '导出完整备份 zip（合成单文件，便于拷走）'"
-                    :disabled="exporting === b.fileName" @click="exportFull(b)"><FluentIcon name="download" :size="14" /></button>
+                  <button
+                    v-if="b.kind === 'snapshot'"
+                    class="icon-btn"
+                    :title="
+                      exporting === b.fileName
+                        ? '导出中…'
+                        : '导出完整备份 zip（合成单文件，便于拷走）'
+                    "
+                    :disabled="exporting === b.fileName"
+                    @click="exportFull(b)"
+                  >
+                    <FluentIcon name="download" :size="14" />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -282,7 +336,9 @@ onUnmounted(() => unlistenBackupDone?.());
         </table>
       </div>
       <EmptyState v-else icon="save" title="还没有备份" desc="点击右上角「立即备份」创建第一份备份">
-        <button class="btn btn-primary" :disabled="busy" @click="backupNow"><FluentIcon v-if="!busy" name="save" :size="14" />立即备份</button>
+        <button class="btn btn-primary" :disabled="busy" @click="backupNow">
+          <FluentIcon v-if="!busy" name="save" :size="14" />立即备份
+        </button>
       </EmptyState>
     </div>
   </div>
@@ -301,8 +357,8 @@ onUnmounted(() => unlistenBackupDone?.());
       <div v-if="remoteError" class="callout warning" style="margin: 12px">
         <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
-          无法读取云端列表：{{ remoteError }}。
-          请在「设置 → 备份与同步」检查 WebDAV 配置并点「测试连接」。
+          无法读取云端列表：{{ remoteError }}。 请在「设置 → 备份与同步」检查 WebDAV
+          配置并点「测试连接」。
         </div>
       </div>
       <div class="dtable-wrap" v-else-if="remoteBackups.length">
@@ -316,15 +372,21 @@ onUnmounted(() => unlistenBackupDone?.());
           </thead>
           <tbody>
             <tr v-for="r in remoteBackups" :key="r.fileName">
-              <td><span class="mono" style="color: var(--text-2)">{{ r.fileName }}</span></td>
+              <td>
+                <span class="mono" style="color: var(--text-2)">{{ r.fileName }}</span>
+              </td>
               <td>
                 <span v-if="isLocal(r.fileName)" style="color: var(--success)">已在本地</span>
                 <span v-else style="color: var(--text-3)">仅云端</span>
               </td>
               <td>
                 <div class="action-row">
-                  <button class="icon-btn" title="下载到本地备份目录"
-                    :disabled="downloading !== '' || isLocal(r.fileName)" @click="downloadRemote(r.fileName)">
+                  <button
+                    class="icon-btn"
+                    title="下载到本地备份目录"
+                    :disabled="downloading !== '' || isLocal(r.fileName)"
+                    @click="downloadRemote(r.fileName)"
+                  >
                     <FluentIcon name="download" :size="14" />
                   </button>
                 </div>
@@ -333,12 +395,21 @@ onUnmounted(() => unlistenBackupDone?.());
           </tbody>
         </table>
       </div>
-      <EmptyState v-else-if="!remoteLoading" icon="cloud" title="云端还没有备份"
-        desc="在「设置 → 备份与同步」启用 WebDAV 后，每次备份会自动上传云端；也可在上方列表手动补传" />
+      <EmptyState
+        v-else-if="!remoteLoading"
+        icon="cloud"
+        title="云端还没有备份"
+        desc="在「设置 → 备份与同步」启用 WebDAV 后，每次备份会自动上传云端；也可在上方列表手动补传"
+      />
     </div>
   </div>
 
-  <ConfirmDialog :visible="confirmVisible" title="恢复备份"
+  <ConfirmDialog
+    :visible="confirmVisible"
+    title="恢复备份"
     :body="`将用选中的备份覆盖当前数据库、配置与附件目录。这一步只把备份写成「待恢复文件」，点「立即重启应用」后才真正替换当前数据；重启前删掉待恢复文件即可取消。确定继续吗？`"
-    confirm-text="写入待恢复文件" @confirm="doRestore" @cancel="confirmVisible = false" />
+    confirm-text="写入待恢复文件"
+    @confirm="doRestore"
+    @cancel="confirmVisible = false"
+  />
 </template>

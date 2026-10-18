@@ -17,7 +17,13 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api, type Attachment, type ExtractedFields, type Voucher, type VoucherDetail } from "../../api/client";
+import {
+  api,
+  type Attachment,
+  type ExtractedFields,
+  type Voucher,
+  type VoucherDetail,
+} from "../../api/client";
 import AttachmentPanel from "./AttachmentPanel.vue";
 import DescriptionInput from "./DescriptionInput.vue";
 import SnapshotPanel from "./SnapshotPanel.vue";
@@ -194,7 +200,9 @@ watch(
   },
 );
 
-const descTemplates = computed<string[]>(() => configStore.config?.voucher?.descriptionTemplates ?? []);
+const descTemplates = computed<string[]>(
+  () => configStore.config?.voucher?.descriptionTemplates ?? [],
+);
 
 // ---------- 期间锁（封账月不可改） ----------
 
@@ -210,8 +218,14 @@ async function loadLockState() {
   }
 }
 
-watch(() => form.value.date, () => loadLockState());
-watch(() => props.voucher.id, () => loadLockState());
+watch(
+  () => form.value.date,
+  () => loadLockState(),
+);
+watch(
+  () => props.voucher.id,
+  () => loadLockState(),
+);
 
 // ---------- 保存 ----------
 
@@ -275,7 +289,8 @@ async function checkDuplicateHint(v: Voucher) {
       `疑似重复：与凭证 ${names} 同日期同金额（${v.voucherDate} · ¥${fmtAmount(v.amountCents)}），请核对是否重复报销${strongest}`,
       {
         label: "去核查",
-        onClick: () => router.push({ path: "/duplicates", query: { pair: pairKey(v.id, first.voucher.id) } }),
+        onClick: () =>
+          router.push({ path: "/duplicates", query: { pair: pairKey(v.id, first.voucher.id) } }),
       },
     );
   } catch {
@@ -386,7 +401,8 @@ function applyExtractedField(field: "date" | "amount" | "counterparty" | "mercha
   const f = extracted.value;
   if (!f) return;
   if (field === "date" && f.date) form.value.date = f.date;
-  else if (field === "amount" && f.amountCents != null) form.value.amount = (f.amountCents / 100).toFixed(2);
+  else if (field === "amount" && f.amountCents != null)
+    form.value.amount = (f.amountCents / 100).toFixed(2);
   else if (field === "counterparty" && f.counterparty) form.value.counterparty = f.counterparty;
   else if (field === "merchant" && f.merchant) form.value.description = f.merchant;
 }
@@ -405,7 +421,9 @@ function applyAllExtracted() {
   if (f.date && low(f.confidence?.date)) skipped.push("日期");
   if (f.counterparty && low(f.confidence?.counterparty)) skipped.push("对方账户");
   if (f.merchant && low(f.confidence?.merchant)) skipped.push("商家");
-  toast.info(`已填入表单，核对后点「保存」生效${skipped.length ? `（${skipped.join("、")}为低置信未自动填，可单独点「填」）` : ""}`);
+  toast.info(
+    `已填入表单，核对后点「保存」生效${skipped.length ? `（${skipped.join("、")}为低置信未自动填，可单独点「填」）` : ""}`,
+  );
 }
 
 // ---------- 键盘动线（与旧编辑页一致；组件只在选中某张时挂载） ----------
@@ -484,86 +502,103 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           </div>
           <div class="fluent-panel-body">
             <div class="editor-form">
-          <label class="ed-field" data-field="description">
-            <span class="ed-field-label">摘要</span>
-            <DescriptionInput v-model="form.description" :templates="descTemplates" class="desc-no-label" />
-          </label>
-          <label class="ed-field" data-field="date">
-            <span class="ed-field-label">凭证日期</span>
-            <input ref="dateEl" v-model="form.date" type="date" class="input" />
-          </label>
-          <label class="ed-field" data-field="amount">
-            <span class="ed-field-label">金额（元）</span>
-            <input v-model="form.amount" class="input" inputmode="decimal" placeholder="如：123.45，可留空" />
-          </label>
-          <div class="ed-field" data-field="status">
-            <span class="ed-field-label">状态</span>
-            <div class="ed-seg" role="radiogroup" aria-label="凭证状态" @keydown="onStatusKeydown">
-              <button
-                v-for="opt in STATUS_OPTIONS"
-                :key="opt.value"
-                type="button"
-                class="ed-seg-btn"
-                role="radio"
-                :aria-checked="form.status === opt.value"
-                :tabindex="form.status === opt.value ? 0 : -1"
-                :data-status="opt.value"
-                @click="form.status = opt.value"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-          <label class="ed-field" data-field="counterparty">
-            <span class="ed-field-label">对方账户</span>
-            <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
-          </label>
-          <div class="ed-field" data-field="tags">
-            <span class="ed-field-label">收支方向</span>
-            <div class="ed-seg" role="radiogroup" aria-label="收支方向">
-              <button
-                v-for="opt in DIRECTION_OPTIONS"
-                :key="opt.label"
-                type="button"
-                class="ed-seg-btn"
-                role="radio"
-                :aria-checked="direction === opt.value"
-                :tabindex="direction === opt.value ? 0 : -1"
-                :data-direction="opt.value || 'none'"
-                @click="setDirection(opt.value)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-            <span
-              v-if="otherTags.length"
-              class="ed-field-hint"
-              title="这些标签仍在数据里，可在筛选/洞察中按标签查找"
-            >
-              其他标签：{{ otherTags.join("、") }}
-            </span>
-          </div>
-          <label class="ed-field" data-field="note">
-            <span class="ed-field-label">备注</span>
-            <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
-          </label>
+              <label class="ed-field" data-field="description">
+                <span class="ed-field-label">摘要</span>
+                <DescriptionInput
+                  v-model="form.description"
+                  :templates="descTemplates"
+                  class="desc-no-label"
+                />
+              </label>
+              <label class="ed-field" data-field="date">
+                <span class="ed-field-label">凭证日期</span>
+                <input ref="dateEl" v-model="form.date" type="date" class="input" />
+              </label>
+              <label class="ed-field" data-field="amount">
+                <span class="ed-field-label">金额（元）</span>
+                <input
+                  v-model="form.amount"
+                  class="input"
+                  inputmode="decimal"
+                  placeholder="如：123.45，可留空"
+                />
+              </label>
+              <div class="ed-field" data-field="status">
+                <span class="ed-field-label">状态</span>
+                <div
+                  class="ed-seg"
+                  role="radiogroup"
+                  aria-label="凭证状态"
+                  @keydown="onStatusKeydown"
+                >
+                  <button
+                    v-for="opt in STATUS_OPTIONS"
+                    :key="opt.value"
+                    type="button"
+                    class="ed-seg-btn"
+                    role="radio"
+                    :aria-checked="form.status === opt.value"
+                    :tabindex="form.status === opt.value ? 0 : -1"
+                    :data-status="opt.value"
+                    @click="form.status = opt.value"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+              <label class="ed-field" data-field="counterparty">
+                <span class="ed-field-label">对方账户</span>
+                <input v-model="form.counterparty" class="input" placeholder="如：文一办公用品店" />
+              </label>
+              <div class="ed-field" data-field="tags">
+                <span class="ed-field-label">收支方向</span>
+                <div class="ed-seg" role="radiogroup" aria-label="收支方向">
+                  <button
+                    v-for="opt in DIRECTION_OPTIONS"
+                    :key="opt.label"
+                    type="button"
+                    class="ed-seg-btn"
+                    role="radio"
+                    :aria-checked="direction === opt.value"
+                    :tabindex="direction === opt.value ? 0 : -1"
+                    :data-direction="opt.value || 'none'"
+                    @click="setDirection(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+                <span
+                  v-if="otherTags.length"
+                  class="ed-field-hint"
+                  title="这些标签仍在数据里，可在筛选/洞察中按标签查找"
+                >
+                  其他标签：{{ otherTags.join("、") }}
+                </span>
+              </div>
+              <label class="ed-field" data-field="note">
+                <span class="ed-field-label">备注</span>
+                <textarea v-model="form.note" class="input ed-note" rows="2"></textarea>
+              </label>
             </div>
           </div>
         </div>
         <div class="ed-ops">
-      <span v-if="dirty && lockedPeriod" class="dirty-hint">● 已封账</span>
-      <span v-else-if="dirty" class="dirty-hint">● 未保存</span>
-      <span class="flex-1"></span>
-      <button class="btn" :disabled="!dirty || saving" @click="resetFrom(voucher)">还原</button>
-      <button class="btn" :disabled="saving || !!lockedPeriod" title="Ctrl/⌘+S" @click="save()">
-        {{ saving ? "保存中…" : "保存" }}
-      </button>
-      <button class="btn btn-primary" :disabled="saving || !!lockedPeriod" title="Ctrl/⌘+Enter"
-        @click="saveAndNext()">
-        {{ saving ? "保存中…" : "保存并下一张" }}
-      </button>
-    </div>
-
+          <span v-if="dirty && lockedPeriod" class="dirty-hint">● 已封账</span>
+          <span v-else-if="dirty" class="dirty-hint">● 未保存</span>
+          <span class="flex-1"></span>
+          <button class="btn" :disabled="!dirty || saving" @click="resetFrom(voucher)">还原</button>
+          <button class="btn" :disabled="saving || !!lockedPeriod" title="Ctrl/⌘+S" @click="save()">
+            {{ saving ? "保存中…" : "保存" }}
+          </button>
+          <button
+            class="btn btn-primary"
+            :disabled="saving || !!lockedPeriod"
+            title="Ctrl/⌘+Enter"
+            @click="saveAndNext()"
+          >
+            {{ saving ? "保存中…" : "保存并下一张" }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -572,8 +607,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
     <div class="editor-panels">
       <slot name="relations" />
       <slot name="groups" />
-      <OcrResultCard :extracted="extracted" :fields-busy="fieldsBusy"
-        @apply-field="applyExtractedField" @apply-all="applyAllExtracted" />
+      <OcrResultCard
+        :extracted="extracted"
+        :fields-busy="fieldsBusy"
+        @apply-field="applyExtractedField"
+        @apply-all="applyAllExtracted"
+      />
       <SnapshotPanel v-if="detail" :snapshots="detail.snapshots" />
     </div>
   </div>
@@ -740,10 +779,23 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 }
 
 /* 行壳不参与布局：让行内的标签与控件直接落进上面那条网格 */
-.ed-ops { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
-.flex-1 { flex: 1; }
-.dirty-hint { color: var(--warning); font: var(--type-caption); white-space: nowrap; }
+.ed-ops {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.flex-1 {
+  flex: 1;
+}
+.dirty-hint {
+  color: var(--warning);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
 /* 摘要行隐藏子组件自带标签（见模板注释）。
    DescriptionInput 的根元素本身就是 `.field`，类名会落到同一个元素上，故用后代 label 选择器 */
-.desc-no-label :deep(label) { display: none; }
+.desc-no-label :deep(label) {
+  display: none;
+}
 </style>

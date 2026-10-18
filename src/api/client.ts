@@ -7,8 +7,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 export { asApiError, errMsg, type ApiErrorPayload } from "./errors";
 
 /** 是否运行在 Tauri 桌面壳内（纯浏览器打开 dev URL 时为 false） */
-export const isTauri =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /**
  * 统一 invoke 封装：纯浏览器环境（如误开 dev URL）下返回可读的中文错误，
@@ -744,7 +743,8 @@ export const api = {
 
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<AppConfig>("save_config", { config }),
-  validateNamingTemplate: (template: string) => invoke<string>("validate_naming_template", { template }),
+  validateNamingTemplate: (template: string) =>
+    invoke<string>("validate_naming_template", { template }),
   previewVoucherNo: (date?: string) => invoke<string>("preview_voucher_no", { date: date ?? "" }),
 
   listSecrets: () => invoke<SecretStatus[]>("list_secrets"),
@@ -756,14 +756,14 @@ export const api = {
   /** v0.9 编辑动线：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用） */
   getVoucherNeighbor: (id: number, query: VoucherQuery) =>
     invoke<VoucherNeighbor>("get_voucher_neighbor", { id, query }),
-  updateVoucher: (id: number, update: VoucherUpdate) => invoke<Voucher>("update_voucher", { id, update }),
+  updateVoucher: (id: number, update: VoucherUpdate) =>
+    invoke<Voucher>("update_voucher", { id, update }),
   /** 批量删除（单事务 + 附件文件清理），返回实际删除数 */
   deleteVouchers: (ids: number[]) => invoke<number>("delete_vouchers", { ids }),
   /** v0.7 B-1：批量状态流转（单事务逐张快照），返回实际变更数 */
   batchUpdateStatus: (ids: number[], status: VoucherStatus) =>
     invoke<number>("batch_update_status", { ids, status }),
-  batchEdit: (ids: number[], patch: BatchEditPatch) =>
-    invoke<number>("batch_edit", { ids, patch }),
+  batchEdit: (ids: number[], patch: BatchEditPatch) => invoke<number>("batch_edit", { ids, patch }),
   voucherStats: () => invoke<VoucherStats>("voucher_stats"),
 
   monthlySummary: (months?: number) => invoke<MonthlySummary[]>("monthly_summary", { months }),
@@ -799,8 +799,11 @@ export const api = {
    * 两端都给时才附上一等长窗口的金额/张数供算环比）。
    * `byStatus` 始终是窗口内的**完整构成**，不随 `status` 收窄（供堆叠条展示）。
    */
-  dashboardOverview: (dateFrom?: string | null, dateTo?: string | null, status?: VoucherStatus | null) =>
-    invoke<DashboardOverview>("dashboard_overview", { dateFrom, dateTo, status }),
+  dashboardOverview: (
+    dateFrom?: string | null,
+    dateTo?: string | null,
+    status?: VoucherStatus | null,
+  ) => invoke<DashboardOverview>("dashboard_overview", { dateFrom, dateTo, status }),
   /** 待办与健康度：待识别 / 未填金额 / 陈旧草稿 / 未封账往月 / 备份新鲜度 / 疑似重复 */
   dashboardTodos: () => invoke<DashboardTodos>("dashboard_todos"),
   /** 疑似重复**轻量**计数（徽标 / 待办卡）：不构造队列，口径与核查队列一致 */
@@ -810,8 +813,12 @@ export const api = {
   /** 按当前筛选只取凭证 id（列表页「按筛选全选 N 条」的跨页选择集；顺序同列表） */
   listVoucherIds: (query: VoucherQuery) => invoke<number[]>("list_voucher_ids", { query }),
   /** v0.18：月度透视（dim = counterparty | tag；每月前 perMonth 个键，按金额倒序） */
-  monthlyBreakdown: (dateFrom?: string | null, dateTo?: string | null, dim?: "counterparty" | "tag", perMonth?: number) =>
-    invoke<BreakdownRow[]>("monthly_breakdown", { dateFrom, dateTo, dim, perMonth }),
+  monthlyBreakdown: (
+    dateFrom?: string | null,
+    dateTo?: string | null,
+    dim?: "counterparty" | "tag",
+    perMonth?: number,
+  ) => invoke<BreakdownRow[]>("monthly_breakdown", { dateFrom, dateTo, dim, perMonth }),
   /** v0.18：导出覆盖度（已导出 / 从未导出 + 格式分布） */
   exportCoverage: (dateFrom?: string | null, dateTo?: string | null) =>
     invoke<ExportCoverage>("export_coverage", { dateFrom, dateTo }),
@@ -829,8 +836,12 @@ export const api = {
 
   /** v0.7 R-1：Top 对方账户（months=0 全部历史；limit 默认 10）。
       2026-10-16 起可传 `dateFrom`/`dateTo` 日期闭区间（洞察页时间窗）——给了区间就以区间为准 */
-  topCounterparties: (months?: number, limit?: number, dateFrom?: string | null, dateTo?: string | null) =>
-    invoke<CounterpartyRow[]>("top_counterparties", { months, limit, dateFrom, dateTo }),
+  topCounterparties: (
+    months?: number,
+    limit?: number,
+    dateFrom?: string | null,
+    dateTo?: string | null,
+  ) => invoke<CounterpartyRow[]>("top_counterparties", { months, limit, dateFrom, dateTo }),
   tagStats: (months?: number, limit?: number, dateFrom?: string | null, dateTo?: string | null) =>
     invoke<TagRow[]>("tag_stats", { months, limit, dateFrom, dateTo }),
 
@@ -840,8 +851,7 @@ export const api = {
     invoke<SearchHit[]>("search_vouchers", { keyword, filters: filters ?? null, limit }),
 
   /** Rust 侧对话框选图并直接导入（绕开 JS 对话框桥的竞态）。null = 用户取消 */
-  pickAndImport: (runOcr: boolean) =>
-    invoke<ImportSummary | null>("pick_and_import", { runOcr }),
+  pickAndImport: (runOcr: boolean) => invoke<ImportSummary | null>("pick_and_import", { runOcr }),
   /** Rust 侧对话框选图更换凭证图片（换图不换卡）。null = 用户取消 */
   pickAndReplaceImage: (voucherId: number) =>
     invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId }),
@@ -854,8 +864,7 @@ export const api = {
     rotationDeg: number,
   ) => invoke<Attachment>("crop_attachment", { attachmentId, rect, rotationDeg }),
   /** v0.13：选账单 CSV → 对账（只读匹配；报告自动落 exports/）。null = 用户取消 */
-  pickAndReconcile: () =>
-    invoke<ReconcileReport | null>("pick_and_reconcile"),
+  pickAndReconcile: () => invoke<ReconcileReport | null>("pick_and_reconcile"),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   /** v0.7 S-2：OCR 字段提取预览（只读） */
@@ -868,8 +877,7 @@ export const api = {
   exportTable: (voucherIds: number[], format: TableFormat) =>
     invoke<ExportBatch>("export_table", { voucherIds, format }),
   /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */
-  exportBatchVouchers: (batchId: number) =>
-    invoke<Voucher[]>("export_batch_vouchers", { batchId }),
+  exportBatchVouchers: (batchId: number) => invoke<Voucher[]>("export_batch_vouchers", { batchId }),
   /** v0.8：按天日报 PDF（每天一个批次） */
   exportPdfDaily: (voucherIds: number[], options?: ExportOptions) =>
     invoke<ExportBatch[]>("export_pdf_daily", { voucherIds, options }),
@@ -884,8 +892,7 @@ export const api = {
   /** v0.9 导出完整备份：快照 + 附件包合成单个全量 zip 落入 backups/（供拷走），返回路径 */
   exportFullBackup: (path: string) => invoke<string>("export_full_backup", { path }),
   restoreBackup: (path: string) => invoke<RestoreSummary>("restore_backup", { path }),
-  drillBackup: (path?: string) =>
-    invoke<DrillReport>("drill_backup", { path: path ?? null }),
+  drillBackup: (path?: string) => invoke<DrillReport>("drill_backup", { path: path ?? null }),
   uploadBackup: (path: string) => invoke<void>("upload_backup", { path }),
   testWebdav: () => invoke<number>("test_webdav"),
   listWebdavBackups: () => invoke<WebdavBackupRow[]>("list_webdav_backups"),
@@ -902,15 +909,12 @@ export const api = {
     invoke<ClearSummary>("clear_enhance_cache_v2", { strategy, threshold }),
   deleteEnhancedOne: (attachmentId: number) =>
     invoke<number>("delete_enhanced_one", { attachmentId }),
-  recentEnhanced: (limit: number) =>
-    invoke<RecentEnhancedRow[]>("recent_enhanced", { limit }),
+  recentEnhanced: (limit: number) => invoke<RecentEnhancedRow[]>("recent_enhanced", { limit }),
   /** D-10：命中趋势（近 N 天按日聚合） */
-  enhanceHitTrend: (days: number) =>
-    invoke<HitTrend>("enhance_hit_trend", { days }),
+  enhanceHitTrend: (days: number) => invoke<HitTrend>("enhance_hit_trend", { days }),
 
   // v0.6.5 D-7 查看器命中埋点（静默调用，失败不打扰用户）
-  recordViewerHit: (attachmentId: number) =>
-    invoke<void>("record_viewer_hit", { attachmentId }),
+  recordViewerHit: (attachmentId: number) => invoke<void>("record_viewer_hit", { attachmentId }),
   /**
    * v0.22：新建「说明条目」（**无图凭证**：说明 / 备忘 / 原始凭证分割单）。
    * 导入路径刻意不留空卡，所以"没有图片的凭证"只能由用户从这里显式创建。

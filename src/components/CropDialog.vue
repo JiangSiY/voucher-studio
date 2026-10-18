@@ -233,24 +233,49 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
 <template>
   <Teleport to="body">
     <div v-if="visible" class="crop-mask" @click.self="emit('close')">
-      <div ref="panelEl" class="crop-dialog" role="dialog" aria-modal="true" aria-label="调整图片" tabindex="-1">
+      <div
+        ref="panelEl"
+        class="crop-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="调整图片"
+        tabindex="-1"
+      >
         <h3>调整图片 <span class="crop-sub">（裁剪 / 旋转 → 覆盖增强版；原图不受影响）</span></h3>
 
         <!-- 舞台：旋转后包围盒 + 裁剪框 -->
-        <div class="crop-stage" :style="{ width: dispRot.w + 'px', height: dispRot.h + 'px' }"
-          @mousedown="onPointerDown($event, 'move')">
-          <img class="crop-img" :src="src" :alt="fileName" draggable="false"
+        <div
+          class="crop-stage"
+          :style="{ width: dispRot.w + 'px', height: dispRot.h + 'px' }"
+          @mousedown="onPointerDown($event, 'move')"
+        >
+          <img
+            class="crop-img"
+            :src="src"
+            :alt="fileName"
+            draggable="false"
             :style="{
               width: dispNatural.w + 'px',
               height: dispNatural.h + 'px',
               transform: `rotate(${totalDeg}deg)`,
-            }" />
-          <div class="crop-box" :style="{
-            left: box.x + 'px', top: box.y + 'px',
-            width: box.w + 'px', height: box.h + 'px',
-          }" @mousedown="onPointerDown($event, 'move')">
-            <div v-for="h in HANDLES" :key="h.key" :class="['crop-handle', h.cls]"
-              @mousedown="onPointerDown($event, h.key)"></div>
+            }"
+          />
+          <div
+            class="crop-box"
+            :style="{
+              left: box.x + 'px',
+              top: box.y + 'px',
+              width: box.w + 'px',
+              height: box.h + 'px',
+            }"
+            @mousedown="onPointerDown($event, 'move')"
+          >
+            <div
+              v-for="h in HANDLES"
+              :key="h.key"
+              :class="['crop-handle', h.cls]"
+              @mousedown="onPointerDown($event, h.key)"
+            ></div>
           </div>
         </div>
 
@@ -319,8 +344,8 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   position: relative;
   margin: 0 auto;
   user-select: none;
-  background:
-    repeating-conic-gradient(var(--bg-window) 0% 25%, var(--bg-control) 0% 50%) 0 0 / 16px 16px;
+  background: repeating-conic-gradient(var(--bg-window) 0% 25%, var(--bg-control) 0% 50%) 0 0 / 16px
+    16px;
   border: 1px solid var(--stroke);
   cursor: move;
   overflow: hidden;
@@ -352,10 +377,26 @@ const HANDLES: { key: Exclude<DragMode, null>; cls: string }[] = [
   border-radius: var(--radius-small);
 }
 
-.h-nw { left: -7px; top: -7px; cursor: nwse-resize; }
-.h-ne { right: -7px; top: -7px; cursor: nesw-resize; }
-.h-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
-.h-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.h-nw {
+  left: -7px;
+  top: -7px;
+  cursor: nwse-resize;
+}
+.h-ne {
+  right: -7px;
+  top: -7px;
+  cursor: nesw-resize;
+}
+.h-sw {
+  left: -7px;
+  bottom: -7px;
+  cursor: nesw-resize;
+}
+.h-se {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
 
 .crop-ops {
   display: flex;

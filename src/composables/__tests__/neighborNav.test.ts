@@ -16,7 +16,7 @@ import { neighborLabel, useNeighborNav } from "../neighborNav";
 
 const QUERY = { page: 1, pageSize: 1, status: "draft" } as unknown as VoucherQuery;
 
-const deferred = <T,>() => {
+const deferred = <T>() => {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((r) => (resolve = r));
   return { promise, resolve };
@@ -32,8 +32,12 @@ describe("neighborLabel", () => {
   });
 
   it("不在筛选结果内要明说（而不是显示 0 / 0）", () => {
-    expect(neighborLabel({ prevId: null, nextId: 1, position: 0, total: 3 })).toBe("不在当前筛选内");
-    expect(neighborLabel({ prevId: 1, nextId: null, position: 9, total: 3 })).toBe("不在当前筛选内");
+    expect(neighborLabel({ prevId: null, nextId: 1, position: 0, total: 3 })).toBe(
+      "不在当前筛选内",
+    );
+    expect(neighborLabel({ prevId: 1, nextId: null, position: 9, total: 3 })).toBe(
+      "不在当前筛选内",
+    );
   });
 
   it("没数据就是空串（右栏还没选中时不留半截文案）", () => {

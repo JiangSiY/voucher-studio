@@ -35,7 +35,11 @@ export function candidatePaths(a: AttachmentLike, forceOriginal = false): string
 }
 
 /** 取第 step 个候选；用尽返回 null（调用方显示占位） */
-export function pickCandidate(a: AttachmentLike, step: number, forceOriginal = false): string | null {
+export function pickCandidate(
+  a: AttachmentLike,
+  step: number,
+  forceOriginal = false,
+): string | null {
   const list = candidatePaths(a, forceOriginal);
   if (step < 0 || step >= list.length) return null;
   return list[step];

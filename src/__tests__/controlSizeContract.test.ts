@@ -51,7 +51,11 @@ describe("控件高度一致性", () => {
     expect(r).toContain("box-sizing: border-box");
     // 页面不得再自带一套 .search / .search-input 样式（那正是"两套高度算法"的来源）
     const files = srcFilesRelative([".vue"]);
-    const reimpl = files.filter((rel) => styleBlocks(repoFile(`src/${rel}`)).trim() !== "" && /(^|\n)\s*\.search(-input)?\s*\{/.test(styleBlocks(repoFile(`src/${rel}`))));
+    const reimpl = files.filter(
+      (rel) =>
+        styleBlocks(repoFile(`src/${rel}`)).trim() !== "" &&
+        /(^|\n)\s*\.search(-input)?\s*\{/.test(styleBlocks(repoFile(`src/${rel}`))),
+    );
     expect(reimpl, `这些页面重复实现了搜索框样式：${reimpl.join(", ")}`).toEqual([]);
   });
 

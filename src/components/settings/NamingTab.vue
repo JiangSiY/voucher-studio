@@ -122,13 +122,17 @@ onMounted(() => {
         <label>凭证编号模板</label>
         <input v-model="draftCfg.naming.template" class="input mono" @input="validateTemplate" />
         <div class="desc">
-          可用令牌：<code>{date}</code>（20260819）、<code>{date-}</code>（2026-08-19）、<code>{seq}</code>（001 起）、<code>{n}</code>（01 起）。
-          默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01 的编号。
+          可用令牌：<code>{date}</code>（20260819）、<code>{date-}</code>（2026-08-19）、<code>{seq}</code>（001
+          起）、<code>{n}</code>（01 起）。 默认 <code>{date-}-{n}</code> 生成形如 2026-08-19-01
+          的编号。
         </div>
         <div v-if="templateError" class="desc settings-inline settings-inline--gap4 settings-err">
           <FluentIcon name="warning" :size="14" />{{ templateError }}
         </div>
-        <div v-else-if="templatePreview" class="desc settings-inline settings-inline--gap4 settings-ok">
+        <div
+          v-else-if="templatePreview"
+          class="desc settings-inline settings-inline--gap4 settings-ok"
+        >
           <FluentIcon name="check" :size="14" />保存后新凭证编号形如：{{ templatePreview }}
         </div>
       </div>
@@ -139,8 +143,12 @@ onMounted(() => {
       <!-- v0.10：常用摘要模板（编辑页联想置顶项） -->
       <div class="field settings-section settings-section--gap">
         <label>常用摘要模板（每行一条）</label>
-        <textarea v-model="descTemplatesText" class="input settings-resize-y" rows="5"
-          placeholder="如：&#10;办公用品采购&#10;差旅住宿费&#10;市内交通费"></textarea>
+        <textarea
+          v-model="descTemplatesText"
+          class="input settings-resize-y"
+          rows="5"
+          placeholder="如：&#10;办公用品采购&#10;差旅住宿费&#10;市内交通费"
+        ></textarea>
         <div class="desc">
           编辑凭证时聚焦「摘要」输入框，会联想这些模板（置顶）并合并历史高频摘要，点选即填，减少重复录入。
         </div>
@@ -150,25 +158,40 @@ onMounted(() => {
       <div class="field settings-section settings-section--gap">
         <label>期间管理（按月封账）</label>
         <div class="period-grid">
-          <div v-for="p in periodOptions" :key="p.period" class="period-row" :class="{ locked: p.locked }">
+          <div
+            v-for="p in periodOptions"
+            :key="p.period"
+            class="period-row"
+            :class="{ locked: p.locked }"
+          >
             <span class="period-label">
               <FluentIcon v-if="p.locked" name="lock" :size="12" />
               {{ p.label }}
             </span>
-            <button v-if="!p.locked" class="btn btn-sm" @click="lockPeriodAction(p.period)">锁定</button>
-            <button v-else class="btn btn-sm btn-danger" @click="unlockPending = p.period">解锁</button>
+            <button v-if="!p.locked" class="btn btn-sm" @click="lockPeriodAction(p.period)">
+              锁定
+            </button>
+            <button v-else class="btn btn-sm btn-danger" @click="unlockPending = p.period">
+              解锁
+            </button>
           </div>
         </div>
         <div class="desc">
-          锁定的月份内凭证禁止编辑 / 删除 / 批量操作 / 换图（防止封账后返工导致账实不符）。
-          OCR 自动填单不受限（仅填空字段）。解锁需确认。
+          锁定的月份内凭证禁止编辑 / 删除 / 批量操作 / 换图（防止封账后返工导致账实不符）。 OCR
+          自动填单不受限（仅填空字段）。解锁需确认。
         </div>
       </div>
 
       <!-- 解锁二次确认 -->
-      <ConfirmDialog :visible="unlockPending != null" title="解锁期间"
+      <ConfirmDialog
+        :visible="unlockPending != null"
+        title="解锁期间"
         :body="`确定解锁 ${unlockPending ?? ''} 吗？该月凭证将可再次修改，可能造成已导出报表与数据不一致。`"
-        confirm-text="解锁" danger @confirm="unlockPeriodAction" @cancel="unlockPending = null" />
+        confirm-text="解锁"
+        danger
+        @confirm="unlockPeriodAction"
+        @cancel="unlockPending = null"
+      />
     </div>
   </div>
 </template>

@@ -22,7 +22,13 @@ import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { api, type VoucherQuery, type Voucher, type VoucherDetail, type VoucherStatus } from "../api/client";
+import {
+  api,
+  type VoucherQuery,
+  type Voucher,
+  type VoucherDetail,
+  type VoucherStatus,
+} from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
@@ -32,7 +38,11 @@ import VoucherGroups from "../components/voucher/VoucherGroups.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import { useNeighborNav } from "../composables/neighborNav";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
-import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
+import {
+  candidatePaths,
+  nextFallbackStep,
+  pickCandidate,
+} from "../composables/useAttachmentFallback";
 import { toast, toastError } from "../stores/toast";
 
 const route = useRoute();
@@ -80,7 +90,12 @@ const staleDays = ref<number | null>(null);
 const counterpartyExact = ref("");
 /** v0.22：标签收敛为「收支方向」——筛选改为下拉（全部 / 收入 / 支出 / 未标）。
     方向本身仍走既有的 `tags` 精确匹配（后端 `json_each` 等值），「未标」走 `directionNone`。 */
-const DIRECTION_LABEL: Record<string, string> = { "": "全部", "收入": "收入", "支出": "支出", none: "未标" };
+const DIRECTION_LABEL: Record<string, string> = {
+  "": "全部",
+  收入: "收入",
+  支出: "支出",
+  none: "未标",
+};
 /** 收支方向多选（「未标」与收入/支出互斥——它表示"两个方向都没有"） */
 const directions = ref<string[]>([]);
 const DIRECTION_FILTER_OPTIONS = [
@@ -182,7 +197,10 @@ function readQuery() {
   const q = route.query;
   // 状态：新参数 `statuses=a,b`；兼容旧下钻的 `status=single`
   const statusParam = (q.statuses as string) ?? (q.status as string) ?? "";
-  setList(statuses, statusParam && statusParam !== "all" ? statusParam.split(",").filter(Boolean) : []);
+  setList(
+    statuses,
+    statusParam && statusParam !== "all" ? statusParam.split(",").filter(Boolean) : [],
+  );
   keyword.value = (q.keyword as string) ?? "";
   dateFrom.value = (q.dateFrom as string) ?? "";
   dateTo.value = (q.dateTo as string) ?? "";
@@ -224,13 +242,21 @@ const activeFilters = computed(() => {
       label: `状态：${statuses.value.map((v) => STATUS_META[v as VoucherStatus]?.label ?? v).join("、")}`,
       clear: () => (statuses.value = []),
     });
-  if (keyword.value) out.push({ label: `关键词：${keyword.value}`, clear: () => (keyword.value = "") });
+  if (keyword.value)
+    out.push({ label: `关键词：${keyword.value}`, clear: () => (keyword.value = "") });
   if (dateFrom.value || dateTo.value)
-    out.push({ label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`, clear: () => ((dateFrom.value = ""), (dateTo.value = "")) });
+    out.push({
+      label: `日期：${dateFrom.value || "…"} ~ ${dateTo.value || "…"}`,
+      clear: () => ((dateFrom.value = ""), (dateTo.value = "")),
+    });
 
-  if (staleDays.value) out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
+  if (staleDays.value)
+    out.push({ label: `超过 ${staleDays.value} 天未更新`, clear: () => (staleDays.value = null) });
   if (counterpartyExact.value)
-    out.push({ label: `对方：${counterpartyExact.value}`, clear: () => (counterpartyExact.value = "") });
+    out.push({
+      label: `对方：${counterpartyExact.value}`,
+      clear: () => (counterpartyExact.value = ""),
+    });
   if (directions.value.length)
     out.push({
       label: `收支方向：${directions.value.map((v) => DIRECTION_LABEL[v] ?? v).join("、")}`,
@@ -242,7 +268,10 @@ const activeFilters = computed(() => {
       clear: () => (ocrStatuses.value = []),
     });
   if (exported.value)
-    out.push({ label: exported.value === "never" ? "从未导出" : "已导出过", clear: () => (exported.value = "") });
+    out.push({
+      label: exported.value === "never" ? "从未导出" : "已导出过",
+      clear: () => (exported.value = ""),
+    });
   if (pendingFilters.value.length)
     out.push({
       label: pendingFilters.value.map((v) => PENDING_LABEL[v] ?? v).join("、"),
@@ -255,7 +284,18 @@ const activeFilters = computed(() => {
 const hasAnyFilter = computed(() => activeFilters.value.length > 0);
 
 // ---------- 缩略图与检视器 ----------
-const thumbs = ref<Record<number, { filePath: string; enhancedPath: string | null; enhancedSource: string; fileAbs?: string | null; enhancedAbs?: string | null }>>({});
+const thumbs = ref<
+  Record<
+    number,
+    {
+      filePath: string;
+      enhancedPath: string | null;
+      enhancedSource: string;
+      fileAbs?: string | null;
+      enhancedAbs?: string | null;
+    }
+  >
+>({});
 const thumbStep = ref<Record<number, number>>({});
 
 function thumbUrl(v: Voucher): string | null {
@@ -285,11 +325,15 @@ const editorUnsaved = ref(false);
  * 上下文翻张（⌥←/→ 与右栏上的两个箭头）：按**整份筛选结果**翻，能跨页。
  * `query()` 是列表自己的筛选构造器——翻张与列表同口径，否则"下一张"会跳出眼前的筛选。
  */
-const { neighbor: navNeighbor, positionLabel: navPosition, load: loadNeighbor, clear: clearNeighbor } =
-  useNeighborNav({
-    currentId: computed(() => shown.value?.id ?? null),
-    query: computed(() => query() as VoucherQuery),
-  });
+const {
+  neighbor: navNeighbor,
+  positionLabel: navPosition,
+  load: loadNeighbor,
+  clear: clearNeighbor,
+} = useNeighborNav({
+  currentId: computed(() => shown.value?.id ?? null),
+  query: computed(() => query() as VoucherQuery),
+});
 
 /** 翻到相邻张：复用既有动线（页内直接选中；页外单独取 + 脏数据确认） */
 async function goNeighbor(dir: "prev" | "next") {
@@ -370,9 +414,7 @@ let detailSeq = 0;
  * 拦截时弹一次确认，**默认焦点在「留在此页」**（ConfirmDialog 首个可操作元素就是取消按钮）。
  */
 type LeaveIntent =
-  | { kind: "switch"; target: Voucher }
-  | { kind: "focus"; id: number }
-  | { kind: "route" };
+  { kind: "switch"; target: Voucher } | { kind: "focus"; id: number } | { kind: "route" };
 
 const leaveIntent = ref<LeaveIntent | null>(null);
 const leaveConfirmVisible = computed(() => leaveIntent.value !== null);
@@ -478,7 +520,7 @@ watch(
   },
 );
 
-/** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */ 
+/** `focus` 深链：目标可能不在本页（跨筛选/翻页跳来），此时单独取它并展示，不改列表 */
 /** 关联/组内点一张凭证 → 走既有深链聚焦动线（页外会提示，不会让人以为筛选坏了） */
 async function focusFromLink(id: number) {
   await showFocused(id);
@@ -546,7 +588,8 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const idx = items.value.findIndex((v) => v.id === selectedId.value);
   if (idx < 0) return;
-  const next = e.key === "ArrowDown" ? Math.min(idx + 1, items.value.length - 1) : Math.max(idx - 1, 0);
+  const next =
+    e.key === "ArrowDown" ? Math.min(idx + 1, items.value.length - 1) : Math.max(idx - 1, 0);
   if (next !== idx) {
     e.preventDefault();
     void select(items.value[next]);
@@ -685,12 +728,26 @@ onUnmounted(() => {
 });
 
 // 筛选变化即重查（保留在 URL 里，便于返回时回显）
-watch([statuses, dateFrom, dateTo, pendingFilters, counterpartyExact, directions, staleDays, ocrStatuses, exported, sort], () => {
-  page.value = 1;
-  void load();
-  // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
-  if (shown.value?.id) void loadNeighbor();
-});
+watch(
+  [
+    statuses,
+    dateFrom,
+    dateTo,
+    pendingFilters,
+    counterpartyExact,
+    directions,
+    staleDays,
+    ocrStatuses,
+    exported,
+    sort,
+  ],
+  () => {
+    page.value = 1;
+    void load();
+    // 筛选变了，"第 n / N 张"也跟着变；不重拉就会显示上一份筛选里的位置
+    if (shown.value?.id) void loadNeighbor();
+  },
+);
 watch(keyword, () => {
   page.value = 1;
   void load();
@@ -706,21 +763,48 @@ watch(keyword, () => {
       <div class="search">
         <input v-model="keyword" placeholder="搜索编号 / 摘要 / 对方 / 备注" />
       </div>
-      <MultiSelect v-model="statuses" label="状态" :options="STATUS_OPTIONS"
-        title="按状态筛选（可多选）" max-width="170px" />
-      <input v-model="dateFrom" class="input" type="date" style="max-width: 160px" title="起始日期" />
+      <MultiSelect
+        v-model="statuses"
+        label="状态"
+        :options="STATUS_OPTIONS"
+        title="按状态筛选（可多选）"
+        max-width="170px"
+      />
+      <input
+        v-model="dateFrom"
+        class="input"
+        type="date"
+        style="max-width: 160px"
+        title="起始日期"
+      />
       <input v-model="dateTo" class="input" type="date" style="max-width: 160px" title="结束日期" />
       <template v-for="f in activeFilters" :key="f.label">
         <button class="chip" :title="`清除筛选：${f.label}`" @click="f.clear()">
           {{ f.label }} <FluentIcon name="close" :size="12" />
         </button>
       </template>
-      <MultiSelect v-model="ocrStatuses" label="OCR 状态" :options="OCR_FILTER_OPTIONS"
-        title="按 OCR 状态筛选（可多选）" max-width="150px" />
-      <MultiSelect v-model="pendingFilters" label="缺项" :options="PENDING_OPTIONS"
-        title="只看某一类缺项（可多选，选几项=同时满足）" max-width="150px" />
-      <MultiSelect v-model="directions" label="收支方向" :options="DIRECTION_FILTER_OPTIONS"
-        :exclusive="['none']" title="按收支方向筛选（可多选；「未标」与收入/支出互斥）" max-width="160px" />
+      <MultiSelect
+        v-model="ocrStatuses"
+        label="OCR 状态"
+        :options="OCR_FILTER_OPTIONS"
+        title="按 OCR 状态筛选（可多选）"
+        max-width="150px"
+      />
+      <MultiSelect
+        v-model="pendingFilters"
+        label="缺项"
+        :options="PENDING_OPTIONS"
+        title="只看某一类缺项（可多选，选几项=同时满足）"
+        max-width="150px"
+      />
+      <MultiSelect
+        v-model="directions"
+        label="收支方向"
+        :options="DIRECTION_FILTER_OPTIONS"
+        :exclusive="['none']"
+        title="按收支方向筛选（可多选；「未标」与收入/支出互斥）"
+        max-width="160px"
+      />
       <select v-model="sort" class="input" style="max-width: 150px" title="排序">
         <option value="date_desc">日期（新→旧）</option>
         <option value="date_asc">日期（旧→新）</option>
@@ -732,7 +816,9 @@ watch(keyword, () => {
       <template v-if="selectedIds.size">
         <span class="sel-count">已选 {{ selectedIds.size }} 张</span>
         <select v-model="batchStatus" class="input" style="max-width: 150px" title="批量改状态">
-          <option v-for="(meta, key) in STATUS_META" :key="key" :value="key">{{ meta.label }}</option>
+          <option v-for="(meta, key) in STATUS_META" :key="key" :value="key">
+            {{ meta.label }}
+          </option>
         </select>
         <button class="btn" title="改状态前会先确认" @click="openBatchStatusConfirm()">应用</button>
         <button class="btn" @click="confirmDelete = true">
@@ -740,8 +826,13 @@ watch(keyword, () => {
         </button>
         <button class="btn" title="清除选择" @click="clearSelection()">清除</button>
       </template>
-      <button v-else class="btn" :disabled="selectingAll" title="按当前筛选选中全部（跨页生效）"
-        @click="selectAllMatching()">
+      <button
+        v-else
+        class="btn"
+        :disabled="selectingAll"
+        title="按当前筛选选中全部（跨页生效）"
+        @click="selectAllMatching()"
+      >
         {{ selectingAll ? "选择中…" : "全选筛选结果" }}
       </button>
       <button class="btn btn-primary" @click="router.push('/vouchers/new')">
@@ -761,8 +852,12 @@ watch(keyword, () => {
             </div>
           </li>
         </ul>
-        <EmptyState v-else-if="!items.length" icon="folder" title="没有符合条件的凭证"
-          desc="试试清除筛选，或把图片拖进窗口导入。">
+        <EmptyState
+          v-else-if="!items.length"
+          icon="folder"
+          title="没有符合条件的凭证"
+          desc="试试清除筛选，或把图片拖进窗口导入。"
+        >
           <button v-if="hasAnyFilter" class="btn" @click="clearAllFilters()">清空全部筛选</button>
         </EmptyState>
 
@@ -776,9 +871,20 @@ watch(keyword, () => {
             @click="select(v)"
             @dblclick="focusEditor(v)"
           >
-            <input class="row-check" type="checkbox" :checked="selectedIds.has(v.id)" @click.stop="toggle(v)" />
+            <input
+              class="row-check"
+              type="checkbox"
+              :checked="selectedIds.has(v.id)"
+              @click.stop="toggle(v)"
+            />
             <div class="row-thumb">
-              <img v-if="thumbUrl(v)" :src="thumbUrl(v)!" :alt="v.voucherNo" loading="lazy" @error="onThumbError(v)" />
+              <img
+                v-if="thumbUrl(v)"
+                :src="thumbUrl(v)!"
+                :alt="v.voucherNo"
+                loading="lazy"
+                @error="onThumbError(v)"
+              />
               <FluentIcon v-else name="image" :size="18" />
             </div>
             <div class="row-main">
@@ -794,7 +900,9 @@ watch(keyword, () => {
                 <span class="dot">·</span>
                 <span class="party">{{ v.counterparty || "（无对方）" }}</span>
                 <span class="flex-1"></span>
-                <span class="tag" :class="STATUS_META[v.status].tag">{{ STATUS_META[v.status].label }}</span>
+                <span class="tag" :class="STATUS_META[v.status].tag">{{
+                  STATUS_META[v.status].label
+                }}</span>
               </div>
             </div>
           </li>
@@ -803,7 +911,9 @@ watch(keyword, () => {
         <div v-if="totalPages > 1" class="pager">
           <button class="btn" :disabled="page <= 1" @click="gotoPage(page - 1)">上一页</button>
           <span class="muted">第 {{ page }} / {{ totalPages }} 页</span>
-          <button class="btn" :disabled="page >= totalPages" @click="gotoPage(page + 1)">下一页</button>
+          <button class="btn" :disabled="page >= totalPages" @click="gotoPage(page + 1)">
+            下一页
+          </button>
         </div>
       </section>
 
@@ -817,21 +927,38 @@ watch(keyword, () => {
           <!-- 上下文翻张（⌥←/→）：按**整份筛选结果**翻，能跨页（↑↓ 只在本页内移动）。
                顺序是后端定的日期序，与列表当前排序无关——title 里写明，免得误会。 -->
           <div v-if="navNeighbor" class="ins-nav" role="group" aria-label="上下文翻张">
-            <button class="btn-icon" :disabled="!navNeighbor?.prevId" title="上一张（⌥←）" aria-label="上一张"
-              @click="goNeighbor('prev')">
+            <button
+              class="btn-icon"
+              :disabled="!navNeighbor?.prevId"
+              title="上一张（⌥←）"
+              aria-label="上一张"
+              @click="goNeighbor('prev')"
+            >
               <FluentIcon name="chevronLeft" :size="14" />
             </button>
-            <span class="ins-pos"
-              :title="`按日期顺序翻张（当前筛选共 ${navNeighbor?.total ?? 0} 张，与列表排序无关）`">
+            <span
+              class="ins-pos"
+              :title="`按日期顺序翻张（当前筛选共 ${navNeighbor?.total ?? 0} 张，与列表排序无关）`"
+            >
               {{ navPosition }}
             </span>
-            <button class="btn-icon" :disabled="!navNeighbor?.nextId" title="下一张（⌥→）" aria-label="下一张"
-              @click="goNeighbor('next')">
+            <button
+              class="btn-icon"
+              :disabled="!navNeighbor?.nextId"
+              title="下一张（⌥→）"
+              aria-label="下一张"
+              @click="goNeighbor('next')"
+            >
               <FluentIcon name="chevronRight" :size="14" />
             </button>
           </div>
-          <button class="btn" :title="wide ? '收起编辑区（⌘⇧E）' : '展开编辑区（⌘⇧E）'" @click="toggleWide()">
-            <FluentIcon :name="wide ? 'flex-shrink' : 'display'" :size="14" /> {{ wide ? "收起" : "展开" }}
+          <button
+            class="btn"
+            :title="wide ? '收起编辑区（⌘⇧E）' : '展开编辑区（⌘⇧E）'"
+            @click="toggleWide()"
+          >
+            <FluentIcon :name="wide ? 'flex-shrink' : 'display'" :size="14" />
+            {{ wide ? "收起" : "展开" }}
           </button>
         </header>
 
@@ -862,7 +989,10 @@ watch(keyword, () => {
         </VoucherEditor>
 
         <dl class="ins-meta">
-          <div><dt>最后修改</dt><dd>{{ fmtDate(shown.updatedAt) }}</dd></div>
+          <div>
+            <dt>最后修改</dt>
+            <dd>{{ fmtDate(shown.updatedAt) }}</dd>
+          </div>
         </dl>
       </aside>
     </div>
@@ -899,7 +1029,12 @@ watch(keyword, () => {
 </template>
 
 <style scoped>
-.library { display: flex; flex-direction: column; gap: var(--s-3); height: 100%; }
+.library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  height: 100%;
+}
 
 /* 筛选栏**吸顶**（2026-10-17 用户要求）：滚动凭证列表与右栏编辑器时筛选选项保持不动。
    `.main-scroll` 是滚动容器 → sticky top:0 会贴在工具栏下方；加背景与下边线避免内容透出。 */
@@ -916,11 +1051,24 @@ watch(keyword, () => {
   /* 分隔线用 border 而非 box-shadow：阴影在 sticky 吸顶时会随滚动叠出灰边 */
   border-bottom: 1px solid var(--separator);
 }
-.flex-1 { flex: 1; }
-.count { font: var(--type-caption); color: var(--label-tertiary); }
-.inline-check { display: inline-flex; align-items: center; gap: 4px; font: var(--type-caption); color: var(--label-secondary); }
+.flex-1 {
+  flex: 1;
+}
+.count {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--type-caption);
+  color: var(--label-secondary);
+}
 .chip {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: var(--control-h-sm);
   padding: 0 var(--s-2);
   border: 1px solid var(--separator);
@@ -931,62 +1079,159 @@ watch(keyword, () => {
   cursor: default;
 }
 
-.split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: var(--s-3); align-items: start; }
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+}
 /* 展宽（⌘⇧E / 双击行）：编辑区取得大部分宽度，列表仍在左侧保留上下文 */
 /* 展宽档：右栏下限 560 → 720px（2026-10-17 方案 A）——右栏内部要拆「图片｜字段」两列，
    每列至少 ~300px 才不挤（低于 720px 时 CSS 会把两列退回上下堆叠，见 VoucherEditor 的 editor-main） */
-.split--wide { grid-template-columns: minmax(300px, 0.7fr) minmax(720px, 1.6fr); }
-.list-pane { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
-.hint { color: var(--label-tertiary); font: var(--type-body); padding: var(--s-4); }
+.split--wide {
+  grid-template-columns: minmax(300px, 0.7fr) minmax(720px, 1.6fr);
+}
+.list-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.hint {
+  color: var(--label-tertiary);
+  font: var(--type-body);
+  padding: var(--s-4);
+}
 
-.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .row {
-  display: flex; align-items: center; gap: var(--s-2);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   cursor: default;
 }
-.row:hover { background: var(--bg-selection); }
-.row.sel { background: var(--bg-selection); border-color: var(--accent); }
-.row-check { margin: 0; }
+.row:hover {
+  background: var(--bg-selection);
+}
+.row.sel {
+  background: var(--bg-selection);
+  border-color: var(--accent);
+}
+.row-check {
+  margin: 0;
+}
 .row-thumb {
-  width: 44px; height: 56px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
+  width: 44px;
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
   background: var(--surface-2);
   color: var(--label-quaternary);
   overflow: hidden;
 }
-.row-thumb img { width: 100%; height: 100%; object-fit: contain; }
-.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.line1 { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
-.desc { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.amount { font: var(--type-body); font-weight: 600; color: var(--label-primary); font-variant-numeric: tabular-nums; }
-.line2 { display: flex; align-items: center; gap: var(--s-2); font: var(--type-caption); color: var(--label-tertiary); min-width: 0; }
-.line2 .party { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot { color: var(--label-quaternary); }
-.mono { font-family: var(--font-mono); }
+.row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.line1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.desc {
+  font: var(--type-body);
+  color: var(--label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.amount {
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--label-primary);
+  font-variant-numeric: tabular-nums;
+}
+.line2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  min-width: 0;
+}
+.line2 .party {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dot {
+  color: var(--label-quaternary);
+}
+.mono {
+  font-family: var(--font-mono);
+}
 
-.pager { display: flex; align-items: center; gap: var(--s-3); justify-content: center; padding: var(--s-2); }
-.muted { color: var(--label-tertiary); font: var(--type-caption); }
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  justify-content: center;
+  padding: var(--s-2);
+}
+.muted {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
 
 .inspector {
-  display: flex; flex-direction: column; gap: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
   padding: var(--s-3);
   border: 1px solid var(--separator);
   border-radius: var(--radius-panel);
   background: var(--bg-content);
-  position: sticky; top: 0;
+  position: sticky;
+  top: 0;
   /* 右栏自成一个滚动区：字段多了（v0.19 起含图片/表单/快照）也不把整页拖长 */
   max-height: calc(100vh - 190px);
   overflow-y: auto;
 }
-.ins-head { display: flex; align-items: center; gap: var(--s-2); }
+.ins-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
 
 /* 上下文翻张：右栏头部右侧的「‹ 第 n/N 张 ›」。位置文案用等宽数字，翻页时宽度不跳。 */
-.ins-nav { display: inline-flex; align-items: center; gap: 2px; }
+.ins-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .ins-pos {
   min-width: 84px;
   text-align: center;
@@ -994,22 +1239,61 @@ watch(keyword, () => {
   color: var(--label-tertiary);
   font-variant-numeric: tabular-nums;
 }
-.link { background: none; border: none; padding: 0; color: var(--accent); font: var(--type-caption); cursor: pointer; text-decoration: underline; }
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: var(--type-caption);
+  cursor: pointer;
+  text-decoration: underline;
+}
 /* B 批：头部「● 未保存」提示（原来只在底部操作行里） */
 .ins-dirty {
   font: var(--type-caption);
   color: var(--warning);
   white-space: nowrap;
 }
-.ins-meta { display: flex; flex-direction: column; gap: 6px; margin: 0; }
-.ins-meta > div { display: grid; grid-template-columns: 64px 1fr; gap: var(--s-2); align-items: baseline; }
-.ins-meta dt { color: var(--label-tertiary); font: var(--type-caption); white-space: nowrap; }
-.ins-meta dd { margin: 0; font: var(--type-body); color: var(--label-primary); overflow-wrap: anywhere; }
-.sel-count { font: var(--type-caption); color: var(--accent); white-space: nowrap; }
-.ins-hint { margin: 0; font: var(--type-caption); color: var(--label-tertiary); }
+.ins-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.ins-meta > div {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+.ins-meta dt {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+.ins-meta dd {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--label-primary);
+  overflow-wrap: anywhere;
+}
+.sel-count {
+  font: var(--type-caption);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.ins-hint {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
 
 @media (max-width: 1100px) {
-  .split { grid-template-columns: minmax(0, 1fr); }
-  .inspector { position: static; }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inspector {
+    position: static;
+  }
 }
 </style>

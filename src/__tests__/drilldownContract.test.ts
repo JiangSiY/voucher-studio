@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { repoFile } from "./helpers/designGuard";
 
-
 /** 所有页面里"跳到 /vouchers 并带 query"的键集合 */
 function pushedKeys(): Map<string, Set<string>> {
   const root = fileURLToPath(new URL("../../src", import.meta.url));
@@ -92,7 +91,14 @@ describe("下钻参数契约（/vouchers）", () => {
     const pushed = pushedKeys();
     const all = new Set<string>();
     for (const keys of pushed.values()) keys.forEach((k) => all.add(k));
-    for (const k of ["counterparty", "tags", "counterpartyEmpty", "amountEmpty", "ocrStatus", "noImage"]) {
+    for (const k of [
+      "counterparty",
+      "tags",
+      "counterpartyEmpty",
+      "amountEmpty",
+      "ocrStatus",
+      "noImage",
+    ]) {
       expect([...all], `缺少下钻源覆盖：${k}`).toContain(k);
     }
   });

@@ -11,6 +11,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { flat } from "./helpers/designGuard";
 
 const read = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
 
@@ -22,8 +23,12 @@ const spec = read("docs/UI-设计规范-macOS27.md");
 describe("上一张 / 下一张", () => {
   it("右栏头部有可见入口，禁用态跟着相邻张有无走", () => {
     expect(page).toMatch(/class="ins-nav" role="group" aria-label="上下文翻张"/);
-    expect(page).toMatch(/class="btn-icon" :disabled="!navNeighbor\?\.prevId" title="上一张（⌥←）" aria-label="上一张"/);
-    expect(page).toMatch(/class="btn-icon" :disabled="!navNeighbor\?\.nextId" title="下一张（⌥→）" aria-label="下一张"/);
+    expect(flat(page)).toMatch(
+      /class="btn-icon" :disabled="!navNeighbor\?\.prevId" title="上一张（⌥←）" aria-label="上一张"/,
+    );
+    expect(flat(page)).toMatch(
+      /class="btn-icon" :disabled="!navNeighbor\?\.nextId" title="下一张（⌥→）" aria-label="下一张"/,
+    );
     expect(page).toMatch(/\{\{ navPosition \}\}/);
     // 顺序与列表排序无关，必须在 title 里说清（否则按金额排序时会以为翻错了）
     expect(page).toMatch(/按日期顺序翻张（当前筛选共/);
@@ -34,8 +39,12 @@ describe("上一张 / 下一张", () => {
     expect(page).toMatch(/e\.altKey && \(e\.key === "ArrowLeft" \|\| e\.key === "ArrowRight"\)/);
     expect(page).toMatch(/goNeighbor\(e\.key === "ArrowLeft" \? "prev" : "next"\)/);
     // 输入框早退必须在 ⌥ 分支之前：inputs 里 alt+方向键是按词移动光标
-    const guard = page.indexOf('if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;');
-    const altBranch = page.indexOf('if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight"))');
+    const guard = page.indexOf(
+      'if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;',
+    );
+    const altBranch = page.indexOf(
+      'if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight"))',
+    );
     expect(guard).toBeGreaterThan(-1);
     expect(altBranch).toBeGreaterThan(guard);
   });
@@ -59,7 +68,7 @@ describe("上一张 / 下一张", () => {
   });
 
   it("帮助页与规范同步为「已实装」", () => {
-    expect(help).toMatch(/\{ keys: "⌥← ⌥→", what: "上一张 \/ 下一张/);
+    expect(flat(help)).toMatch(/\{ keys: "⌥← ⌥→", what: "上一张 \/ 下一张/);
     expect(spec).toMatch(/\| ⌥← \/ ⌥→ \| \*\*上一张 \/ 下一张（2026-10-16 实装）\*\*/);
     // ⌘⇧Enter 也已实装（同日），规范里同样要标「实装」而不是「仍未实装」
     expect(spec).toMatch(/\| ⌘⇧Enter \|[^|\n]*实装/);

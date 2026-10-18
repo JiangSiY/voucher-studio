@@ -8,7 +8,16 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, errMsg, type AppConfig, type ClearStrategy, type ClearSummary, type EnhanceStatusV2, type HitTrend, type RecentEnhancedRow } from "../../api/client";
+import {
+  api,
+  errMsg,
+  type AppConfig,
+  type ClearStrategy,
+  type ClearSummary,
+  type EnhanceStatusV2,
+  type HitTrend,
+  type RecentEnhancedRow,
+} from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useTaskStore } from "../../stores/tasks";
@@ -18,13 +27,25 @@ const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 
 // 7 步流水线（v0.6.1 起去噪/锐化实装，全部可逐项开关）
 const enhanceActiveSteps: { key: keyof AppConfig["enhance"]; label: string; desc: string }[] = [
-  { key: "stepDeskew",    label: "1. 倾斜矫正",      desc: "Hough 直线 → 取最强水平线倾角 → 旋转校正" },
-  { key: "stepDewarp",    label: "2. 透视矫正",      desc: "检测最大四边形 → 透视变换" },
-  { key: "stepAutocrop",  label: "3. 自动裁边",      desc: "Otsu 自适应阈值 → 最大轮廓 bbox → 外扩 2% 安全边（v0.8 修复：旧版会裁掉票据边缘）" },
-  { key: "stepDenoise",   label: "4. 中值去噪",      desc: "3×3 中值滤波，保边去噪点（默认关，建议搭配锐化开）" },
-  { key: "stepSharpen",   label: "5. Unsharp 锐化",  desc: "高斯差分锐化文字边缘（默认关，过度锐化会放大噪声）" },
-  { key: "stepGrayscale", label: "6. 灰度化",        desc: "BGR → GRAY，给 OCR 用" },
-  { key: "stepBinarize",  label: "7. 自适应二值化",  desc: "高斯加权 → 31 窗口 / C=10" },
+  { key: "stepDeskew", label: "1. 倾斜矫正", desc: "Hough 直线 → 取最强水平线倾角 → 旋转校正" },
+  { key: "stepDewarp", label: "2. 透视矫正", desc: "检测最大四边形 → 透视变换" },
+  {
+    key: "stepAutocrop",
+    label: "3. 自动裁边",
+    desc: "Otsu 自适应阈值 → 最大轮廓 bbox → 外扩 2% 安全边（v0.8 修复：旧版会裁掉票据边缘）",
+  },
+  {
+    key: "stepDenoise",
+    label: "4. 中值去噪",
+    desc: "3×3 中值滤波，保边去噪点（默认关，建议搭配锐化开）",
+  },
+  {
+    key: "stepSharpen",
+    label: "5. Unsharp 锐化",
+    desc: "高斯差分锐化文字边缘（默认关，过度锐化会放大噪声）",
+  },
+  { key: "stepGrayscale", label: "6. 灰度化", desc: "BGR → GRAY，给 OCR 用" },
+  { key: "stepBinarize", label: "7. 自适应二值化", desc: "高斯加权 → 31 窗口 / C=10" },
 ];
 
 // D-2：增强缓存管理 v2
@@ -94,9 +115,7 @@ async function clearEnhanceV2() {
   clearingCache.value = true;
   try {
     const r: ClearSummary = await api.clearEnhanceCacheV2(s, t);
-    toast.success(
-      `已释放 ${r.deletedFiles} 个增强版（${(r.freedBytes / 1048576).toFixed(1)} MB）`,
-    );
+    toast.success(`已释放 ${r.deletedFiles} 个增强版（${(r.freedBytes / 1048576).toFixed(1)} MB）`);
     await refreshEnhancePanel();
   } catch (e) {
     toastError(e);
@@ -151,7 +170,8 @@ let unlistenEnhanceProgress: UnlistenFn | null = null;
 
 async function reEnhanceAll() {
   if (reEnhancing.value) return;
-  if (!confirm("按新算法重新增强全部已有增强版图片？原图与凭证数据不变，仅重算增强版文件。")) return;
+  if (!confirm("按新算法重新增强全部已有增强版图片？原图与凭证数据不变，仅重算增强版文件。"))
+    return;
   reEnhancing.value = true;
   reEnhanceDone.value = 0;
   reEnhanceTotal.value = 0;
@@ -216,9 +236,10 @@ onUnmounted(() => {
       <div class="callout info settings-note">
         <span class="ci"><FluentIcon name="sparkle" :size="18" /></span>
         <div class="ct">
-          <strong>文档扫描矫正</strong>：对导入的图片自动跑 7 步算法（Hough 倾斜矫正 → 透视矫正 → 自动裁边 → 中值去噪 → Unsharp 锐化 → 灰度化 → 自适应二值化），
-          矫正后的增强版用于 OCR（更准）和查看器（更易读）；任一步失败自动跳过、回退到上一步输出。
-          去噪 / 锐化为 v0.6.1 新增步骤，默认关闭——可导入票据后开启对比效果。
+          <strong>文档扫描矫正</strong>：对导入的图片自动跑 7 步算法（Hough 倾斜矫正 → 透视矫正 →
+          自动裁边 → 中值去噪 → Unsharp 锐化 → 灰度化 → 自适应二值化）， 矫正后的增强版用于
+          OCR（更准）和查看器（更易读）；任一步失败自动跳过、回退到上一步输出。 去噪 / 锐化为 v0.6.1
+          新增步骤，默认关闭——可导入票据后开启对比效果。
         </div>
       </div>
 
@@ -236,10 +257,16 @@ onUnmounted(() => {
       <div class="settings-head">
         <div>
           <div class="settings-caption-strong">仅对扫描件生效</div>
-          <div class="settings-caption">关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）</div>
+          <div class="settings-caption">
+            关闭 = 全部图片都跑；开启 = 截图跳过（已接近二值图，无收益）
+          </div>
         </div>
         <label class="toggle">
-          <input type="checkbox" v-model="draftCfg.enhance.onlyScans" :disabled="!draftCfg.enhance.enabled" />
+          <input
+            type="checkbox"
+            v-model="draftCfg.enhance.onlyScans"
+            :disabled="!draftCfg.enhance.enabled"
+          />
           <span class="slider"></span>
         </label>
       </div>
@@ -247,15 +274,28 @@ onUnmounted(() => {
       <div class="field settings-section">
         <label>7 步流水线（按顺序执行，单步失败跳过）</label>
         <div class="step-list">
-          <div v-for="s in enhanceActiveSteps" :key="s.key" class="step-row" :class="{ disabled: !draftCfg.enhance.enabled }">
+          <div
+            v-for="s in enhanceActiveSteps"
+            :key="s.key"
+            class="step-row"
+            :class="{ disabled: !draftCfg.enhance.enabled }"
+          >
             <label class="toggle">
-              <input type="checkbox" v-model="draftCfg.enhance[s.key]" :disabled="!draftCfg.enhance.enabled" />
+              <input
+                type="checkbox"
+                v-model="draftCfg.enhance[s.key]"
+                :disabled="!draftCfg.enhance.enabled"
+              />
               <span class="slider"></span>
             </label>
             <div class="step-info">
               <div class="step-label">
                 {{ s.label }}
-                <span v-if="s.key === 'stepDenoise' || s.key === 'stepSharpen'" class="tag tag-muted">v0.6.1</span>
+                <span
+                  v-if="s.key === 'stepDenoise' || s.key === 'stepSharpen'"
+                  class="tag tag-muted"
+                  >v0.6.1</span
+                >
               </div>
               <div class="step-desc">{{ s.desc }}</div>
             </div>
@@ -268,7 +308,9 @@ onUnmounted(() => {
       <div v-if="missingEnhanced > 0" class="callout warning settings-mb">
         <span class="ci"><FluentIcon name="warning" :size="18" /></span>
         <div class="ct">
-          有 <strong>{{ missingEnhanced }}</strong> 张图片的「增强版」文件不在磁盘上——增强版属可重建缓存、
+          有
+          <strong>{{ missingEnhanced }}</strong>
+          张图片的「增强版」文件不在磁盘上——增强版属可重建缓存、
           不随备份保存（恢复备份后常见）。界面已自动改用原图显示，点下方「重新增强全部」即可重建。
         </div>
       </div>
@@ -290,7 +332,9 @@ onUnmounted(() => {
       <div class="field settings-section">
         <label class="settings-inline">
           增强缓存
-          <button class="btn-mini" @click="refreshEnhancePanel" title="刷新"><FluentIcon name="refresh" :size="12" /></button>
+          <button class="btn-mini" @click="refreshEnhancePanel" title="刷新">
+            <FluentIcon name="refresh" :size="12" />
+          </button>
         </label>
 
         <!-- 摘要卡：总数 / 大小 / 截图 / 扫描件 -->
@@ -321,7 +365,14 @@ onUnmounted(() => {
           </div>
           <div class="hit-cell">
             <div class="hit-num">
-              {{ enhanceStatV2.total > 0 ? Math.round((recentEnhanced.filter(r => r.hitCount > 0).length / enhanceStatV2.total) * 100) : 0 }}%
+              {{
+                enhanceStatV2.total > 0
+                  ? Math.round(
+                      (recentEnhanced.filter((r) => r.hitCount > 0).length / enhanceStatV2.total) *
+                        100,
+                    )
+                  : 0
+              }}%
             </div>
             <div class="hit-label">活跃增强版占比</div>
           </div>
@@ -344,15 +395,24 @@ onUnmounted(() => {
           <div class="ht-head">
             <span class="ht-title">命中趋势</span>
             <div class="ht-days">
-              <button v-for="d in [7, 14, 30] as const" :key="d" class="ht-day"
-                :class="{ on: trendDays === d }" @click="changeTrendDays(d)">
+              <button
+                v-for="d in [7, 14, 30] as const"
+                :key="d"
+                class="ht-day"
+                :class="{ on: trendDays === d }"
+                @click="changeTrendDays(d)"
+              >
                 {{ d }}天
               </button>
             </div>
           </div>
           <div class="ht-chart">
-            <div v-for="p in hitTrend.points" :key="p.day" class="ht-col"
-              :title="`${p.day}：OCR ${p.ocr} / 导出 ${p.export} / 查看 ${p.viewer}（合计 ${p.total}）`">
+            <div
+              v-for="p in hitTrend.points"
+              :key="p.day"
+              class="ht-col"
+              :title="`${p.day}：OCR ${p.ocr} / 导出 ${p.export} / 查看 ${p.viewer}（合计 ${p.total}）`"
+            >
               <div class="ht-bar">
                 <div class="ht-seg seg-ocr" :style="{ height: barPct(p.ocr) + '%' }"></div>
                 <div class="ht-seg seg-export" :style="{ height: barPct(p.export) + '%' }"></div>
@@ -373,27 +433,48 @@ onUnmounted(() => {
         <div class="clear-strategy">
           <div class="cs-title">释放策略</div>
           <div class="cs-row">
-            <label class="cs-opt" title="智能清理：只释放「零命中且超过宽限期」的增强版，被用过的永不清理">
+            <label
+              class="cs-opt"
+              title="智能清理：只释放「零命中且超过宽限期」的增强版，被用过的永不清理"
+            >
               <input type="radio" v-model="clearStrategy" value="smart" />
               <span>智能·零命中超</span>
-              <input v-if="clearStrategy === 'smart'" type="number" min="1" max="365"
-                v-model.number="clearThreshold" class="cs-num" />
+              <input
+                v-if="clearStrategy === 'smart'"
+                type="number"
+                min="1"
+                max="365"
+                v-model.number="clearThreshold"
+                class="cs-num"
+              />
               <span v-else>30</span>
               <span>天</span>
             </label>
             <label class="cs-opt">
               <input type="radio" v-model="clearStrategy" value="older_than_days" />
               <span>早于</span>
-              <input v-if="clearStrategy === 'older_than_days'" type="number" min="1" max="365"
-                v-model.number="clearThreshold" class="cs-num" />
+              <input
+                v-if="clearStrategy === 'older_than_days'"
+                type="number"
+                min="1"
+                max="365"
+                v-model.number="clearThreshold"
+                class="cs-num"
+              />
               <span v-else>30</span>
               <span>天</span>
             </label>
             <label class="cs-opt">
               <input type="radio" v-model="clearStrategy" value="larger_than_mb" />
               <span>大于</span>
-              <input v-if="clearStrategy === 'larger_than_mb'" type="number" min="1" max="500"
-                v-model.number="clearThreshold" class="cs-num" />
+              <input
+                v-if="clearStrategy === 'larger_than_mb'"
+                type="number"
+                min="1"
+                max="500"
+                v-model.number="clearThreshold"
+                class="cs-num"
+              />
               <span v-else>10</span>
               <span>MB</span>
             </label>
@@ -401,12 +482,17 @@ onUnmounted(() => {
               <input type="radio" v-model="clearStrategy" value="all" />
               <span>全部</span>
             </label>
-            <button class="btn btn-danger" :disabled="clearingCache || !enhanceStatV2?.total" @click="clearEnhanceV2">
+            <button
+              class="btn btn-danger"
+              :disabled="clearingCache || !enhanceStatV2?.total"
+              @click="clearEnhanceV2"
+            >
               {{ clearingCache ? "释放中…" : "释放空间" }}
             </button>
           </div>
           <div class="cs-hint">
-            仅清缓存，不删原图；下次导入同 hash 图会重新生成。智能 = 零命中且超过宽限期的先淘汰（推荐）
+            仅清缓存，不删原图；下次导入同 hash 图会重新生成。智能 =
+            零命中且超过宽限期的先淘汰（推荐）
           </div>
         </div>
 
@@ -415,45 +501,54 @@ onUnmounted(() => {
           <div class="re-title">最近增强（按修改时间倒序）</div>
           <!-- 窄窗兜底：裸表在窄档会被 .fluent-panel 的 overflow:hidden 裁掉，套滚动容器 -->
           <div v-if="recentEnhanced.length" class="dtable-wrap">
-          <table class="re-table">
-            <thead>
-              <tr>
-                <th>文件</th>
-                <th>来源</th>
-                <th>大小</th>
-                <th>命中</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in recentEnhanced" :key="r.attachmentId">
-                <td :title="r.voucherNo + ' / ' + r.fileName">
-                  <div class="re-file">{{ r.fileName }}</div>
-                  <div class="re-vno">{{ r.voucherNo }}</div>
-                </td>
-                <td>
-                  <span v-if="r.enhancedSource === 'scan'" class="tag">扫描件</span>
-                  <span v-else-if="r.enhancedSource === 'screenshot'" class="tag tag-muted">截图</span>
-                  <span v-else class="tag tag-muted">来源未知</span>
-                </td>
-                <td class="settings-num">
-                  {{ (r.enhancedSize / 1024).toFixed(0) }} KB
-                </td>
-                <td class="settings-num">
-                  <span :class="['re-hit', r.hitCount > 0 ? 'on' : 'off']">{{ r.hitCount }}</span>
-                </td>
-                <td class="re-ops">
-                  <button v-if="pendingDeleteOne === r.attachmentId" class="btn-mini danger"
-                    title="再次点击确认释放（5 秒内有效）" @click="deleteOneEnhanced(r)">
-                    再点确认
-                  </button>
-                  <button v-else class="btn-mini" title="释放该条增强版" @click="deleteOneEnhanced(r)">
-                    释放
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+            <table class="re-table">
+              <thead>
+                <tr>
+                  <th>文件</th>
+                  <th>来源</th>
+                  <th>大小</th>
+                  <th>命中</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in recentEnhanced" :key="r.attachmentId">
+                  <td :title="r.voucherNo + ' / ' + r.fileName">
+                    <div class="re-file">{{ r.fileName }}</div>
+                    <div class="re-vno">{{ r.voucherNo }}</div>
+                  </td>
+                  <td>
+                    <span v-if="r.enhancedSource === 'scan'" class="tag">扫描件</span>
+                    <span v-else-if="r.enhancedSource === 'screenshot'" class="tag tag-muted"
+                      >截图</span
+                    >
+                    <span v-else class="tag tag-muted">来源未知</span>
+                  </td>
+                  <td class="settings-num">{{ (r.enhancedSize / 1024).toFixed(0) }} KB</td>
+                  <td class="settings-num">
+                    <span :class="['re-hit', r.hitCount > 0 ? 'on' : 'off']">{{ r.hitCount }}</span>
+                  </td>
+                  <td class="re-ops">
+                    <button
+                      v-if="pendingDeleteOne === r.attachmentId"
+                      class="btn-mini danger"
+                      title="再次点击确认释放（5 秒内有效）"
+                      @click="deleteOneEnhanced(r)"
+                    >
+                      再点确认
+                    </button>
+                    <button
+                      v-else
+                      class="btn-mini"
+                      title="释放该条增强版"
+                      @click="deleteOneEnhanced(r)"
+                    >
+                      释放
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <div v-else class="re-empty">尚无增强记录；导入图片并启用扫描矫正后会出现在这里</div>
         </div>
@@ -464,13 +559,25 @@ onUnmounted(() => {
 
 <style scoped>
 /* 最近增强表：列宽与右对齐原本是内联样式（U4 收编），表结构固定故按列序号定宽 */
-.re-table th:nth-child(1) { width: 38%; }
-.re-table th:nth-child(2) { width: 18%; }
-.re-table th:nth-child(3) { width: 14%; }
-.re-table th:nth-child(4) { width: 10%; }
-.re-table th:nth-child(5) { width: 20%; }
+.re-table th:nth-child(1) {
+  width: 38%;
+}
+.re-table th:nth-child(2) {
+  width: 18%;
+}
+.re-table th:nth-child(3) {
+  width: 14%;
+}
+.re-table th:nth-child(4) {
+  width: 10%;
+}
+.re-table th:nth-child(5) {
+  width: 20%;
+}
 .re-table th:nth-child(n + 3),
-.re-table .re-ops { text-align: right; }
+.re-table .re-ops {
+  text-align: right;
+}
 
 /* 7 步流水线步骤列表 */
 .step-list {
@@ -539,7 +646,9 @@ onUnmounted(() => {
   background: var(--surface-2);
   color: var(--text-2);
   cursor: pointer;
-  transition: background var(--motion-fast) var(--motion-curve), border-color var(--motion-fast) var(--motion-curve);
+  transition:
+    background var(--motion-fast) var(--motion-curve),
+    border-color var(--motion-fast) var(--motion-curve);
   line-height: 1.4;
 }
 .btn-mini:hover {
@@ -555,14 +664,21 @@ onUnmounted(() => {
   animation: d2-pulse var(--motion-slow) ease-in-out infinite;
 }
 @keyframes d2-pulse {
-  0%, 100% { background: rgba(220, 38, 38, 0.1); }
-  50%      { background: rgba(220, 38, 38, 0.22); }
+  0%,
+  100% {
+    background: rgba(220, 38, 38, 0.1);
+  }
+  50% {
+    background: rgba(220, 38, 38, 0.22);
+  }
 }
 /* 危险按钮样式统一由 base.css 的 .btn-danger 提供（原局部覆盖与全局完全重复，2026-10-18 删除） */
 
 /* .enhance-hit-bar 已收敛到 src/styles/base.css《窗口缩放适配》一节（scoped 特异性高于
    base.css，会让全局断点失效，故移出组件）。 */
-.hit-cell { text-align: center; }
+.hit-cell {
+  text-align: center;
+}
 .hit-num {
   font-size: var(--fs-display);
   font-weight: 600;
@@ -651,9 +767,15 @@ onUnmounted(() => {
   min-height: 0;
   transition: height var(--motion-normal) var(--motion-curve);
 }
-.ht-seg.seg-ocr    { background: var(--accent); }
-.ht-seg.seg-export { background: var(--success); }
-.ht-seg.seg-viewer { background: var(--label-tertiary); }
+.ht-seg.seg-ocr {
+  background: var(--accent);
+}
+.ht-seg.seg-export {
+  background: var(--success);
+}
+.ht-seg.seg-viewer {
+  background: var(--label-tertiary);
+}
 .ht-day-label {
   font-size: var(--fs-caption);
   color: var(--text-3);
@@ -763,7 +885,9 @@ onUnmounted(() => {
   color: var(--text);
   vertical-align: middle;
 }
-.re-table tr:last-child td { border-bottom: none; }
+.re-table tr:last-child td {
+  border-bottom: none;
+}
 .re-file {
   font-weight: 500;
   white-space: nowrap;
@@ -785,8 +909,14 @@ onUnmounted(() => {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.re-hit.on  { background: rgba(99, 102, 241, 0.12); color: var(--accent); }
-.re-hit.off { background: var(--surface-2); color: var(--text-3); }
+.re-hit.on {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent);
+}
+.re-hit.off {
+  background: var(--surface-2);
+  color: var(--text-3);
+}
 .re-empty {
   padding: 16px;
   text-align: center;

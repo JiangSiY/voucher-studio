@@ -19,7 +19,8 @@ const dataDir = computed(() => configStore.appInfo?.dataDir ?? "");
 const appVersion = computed(() => configStore.appInfo?.version ?? "");
 
 /** 自动更新（挂账 #39）：打包版查 GitHub Release 的 latest.json；开发模式不连更新源 */
-type UpdateState = "idle" | "checking" | "latest" | "available" | "installing" | "installed" | "dev" | "error";
+type UpdateState =
+  "idle" | "checking" | "latest" | "available" | "installing" | "installed" | "dev" | "error";
 const updateState = ref<UpdateState>("idle");
 const availableVersion = ref("");
 const availableNotes = ref("");
@@ -102,7 +103,9 @@ async function openDataDir() {
       <div class="field">
         <label>界面字号</label>
         <select v-model.number="draftCfg.appearance.uiScale" class="input settings-narrow">
-          <option v-for="o in UI_SCALE_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          <option v-for="o in UI_SCALE_OPTIONS" :key="o.value" :value="o.value">
+            {{ o.label }}
+          </option>
         </select>
         <div class="desc">
           控制正文字号与控件高度（标准 / 大 / 更大）。默认「大」——正文 17px、辅助 15px 左右；
@@ -133,7 +136,9 @@ async function openDataDir() {
               <option value="compact">省纸紧凑 · 横幅 + 12pt 汇总表 + 竖票 3×3（推荐）</option>
               <option value="archive">档案装订 · 独立封面 + 12pt 汇总表 + 图片 2×2</option>
             </select>
-            <div class="desc">两套模板均为 12pt（小四）表格、按行高自动分页；图片等比缩放完整显示不裁内容。</div>
+            <div class="desc">
+              两套模板均为 12pt（小四）表格、按行高自动分页；图片等比缩放完整显示不裁内容。
+            </div>
           </div>
           <div class="field">
             <label>打印优先增强版图片</label>
@@ -173,14 +178,19 @@ async function openDataDir() {
           </button>
         </div>
         <div v-if="updateState === 'available'" class="desc">
-          新版本 v{{ availableVersion }} 可用{{ availableNotes ? `：${availableNotes}` : "" }}（安装完成后应用会自动重启）
+          新版本 v{{ availableVersion }} 可用{{
+            availableNotes ? `：${availableNotes}` : ""
+          }}（安装完成后应用会自动重启）
         </div>
         <div v-else-if="updateState === 'latest'" class="desc">已是最新版本。</div>
-        <div v-else-if="updateState === 'dev'" class="desc">开发模式不检查更新（打包版才连更新源）。</div>
+        <div v-else-if="updateState === 'dev'" class="desc">
+          开发模式不检查更新（打包版才连更新源）。
+        </div>
         <div v-else-if="updateState === 'installed'" class="desc">更新已安装，正在重启…</div>
         <div v-else-if="updateState === 'error'" class="desc">检查更新失败：{{ errorText }}</div>
         <div v-else class="desc">
-          从 GitHub Release 的 latest.json 取更新（需签名校验）；不想用自动更新时也可直接下载新的 dmg 覆盖安装。
+          从 GitHub Release 的 latest.json 取更新（需签名校验）；不想用自动更新时也可直接下载新的
+          dmg 覆盖安装。
         </div>
       </div>
     </div>

@@ -77,11 +77,19 @@ function v(over: Partial<Voucher> = {}): Voucher {
   } as Voucher;
 }
 
-const thumb = { filePath: "2026-09/a.jpg", enhancedPath: null, enhancedSource: "unknown", fileAbs: "/tmp/a.jpg", enhancedAbs: null };
+const thumb = {
+  filePath: "2026-09/a.jpg",
+  enhancedPath: null,
+  enhancedSource: "unknown",
+  fileAbs: "/tmp/a.jpg",
+  enhancedAbs: null,
+};
 
 /** 确认框走 Teleport 到 body，按钮要按文档级查询找 */
 function dialogButton(label: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+  const found = [...document.querySelectorAll("button")].find(
+    (b) => b.textContent?.trim() === label,
+  );
   if (!found) throw new Error(`找不到按钮：${label}`);
   return found as HTMLButtonElement;
 }
@@ -98,15 +106,32 @@ async function mountPage(): Promise<VueWrapper> {
 beforeEach(() => {
   setActivePinia(createPinia());
   mockApi.listVouchers.mockResolvedValue({
-    items: [v(), v({ id: 2, voucherNo: "20260924-001", description: "河北神力工程款", amountCents: 20000000 })],
+    items: [
+      v(),
+      v({ id: 2, voucherNo: "20260924-001", description: "河北神力工程款", amountCents: 20000000 }),
+    ],
     total: 2,
     thumbs: { 1: thumb, 2: thumb },
   } as never);
   mockApi.getVoucher.mockResolvedValue({ voucher: v(), attachments: [], snapshots: [] });
-  mockApi.updateVoucher.mockImplementation(async (id, u) => v({ id, amountCents: u.amountCents ?? null, description: u.description ?? "", counterparty: u.counterparty ?? "", tags: u.tags ?? [], note: u.note ?? "" }));
+  mockApi.updateVoucher.mockImplementation(async (id, u) =>
+    v({
+      id,
+      amountCents: u.amountCents ?? null,
+      description: u.description ?? "",
+      counterparty: u.counterparty ?? "",
+      tags: u.tags ?? [],
+      note: u.note ?? "",
+    }),
+  );
   mockApi.listVoucherIds.mockResolvedValue([1, 2]);
   // 上下文翻张：默认"第一张，后面还有一张"
-  mockApi.getVoucherNeighbor.mockResolvedValue({ prevId: null, nextId: 2, position: 1, total: 2 } as never);
+  mockApi.getVoucherNeighbor.mockResolvedValue({
+    prevId: null,
+    nextId: 2,
+    position: 1,
+    total: 2,
+  } as never);
   mockApi.batchUpdateStatus.mockResolvedValue(2);
   mockApi.listPeriodLocks.mockResolvedValue([]);
   mockApi.checkVoucherDuplicates.mockResolvedValue([]);
@@ -133,11 +158,18 @@ describe("资料库：双行列表与检视器", () => {
     const w = await mountPage();
     await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("12345.67");
     expect(w.text()).toContain("未保存");
-    await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "保存")!
+      .trigger("click");
     await flushPromises();
     expect(mockApi.updateVoucher).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ amountCents: 1234567, clearAmount: false, description: "润博纺织工程款" }),
+      expect.objectContaining({
+        amountCents: 1234567,
+        clearAmount: false,
+        description: "润博纺织工程款",
+      }),
     );
     expect(w.text()).not.toContain("未保存");
   });
@@ -152,7 +184,10 @@ describe("资料库：双行列表与检视器", () => {
     // 原非方向标签（工程款）仍在数据里、不被覆盖
     await w.find('[data-field="tags"] [data-direction="支出"]').trigger("click");
     await w.find<HTMLTextAreaElement>('[data-field="note"] textarea').setValue("已核对");
-    await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "保存")!
+      .trigger("click");
     await flushPromises();
     expect(mockApi.updateVoucher).toHaveBeenCalledWith(
       1,
@@ -169,15 +204,24 @@ describe("资料库：双行列表与检视器", () => {
   it("金额清空 → 提交 clearAmount（显式置空，而不是忽略）", async () => {
     const w = await mountPage();
     await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("");
-    await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "保存")!
+      .trigger("click");
     await flushPromises();
-    expect(mockApi.updateVoucher).toHaveBeenCalledWith(1, expect.objectContaining({ amountCents: null, clearAmount: true }));
+    expect(mockApi.updateVoucher).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ amountCents: null, clearAmount: true }),
+    );
   });
 
   it("金额非法（12.34.56）→ 拦下且不调后端", async () => {
     const w = await mountPage();
     await w.find<HTMLInputElement>('[data-field="amount"] input').setValue("12.34.56");
-    await w.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "保存")!
+      .trigger("click");
     await flushPromises();
     expect(mockApi.updateVoucher).not.toHaveBeenCalled();
   });
@@ -273,7 +317,10 @@ describe("资料库：未保存修改的离开保护", () => {
 describe("资料库：跨页选择集", () => {
   it("「全选筛选结果」走只读 id 接口并显示已选数量", async () => {
     const w = await mountPage();
-    await w.findAll("button").find((b) => b.text().includes("全选筛选结果"))!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text().includes("全选筛选结果"))!
+      .trigger("click");
     await flushPromises();
     expect(mockApi.listVoucherIds).toHaveBeenCalled();
     expect(w.text()).toContain("已选 2 张");
@@ -291,11 +338,17 @@ describe("资料库：跨页选择集", () => {
     expect(w.text()).toContain("已选 1 张");
 
     // 翻到下一页（列表重载）——选择集必须保留
-    await w.findAll("button").find((b) => b.text() === "下一页")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "下一页")!
+      .trigger("click");
     await flushPromises();
     expect(w.text()).toContain("已选 1 张");
 
-    await w.findAll("button").find((b) => b.text() === "清除")!.trigger("click");
+    await w
+      .findAll("button")
+      .find((b) => b.text() === "清除")!
+      .trigger("click");
     expect(w.text()).not.toContain("已选");
   });
 });
@@ -346,7 +399,9 @@ describe("资料库：⌘⇧Enter 复核通过并下一张", () => {
     const w = await mountPage();
     await flushPromises();
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }),
+    );
     await flushPromises();
 
     expect(mockApi.updateVoucher).toHaveBeenCalledWith(
@@ -367,7 +422,9 @@ describe("资料库：⌘⇧Enter 复核通过并下一张", () => {
     await flushPromises();
     mockApi.updateVoucher.mockClear();
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }),
+    );
     await flushPromises();
 
     expect(mockApi.updateVoucher).not.toHaveBeenCalled();

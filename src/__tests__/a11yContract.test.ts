@@ -51,9 +51,9 @@ describe("无障碍回退（规范 §4）", () => {
   });
 
   it("深色侧栏材质不透明度足够（浅色底上不被冲成中灰）", () => {
-    const decls = [...tokens.matchAll(/--bg-sidebar:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/g)].map(
-      (m) => ({ r: Number(m[1]), alpha: Number(m[4]) }),
-    );
+    const decls = [
+      ...tokens.matchAll(/--bg-sidebar:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/g),
+    ].map((m) => ({ r: Number(m[1]), alpha: Number(m[4]) }));
     // 深色主题块 + `@media (prefers-color-scheme: dark)` 兜底块，两处数值必须都够
     const dark = decls.filter((d) => d.r < 128);
     const light = decls.filter((d) => d.r >= 128);

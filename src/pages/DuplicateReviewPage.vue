@@ -25,11 +25,24 @@ import {
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import FluentIcon from "../components/FluentIcon.vue";
-import { compareRows, decisionSummary, decisionTag, diffCount, evidenceMeta, evidenceReasons, groupHeadline, pairKey } from "../composables/dupReview";
+import {
+  compareRows,
+  decisionSummary,
+  decisionTag,
+  diffCount,
+  evidenceMeta,
+  evidenceReasons,
+  groupHeadline,
+  pairKey,
+} from "../composables/dupReview";
 import { fmtAmount, fmtDate } from "../composables/format";
 import { safeListen } from "../composables/safeListen";
 import { toast, toastError } from "../stores/toast";
-import { candidatePaths, nextFallbackStep, pickCandidate } from "../composables/useAttachmentFallback";
+import {
+  candidatePaths,
+  nextFallbackStep,
+  pickCandidate,
+} from "../composables/useAttachmentFallback";
 
 const route = useRoute();
 const router = useRouter();
@@ -167,7 +180,11 @@ function askRemove(keep: Voucher, remove: Voucher) {
 const removeBody = computed(() => {
   const c = confirmRemove.value;
   if (!c) return "";
-  const desc = [c.remove.description || "（无摘要）", c.remove.counterparty || "（无对方）", fmtAmount(c.remove.amountCents)].join(" · ");
+  const desc = [
+    c.remove.description || "（无摘要）",
+    c.remove.counterparty || "（无对方）",
+    fmtAmount(c.remove.amountCents),
+  ].join(" · ");
   return `将保留「${c.keep.voucherNo}」，删除「${c.remove.voucherNo}」（${desc}）。删除会移除该凭证及其图片文件，凭证本身不可恢复；被删凭证的完整快照会记入"已处理"留痕，日后可追溯。`;
 });
 
@@ -178,7 +195,9 @@ async function doRemove() {
   busy.value = true;
   try {
     await api.removeDuplicateVoucher(c.keep.id, c.remove.id, note.value.trim());
-    toast.success(`已删除重复凭证「${c.remove.voucherNo}」，已保留「${c.keep.voucherNo}」（可在"已处理"查看留痕）`);
+    toast.success(
+      `已删除重复凭证「${c.remove.voucherNo}」，已保留「${c.keep.voucherNo}」（可在"已处理"查看留痕）`,
+    );
     closeCompare();
     await load();
     await loadHandled();
@@ -256,13 +275,31 @@ onBeforeUnmount(() => {
           <span class="dup-num">{{ summary.pairs }}</span> 对未判定
         </div>
         <div class="dup-tabs">
-          <button class="btn" :class="{ 'btn-primary': tab === 'pending' }" @click="tab = 'pending'">
+          <button
+            class="btn"
+            :class="{ 'btn-primary': tab === 'pending' }"
+            @click="tab = 'pending'"
+          >
             待处理<span v-if="summary.pairs">（{{ summary.pairs }}）</span>
           </button>
-          <button class="btn" :class="{ 'btn-primary': tab === 'handled' }" @click="tab = 'handled'; loadHandled()">
+          <button
+            class="btn"
+            :class="{ 'btn-primary': tab === 'handled' }"
+            @click="
+              tab = 'handled';
+              loadHandled();
+            "
+          >
             已处理<span v-if="decisions.length">（{{ decisions.length }}）</span>
           </button>
-          <button class="icon-btn" title="刷新" @click="load(); if (tab === 'handled') loadHandled()">
+          <button
+            class="icon-btn"
+            title="刷新"
+            @click="
+              load();
+              if (tab === 'handled') loadHandled();
+            "
+          >
             <FluentIcon name="refresh" :size="14" />
           </button>
         </div>
@@ -272,34 +309,60 @@ onBeforeUnmount(() => {
     <!-- 待处理：按组列出 -->
     <template v-if="tab === 'pending'">
       <div v-if="loading" class="dup-loading">加载中…</div>
-      <EmptyState v-else-if="!groups.length" icon="check" title="没有待核查的疑似重复"
-        desc="所有同日期同金额的对都已处置（标记过「不是重复」或已确认删除的不再列出）。新导入的凭证若与旧凭证同日期同金额，会在这里重新出现。" />
+      <EmptyState
+        v-else-if="!groups.length"
+        icon="check"
+        title="没有待核查的疑似重复"
+        desc="所有同日期同金额的对都已处置（标记过「不是重复」或已确认删除的不再列出）。新导入的凭证若与旧凭证同日期同金额，会在这里重新出现。"
+      />
 
-      <div v-for="g in groups" :key="`${g.voucherDate}-${g.amountCents}`" class="fluent-panel dup-group">
+      <div
+        v-for="g in groups"
+        :key="`${g.voucherDate}-${g.amountCents}`"
+        class="fluent-panel dup-group"
+      >
         <div class="fluent-panel-header">
           <h3>{{ groupHeadline(g) }}</h3>
           <span class="dup-progress">
-            {{ g.pending.length + g.decidedPairs }} 对中已判定 {{ g.decidedPairs }} 对 ·
-            剩 {{ g.pending.length }} 对
+            {{ g.pending.length + g.decidedPairs }} 对中已判定 {{ g.decidedPairs }} 对 · 剩
+            {{ g.pending.length }} 对
           </span>
         </div>
         <div class="fluent-panel-body" style="padding: 0">
-          <div v-for="p in orderedPairs(g)" :key="pairKey(p.a.id, p.b.id)" class="dup-pair"
-            :class="{ active: sel && pairKey(sel.pair.a.id, sel.pair.b.id) === pairKey(p.a.id, p.b.id) }">
-            <span class="tag" :class="evidenceMeta(p.evidence.level).tag"
-              :title="evidenceMeta(p.evidence.level).advice">
+          <div
+            v-for="p in orderedPairs(g)"
+            :key="pairKey(p.a.id, p.b.id)"
+            class="dup-pair"
+            :class="{
+              active: sel && pairKey(sel.pair.a.id, sel.pair.b.id) === pairKey(p.a.id, p.b.id),
+            }"
+          >
+            <span
+              class="tag"
+              :class="evidenceMeta(p.evidence.level).tag"
+              :title="evidenceMeta(p.evidence.level).advice"
+            >
               置信度 {{ evidenceMeta(p.evidence.level).label }}
             </span>
             <div class="dup-pair-main">
-              <a class="mono dup-link" href="#" @click.prevent="openVoucher(p.a.id)">{{ p.a.voucherNo }}</a>
+              <a class="mono dup-link" href="#" @click.prevent="openVoucher(p.a.id)">{{
+                p.a.voucherNo
+              }}</a>
               <span class="dup-vs">↔</span>
-              <a class="mono dup-link" href="#" @click.prevent="openVoucher(p.b.id)">{{ p.b.voucherNo }}</a>
+              <a class="mono dup-link" href="#" @click.prevent="openVoucher(p.b.id)">{{
+                p.b.voucherNo
+              }}</a>
               <span class="dup-why">{{ evidenceReasons(p.evidence).join(" · ") }}</span>
             </div>
             <button class="btn btn-primary" :disabled="busy" @click="selectPair(g, p)">
               <FluentIcon name="zoomIn" :size="14" /> 核对
             </button>
-            <button class="btn" :disabled="busy" title="放到该组末尾，稍后再处理（本次会话有效）" @click="skip(p)">
+            <button
+              class="btn"
+              :disabled="busy"
+              title="放到该组末尾，稍后再处理（本次会话有效）"
+              @click="skip(p)"
+            >
               稍后
             </button>
             <span v-if="skipped.has(pairKey(p.a.id, p.b.id))" class="dup-later">已稍后</span>
@@ -326,24 +389,51 @@ onBeforeUnmount(() => {
             <tbody>
               <tr v-for="d in decisions" :key="d.id">
                 <td>{{ fmtDate(d.createdAt) }}</td>
-                <td><span class="tag" :class="decisionTag(d).tag">{{ decisionTag(d).label }}</span></td>
+                <td>
+                  <span class="tag" :class="decisionTag(d).tag">{{ decisionTag(d).label }}</span>
+                </td>
                 <td>{{ decisionSummary(d) }}</td>
-                <td style="max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
-                  :title="d.note">{{ d.note || "—" }}</td>
+                <td
+                  style="
+                    max-width: 260px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                  "
+                  :title="d.note"
+                >
+                  {{ d.note || "—" }}
+                </td>
                 <td>
                   <div class="action-row">
-                    <button v-if="d.decision === 'duplicate_removed'" class="icon-btn" title="查看留痕（被删凭证快照）"
-                      @click="showTrace(d)"><FluentIcon name="file" :size="14" /></button>
-                    <button v-if="d.keepId != null" class="icon-btn" title="打开保留的凭证"
-                      @click="openVoucher(d.keepId)"><FluentIcon name="list" :size="14" /></button>
+                    <button
+                      v-if="d.decision === 'duplicate_removed'"
+                      class="icon-btn"
+                      title="查看留痕（被删凭证快照）"
+                      @click="showTrace(d)"
+                    >
+                      <FluentIcon name="file" :size="14" />
+                    </button>
+                    <button
+                      v-if="d.keepId != null"
+                      class="icon-btn"
+                      title="打开保留的凭证"
+                      @click="openVoucher(d.keepId)"
+                    >
+                      <FluentIcon name="list" :size="14" />
+                    </button>
                   </div>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <EmptyState v-else icon="list" title="还没有处置记录"
-          desc="在「待处理」里标记「不是重复」或确认重复删除后，处置记录（含留痕）会显示在这里" />
+        <EmptyState
+          v-else
+          icon="list"
+          title="还没有处置记录"
+          desc="在「待处理」里标记「不是重复」或确认重复删除后，处置记录（含留痕）会显示在这里"
+        />
       </div>
     </div>
 
@@ -352,10 +442,12 @@ onBeforeUnmount(() => {
       <div class="fluent-panel-header">
         <h3>核对这一对</h3>
         <span class="dup-sub">
-          {{ evidenceReasons(sel.pair.evidence).join(" · ") }} ·
-          {{ rows.length }} 项字段中 {{ diffs }} 项不同
+          {{ evidenceReasons(sel.pair.evidence).join(" · ") }} · {{ rows.length }} 项字段中
+          {{ diffs }} 项不同
         </span>
-        <button class="icon-btn" title="收起" @click="closeCompare"><FluentIcon name="close" :size="14" /></button>
+        <button class="icon-btn" title="收起" @click="closeCompare">
+          <FluentIcon name="close" :size="14" />
+        </button>
       </div>
       <div class="fluent-panel-body">
         <div class="dup-sides">
@@ -367,9 +459,15 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <div class="dup-img">
-              <img v-if="imgUrl(v, side === 0 ? 'a' : 'b')" :src="imgUrl(v, side === 0 ? 'a' : 'b')!"
-                :alt="v.voucherNo" @error="onImgError(v, side === 0 ? 'a' : 'b')" />
-              <div v-else class="dup-img-empty"><FluentIcon name="image" :size="24" /><span>无附件或图片不可显示</span></div>
+              <img
+                v-if="imgUrl(v, side === 0 ? 'a' : 'b')"
+                :src="imgUrl(v, side === 0 ? 'a' : 'b')!"
+                :alt="v.voucherNo"
+                @error="onImgError(v, side === 0 ? 'a' : 'b')"
+              />
+              <div v-else class="dup-img-empty">
+                <FluentIcon name="image" :size="24" /><span>无附件或图片不可显示</span>
+              </div>
             </div>
           </div>
         </div>
@@ -377,7 +475,11 @@ onBeforeUnmount(() => {
         <!-- 字段对照：差异高亮 -->
         <table class="dtable dup-diff">
           <thead>
-            <tr><th>字段</th><th>{{ sel.pair.a.voucherNo }}</th><th>{{ sel.pair.b.voucherNo }}</th></tr>
+            <tr>
+              <th>字段</th>
+              <th>{{ sel.pair.a.voucherNo }}</th>
+              <th>{{ sel.pair.b.voucherNo }}</th>
+            </tr>
           </thead>
           <tbody>
             <tr v-for="r in rows" :key="r.key" :class="{ 'dup-differ': !r.same }">
@@ -389,15 +491,28 @@ onBeforeUnmount(() => {
         </table>
 
         <div class="dup-actions">
-          <input class="input" v-model="note" placeholder="备注（可选，记入留痕：如「供应商重复上传」「同一天两笔正常付款」）"
-            style="flex: 1" :disabled="busy" />
+          <input
+            class="input"
+            v-model="note"
+            placeholder="备注（可选，记入留痕：如「供应商重复上传」「同一天两笔正常付款」）"
+            style="flex: 1"
+            :disabled="busy"
+          />
           <button class="btn" :disabled="busy" @click="markNotDuplicate">
             <FluentIcon name="check" :size="14" /> 不是重复
           </button>
-          <button class="btn btn-danger" :disabled="busy" @click="askRemove(sel.pair.a, sel.pair.b)">
+          <button
+            class="btn btn-danger"
+            :disabled="busy"
+            @click="askRemove(sel.pair.a, sel.pair.b)"
+          >
             <FluentIcon name="delete" :size="14" /> 保留左 · 删除右
           </button>
-          <button class="btn btn-danger" :disabled="busy" @click="askRemove(sel.pair.b, sel.pair.a)">
+          <button
+            class="btn btn-danger"
+            :disabled="busy"
+            @click="askRemove(sel.pair.b, sel.pair.a)"
+          >
             <FluentIcon name="delete" :size="14" /> 保留右 · 删除左
           </button>
           <button class="btn" :disabled="busy" @click="skip(sel.pair)">稍后再说</button>
@@ -410,9 +525,15 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 删除二次确认 -->
-    <ConfirmDialog :visible="confirmRemove !== null" title="确认是同一笔业务的重复凭证？"
-      :body="removeBody" confirm-text="确认重复并删除" :danger="true"
-      @confirm="doRemove" @cancel="confirmRemove = null" />
+    <ConfirmDialog
+      :visible="confirmRemove !== null"
+      title="确认是同一笔业务的重复凭证？"
+      :body="removeBody"
+      confirm-text="确认重复并删除"
+      :danger="true"
+      @confirm="doRemove"
+      @cancel="confirmRemove = null"
+    />
 
     <!-- 留痕查看 -->
     <div v-if="traceVisible" class="dialog-mask" @click.self="traceVisible = false">
@@ -420,14 +541,32 @@ onBeforeUnmount(() => {
         <h3>留痕 · 被删凭证快照</h3>
         <div class="dialog-body">
           <div v-if="trace" class="dup-trace">
-            <div class="dup-trace-row"><span>结论</span><b>{{ decisionSummary(trace) }}</b></div>
-            <div class="dup-trace-row"><span>处置时间</span><b>{{ fmtDate(trace.createdAt) }}</b></div>
-            <div class="dup-trace-row"><span>备注</span><b>{{ trace.note || "—" }}</b></div>
-            <div class="dup-trace-row"><span>被删凭证编号</span><b class="mono">{{ trace.removedPayload?.voucher?.voucherNo ?? "—" }}</b></div>
-            <div class="dup-trace-row"><span>日期</span><b>{{ trace.removedPayload?.voucher?.voucherDate ?? "—" }}</b></div>
-            <div class="dup-trace-row"><span>金额</span><b>{{ fmtAmount(trace.removedPayload?.voucher?.amountCents ?? null) }}</b></div>
-            <div class="dup-trace-row"><span>摘要</span><b>{{ trace.removedPayload?.voucher?.description || "—" }}</b></div>
-            <div class="dup-trace-row"><span>对方账户</span><b>{{ trace.removedPayload?.voucher?.counterparty || "—" }}</b></div>
+            <div class="dup-trace-row">
+              <span>结论</span><b>{{ decisionSummary(trace) }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>处置时间</span><b>{{ fmtDate(trace.createdAt) }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>备注</span><b>{{ trace.note || "—" }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>被删凭证编号</span
+              ><b class="mono">{{ trace.removedPayload?.voucher?.voucherNo ?? "—" }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>日期</span><b>{{ trace.removedPayload?.voucher?.voucherDate ?? "—" }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>金额</span
+              ><b>{{ fmtAmount(trace.removedPayload?.voucher?.amountCents ?? null) }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>摘要</span><b>{{ trace.removedPayload?.voucher?.description || "—" }}</b>
+            </div>
+            <div class="dup-trace-row">
+              <span>对方账户</span><b>{{ trace.removedPayload?.voucher?.counterparty || "—" }}</b>
+            </div>
             <div class="dup-trace-row" v-if="trace.removedPayload?.attachments?.length">
               <span>附件</span>
               <b>
@@ -441,8 +580,14 @@ onBeforeUnmount(() => {
         </div>
         <div class="dialog-ops">
           <button class="btn" @click="traceVisible = false">关闭</button>
-          <button v-if="trace?.removedPayload?.keptVoucherId != null" class="btn btn-primary"
-            @click="traceVisible = false; openVoucher(trace!.removedPayload!.keptVoucherId)">
+          <button
+            v-if="trace?.removedPayload?.keptVoucherId != null"
+            class="btn btn-primary"
+            @click="
+              traceVisible = false;
+              openVoucher(trace!.removedPayload!.keptVoucherId);
+            "
+          >
             打开保留的凭证
           </button>
         </div>
@@ -452,37 +597,154 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.dup-page { display: flex; flex-direction: column; gap: 12px; }
-.dup-sub { font-size: var(--fs-caption); color: var(--text-3); font-weight: 400; max-width: 62ch; }
-.dup-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.dup-stat { font-size: var(--fs-caption); color: var(--text-2); }
-.dup-num { font-weight: 600; color: var(--text); }
-.dup-tabs { display: flex; gap: 8px; align-items: center; }
-.dup-loading { padding: 24px; text-align: center; color: var(--text-3); }
+.dup-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dup-sub {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+  font-weight: 400;
+  max-width: 62ch;
+}
+.dup-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dup-stat {
+  font-size: var(--fs-caption);
+  color: var(--text-2);
+}
+.dup-num {
+  font-weight: 600;
+  color: var(--text);
+}
+.dup-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.dup-loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-3);
+}
 
-.dup-group .fluent-panel-body { padding: 0; }
-.dup-progress { font-size: var(--fs-caption); color: var(--text-3); }
-.dup-pair { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle, transparent); }
-.dup-pair:last-child { border-bottom: none; }
-.dup-pair.active { background: var(--surface-2, transparent); }
-.dup-pair-main { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dup-link { color: var(--accent, inherit); text-decoration: none; }
-.dup-vs { color: var(--text-3); }
-.dup-why { font-size: var(--fs-caption); color: var(--text-3); }
-.dup-later { font-size: var(--fs-caption); color: var(--text-3); }
+.dup-group .fluent-panel-body {
+  padding: 0;
+}
+.dup-progress {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+.dup-pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle, transparent);
+}
+.dup-pair:last-child {
+  border-bottom: none;
+}
+.dup-pair.active {
+  background: var(--surface-2, transparent);
+}
+.dup-pair-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dup-link {
+  color: var(--accent, inherit);
+  text-decoration: none;
+}
+.dup-vs {
+  color: var(--text-3);
+}
+.dup-why {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+.dup-later {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
 
-.dup-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-.dup-side { border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 8px; }
-.dup-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.dup-img { height: 220px; display: flex; align-items: center; justify-content: center; background: var(--surface-2, rgba(0, 0, 0, 0.02)); border-radius: var(--radius-control); overflow: hidden; }
-.dup-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.dup-img-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-caption); }
+.dup-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.dup-side {
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  padding: 8px;
+}
+.dup-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.dup-img {
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.dup-img img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.dup-img-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+}
 
-.dup-diff { margin-bottom: 12px; }
-.dup-differ td { background: var(--warning-bg, rgba(255, 196, 0, 0.12)); }
-.dup-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dup-hint { font-size: var(--fs-caption); color: var(--text-3); margin-top: 8px; }
-.dup-trace { display: flex; flex-direction: column; gap: 6px; }
-.dup-trace-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; font-size: var(--fs-caption); }
-.dup-trace-row > span { color: var(--text-3); }
+.dup-diff {
+  margin-bottom: 12px;
+}
+.dup-differ td {
+  background: var(--warning-bg, rgba(255, 196, 0, 0.12));
+}
+.dup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dup-hint {
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+  margin-top: 8px;
+}
+.dup-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dup-trace-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  font-size: var(--fs-caption);
+}
+.dup-trace-row > span {
+  color: var(--text-3);
+}
 </style>

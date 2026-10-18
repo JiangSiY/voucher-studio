@@ -91,7 +91,6 @@ const quarters = computed(() => {
   return out;
 });
 
-
 // ---------- v0.9 动线：图表下钻（看数 → 看明细，不断链） ----------
 
 /** 月度趋势柱 → 列表页按当月日期范围筛选 */
@@ -140,9 +139,7 @@ function metricValue(m: MonthlySummary): number {
   return trendMetric.value === "count" ? m.count : m.amountCents;
 }
 
-const maxMetric = computed(() =>
-  Math.max(1, ...monthly.value.map(metricValue)),
-);
+const maxMetric = computed(() => Math.max(1, ...monthly.value.map(metricValue)));
 
 const slot = (CHART_W - PAD_L) / Math.max(1, monthly.value.length || windowMonths.value);
 const barW = Math.min(44, slot * 0.55);
@@ -221,15 +218,40 @@ onUnmounted(() => {
   <div class="report-grid" v-if="monthly.length">
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>{{ trendMode === "recent" ? `月度趋势（近 ${windowMonths} 月）` : `年度趋势（${trendYear} 年）` }}</h3>
+        <h3>
+          {{
+            trendMode === "recent"
+              ? `月度趋势（近 ${windowMonths} 月）`
+              : `年度趋势（${trendYear} 年）`
+          }}
+        </h3>
         <div style="display: flex; gap: 8px; align-items: center">
           <!-- v0.11：滚动窗口 / 年度切换 + 年份选择 -->
-          <select v-if="trendMode === 'yearly'" v-model.number="trendYear" class="input" style="width: 96px" title="切换年份" @change="switchTrendYear(trendYear)">
+          <select
+            v-if="trendMode === 'yearly'"
+            v-model.number="trendYear"
+            class="input"
+            style="width: 96px"
+            title="切换年份"
+            @change="switchTrendYear(trendYear)"
+          >
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }} 年</option>
           </select>
           <div class="metric-toggle" role="tablist" aria-label="趋势视图切换">
-            <button role="tab" :class="{ active: trendMode === 'recent' }" @click="switchTrendMode('recent')">近 {{ windowMonths }} 月</button>
-            <button role="tab" :class="{ active: trendMode === 'yearly' }" @click="switchTrendMode('yearly')">年度</button>
+            <button
+              role="tab"
+              :class="{ active: trendMode === 'recent' }"
+              @click="switchTrendMode('recent')"
+            >
+              近 {{ windowMonths }} 月
+            </button>
+            <button
+              role="tab"
+              :class="{ active: trendMode === 'yearly' }"
+              @click="switchTrendMode('yearly')"
+            >
+              年度
+            </button>
           </div>
           <!-- 功能深化 3：张数/金额双指标切换 -->
           <div class="metric-toggle" role="tablist" aria-label="趋势指标切换">
@@ -237,21 +259,30 @@ onUnmounted(() => {
               role="tab"
               :class="{ active: trendMetric === 'count' }"
               @click="trendMetric = 'count'"
-            >张数</button>
+            >
+              张数
+            </button>
             <button
               role="tab"
               :class="{ active: trendMetric === 'amount' }"
               @click="trendMetric = 'amount'"
-            >金额</button>
+            >
+              金额
+            </button>
           </div>
         </div>
       </div>
       <div class="fluent-panel-body">
         <!-- v0.11：季度汇总（年度视图）——点击季度跳列表页该季度范围 -->
         <div v-if="trendMode === 'yearly'" class="quarter-grid">
-          <button v-for="(q, qi) in quarters" :key="q.label" class="quarter-card" :disabled="!q.count"
+          <button
+            v-for="(q, qi) in quarters"
+            :key="q.label"
+            class="quarter-card"
+            :disabled="!q.count"
             :title="q.count ? `查看 ${trendYear} 年 ${q.label} 明细` : '该季度无凭证'"
-            @click="gotoQuarter(qi + 1)">
+            @click="gotoQuarter(qi + 1)"
+          >
             <span class="q-label">{{ q.label }}</span>
             <span class="q-count">{{ q.count }} 张</span>
             <span class="q-amount">¥{{ fmtAmount(q.amountCents) }}</span>
@@ -265,7 +296,12 @@ onUnmounted(() => {
           preserveAspectRatio="xMidYMid meet"
         >
           <line class="axis" :x1="PAD_L" :y1="PAD_T + PLOT_H" :x2="CHART_W" :y2="PAD_T + PLOT_H" />
-          <g v-for="(m, i) in monthly" :key="m.month" style="cursor: pointer" @click="gotoMonth(m.month)">
+          <g
+            v-for="(m, i) in monthly"
+            :key="m.month"
+            style="cursor: pointer"
+            @click="gotoMonth(m.month)"
+          >
             <rect
               class="bar"
               :class="{ zero: metricValue(m) === 0 }"
@@ -286,14 +322,22 @@ onUnmounted(() => {
           </g>
         </svg>
         <!-- v0.11：年度报表导出（统计输出，不改凭证状态） -->
-        <div v-if="trendMode === 'yearly'" style="display: flex; justify-content: flex-end; margin-top: 4px">
-        </div>
+        <div
+          v-if="trendMode === 'yearly'"
+          style="display: flex; justify-content: flex-end; margin-top: 4px"
+        ></div>
       </div>
     </div>
 
     <div class="fluent-panel">
       <div class="fluent-panel-header">
-        <h3>{{ trendMode === "recent" ? `状态分布（近 ${windowMonths} 月）` : `状态分布（${trendYear} 年）` }}</h3>
+        <h3>
+          {{
+            trendMode === "recent"
+              ? `状态分布（近 ${windowMonths} 月）`
+              : `状态分布（${trendYear} 年）`
+          }}
+        </h3>
         <span class="dist-sum" v-if="dist.total">
           合计 {{ dist.total }} 张 · ¥{{ fmtAmount(dist.amount) }}
         </span>
@@ -312,8 +356,14 @@ onUnmounted(() => {
             />
           </div>
           <div class="dist-legend">
-            <div v-for="k in DIST_KEYS" :key="k" class="legend-item legend-click"
-              style="cursor: pointer" :title="`点击查看「${STATUS_META[k].label}」凭证`" @click="gotoStatus(k)">
+            <div
+              v-for="k in DIST_KEYS"
+              :key="k"
+              class="legend-item legend-click"
+              style="cursor: pointer"
+              :title="`点击查看「${STATUS_META[k].label}」凭证`"
+              @click="gotoStatus(k)"
+            >
               <span class="dot" :class="`dot-${k}`" />
               <span>{{ STATUS_META[k].label }}</span>
               <span class="legend-num">{{ dist[k] }}</span>
@@ -322,7 +372,11 @@ onUnmounted(() => {
         </template>
         <div v-else class="empty-state" style="padding: 32px">
           <div class="es-icon"><FluentIcon name="chart" :size="42" /></div>
-          <div class="es-title">{{ trendMode === "recent" ? `近 ${windowMonths} 月暂无凭证` : `${trendYear} 年暂无凭证` }}</div>
+          <div class="es-title">
+            {{
+              trendMode === "recent" ? `近 ${windowMonths} 月暂无凭证` : `${trendYear} 年暂无凭证`
+            }}
+          </div>
           <div class="es-desc">导入图片后这里会出现统计图表</div>
         </div>
       </div>
@@ -344,7 +398,9 @@ onUnmounted(() => {
   border-radius: var(--radius-control);
   background: transparent;
   cursor: pointer;
-  transition: border-color var(--motion-fast) var(--motion-curve), background var(--motion-fast) var(--motion-curve);
+  transition:
+    border-color var(--motion-fast) var(--motion-curve),
+    background var(--motion-fast) var(--motion-curve);
 }
 
 .quarter-card:hover:not(:disabled) {
@@ -434,7 +490,9 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
-  transition: background var(--motion-fast) var(--motion-curve), color var(--motion-fast) var(--motion-curve);
+  transition:
+    background var(--motion-fast) var(--motion-curve),
+    color var(--motion-fast) var(--motion-curve);
 }
 
 .metric-toggle button + button {

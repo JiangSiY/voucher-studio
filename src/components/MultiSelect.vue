@@ -27,9 +27,7 @@ const open = ref(false);
 const root = ref<HTMLElement | null>(null);
 
 const summary = computed(() => {
-  const labels = props.modelValue.map(
-    (v) => props.options.find((o) => o.value === v)?.label ?? v,
-  );
+  const labels = props.modelValue.map((v) => props.options.find((o) => o.value === v)?.label ?? v);
   if (!labels.length) return props.label;
   if (labels.length <= 2) return `${props.label}：${labels.join("、")}`;
   return `${props.label}（${labels.length}）`;
@@ -90,7 +88,9 @@ onBeforeUnmount(() => {
         <input type="checkbox" :checked="modelValue.includes(o.value)" @change="toggle(o.value)" />
         <span>{{ o.label }}</span>
       </label>
-      <button v-if="modelValue.length" type="button" class="msel-clear" @click="clear()">清空</button>
+      <button v-if="modelValue.length" type="button" class="msel-clear" @click="clear()">
+        清空
+      </button>
     </div>
   </div>
 </template>

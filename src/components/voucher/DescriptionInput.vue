@@ -85,15 +85,26 @@ function onDescKeydown(e: KeyboardEvent) {
 <template>
   <div class="field desc-suggest">
     <label>摘要</label>
-    <input :value="modelValue" class="input" placeholder="如：八月办公用品采购（聚焦可联想常用摘要）"
+    <input
+      :value="modelValue"
+      class="input"
+      placeholder="如：八月办公用品采购（聚焦可联想常用摘要）"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      @focus="onDescFocus" @blur="onDescBlur" @keydown="onDescKeydown" />
+      @focus="onDescFocus"
+      @blur="onDescBlur"
+      @keydown="onDescKeydown"
+    />
     <!-- v0.10 摘要联想：模板（置顶标 pin）+ 历史高频（带次数） -->
     <div v-if="descFocused && descSuggestions.length" class="desc-dropdown">
-      <button v-for="(s, i) in descSuggestions" :key="s.description" type="button"
-        class="desc-option" :class="{ active: i === descHighlight }"
+      <button
+        v-for="(s, i) in descSuggestions"
+        :key="s.description"
+        type="button"
+        class="desc-option"
+        :class="{ active: i === descHighlight }"
         @mousedown.prevent="pickDescription(s.description)"
-        @mousemove="descHighlight = i">
+        @mousemove="descHighlight = i"
+      >
         <FluentIcon v-if="s.pinned" name="pin" :size="12" />
         <span class="desc-text">{{ s.description }}</span>
         <span v-if="s.count != null" class="desc-count">{{ s.count }} 次</span>

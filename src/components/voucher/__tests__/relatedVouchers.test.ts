@@ -35,7 +35,11 @@ const candidate = {
 
 beforeEach(() => {
   vi.mocked(api.listVoucherLinks).mockResolvedValue([] as never);
-  vi.mocked(api.listVouchers).mockResolvedValue({ items: [candidate], total: 1, thumbs: [] } as never);
+  vi.mocked(api.listVouchers).mockResolvedValue({
+    items: [candidate],
+    total: 1,
+    thumbs: [],
+  } as never);
   vi.mocked(api.linkVouchers).mockResolvedValue(undefined as never);
   vi.mocked(api.unlinkVouchers).mockResolvedValue(undefined as never);
 });

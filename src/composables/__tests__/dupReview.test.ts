@@ -30,7 +30,13 @@ function v(over: Partial<Voucher> = {}): Voucher {
 }
 
 function ev(over: Partial<PairEvidence> = {}): PairEvidence {
-  return { sameImage: false, sameCounterparty: false, sameDescription: false, level: "low", ...over };
+  return {
+    sameImage: false,
+    sameCounterparty: false,
+    sameDescription: false,
+    level: "low",
+    ...over,
+  };
 }
 
 describe("evidenceReasons / evidenceMeta", () => {
@@ -39,10 +45,9 @@ describe("evidenceReasons / evidenceMeta", () => {
   });
 
   it("同对方 + 同摘要并列列出", () => {
-    expect(evidenceReasons(ev({ sameCounterparty: true, sameDescription: true, level: "high" }))).toEqual([
-      "对方账户相同",
-      "摘要相同",
-    ]);
+    expect(
+      evidenceReasons(ev({ sameCounterparty: true, sameDescription: true, level: "high" })),
+    ).toEqual(["对方账户相同", "摘要相同"]);
   });
 
   it("仅判定口径命中时明确说明「仅同日期同金额」，不留空白", () => {
@@ -126,13 +131,19 @@ describe("decisionSummary / decisionTag", () => {
   it("删除类记录说清谁留谁删（留痕里带保留侧编号）", () => {
     const d: DupDecision = {
       ...base,
-      removedPayload: { voucher: v({ voucherNo: "记-2026-08-002" }), keptVoucherNo: "记-2026-08-001" },
+      removedPayload: {
+        voucher: v({ voucherNo: "记-2026-08-002" }),
+        keptVoucherNo: "记-2026-08-001",
+      },
     };
     expect(decisionSummary(d)).toBe("保留 记-2026-08-001 · 删除 记-2026-08-002");
   });
 
   it("留痕缺保留侧编号时回退成 #id，不显示空白", () => {
-    const d: DupDecision = { ...base, removedPayload: { voucher: v({ voucherNo: "记-2026-08-002" }) } };
+    const d: DupDecision = {
+      ...base,
+      removedPayload: { voucher: v({ voucherNo: "记-2026-08-002" }) },
+    };
     expect(decisionSummary(d)).toBe("保留 #1 · 删除 记-2026-08-002");
   });
 
@@ -150,9 +161,9 @@ describe("decisionSummary / decisionTag", () => {
 
 describe("groupHeadline / pairKey", () => {
   it("组头一句说清「哪天 · 多少钱 · 几张」", () => {
-    expect(groupHeadline({ voucherDate: "2026-08-05", amountCents: 123_456, vouchers: [v(), v()] })).toBe(
-      "2026-08-05 · ¥1,234.56 × 2 张",
-    );
+    expect(
+      groupHeadline({ voucherDate: "2026-08-05", amountCents: 123_456, vouchers: [v(), v()] }),
+    ).toBe("2026-08-05 · ¥1,234.56 × 2 张");
   });
 
   it("pairKey 与后端 normalize_pair 同口径（小的在前，正反向同键）", () => {

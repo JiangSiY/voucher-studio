@@ -142,21 +142,41 @@ async function onCropSave(
     <div class="fluent-panel-body">
       <div v-if="attachments.length" class="att-grid">
         <div v-for="a in attachments" :key="a.id" class="att-card">
-          <div class="att-img" :class="{ 'is-compare': isCompareOpen(a) }"
-            title="点击查看大图（滚轮缩放 / 拖动平移）" @click="!isCompareOpen(a) && openViewer(a)">
+          <div
+            class="att-img"
+            :class="{ 'is-compare': isCompareOpen(a) }"
+            title="点击查看大图（滚轮缩放 / 拖动平移）"
+            @click="!isCompareOpen(a) && openViewer(a)"
+          >
             <!-- D-4：对比模式 - 底层原图（始终原图，不受 useEnhanced 影响） + 上层增强版用 clip-path 裁剪 -->
             <template v-if="isCompareOpen(a) && a.enhancedPath">
-              <img class="att-img-compare-base" :src="compareOriginalSrc(a)" :alt="a.fileName + ' (原图)'" />
-              <img class="att-img-compare-top" :src="thumbSrc(a)" :alt="a.fileName + ' (增强版)'"
-                :style="{ clipPath: compareClipRight(a) }" />
+              <img
+                class="att-img-compare-base"
+                :src="compareOriginalSrc(a)"
+                :alt="a.fileName + ' (原图)'"
+              />
+              <img
+                class="att-img-compare-top"
+                :src="thumbSrc(a)"
+                :alt="a.fileName + ' (增强版)'"
+                :style="{ clipPath: compareClipRight(a) }"
+              />
               <!-- 中线 -->
-              <div class="att-compare-divider" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }"></div>
+              <div
+                class="att-compare-divider"
+                :style="{ left: (compareSplit[a.id] ?? 0.5) * 100 + '%' }"
+              ></div>
               <!-- 滑块手柄 -->
-              <div class="att-compare-handle" :style="{ left: ((compareSplit[a.id] ?? 0.5) * 100) + '%' }">
+              <div
+                class="att-compare-handle"
+                :style="{ left: (compareSplit[a.id] ?? 0.5) * 100 + '%' }"
+              >
                 <FluentIcon name="compare" :size="14" />
               </div>
               <!-- 角标：左=增强 右=原图 -->
-              <span class="att-compare-tag att-compare-tag-left"><FluentIcon name="sparkle" :size="12" /> 增强</span>
+              <span class="att-compare-tag att-compare-tag-left"
+                ><FluentIcon name="sparkle" :size="12" /> 增强</span
+              >
               <span class="att-compare-tag att-compare-tag-right">原图</span>
             </template>
             <!-- 非对比模式：单图（thumbSrc 受 useEnhanced 切换） -->
@@ -164,49 +184,86 @@ async function onCropSave(
               <img :src="thumbSrc(a)" :alt="a.fileName" loading="lazy" />
             </template>
             <!-- v0.6 增强状态角标 -->
-            <span v-if="a.enhancedPath && !isCompareOpen(a)" class="att-enhanced-badge" title="已通过 5 步算法矫正（用于 OCR / 查看器）">
+            <span
+              v-if="a.enhancedPath && !isCompareOpen(a)"
+              class="att-enhanced-badge"
+              title="已通过 5 步算法矫正（用于 OCR / 查看器）"
+            >
               <FluentIcon name="sparkle" :size="12" /> 已增强
             </span>
             <!-- D-1：原图/增强版切换器（无增强版时隐藏；对比模式下隐藏避免双控制） -->
-            <button v-if="a.enhancedPath && !isCompareOpen(a)" class="att-thumb-toggle"
+            <button
+              v-if="a.enhancedPath && !isCompareOpen(a)"
+              class="att-thumb-toggle"
               :title="(useEnhanced[a.id] ?? true) ? '点击查看原图' : '点击查看增强版'"
-              @click.stop="toggleThumbSource(a)">
+              @click.stop="toggleThumbSource(a)"
+            >
               {{ (useEnhanced[a.id] ?? true) ? "增强" : "原图" }}
             </button>
           </div>
           <div class="att-meta">
             <div class="att-name" :title="a.fileName">{{ a.fileName }}</div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
-              <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{ OCR_META[a.ocrStatus].label }}</span>
-              <span v-if="a.enhancedSource === 'screenshot'" class="tag tag-muted" title="截图（增强收益小）">截图</span>
-              <span v-else-if="a.enhancedSource === 'scan'" class="tag tag-info" title="扫描件 / 拍照">扫描件</span>
+              <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{
+                OCR_META[a.ocrStatus].label
+              }}</span>
+              <span
+                v-if="a.enhancedSource === 'screenshot'"
+                class="tag tag-muted"
+                title="截图（增强收益小）"
+                >截图</span
+              >
+              <span
+                v-else-if="a.enhancedSource === 'scan'"
+                class="tag tag-info"
+                title="扫描件 / 拍照"
+                >扫描件</span
+              >
             </div>
             <div class="att-ops" :class="{ isDense: dense }">
-              <button class="btn btn-sm" :disabled="ocrBusy"
+              <button
+                class="btn btn-sm"
+                :disabled="ocrBusy"
                 :title="ocrBusy ? '识别中…' : '重新识别（重跑本地 OCR）'"
-                aria-label="重新识别" @click="emit('runOcr', a)">
+                aria-label="重新识别"
+                @click="emit('runOcr', a)"
+              >
                 <FluentIcon class="ops-icon" name="refresh" :size="14" />
                 <span class="ops-label">{{ ocrBusy ? "识别中…" : "重新识别" }}</span>
               </button>
-              <button class="btn btn-sm" :disabled="replacing"
+              <button
+                class="btn btn-sm"
+                :disabled="replacing"
                 :title="replacing ? '更换中…' : '更换图片'"
-                aria-label="更换图片" @click="emit('replaceImage')">
+                aria-label="更换图片"
+                @click="emit('replaceImage')"
+              >
                 <FluentIcon class="ops-icon" name="image" :size="14" />
                 <span class="ops-label">{{ replacing ? "更换中…" : "更换图片" }}</span>
               </button>
               <!-- v0.12：手动裁剪/旋转（自动矫正失败的人工补救；覆盖增强版，原图不动） -->
-              <button class="btn btn-sm" :disabled="!!lockedPeriod"
-                :title="lockedPeriod ? '该月已封账，不可调整' : '手动裁剪 / 旋转（覆盖增强版，原图不变）'"
+              <button
+                class="btn btn-sm"
+                :disabled="!!lockedPeriod"
+                :title="
+                  lockedPeriod ? '该月已封账，不可调整' : '手动裁剪 / 旋转（覆盖增强版，原图不变）'
+                "
                 aria-label="手动裁剪或旋转"
-                @click="openCrop(a)">
+                @click="openCrop(a)"
+              >
                 <FluentIcon name="edit" :size="14" /><span class="ops-label">调整</span>
               </button>
               <!-- D-4：A/B 对比开关（无增强版不可用） -->
-              <button v-if="a.enhancedPath" class="btn btn-sm"
+              <button
+                v-if="a.enhancedPath"
+                class="btn btn-sm"
                 :class="{ 'btn-primary': isCompareOpen(a) }"
-                :title="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'"
+                :title="
+                  isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比：拖动滑块看增强 vs 原图'
+                "
                 :aria-label="isCompareOpen(a) ? '关闭 A/B 对比' : '打开 A/B 对比'"
-                @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)">
+                @click="isCompareOpen(a) ? closeCompare(a) : openCompare(a)"
+              >
                 <FluentIcon :name="isCompareOpen(a) ? 'close' : 'compare'" :size="14" />
                 <span class="ops-label">{{ isCompareOpen(a) ? "关闭对比" : "A/B 对比" }}</span>
               </button>
@@ -214,33 +271,60 @@ async function onCropSave(
             <!-- D-4：对比模式滑块行（仅打开时显示） -->
             <div v-if="isCompareOpen(a) && a.enhancedPath" class="att-compare-row">
               <span class="att-compare-label"><FluentIcon name="sparkle" :size="12" /> 增强</span>
-              <input type="range" min="0" max="100" step="1"
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
                 class="att-compare-slider"
                 :value="Math.round((compareSplit[a.id] ?? 0.5) * 100)"
                 @input="setSplit(a, +($event.target as HTMLInputElement).value / 100)"
-                title="拖动调整：左=增强 / 右=原图" />
+                title="拖动调整：左=增强 / 右=原图"
+              />
               <span class="att-compare-label">原图</span>
-              <span class="att-compare-pct">{{ Math.round((compareSplit[a.id] ?? 0.5) * 100) }}%</span>
+              <span class="att-compare-pct"
+                >{{ Math.round((compareSplit[a.id] ?? 0.5) * 100) }}%</span
+              >
             </div>
             <div v-if="a.ocrText" class="ocr-text">{{ a.ocrText }}</div>
           </div>
         </div>
       </div>
-      <div v-else class="dropzone" role="button" tabindex="0" aria-label="选择图片补挂到这张凭证"
+      <div
+        v-else
+        class="dropzone"
+        role="button"
+        tabindex="0"
+        aria-label="选择图片补挂到这张凭证"
         @click="emit('replaceImage')"
-        @keydown.enter.prevent="emit('replaceImage')" @keydown.space.prevent="emit('replaceImage')">
+        @keydown.enter.prevent="emit('replaceImage')"
+        @keydown.space.prevent="emit('replaceImage')"
+      >
         <div class="dz-icon"><FluentIcon name="image" :size="24" /></div>
         <div style="font-weight: 600">点击选择图片补挂到这张凭证</div>
-        <div style="font-size: var(--fs-caption); margin-top: 4px">一图一凭证：每张凭证只关联一张图片</div>
+        <div style="font-size: var(--fs-caption); margin-top: 4px">
+          一图一凭证：每张凭证只关联一张图片
+        </div>
       </div>
     </div>
   </div>
 
-  <ImageViewerDialog :visible="viewerVisible" :src="viewerSrc" :file-name="viewerName"
-    :attachment-id="viewerAttachmentId" @close="viewerVisible = false" />
+  <ImageViewerDialog
+    :visible="viewerVisible"
+    :src="viewerSrc"
+    :file-name="viewerName"
+    :attachment-id="viewerAttachmentId"
+    @close="viewerVisible = false"
+  />
 
   <!-- v0.12：手动裁剪 / 旋转对话框（保存 → crop_attachment → emit cropSaved；可一键重新识别） -->
-  <CropDialog ref="cropDialog" :visible="cropVisible" :attachment-id="cropAttachmentId"
-    :src="cropSrc" :file-name="cropFileName"
-    @close="cropVisible = false" @save="onCropSave" />
+  <CropDialog
+    ref="cropDialog"
+    :visible="cropVisible"
+    :attachment-id="cropAttachmentId"
+    :src="cropSrc"
+    :file-name="cropFileName"
+    @close="cropVisible = false"
+    @save="onCropSave"
+  />
 </template>

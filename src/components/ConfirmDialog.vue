@@ -28,12 +28,23 @@ const { panelEl } = useModal(
 <template>
   <Teleport to="body">
     <div v-if="props.visible" class="dialog-mask" @click.self="emit('cancel')">
-      <div ref="panelEl" class="dialog" role="alertdialog" aria-modal="true" :aria-label="props.title" tabindex="-1">
+      <div
+        ref="panelEl"
+        class="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        :aria-label="props.title"
+        tabindex="-1"
+      >
         <h3>{{ props.title }}</h3>
         <div class="dialog-body">{{ props.body }}</div>
         <div class="dialog-ops">
           <button class="btn" @click="emit('cancel')">{{ props.cancelText }}</button>
-          <button class="btn" :class="danger ? 'btn-danger' : 'btn-primary'" @click="emit('confirm')">
+          <button
+            class="btn"
+            :class="danger ? 'btn-danger' : 'btn-primary'"
+            @click="emit('confirm')"
+          >
             {{ props.confirmText }}
           </button>
         </div>

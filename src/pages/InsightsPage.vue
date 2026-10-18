@@ -17,7 +17,14 @@ import TopListsPanel from "../components/dashboard/TopListsPanel.vue";
 import ReconcilePanel from "../components/dashboard/ReconcilePanel.vue";
 import FluentIcon from "../components/FluentIcon.vue";
 import SkeletonLines from "../components/SkeletonLines.vue";
-import { api, type BreakdownRow, type DataHealth, type ExportCoverage, type ReconcileReport, type StorageUsage } from "../api/client";
+import {
+  api,
+  type BreakdownRow,
+  type DataHealth,
+  type ExportCoverage,
+  type ReconcileReport,
+  type StorageUsage,
+} from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { fmtAmount, fmtSize } from "../composables/format";
 import {
@@ -211,7 +218,12 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
       </div>
       <span class="scope">{{ scopeLabel }}（趋势 / 透视 / 覆盖度共用此口径；存储占用为全库）</span>
       <span class="flex-1"></span>
-      <button class="btn" :disabled="reconcileBusy" title="选账单 CSV 与库内凭证对账（只读，不改数据）" @click="runReconcile">
+      <button
+        class="btn"
+        :disabled="reconcileBusy"
+        title="选账单 CSV 与库内凭证对账（只读，不改数据）"
+        @click="runReconcile"
+      >
         <FluentIcon name="chart" :size="14" /> {{ reconcileBusy ? "对账中…" : "账单对账" }}
       </button>
       <button class="btn" @click="router.push('/vouchers')">
@@ -228,9 +240,18 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
         </header>
         <template v-if="coverage">
           <div class="kv">
-            <div><dt>全部凭证</dt><dd>{{ coverage.total }}</dd></div>
-            <div><dt>已导出过</dt><dd>{{ coverage.exported }}</dd></div>
-            <div><dt>从未导出</dt><dd :class="{ warn: coverage.neverExported > 0 }">{{ coverage.neverExported }}</dd></div>
+            <div>
+              <dt>全部凭证</dt>
+              <dd>{{ coverage.total }}</dd>
+            </div>
+            <div>
+              <dt>已导出过</dt>
+              <dd>{{ coverage.exported }}</dd>
+            </div>
+            <div>
+              <dt>从未导出</dt>
+              <dd :class="{ warn: coverage.neverExported > 0 }">{{ coverage.neverExported }}</dd>
+            </div>
           </div>
           <ul v-if="coverage.byFormat.length" class="formats">
             <li v-for="f in coverage.byFormat" :key="f.format">
@@ -238,7 +259,11 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
               <span class="muted">{{ f.batches }} 批 · {{ f.vouchers }} 张</span>
             </li>
           </ul>
-          <button v-if="coverage.neverExported > 0" class="btn" @click="router.push({ path: '/vouchers', query: { exported: 'never' } })">
+          <button
+            v-if="coverage.neverExported > 0"
+            class="btn"
+            @click="router.push({ path: '/vouchers', query: { exported: 'never' } })"
+          >
             查看从未导出的 {{ coverage.neverExported }} 张
           </button>
         </template>
@@ -259,33 +284,27 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
               <dt>无图凭证</dt>
               <dd :class="{ warn: health.noImage > 0 }">
                 {{ health.noImage }} / {{ health.total }} 张
-                <button
-                  v-if="health.noImage > 0"
-                  class="link"
-                  @click="openHealth('noImage')"
-                >去看</button>
+                <button v-if="health.noImage > 0" class="link" @click="openHealth('noImage')">
+                  去看
+                </button>
               </dd>
             </div>
             <div>
               <dt>待识别</dt>
               <dd :class="{ warn: health.ocrPending > 0 }">
                 {{ health.ocrPending }} 张
-                <button
-                  v-if="health.ocrPending > 0"
-                  class="link"
-                  @click="openHealth('ocrPending')"
-                >去看</button>
+                <button v-if="health.ocrPending > 0" class="link" @click="openHealth('ocrPending')">
+                  去看
+                </button>
               </dd>
             </div>
             <div>
               <dt>未被佐证</dt>
               <dd :class="{ warn: health.unlinked > 0 }">
                 {{ health.unlinked }} 张
-                <button
-                  v-if="health.unlinked > 0"
-                  class="link"
-                  @click="openHealth('unlinked')"
-                >去看</button>
+                <button v-if="health.unlinked > 0" class="link" @click="openHealth('unlinked')">
+                  去看
+                </button>
               </dd>
             </div>
           </div>
@@ -303,19 +322,38 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
         </header>
         <template v-if="storage">
           <div class="kv">
-            <div><dt>原图</dt><dd>{{ storage.originalCount }} 张 · {{ fmtSize(storage.originalBytes) }}</dd></div>
+            <div>
+              <dt>原图</dt>
+              <dd>{{ storage.originalCount }} 张 · {{ fmtSize(storage.originalBytes) }}</dd>
+            </div>
             <div>
               <dt>增强版</dt>
               <dd>
                 {{ storage.enhancedCount }} 张
-                <template v-if="storage.enhancedBytes != null"> · {{ fmtSize(storage.enhancedBytes) }}</template>
-                <button v-else class="link" :disabled="storageBytesBusy" @click="loadEnhancedBytes()">
+                <template v-if="storage.enhancedBytes != null">
+                  · {{ fmtSize(storage.enhancedBytes) }}</template
+                >
+                <button
+                  v-else
+                  class="link"
+                  :disabled="storageBytesBusy"
+                  @click="loadEnhancedBytes()"
+                >
                   {{ storageBytesBusy ? "计算中…" : "（计算体积）" }}
                 </button>
               </dd>
             </div>
-            <div><dt>增强来源</dt><dd>扫描件 {{ storage.enhancedScan }} · 截图 {{ storage.enhancedScreenshot }} · 未识别 {{ storage.enhancedUnknown }}</dd></div>
-            <div><dt>OCR 缓存</dt><dd>{{ storage.ocrCacheCount }} 条</dd></div>
+            <div>
+              <dt>增强来源</dt>
+              <dd>
+                扫描件 {{ storage.enhancedScan }} · 截图 {{ storage.enhancedScreenshot }} · 未识别
+                {{ storage.enhancedUnknown }}
+              </dd>
+            </div>
+            <div>
+              <dt>OCR 缓存</dt>
+              <dd>{{ storage.ocrCacheCount }} 条</dd>
+            </div>
           </div>
         </template>
         <p v-else-if="storageFailed" class="muted">
@@ -330,17 +368,36 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
       <header class="sh">
         <h3>月度透视</h3>
         <div class="segmented" role="tablist">
-          <button class="seg-item" role="tab" :aria-selected="dim === 'counterparty'"
-            :class="{ active: dim === 'counterparty' }" @click="switchDim('counterparty')">按对方账户</button>
-          <button class="seg-item" role="tab" :aria-selected="dim === 'tag'"
-            :class="{ active: dim === 'tag' }" @click="switchDim('tag')">按收支方向</button>
+          <button
+            class="seg-item"
+            role="tab"
+            :aria-selected="dim === 'counterparty'"
+            :class="{ active: dim === 'counterparty' }"
+            @click="switchDim('counterparty')"
+          >
+            按对方账户
+          </button>
+          <button
+            class="seg-item"
+            role="tab"
+            :aria-selected="dim === 'tag'"
+            :class="{ active: dim === 'tag' }"
+            @click="switchDim('tag')"
+          >
+            按收支方向
+          </button>
         </div>
         <span class="scope">每月前 5 项 · 按金额倒序</span>
       </header>
       <div v-if="breakdown.length" class="breakdown">
         <div v-for="m in monthsOf(breakdown)" :key="m" class="bd-month">
           <div class="bd-title">{{ m }}</div>
-          <button v-for="row in rowsOf(breakdown, m)" :key="row.key" class="bd-row" @click="drillDown(row)">
+          <button
+            v-for="row in rowsOf(breakdown, m)"
+            :key="row.key"
+            class="bd-row"
+            @click="drillDown(row)"
+          >
             <span class="bd-key">{{ row.key }}</span>
             <span class="bd-count">{{ row.count }} 张</span>
             <span class="flex-1"></span>
@@ -354,40 +411,188 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 
     <TrendPanel :months="trendMonths" />
     <TopListsPanel :date-from="range.dateFrom" :date-to="range.dateTo" />
-    <ReconcilePanel v-if="reconcileReport" :report="reconcileReport" @close="reconcileReport = null" />
+    <ReconcilePanel
+      v-if="reconcileReport"
+      :report="reconcileReport"
+      @close="reconcileReport = null"
+    />
   </div>
 </template>
 
 <style scoped>
-.insights { display: flex; flex-direction: column; gap: var(--s-4); }
-.head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
-.head h2 { font: var(--type-title); color: var(--label-primary); margin: 0; font-size: var(--fs-display); }
-.scope { font: var(--type-caption); color: var(--label-tertiary); }
-.flex-1 { flex: 1; }
-.ledgers { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--s-3); }
-.panel { padding: var(--s-3); border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--bg-content); display: flex; flex-direction: column; gap: var(--s-2); }
-.sh { display: flex; align-items: baseline; gap: var(--s-2); }
-.sh h3 { font: var(--type-title); color: var(--label-primary); margin: 0; }
-.kv { display: flex; flex-direction: column; gap: 6px; }
-.kv > div { display: grid; grid-template-columns: 84px 1fr; gap: var(--s-2); align-items: baseline; }
-.kv dt { color: var(--label-tertiary); font: var(--type-caption); }
-.kv dd { margin: 0; font: var(--type-body); color: var(--label-primary); font-variant-numeric: tabular-nums; }
-.kv dd.warn { color: var(--warning); font-weight: 600; }
-.formats { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.formats li { display: flex; align-items: center; gap: var(--s-2); }
-.muted { color: var(--label-tertiary); font: var(--type-caption); }
-.link { border: none; background: none; color: var(--accent); font: var(--type-caption); cursor: default; }
-.link:hover { text-decoration: underline; }
-.range-presets { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--separator); border-radius: var(--radius-control); overflow: hidden; }
-.seg { height: var(--control-h-sm); padding: 0 var(--s-3); border: none; background: transparent; color: var(--label-secondary); font: var(--type-caption); flex: 0 0 auto; white-space: nowrap; cursor: default; }
-.seg + .seg { border-left: 1px solid var(--separator); }
-.seg.active { background: var(--bg-selection); color: var(--label-primary); font-weight: 600; }
-.breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s-3); }
-.bd-month { display: flex; flex-direction: column; gap: 2px; }
-.bd-title { font: var(--type-caption); font-weight: 600; color: var(--label-secondary); margin-bottom: 2px; }
-.bd-row { display: flex; align-items: baseline; gap: var(--s-2); width: 100%; padding: 6px var(--s-2); border: none; border-radius: var(--radius-small); background: transparent; text-align: left; cursor: default; }
-.bd-row:hover { background: var(--bg-selection); }
-.bd-key { font: var(--type-body); color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
-.bd-count { font: var(--type-caption); color: var(--label-tertiary); white-space: nowrap; }
-.bd-amount { font: var(--type-body); font-variant-numeric: tabular-nums; color: var(--label-primary); }
+.insights {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.head h2 {
+  font: var(--type-title);
+  color: var(--label-primary);
+  margin: 0;
+  font-size: var(--fs-display);
+}
+.scope {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+}
+.flex-1 {
+  flex: 1;
+}
+.ledgers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--s-3);
+}
+.panel {
+  padding: var(--s-3);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--bg-content);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.sh {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.sh h3 {
+  font: var(--type-title);
+  color: var(--label-primary);
+  margin: 0;
+}
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kv > div {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+.kv dt {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
+.kv dd {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--label-primary);
+  font-variant-numeric: tabular-nums;
+}
+.kv dd.warn {
+  color: var(--warning);
+  font-weight: 600;
+}
+.formats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.formats li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.muted {
+  color: var(--label-tertiary);
+  font: var(--type-caption);
+}
+.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: var(--type-caption);
+  cursor: default;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.range-presets {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.seg {
+  height: var(--control-h-sm);
+  padding: 0 var(--s-3);
+  border: none;
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--type-caption);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  cursor: default;
+}
+.seg + .seg {
+  border-left: 1px solid var(--separator);
+}
+.seg.active {
+  background: var(--bg-selection);
+  color: var(--label-primary);
+  font-weight: 600;
+}
+.breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s-3);
+}
+.bd-month {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bd-title {
+  font: var(--type-caption);
+  font-weight: 600;
+  color: var(--label-secondary);
+  margin-bottom: 2px;
+}
+.bd-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 6px var(--s-2);
+  border: none;
+  border-radius: var(--radius-small);
+  background: transparent;
+  text-align: left;
+  cursor: default;
+}
+.bd-row:hover {
+  background: var(--bg-selection);
+}
+.bd-key {
+  font: var(--type-body);
+  color: var(--label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14em;
+}
+.bd-count {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+.bd-amount {
+  font: var(--type-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--label-primary);
+}
 </style>

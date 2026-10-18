@@ -22,7 +22,14 @@ const css = styleBlocks.join("\n");
 describe("打印中心：选择列表", () => {
   it("存在 style 块，且覆盖选择列表与操作条的关键类（防止再次「改了类名却没样式」）", () => {
     expect(styleBlocks.length).toBeGreaterThan(0);
-    for (const cls of [".pick-row", ".pick-main", ".line1", ".line2", ".action-bar", ".muted-center"]) {
+    for (const cls of [
+      ".pick-row",
+      ".pick-main",
+      ".line1",
+      ".line2",
+      ".action-bar",
+      ".muted-center",
+    ]) {
       expect(css, `样式缺少 ${cls}`).toContain(cls);
     }
     // 行是 flex 布局（缺了它就会退化成块级堆叠——本次缺陷的直接原因）
@@ -61,14 +68,14 @@ describe("打印中心：选择列表", () => {
   it("导出格式只有一个入口（顶部操作条），右栏不再重复一份", () => {
     const occurrences = [...src.matchAll(/exportFormat\s*=\s*'(pdf|xlsx|csv)'/g)].length;
     expect(occurrences, "导出格式的分段控件只应出现在顶部操作条").toBeLessThanOrEqual(3);
-    expect(src).not.toContain('<label>导出格式</label>');
+    expect(src).not.toContain("<label>导出格式</label>");
   });
 
   it("「全选筛选结果」在未勾选时也可用（禁用条件只看有无可选项 / 是否忙）", () => {
     // 背景：此前禁用条件是 !selected.size，于是"一张都没勾"时最常用的入口不可用，
     // 必须先手动勾一张（资料库页早已是"未选→显示全选"，两页口径曾相反）。
     expect(src).toMatch(
-      /<button class="btn" :disabled="!filteredVouchers\.length \|\| busy" @click="selectAll">全选筛选结果<\/button>/,
+      /<button\s+class="btn"\s+:disabled="!filteredVouchers\.length \|\| busy"\s+@click="selectAll"\s*>\s*全选筛选结果\s*<\/button>/,
     );
     expect(src).not.toMatch(/:disabled="!selected\.size" @click="selectAll"/);
   });

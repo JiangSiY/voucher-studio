@@ -16,8 +16,7 @@
  */
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 
-const FOCUSABLE =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 function focusablesIn(root: HTMLElement | null): HTMLElement[] {
   if (!root) return [];

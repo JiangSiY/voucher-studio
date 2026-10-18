@@ -21,15 +21,24 @@ const shortcuts: { keys: string; what: string }[] = [
   { keys: "⌘⇧E", what: "展宽 / 收起右栏编辑器" },
   { keys: "↑ ↓", what: "在列表、摘要模板下拉里移动" },
   { keys: "Enter", what: "打开选中的凭证 / 展开当前行" },
-  { keys: "⌥← ⌥→", what: "上一张 / 下一张（按当前筛选的整份结果翻，可跨页；右栏头部也有这对箭头）" },
+  {
+    keys: "⌥← ⌥→",
+    what: "上一张 / 下一张（按当前筛选的整份结果翻，可跨页；右栏头部也有这对箭头）",
+  },
   { keys: "Esc", what: "关闭浮层（命令面板 / 对话框 / 看图器），焦点回到原处" },
   { keys: "← →", what: "聚焦侧栏右缘手柄后微调侧栏宽度 16px；双击手柄复位 260px" },
 ];
 
 /** 侧栏一列入口（与 WorkbenchLayout 的 navItems 同序同文案；帮助页不再用旧称） */
 const navMap: { name: string; what: string }[] = [
-  { name: "待处理", what: "该做什么就列什么（待识别 / 待核对 / 待打印 / 疑似重复 / 未填金额），全部清零后整块让位给资料" },
-  { name: "全部凭证", what: "左列表 + 右编辑器，可就地改全部字段；支持拖图入库、批量改状态、批量导出" },
+  {
+    name: "待处理",
+    what: "该做什么就列什么（待识别 / 待核对 / 待打印 / 疑似重复 / 未填金额），全部清零后整块让位给资料",
+  },
+  {
+    name: "全部凭证",
+    what: "左列表 + 右编辑器，可就地改全部字段；支持拖图入库、批量改状态、批量导出",
+  },
   { name: "重复核查", what: "同日期同金额的疑似重复，逐对判定「确认重复 / 排除」" },
   { name: "洞察", what: "时间窗驱动的月度趋势、状态分布、月度透视、导出覆盖度与存储占用" },
   { name: "打印与导出", what: "A4 多列省墨整理单、按天凭证日报，以及 Excel / CSV 台账" },
@@ -45,25 +54,51 @@ const navMap: { name: string; what: string }[] = [
     <div class="fluent-panel-header"><h3>三步上手</h3></div>
     <div class="fluent-panel-body">
       <div class="help-grid">
-        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
-          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="image" :size="24" /></div>
+        <div
+          style="
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-control);
+            padding: 16px;
+          "
+        >
+          <div style="margin-bottom: 8px; color: var(--accent)">
+            <FluentIcon name="image" :size="24" />
+          </div>
           <div style="font-weight: 600; margin-bottom: 4px">1 · 收集</div>
           <div style="font-size: var(--fs-caption); color: var(--text-3)">
             把票据/凭证图片拖进「全部凭证」，自动建卡入库；支持批量拖放，一图一凭证；重复图片自动去重。
           </div>
         </div>
-        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
-          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="edit" :size="24" /></div>
+        <div
+          style="
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-control);
+            padding: 16px;
+          "
+        >
+          <div style="margin-bottom: 8px; color: var(--accent)">
+            <FluentIcon name="edit" :size="24" />
+          </div>
           <div style="font-weight: 600; margin-bottom: 4px">2 · 整理</div>
           <div style="font-size: var(--fs-caption); color: var(--text-3)">
-            补全摘要、金额、收支方向；一键 OCR 提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
+            补全摘要、金额、收支方向；一键 OCR
+            提取图片文字；全文搜索随时找凭证；每次修改自动存快照。
           </div>
         </div>
-        <div style="border: 1px solid var(--stroke); border-radius: var(--radius-control); padding: 16px">
-          <div style="margin-bottom: 8px; color: var(--accent)"><FluentIcon name="print" :size="24" /></div>
+        <div
+          style="
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-control);
+            padding: 16px;
+          "
+        >
+          <div style="margin-bottom: 8px; color: var(--accent)">
+            <FluentIcon name="print" :size="24" />
+          </div>
           <div style="font-weight: 600; margin-bottom: 4px">3 · 打印归档</div>
           <div style="font-size: var(--fs-caption); color: var(--text-3)">
-            「打印与导出」页勾选凭证，选卡片风格与列数，生成 A4 省墨整理单 PDF，用系统查看器打印归档。
+            「打印与导出」页勾选凭证，选卡片风格与列数，生成 A4 省墨整理单
+            PDF，用系统查看器打印归档。
           </div>
         </div>
       </div>
@@ -101,27 +136,74 @@ const navMap: { name: string; what: string }[] = [
   <div class="fluent-panel">
     <div class="fluent-panel-header"><h3>常见问题</h3></div>
     <div class="fluent-panel-body" style="font-size: var(--fs-caption); line-height: 1.8">
-      <p><strong>数据存在哪里？</strong>全部在本机：<code>{{ dataDir }}</code>（数据库 + 附件图片 + 备份）。不上传任何数据（WebDAV 备份由你显式配置；云端 OCR 需你显式切换到云端引擎）。</p>
-      <p><strong>密钥安全吗？</strong>云端 OCR API Key、WebDAV 密码保存在系统钥匙串（macOS 钥匙串），不会写入文件。</p>
-      <p><strong>误删了怎么办？</strong>删除前系统自动留存快照记录；数据目录损坏时用「备份与恢复」页的备份还原（恢复 = 写入待恢复文件 + 重启生效）。</p>
-      <p><strong>搜索找不到凭证？</strong>全文搜索每次最多显示 100 条，结果被截断时列表上方会提示；此时把关键词写得更具体，或加上日期 / 金额筛选。图片上的文字要先完成 OCR 才可被搜到。</p>
-      <p><strong>为什么没有二维码？</strong>凭证是记账原始凭证，以凭证编号为核心、打印省墨、归档可读为设计目标。</p>
+      <p>
+        <strong>数据存在哪里？</strong>全部在本机：<code>{{ dataDir }}</code
+        >（数据库 + 附件图片 + 备份）。不上传任何数据（WebDAV 备份由你显式配置；云端 OCR
+        需你显式切换到云端引擎）。
+      </p>
+      <p>
+        <strong>密钥安全吗？</strong>云端 OCR API Key、WebDAV 密码保存在系统钥匙串（macOS
+        钥匙串），不会写入文件。
+      </p>
+      <p>
+        <strong>误删了怎么办？</strong
+        >删除前系统自动留存快照记录；数据目录损坏时用「备份与恢复」页的备份还原（恢复 =
+        写入待恢复文件 + 重启生效）。
+      </p>
+      <p>
+        <strong>搜索找不到凭证？</strong>全文搜索每次最多显示 100
+        条，结果被截断时列表上方会提示；此时把关键词写得更具体，或加上日期 /
+        金额筛选。图片上的文字要先完成 OCR 才可被搜到。
+      </p>
+      <p>
+        <strong>为什么没有二维码？</strong
+        >凭证是记账原始凭证，以凭证编号为核心、打印省墨、归档可读为设计目标。
+      </p>
     </div>
   </div>
 
   <div class="fluent-panel">
     <div class="fluent-panel-body" style="font-size: var(--fs-caption); color: var(--text-3)">
-      Voucher Studio v{{ version }} · Tauri 2 + Rust + Vue 3 重写版（完全无包袱重写，不迁移旧版数据）。
-      本地 OCR（离线识别）已内置：RapidOCR PP-OCRv5 模型，识别全程在本机完成。
+      Voucher Studio v{{ version }} · Tauri 2 + Rust + Vue 3
+      重写版（完全无包袱重写，不迁移旧版数据）。 本地 OCR（离线识别）已内置：RapidOCR PP-OCRv5
+      模型，识别全程在本机完成。
     </div>
   </div>
 </template>
 
 <style scoped>
-.helplist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.helplist li { display: flex; align-items: baseline; gap: var(--s-3); font-size: var(--fs-caption); }
-.hl-name, .hl-keys { flex-shrink: 0; min-width: 96px; color: var(--label-primary); font-weight: 600; }
-.hl-keys { min-width: 108px; font: 600 12.6px / 1.6 var(--font-mono); }
-.hl-what { color: var(--label-secondary); }
-.hl-note { margin: var(--s-3) 0 0; font-size: var(--fs-caption); color: var(--text-3); line-height: 1.7; }
+.helplist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.helplist li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  font-size: var(--fs-caption);
+}
+.hl-name,
+.hl-keys {
+  flex-shrink: 0;
+  min-width: 96px;
+  color: var(--label-primary);
+  font-weight: 600;
+}
+.hl-keys {
+  min-width: 108px;
+  font: 600 12.6px / 1.6 var(--font-mono);
+}
+.hl-what {
+  color: var(--label-secondary);
+}
+.hl-note {
+  margin: var(--s-3) 0 0;
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+  line-height: 1.7;
+}
 </style>

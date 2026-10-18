@@ -25,9 +25,8 @@ const emit = defineEmits<{
 const extractedCount = computed(() => {
   const f = props.extracted;
   if (!f) return 0;
-  return [f.date, f.amountCents, f.counterparty, f.merchant].filter(
-    (v) => v != null && v !== "",
-  ).length;
+  return [f.date, f.amountCents, f.counterparty, f.merchant].filter((v) => v != null && v !== "")
+    .length;
 });
 const badge = computed(() => (extractedCount.value ? `识别到 ${extractedCount.value} 项` : ""));
 
@@ -46,7 +45,9 @@ const hasExtracted = computed(() => {
       </button>
     </template>
     <div>
-      <div v-if="fieldsBusy" style="font-size: var(--fs-caption); color: var(--text-2)">正在提取字段…</div>
+      <div v-if="fieldsBusy" style="font-size: var(--fs-caption); color: var(--text-2)">
+        正在提取字段…
+      </div>
       <template v-else-if="extracted">
         <div class="ext-row">
           <span class="ext-label">日期</span>
@@ -54,17 +55,35 @@ const hasExtracted = computed(() => {
             {{ extracted.date ?? "—" }}
             <ConfidenceTag :level="extracted.confidence?.date ?? null" />
           </span>
-          <button v-if="extracted.date" class="btn btn-sm" @click="emit('applyField', 'date')">填入</button>
+          <button v-if="extracted.date" class="btn btn-sm" @click="emit('applyField', 'date')">
+            填入
+          </button>
         </div>
         <div class="ext-row">
           <span class="ext-label">金额</span>
           <span class="ext-value mono">
             {{ extracted.amountCents != null ? `¥${fmtAmount(extracted.amountCents)}` : "—" }}
             <!-- 置信度：标签命中可信 / 全文唯一兜底低置信 -->
-            <span v-if="extracted.amountSource === 'labeled'" class="tag tag-success" title="命中「价税合计/合计」等标签">可信</span>
-            <span v-else-if="extracted.amountSource === 'uniqueonly'" class="tag tag-warning" title="全文唯一金额兜底，无标签佐证，请人工核对">低置信</span>
+            <span
+              v-if="extracted.amountSource === 'labeled'"
+              class="tag tag-success"
+              title="命中「价税合计/合计」等标签"
+              >可信</span
+            >
+            <span
+              v-else-if="extracted.amountSource === 'uniqueonly'"
+              class="tag tag-warning"
+              title="全文唯一金额兜底，无标签佐证，请人工核对"
+              >低置信</span
+            >
           </span>
-          <button v-if="extracted.amountCents != null" class="btn btn-sm" @click="emit('applyField', 'amount')">填入</button>
+          <button
+            v-if="extracted.amountCents != null"
+            class="btn btn-sm"
+            @click="emit('applyField', 'amount')"
+          >
+            填入
+          </button>
         </div>
         <div class="ext-row">
           <span class="ext-label">对方账户</span>
@@ -72,7 +91,13 @@ const hasExtracted = computed(() => {
             {{ extracted.counterparty ?? "—" }}
             <ConfidenceTag :level="extracted.confidence?.counterparty ?? null" />
           </span>
-          <button v-if="extracted.counterparty" class="btn btn-sm" @click="emit('applyField', 'counterparty')">填入</button>
+          <button
+            v-if="extracted.counterparty"
+            class="btn btn-sm"
+            @click="emit('applyField', 'counterparty')"
+          >
+            填入
+          </button>
         </div>
         <div class="ext-row">
           <span class="ext-label">商家</span>
@@ -80,7 +105,14 @@ const hasExtracted = computed(() => {
             {{ extracted.merchant ?? "—" }}
             <ConfidenceTag :level="extracted.confidence?.merchant ?? null" />
           </span>
-          <button v-if="extracted.merchant" class="btn btn-sm" title="商家名作为摘要填入" @click="emit('applyField', 'merchant')">填入摘要</button>
+          <button
+            v-if="extracted.merchant"
+            class="btn btn-sm"
+            title="商家名作为摘要填入"
+            @click="emit('applyField', 'merchant')"
+          >
+            填入摘要
+          </button>
         </div>
         <div class="ext-tip">提取自 OCR 识别文本；「填入」只改表单值，点「保存」才落库。</div>
       </template>

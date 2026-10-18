@@ -36,14 +36,25 @@ onMounted(async () => {
       <div class="callout info">
         <span class="ci"><FluentIcon name="lock" :size="18" /></span>
         <div class="ct">
-          <strong>密钥保存在系统凭据库</strong>（Windows 凭据管理器 / macOS 钥匙串），不写进任何文件——
-          换电脑需要重新录入。
+          <strong>密钥保存在系统凭据库</strong>（Windows 凭据管理器 / macOS
+          钥匙串），不写进任何文件—— 换电脑需要重新录入。
         </div>
       </div>
       <div v-for="s in secrets" :key="s.alias" class="field settings-box">
-        <label>{{ s.label }} <span class="tag" :class="s.exists ? 'tag-success' : 'tag-muted'">{{ s.exists ? "已设置" : "未设置" }}</span></label>
+        <label
+          >{{ s.label }}
+          <span class="tag" :class="s.exists ? 'tag-success' : 'tag-muted'">{{
+            s.exists ? "已设置" : "未设置"
+          }}</span></label
+        >
         <div class="settings-inline">
-          <input v-model="secretDrafts[s.alias]" class="input settings-grow" type="password" autocomplete="new-password" :placeholder="s.exists ? '输入新值覆盖' : '输入密钥'" />
+          <input
+            v-model="secretDrafts[s.alias]"
+            class="input settings-grow"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="s.exists ? '输入新值覆盖' : '输入密钥'"
+          />
           <button class="btn btn-primary" @click="useSecretSave(s.alias)">保存</button>
           <button class="btn" :disabled="!s.exists" @click="removeSecret(s.alias)">删除</button>
         </div>

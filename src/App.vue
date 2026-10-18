@@ -3,7 +3,14 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "./composables/safeListen";
 import { useRouter } from "vue-router";
-import { api, errMsg, isTauri, type BackupInfo, type ImportSummary, type RecoveryReport } from "./api/client";
+import {
+  api,
+  errMsg,
+  isTauri,
+  type BackupInfo,
+  type ImportSummary,
+  type RecoveryReport,
+} from "./api/client";
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { useDupStore } from "./stores/dup";
@@ -61,7 +68,6 @@ const closingBackup = ref(false);
 
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
-
 
 onMounted(async () => {
   // 纯浏览器打开 dev URL：跳过所有 Tauri 相关初始化，避免裸 JS 错误刷屏
@@ -154,7 +160,6 @@ onMounted(async () => {
     toast.danger(`导入失败：${e.payload}`);
   });
 
-
   // v0.16 疑似重复：启动拉一次待处理数（侧栏徽标 / 仪表盘面板共用），
   // 任意页面处置后由后端 dup:changed 驱动刷新（含仪表盘的面板与徽标）
   // 侧栏两个徽标：疑似重复（dupStore）与待处理项数（inboxStore）——启动各拉一次，
@@ -205,8 +210,12 @@ onUnmounted(() => {
   <CommandPalette :visible="paletteVisible" @close="ui.closePalette()" />
 
   <!-- 拖放导入遮罩（Rust 侧 drag-enter/leave 事件驱动） -->
-  <div v-if="draggingOver" class="drop-overlay">松手导入图片（一图一凭证：每张图片各建一张凭证）</div>
-  <div v-else-if="importing" class="drop-overlay" style="pointer-events: none">正在导入图片，请稍候…</div>
+  <div v-if="draggingOver" class="drop-overlay">
+    松手导入图片（一图一凭证：每张图片各建一张凭证）
+  </div>
+  <div v-else-if="importing" class="drop-overlay" style="pointer-events: none">
+    正在导入图片，请稍候…
+  </div>
 
   <!-- 关闭前自动备份遮罩（Rust 拦截关闭请求后触发；完成后窗口自动销毁，此遮罩随之消失） -->
   <div v-else-if="closingBackup" class="closing-backup-overlay">
@@ -227,47 +236,87 @@ onUnmounted(() => {
       <h3>检测到上次异常退出</h3>
       <div class="dialog-body">
         <p style="margin-bottom: 12px">
-          上次会话（{{ recovery.lastSession ? fmtDate(recovery.lastSession.startedAt) : "时间未知" }}）未能正常关闭，
-          可能由崩溃、强制结束进程或断电引起。已对数据做了只读健康检查：
+          上次会话（{{
+            recovery.lastSession ? fmtDate(recovery.lastSession.startedAt) : "时间未知"
+          }}）未能正常关闭， 可能由崩溃、强制结束进程或断电引起。已对数据做了只读健康检查：
         </p>
-        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-caption)">
+        <ul
+          style="
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: var(--fs-caption);
+          "
+        >
           <li style="display: flex; align-items: flex-start; gap: 6px">
-            <template v-if="recovery.dbOk"><span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="16" /></span><span>数据库完整性检查通过</span></template>
+            <template v-if="recovery.dbOk"
+              ><span style="color: var(--success); flex-shrink: 0"
+                ><FluentIcon name="checkCircle" :size="16" /></span
+              ><span>数据库完整性检查通过</span></template
+            >
             <template v-else>
-              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>
-              <span>数据库完整性检查发现问题：
+              <span style="color: var(--danger); flex-shrink: 0"
+                ><FluentIcon name="warning" :size="16"
+              /></span>
+              <span
+                >数据库完整性检查发现问题：
                 <span class="mono" style="color: var(--danger)">{{
                   recovery.integrityErrors.join("；") || "未知错误"
                 }}</span>
               </span>
             </template>
           </li>
-          <li v-if="recovery.attachmentTotal > 0" style="display: flex; align-items: flex-start; gap: 6px">
+          <li
+            v-if="recovery.attachmentTotal > 0"
+            style="display: flex; align-items: flex-start; gap: 6px"
+          >
             <template v-if="recovery.attachmentMissingCount === 0">
-              <span style="color: var(--success); flex-shrink: 0"><FluentIcon name="checkCircle" :size="16" /></span>
+              <span style="color: var(--success); flex-shrink: 0"
+                ><FluentIcon name="checkCircle" :size="16"
+              /></span>
               <span>附件文件核对通过（{{ recovery.attachmentTotal }} 张图片全部在位）</span>
             </template>
             <template v-else>
-              <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>
-              <span>有 {{ recovery.attachmentMissingCount }} 张附件图片文件缺失（如
+              <span style="color: var(--danger); flex-shrink: 0"
+                ><FluentIcon name="warning" :size="16"
+              /></span>
+              <span
+                >有 {{ recovery.attachmentMissingCount }} 张附件图片文件缺失（如
                 {{ recovery.attachmentMissing[0] }}）
               </span>
             </template>
           </li>
           <li v-else style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="info" :size="16" /></span>尚无附件图片
+            <span style="color: var(--accent); flex-shrink: 0"
+              ><FluentIcon name="info" :size="16" /></span
+            >尚无附件图片
           </li>
-          <li v-if="recovery.attachmentMissingEnhanced > 0" style="display: flex; align-items: flex-start; gap: 6px">
-            <span style="color: var(--warning); flex-shrink: 0"><FluentIcon name="info" :size="16" /></span>
-            <span>有 {{ recovery.attachmentMissingEnhanced }} 张图片的「增强版」文件不在磁盘上——增强版是可重建缓存、
-              不随备份保存（恢复备份后必然出现）。界面已自动改用原图显示，可在 设置 → 扫描矫正 一键重建增强。</span>
+          <li
+            v-if="recovery.attachmentMissingEnhanced > 0"
+            style="display: flex; align-items: flex-start; gap: 6px"
+          >
+            <span style="color: var(--warning); flex-shrink: 0"
+              ><FluentIcon name="info" :size="16"
+            /></span>
+            <span
+              >有
+              {{ recovery.attachmentMissingEnhanced }}
+              张图片的「增强版」文件不在磁盘上——增强版是可重建缓存、
+              不随备份保存（恢复备份后必然出现）。界面已自动改用原图显示，可在 设置 → 扫描矫正
+              一键重建增强。</span
+            >
           </li>
           <li v-if="recovery.lastBackup" style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--accent); flex-shrink: 0"><FluentIcon name="save" :size="16" /></span>
+            <span style="color: var(--accent); flex-shrink: 0"
+              ><FluentIcon name="save" :size="16"
+            /></span>
             最近备份：{{ fmtDate(recovery.lastBackup.createdAt) }}
           </li>
           <li v-else style="display: flex; align-items: center; gap: 6px">
-            <span style="color: var(--danger); flex-shrink: 0"><FluentIcon name="warning" :size="16" /></span>尚无任何备份
+            <span style="color: var(--danger); flex-shrink: 0"
+              ><FluentIcon name="warning" :size="16" /></span
+            >尚无任何备份
           </li>
         </ul>
         <p

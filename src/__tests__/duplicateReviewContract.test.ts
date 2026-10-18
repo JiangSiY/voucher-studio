@@ -13,7 +13,6 @@
 import { describe, expect, it } from "vitest";
 import { repoFile } from "./helpers/designGuard";
 
-
 const routerSrc = repoFile("src/router/index.ts");
 const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
 const paletteSrc = repoFile("src/components/CommandPalette.vue");

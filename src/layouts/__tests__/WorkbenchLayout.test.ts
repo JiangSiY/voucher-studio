@@ -22,7 +22,12 @@ import WorkbenchLayout from "../WorkbenchLayout.vue";
 let currentPath = "/inbox";
 
 vi.mock("../../api/client", () => ({
-  api: { dashboardTodos: vi.fn(), duplicatePendingSummary: vi.fn(), getAppInfo: vi.fn(), getConfig: vi.fn() },
+  api: {
+    dashboardTodos: vi.fn(),
+    duplicatePendingSummary: vi.fn(),
+    getAppInfo: vi.fn(),
+    getConfig: vi.fn(),
+  },
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock("vue-router", () => ({

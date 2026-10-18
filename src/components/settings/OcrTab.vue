@@ -66,7 +66,8 @@ onMounted(async () => {
   }
   unlistenOcrProgress = await listen<{ done: number; total: number }>("ocr:progress", (e) => {
     if (ocrPendingBusy.value) ocrProgress.value = e.payload;
-    if (ocrTaskId !== null) taskStore.progress(ocrTaskId, { done: e.payload.done, total: e.payload.total });
+    if (ocrTaskId !== null)
+      taskStore.progress(ocrTaskId, { done: e.payload.done, total: e.payload.total });
   });
 });
 
@@ -100,7 +101,10 @@ onUnmounted(() => {
         <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
         <div class="ct">
           <strong>本地模型已安装</strong>
-          <span v-if="localOcr.files.length">（{{ localOcr.files.length }} 个文件，约 {{ (localOcr.totalSize / 1048576).toFixed(1) }} MB）</span>
+          <span v-if="localOcr.files.length"
+            >（{{ localOcr.files.length }} 个文件，约
+            {{ (localOcr.totalSize / 1048576).toFixed(1) }} MB）</span
+          >
           ：RapidOCR PP-OCRv5 检测 + 方向分类 + 识别，首次识别时加载约 0.2 秒。
         </div>
       </div>
@@ -114,8 +118,14 @@ onUnmounted(() => {
       <template v-if="draftCfg.ocr.engine === 'cloud'">
         <div class="field">
           <label>API 地址</label>
-          <input v-model="draftCfg.ocr.apiUrl" class="input mono" placeholder="https://api.example.com/ocr" />
-          <div class="desc">POST JSON：{image_base64, model}，返回 {text}；API Key 在「密钥管理」页设置。</div>
+          <input
+            v-model="draftCfg.ocr.apiUrl"
+            class="input mono"
+            placeholder="https://api.example.com/ocr"
+          />
+          <div class="desc">
+            POST JSON：{image_base64, model}，返回 {text}；API Key 在「密钥管理」页设置。
+          </div>
         </div>
         <div class="field">
           <label>模型名（可选）</label>

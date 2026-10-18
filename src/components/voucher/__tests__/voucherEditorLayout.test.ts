@@ -28,8 +28,11 @@ describe("凭证编辑器：标签在输入框上方（方案 A 契约）", () =
     expect(src).toMatch(/\.ed-field\s*\{[^}]*display:\s*grid[^}]*gap:\s*4px/);
     expect(src).toMatch(/\.ed-field-label\s*\{[^}]*font:\s*var\(--type-caption\)/);
     // 模板里每个字段都先给标签、再给控件（7 个字段：摘要/日期/金额/状态/对方/收支方向/备注）
-    const fields = [...src.matchAll(/class="ed-field"[^>]*data-field="([a-z]+)"[\s\S]{0,400}?class="ed-field-label"/g)]
-      .map((m) => m[1]);
+    const fields = [
+      ...src.matchAll(
+        /class="ed-field"[^>]*data-field="([a-z]+)"[\s\S]{0,400}?class="ed-field-label"/g,
+      ),
+    ].map((m) => m[1]);
     expect(fields).toEqual([
       "description",
       "date",

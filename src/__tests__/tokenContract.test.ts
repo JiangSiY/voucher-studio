@@ -52,9 +52,7 @@ function usedTokens(): Map<string, string[]> {
  * 已收编的旧命名：2026-09-23 的兼容别名已随引用迁移一并删除（批次 7）。
  * 这些名字**不得再出现在 src 里**（新增引用会让深色主题与主题切换重新出现 A6 类问题）。
  */
-const RETIRED_TOKENS = [
-  "--bg-1", "--bg-2", "--bg-3", "--surface-1", "--text-1", "--border",
-];
+const RETIRED_TOKENS = ["--bg-1", "--bg-2", "--bg-3", "--surface-1", "--text-1", "--border"];
 
 /** 全量 var() 引用（含带 fallback 的写法——禁名判据不能漏掉它们） */
 function allVarReferences(): string[] {
@@ -122,7 +120,9 @@ describe("CSS 令牌契约（引用必须有定义）", () => {
  * - 已下线的旧视觉族不得回归（v0.22 卡片版式与旧列表工具类，见审计 §2.2）。
  */
 describe("排版与视觉语言契约（U1/U2 收编）", () => {
-  const styleFiles = srcSourceFiles([".vue", ".css"]).filter((f) => !f.endsWith("styles/tokens.css"));
+  const styleFiles = srcSourceFiles([".vue", ".css"]).filter(
+    (f) => !f.endsWith("styles/tokens.css"),
+  );
   const texts = new Map(styleFiles.map((rel) => [rel, repoFile(rel)] as const));
 
   it("样式文件里不得再出现 font-size 字面量（必须走 --fs-*）", () => {
@@ -155,8 +155,19 @@ describe("排版与视觉语言契约（U1/U2 收编）", () => {
 
   it("已下线的旧视觉族不得回归（v0.22 卡片版式 / 旧列表工具类）", () => {
     const css = repoFile("src/styles/base.css");
-    for (const dead of ["vcard", "fchip", "filter-chips", "print-grid", "list-thumb", "cell-ellipsis", "card-body", "card-header"]) {
-      expect(css.includes(dead), `base.css 不应再定义 ${dead}（旧视觉族，见审计 §2.2）`).toBe(false);
+    for (const dead of [
+      "vcard",
+      "fchip",
+      "filter-chips",
+      "print-grid",
+      "list-thumb",
+      "cell-ellipsis",
+      "card-body",
+      "card-header",
+    ]) {
+      expect(css.includes(dead), `base.css 不应再定义 ${dead}（旧视觉族，见审计 §2.2）`).toBe(
+        false,
+      );
     }
     expect(css).not.toContain("#6366f1");
     expect(css).not.toContain("#8b5cf6");

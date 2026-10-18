@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { flat } from "./helpers/designGuard";
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), "utf8");
 
@@ -118,7 +119,7 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(css).toMatch(/\.att-ops\s*\{[^}]*flex-wrap:\s*nowrap/);
     expect(css).toMatch(/\.att-ops\.isDense\s+\.ops-label\s*\{\s*display:\s*none/);
     const panel = read("src/components/voucher/AttachmentPanel.vue");
-    expect(panel).toContain(":class=\"{ isDense: dense }\"");
+    expect(panel).toContain(':class="{ isDense: dense }"');
     expect(read(EDITOR)).toContain(':dense="dense"');
   });
 
@@ -133,7 +134,7 @@ describe("右栏编辑器重设计契约（B 批）", () => {
   it("「标签」筛选统一为「收支方向」多选下拉（列表 + 打印中心），不再有自由文本标签输入", () => {
     const lib = read("src/pages/LibraryPage.vue");
     // 多选下拉（2026-10-17 用户要求「下拉菜单做成可多选」）
-    expect(lib).toContain('<MultiSelect v-model="directions" label="收支方向"');
+    expect(flat(lib)).toContain('<MultiSelect v-model="directions" label="收支方向"');
     expect(lib).toContain(":exclusive=\"['none']\"");
     expect(lib).toContain('value: "收入"');
     expect(lib).toContain('value: "支出"');
@@ -151,11 +152,14 @@ describe("右栏编辑器重设计契约（B 批）", () => {
   });
 
   it("用户可见的「标签」措辞已统一为「收支方向」（洞察透视 / 排行卡 / 帮助页 / 导出说明）", () => {
-    expect(read("src/pages/InsightsPage.vue")).toContain(">按收支方向</button>");
+    expect(read("src/pages/InsightsPage.vue")).toMatch(/>\s*按收支方向\s*<\/button>/);
     expect(read("src/components/dashboard/TopListsPanel.vue")).toContain("收支方向（按金额");
     expect(read("src/pages/HelpPage.vue")).toContain("补全摘要、金额、收支方向");
     // 后端导出表头（xlsx/csv 第 7 列）
-    const table = readFileSync(resolve(process.cwd(), "crates/voucher-core/src/services/table.rs"), "utf8");
+    const table = readFileSync(
+      resolve(process.cwd(), "crates/voucher-core/src/services/table.rs"),
+      "utf8",
+    );
     expect(table).toContain('"收支方向"');
   });
 
@@ -175,7 +179,9 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     const order = ["description", "date", "amount", "status", "counterparty", "tags", "note"];
     for (const f of order) expect(idx(f), `缺少字段 ${f}`).toBeGreaterThan(-1);
     for (let i = 1; i < order.length; i += 1) {
-      expect(idx(order[i - 1]), `${order[i - 1]} 应在 ${order[i]} 之前`).toBeLessThan(idx(order[i]));
+      expect(idx(order[i - 1]), `${order[i - 1]} 应在 ${order[i]} 之前`).toBeLessThan(
+        idx(order[i]),
+      );
     }
     // 编号不再占表单一行（右栏头部已显示）
     expect(editor).not.toContain('data-field="no"');
@@ -233,7 +239,10 @@ describe("右栏编辑器重设计契约（B 批）", () => {
     expect(editor).toContain("onStatusKeydown");
     expect(editor).toContain("ArrowRight");
     // 状态行里不得再有 select
-    const statusRow = editor.slice(editor.indexOf('data-field="status"'), editor.indexOf('data-field="status"') + 700);
+    const statusRow = editor.slice(
+      editor.indexOf('data-field="status"'),
+      editor.indexOf('data-field="status"') + 700,
+    );
     expect(statusRow).not.toContain("<select");
   });
 

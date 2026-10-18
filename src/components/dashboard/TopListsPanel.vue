@@ -19,10 +19,10 @@ import { toastError } from "../../stores/toast";
 const router = useRouter();
 
 /** 洞察页时间窗（`YYYY-MM-DD` 闭区间）；两端都空 = 全历史 */
-const props = withDefaults(
-  defineProps<{ dateFrom?: string | null; dateTo?: string | null }>(),
-  { dateFrom: null, dateTo: null },
-);
+const props = withDefaults(defineProps<{ dateFrom?: string | null; dateTo?: string | null }>(), {
+  dateFrom: null,
+  dateTo: null,
+});
 
 /** 标题口径后缀：有窗口就说窗口内，否则如实说全历史 */
 const scopeLabel = computed(() => (props.dateFrom || props.dateTo ? "窗口内" : "全历史"));
@@ -32,9 +32,7 @@ const scopeLabel = computed(() => (props.dateFrom || props.dateTo ? "窗口内" 
 const CP_TOP = 10;
 const counterparties = ref<CounterpartyRow[]>([]);
 
-const cpMaxAmount = computed(() =>
-  Math.max(1, ...counterparties.value.map((c) => c.amountCents)),
-);
+const cpMaxAmount = computed(() => Math.max(1, ...counterparties.value.map((c) => c.amountCents)));
 
 /** 条形宽度：按最大金额归一化（最小 2% 保证可见） */
 function cpBarWidth(c: CounterpartyRow): string {
@@ -46,9 +44,7 @@ function cpBarWidth(c: CounterpartyRow): string {
 const TAG_TOP = 10;
 const tagRows = ref<TagRow[]>([]);
 
-const tagMaxAmount = computed(() =>
-  Math.max(1, ...tagRows.value.map((t) => t.amountCents)),
-);
+const tagMaxAmount = computed(() => Math.max(1, ...tagRows.value.map((t) => t.amountCents)));
 
 function tagBarWidth(t: TagRow): string {
   return `${Math.max(2, (t.amountCents / tagMaxAmount.value) * 100)}%`;
@@ -81,7 +77,10 @@ async function load() {
 
 // 窗口一变就重查（父组件的 dateFrom/dateTo 是 ref，不能只在 onMounted 拉一次——
 // 那正是"切了时间窗排行不动"的老毛病）
-watch(() => [props.dateFrom, props.dateTo], () => void load());
+watch(
+  () => [props.dateFrom, props.dateTo],
+  () => void load(),
+);
 
 let unlistenImportDone: UnlistenFn | null = null;
 
@@ -103,15 +102,26 @@ onUnmounted(() => {
         <span class="dist-sum">共 {{ counterparties.length }} 家 · 金额为凭证金额合计</span>
       </div>
       <div class="fluent-panel-body">
-        <div v-for="(c, i) in counterparties" :key="c.name" class="cp-row cp-click" style="cursor: pointer"
-          :title="`点击查看「${c.name}」的 ${c.count} 张凭证`" @click="gotoCounterparty(c.name)">
+        <div
+          v-for="(c, i) in counterparties"
+          :key="c.name"
+          class="cp-row cp-click"
+          style="cursor: pointer"
+          :title="`点击查看「${c.name}」的 ${c.count} 张凭证`"
+          @click="gotoCounterparty(c.name)"
+        >
           <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 }">{{ i + 1 }}</span>
           <span class="cp-name" :title="c.name">{{ c.name }}</span>
           <div class="cp-bar-wrap">
-            <div class="cp-bar" :style="{ width: cpBarWidth(c) }"
-              :title="`${c.name} · ¥${fmtAmount(c.amountCents)} · ${c.count} 张`" />
+            <div
+              class="cp-bar"
+              :style="{ width: cpBarWidth(c) }"
+              :title="`${c.name} · ¥${fmtAmount(c.amountCents)} · ${c.count} 张`"
+            />
           </div>
-          <span class="cp-amount num" :title="`¥${fmtAmount(c.amountCents)}`">¥{{ fmtAmount(c.amountCents) }}</span>
+          <span class="cp-amount num" :title="`¥${fmtAmount(c.amountCents)}`"
+            >¥{{ fmtAmount(c.amountCents) }}</span
+          >
           <span class="cp-count">{{ c.count }} 张</span>
         </div>
       </div>
@@ -124,20 +134,38 @@ onUnmounted(() => {
         <span class="dist-sum">共 {{ tagRows.length }} 类 · 含未分类</span>
       </div>
       <div class="fluent-panel-body">
-        <div v-for="(t, i) in tagRows" :key="t.tag || '__untagged__'" class="cp-row"
+        <div
+          v-for="(t, i) in tagRows"
+          :key="t.tag || '__untagged__'"
+          class="cp-row"
           :class="{ 'cp-click': t.tag }"
           :style="t.tag ? 'cursor: pointer' : ''"
-          :title="t.tag ? `点击查看「${tagLabel(t)}」的 ${t.count} 张凭证` : '没有标注收支方向的凭证'"
-          @click="gotoTag(t.tag)">
-          <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 && t.tag }">{{ t.tag ? i + 1 : "—" }}</span>
-          <span class="cp-name" :class="{ 'cp-name-muted': !t.tag }" :title="t.tag ? t.tag : '没有标注收支方向的凭证'">
+          :title="
+            t.tag ? `点击查看「${tagLabel(t)}」的 ${t.count} 张凭证` : '没有标注收支方向的凭证'
+          "
+          @click="gotoTag(t.tag)"
+        >
+          <span class="cp-rank" :class="{ 'cp-rank-top': i < 3 && t.tag }">{{
+            t.tag ? i + 1 : "—"
+          }}</span>
+          <span
+            class="cp-name"
+            :class="{ 'cp-name-muted': !t.tag }"
+            :title="t.tag ? t.tag : '没有标注收支方向的凭证'"
+          >
             {{ t.tag ? `# ${tagLabel(t)}` : tagLabel(t) }}
           </span>
           <div class="cp-bar-wrap">
-            <div class="cp-bar" :class="{ 'cp-bar-muted': !t.tag }" :style="{ width: tagBarWidth(t) }"
-              :title="`${tagLabel(t)} · ¥${fmtAmount(t.amountCents)} · ${t.count} 张`" />
+            <div
+              class="cp-bar"
+              :class="{ 'cp-bar-muted': !t.tag }"
+              :style="{ width: tagBarWidth(t) }"
+              :title="`${tagLabel(t)} · ¥${fmtAmount(t.amountCents)} · ${t.count} 张`"
+            />
           </div>
-          <span class="cp-amount num" :title="`¥${fmtAmount(t.amountCents)}`">¥{{ fmtAmount(t.amountCents) }}</span>
+          <span class="cp-amount num" :title="`¥${fmtAmount(t.amountCents)}`"
+            >¥{{ fmtAmount(t.amountCents) }}</span
+          >
           <span class="cp-count">{{ t.count }} 张</span>
         </div>
       </div>
