@@ -6378,7 +6378,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voucher-core"
-version = "0.22.3"
+version = "0.22.4"
 dependencies = [
  "age",
  "base64 0.22.1",
@@ -6406,7 +6406,7 @@ dependencies = [
 
 [[package]]
 name = "voucher-studio"
-version = "0.22.3"
+version = "0.22.4"
 dependencies = [
  "chrono",
  "log",
