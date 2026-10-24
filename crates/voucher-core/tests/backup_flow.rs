@@ -6,8 +6,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use common::*;
+use voucher_core::models::enums::VoucherLinkKind;
 use voucher_core::models::{NewVoucher, VoucherUpdate};
-use voucher_core::services::{backup, ingestion, recovery, voucher_mgr};
+use voucher_core::services::{backup, ingestion, links, recovery, voucher_mgr};
 use voucher_core::{CoreContext, Result};
 #[test]
 fn backup_and_restore_roundtrip() -> Result<()> {
@@ -19,6 +20,30 @@ fn backup_and_restore_roundtrip() -> Result<()> {
             ..Default::default()
         },
     )?;
+
+    // 备份前先造一条关联 + 一个含该凭证的事项组（+ 组审计两条），用来验证恢复覆盖
+    let memo = voucher_mgr::create_voucher(
+        &ctx,
+        NewVoucher {
+            description: "佐证说明".into(),
+            ..Default::default()
+        },
+    )?;
+    let only: i64 = ctx.db.with_conn(|conn| {
+        conn.query_row("SELECT id FROM vouchers ORDER BY id ASC LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .map_err(Into::into)
+    })?;
+    links::link(
+        &ctx,
+        only,
+        memo.id,
+        VoucherLinkKind::Explains,
+        "付款截图用途",
+    )?;
+    let g = links::create_group(&ctx, "八月报销", "")?;
+    links::add_to_group(&ctx, g.id, &[only])?;
 
     let info = backup::run_backup(&ctx)?;
     assert!(PathBuf::from(&info.path).exists());
@@ -39,7 +64,22 @@ fn backup_and_restore_roundtrip() -> Result<()> {
 
     let conn = voucher_core::db::connection::open(&target.join("data").join("voucher.db"))?;
     let n: i64 = conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))?;
-    assert_eq!(n, 1);
+    assert_eq!(n, 2, "备份前的两张凭证（原凭证 + 佐证说明）都在");
+    // v0.22 关联批：备份是 `VACUUM INTO` 整库快照，关联/事项组/两张审计表**结构上必然随库走**。
+    // 这里固化成断言（方案要求的 P1 覆盖），防止将来有人改成"只导凭证表"的可挑选备份。
+    let links_n: i64 = conn.query_row("SELECT COUNT(*) FROM voucher_links", [], |r| r.get(0))?;
+    assert_eq!(links_n, 1, "关联行必须随备份恢复");
+    let group_items_n: i64 =
+        conn.query_row("SELECT COUNT(*) FROM voucher_group_items", [], |r| r.get(0))?;
+    assert_eq!(group_items_n, 1, "事项组成员必须随备份恢复");
+    let link_events_n: i64 =
+        conn.query_row("SELECT COUNT(*) FROM voucher_link_events", [], |r| r.get(0))?;
+    assert_eq!(link_events_n, 1, "关联审计必须随备份恢复");
+    let group_events_n: i64 =
+        conn.query_row("SELECT COUNT(*) FROM voucher_group_events", [], |r| {
+            r.get(0)
+        })?;
+    assert_eq!(group_events_n, 2, "建组 + 加成员两条组审计必须随备份恢复");
     // 无附件的备份必须**如实**报告不含附件实体（界面据此提示，不得宣称已覆盖附件目录）
     assert!(!summary.attachments_included, "无附件备份不得标记含附件");
     assert_eq!(summary.attachment_count, 0);

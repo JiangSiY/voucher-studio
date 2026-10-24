@@ -715,6 +715,24 @@ export interface VoucherLinkEvent {
   at: string;
 }
 
+/** 列表行关系徽标的计数（只算数量；展开「+N」时才取明细） */
+export interface VoucherLinkCount {
+  voucherId: number;
+  explains: number;
+  detail: number;
+  groups: number;
+}
+
+/** 事项组审计事件（append-only，独立于凭证生命周期） */
+export interface VoucherGroupEvent {
+  id: number;
+  groupId: number;
+  action: string;
+  voucherId: number | null;
+  note: string;
+  at: string;
+}
+
 /** 事项组（组内成员＝「明细」；组内合计只是派生展示值） */
 export interface VoucherGroup {
   id: number;
@@ -941,4 +959,9 @@ export const api = {
     invoke<VoucherGroup[]>("voucher_groups_of", { voucherId }),
   listVoucherGroups: () => invoke<VoucherGroup[]>("list_voucher_groups"),
   deleteVoucherGroup: (groupId: number) => invoke<boolean>("delete_voucher_group", { groupId }),
+  /** 列表徽标：一页凭证的关系计数（explains / detail / 所属组数），一次查询不 N+1 */
+  voucherLinkCounts: (voucherIds: number[]) =>
+    invoke<VoucherLinkCount[]>("voucher_link_counts", { voucherIds }),
+  listVoucherGroupEvents: (groupId: number) =>
+    invoke<VoucherGroupEvent[]>("list_voucher_group_events", { groupId }),
 };

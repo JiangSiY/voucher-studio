@@ -242,3 +242,47 @@ impl std::fmt::Display for VoucherLinkAction {
         f.write_str(self.as_str())
     }
 }
+
+/// 事项组审计动作（append-only 的 `voucher_group_events.action`）。
+///
+/// 与 `VoucherLinkAction` 分表存放：两两关联是"两条边"，事项组是"一个容器 + 成员行"，
+/// 混在一张审计表里会让 `link_id` / `a_id` / `b_id` 三列失去意义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoucherGroupAction {
+    /// 建组
+    Created,
+    /// 加入成员（每张凭证一条事件，voucher_id 有值）
+    MemberAdded,
+    /// 移出成员（每张凭证一条事件，voucher_id 有值）
+    MemberRemoved,
+    /// 删组（成员行级联消失，事件记下标题与人数）
+    Deleted,
+}
+
+impl VoucherGroupAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VoucherGroupAction::Created => "created",
+            VoucherGroupAction::MemberAdded => "member_added",
+            VoucherGroupAction::MemberRemoved => "member_removed",
+            VoucherGroupAction::Deleted => "deleted",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "created" => Some(VoucherGroupAction::Created),
+            "member_added" => Some(VoucherGroupAction::MemberAdded),
+            "member_removed" => Some(VoucherGroupAction::MemberRemoved),
+            "deleted" => Some(VoucherGroupAction::Deleted),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for VoucherGroupAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}

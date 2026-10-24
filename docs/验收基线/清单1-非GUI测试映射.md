@@ -6,14 +6,27 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-16（v0.18 洞察批 + 审计剩余项批次 2–7 + OCR 三批（置信度门控 / 评测 harness + 加固 / PP-OCRv5）+ 侧栏收起批）**：`voucher-core` 测试 **292 个**（src 内联 **157** + tests/ 集成 **135**，含
+> 截至 **2026-10-24（v0.22 关联批收口：关联逻辑三修 + 列表关系徽标 + 备份断言）**：`voucher-core` 测试 **295 个**（src 内联 **157** + tests/ 集成 **138**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 8 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **55 文件 344 用例**（2026-10-18 自动更新契约后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **55 文件 345 用例**（2026-10-24 列表关系徽标契约新增 1 例后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
+> **2026-10-24 v0.22 关联批收口（关联逻辑三修 + 徽标 + 备份断言）**：`voucher_link_flow.rs` 新增 3 例——
+> ① `appendix_rows_lists_each_link_once_when_both_ends_share_the_day`（同一天两张都传进附页时，
+> 同一对只列一次、小计不重复计；**只传主凭证侧**同样只列一次）；
+> ② `group_writes_are_audited`（建组/加成员/移出成员/删组各写 append-only 组审计，
+> 幂等重复加入不重复留痕）；③ `link_counts_for_list_badges`（列表徽标的 explains/detail/组数计数，
+> 一次查一页、不做 N+1）→ 集成 135 → **138**、`voucher-core` 292 → **295**、总数 **298**。
+> `backup_flow.rs` 的 `backup_and_restore_roundtrip` 补 P1 断言：备份是 `VACUUM INTO` 整库快照，
+> 恢复后 `voucher_links` / `voucher_group_items` / `voucher_link_events` / `voucher_group_events`
+> 四表内容必须随库恢复（用例数不变，仍 11）。
+> 前端 `voucherRelationContract.test.ts` 8 → **9 例**（列表行关系徽标 + 「+N」展开、命令表 10 → 12 个）
+> → 前端 **55 文件 345 用例**。
+> 口径说明：本机 `keyring_native`（1 例）因沙箱内 Keychain 拒绝返回 `UNIX[Operation not permitted]`
+> 而失败，属环境限制，不随本批改动变化（CI 上正常）。
 > 2026-10-09 OCR 置信度门控批新增 8 例（纯文本路径置信度标档 / 填单门控矩阵 / 大写金额解析 / 大写互验扩展至纯文本路径），内联 134 → **142**；
 > 同日新增评测 harness `tests/ocr_eval.rs`（1 例，`VOUCHER_OCR_EVAL=<基准集目录>` 门控，跑生产同款链路：增强→本地 OCR→抽取→门控填单，
 > 与 2026-09 基准 102 张逐字段比对），集成 128 → **129**；

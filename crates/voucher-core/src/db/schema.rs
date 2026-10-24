@@ -243,6 +243,30 @@ CREATE INDEX IF NOT EXISTS idx_voucher_link_events_link ON voucher_link_events(l
 CREATE INDEX IF NOT EXISTS idx_voucher_link_events_at ON voucher_link_events(at DESC);
 "#;
 
+/// v10 附加表（v0.22.5 组审计）：事项组的建组 / 加成员 / 移出成员 / 删组留痕。
+///
+/// 为什么单独一张表而不是复用 `voucher_link_events`：那张表的 `link_id / a_id / b_id`
+/// 是"两两关系"的形状，事项组是"一个容器 + 成员行"，塞进去三列都会失去意义。
+///
+/// 它是**审计日志**，所以同样**刻意不加外键**：删组、删凭证都不该把"曾经这样关联过"
+/// 抹掉（与 `voucher_link_events` / `dup_decisions` 同一套语义）。
+/// 幂等只增，**不动 `SCHEMA_VERSION`**（bump 会触发清库分支）。
+pub const SCHEMA_V10: &str = r#"
+CREATE TABLE IF NOT EXISTS voucher_group_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   INTEGER NOT NULL,
+    action     TEXT    NOT NULL
+               CHECK (action IN ('created','member_added','member_removed','deleted')),
+    voucher_id INTEGER,
+    note       TEXT    NOT NULL DEFAULT '',
+    at         TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voucher_group_events_group
+    ON voucher_group_events(group_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_group_events_at
+    ON voucher_group_events(at DESC);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -268,6 +292,8 @@ pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_V8)?;
     // v9：凭证关联 / 事项组 / 关联审计（幂等只增，v0.22 关联批；不动 SCHEMA_VERSION）
     conn.execute_batch(SCHEMA_V9)?;
+    // v10：事项组审计（幂等只增，v0.22.5；同上不动 SCHEMA_VERSION）
+    conn.execute_batch(SCHEMA_V10)?;
     // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
     let has_format: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;

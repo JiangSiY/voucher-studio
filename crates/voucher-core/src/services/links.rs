@@ -11,9 +11,10 @@
 use std::collections::HashMap;
 
 use crate::db::repos::{voucher_link_repo, voucher_repo};
-use crate::models::enums::{VoucherLinkAction, VoucherLinkKind};
+use crate::models::enums::{VoucherGroupAction, VoucherLinkAction, VoucherLinkKind};
 use crate::models::{
-    LinkedVoucher, NewVoucherLink, NewVoucherLinkEvent, VoucherGroup, VoucherLink,
+    LinkedVoucher, NewVoucherGroupEvent, NewVoucherLink, NewVoucherLinkEvent, VoucherGroup,
+    VoucherGroupEvent, VoucherLink, VoucherLinkCount,
 };
 use crate::{CoreContext, CoreError, Result};
 
@@ -131,6 +132,16 @@ pub fn create_group(ctx: &CoreContext, title: &str, note: &str) -> Result<Vouche
     }
     ctx.db.with_tx(|tx| {
         let id = voucher_link_repo::create_group(tx, title, note.trim())?;
+        // 审计与变更同事务（照抄 link/unlink 的范式）：组的建/删同样要留痕
+        voucher_link_repo::insert_group_event(
+            tx,
+            &NewVoucherGroupEvent {
+                group_id: id,
+                action: VoucherGroupAction::Created,
+                voucher_id: None,
+                note: title.to_string(),
+            },
+        )?;
         group_view(tx, id)
     })
 }
@@ -149,7 +160,19 @@ pub fn add_to_group(ctx: &CoreContext, group_id: i64, voucher_ids: &[i64]) -> Re
                 return Err(CoreError::NotFound(format!("凭证 #{id} 不存在")));
             }
         }
-        voucher_link_repo::add_members(tx, group_id, voucher_ids)?;
+        let added = voucher_link_repo::add_members(tx, group_id, voucher_ids)?;
+        // 只给"真的加进去的"留痕：幂等重复调用不会重复记事件
+        for vid in &added {
+            voucher_link_repo::insert_group_event(
+                tx,
+                &NewVoucherGroupEvent {
+                    group_id,
+                    action: VoucherGroupAction::MemberAdded,
+                    voucher_id: Some(*vid),
+                    note: String::new(),
+                },
+            )?;
+        }
         group_view(tx, group_id)
     })
 }
@@ -164,7 +187,18 @@ pub fn remove_from_group(
         if !voucher_link_repo::group_exists(tx, group_id)? {
             return Err(CoreError::NotFound(format!("事项组 #{group_id} 不存在")));
         }
-        voucher_link_repo::remove_member(tx, group_id, voucher_id)?;
+        let removed = voucher_link_repo::remove_member(tx, group_id, voucher_id)?;
+        if removed > 0 {
+            voucher_link_repo::insert_group_event(
+                tx,
+                &NewVoucherGroupEvent {
+                    group_id,
+                    action: VoucherGroupAction::MemberRemoved,
+                    voucher_id: Some(voucher_id),
+                    note: String::new(),
+                },
+            )?;
+        }
         group_view(tx, group_id)
     })
 }
@@ -192,11 +226,60 @@ pub fn list_groups(ctx: &CoreContext) -> Result<Vec<VoucherGroup>> {
 }
 
 /// 删除事项组（成员行级联删除）
+///
+/// 删组前先取标题与成员数写进审计：删掉之后这些信息就再也查不到了，
+/// 而"某月建过一个 12 张的组、后来又删了"恰恰是审计要能回答的问题。
 pub fn delete_group(ctx: &CoreContext, group_id: i64) -> Result<bool> {
     ctx.db.with_tx(|tx| {
+        let Some((_, title, _, _)) = voucher_link_repo::group_head(tx, group_id)? else {
+            return Ok(false);
+        };
+        let members = voucher_link_repo::member_ids(tx, group_id)?.len();
         let n = voucher_link_repo::delete_group(tx, group_id)?;
+        if n > 0 {
+            voucher_link_repo::insert_group_event(
+                tx,
+                &NewVoucherGroupEvent {
+                    group_id,
+                    action: VoucherGroupAction::Deleted,
+                    voucher_id: None,
+                    note: format!("{title}（{members} 张）"),
+                },
+            )?;
+        }
         Ok(n > 0)
     })
+}
+
+/// 某个组的事件（新→旧）
+pub fn group_events_of(ctx: &CoreContext, group_id: i64) -> Result<Vec<VoucherGroupEvent>> {
+    ctx.db
+        .with_conn(|conn| voucher_link_repo::group_events_of(conn, group_id))
+}
+
+/// 列表徽标：一批凭证各自的关系计数（explains / detail / 所属组数）
+pub fn link_counts(ctx: &CoreContext, voucher_ids: &[i64]) -> Result<Vec<VoucherLinkCount>> {
+    if voucher_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (links, groups) = ctx.db.with_conn(|conn| {
+        Ok((
+            voucher_link_repo::link_counts_in(conn, voucher_ids)?,
+            voucher_link_repo::group_counts_in(conn, voucher_ids)?,
+        ))
+    })?;
+    Ok(voucher_ids
+        .iter()
+        .map(|id| {
+            let (explains, detail) = links.get(id).copied().unwrap_or((0, 0));
+            VoucherLinkCount {
+                voucher_id: *id,
+                explains,
+                detail,
+                groups: groups.get(id).copied().unwrap_or(0),
+            }
+        })
+        .collect())
 }
 
 /// 组视图：组头 + 成员（按 sort_order；成员缺席时跳过）
@@ -232,11 +315,17 @@ pub fn appendix_rows(
     if voucher_ids.is_empty() {
         return Ok(Vec::new());
     }
+    // 去重键是**关联行 id**：同一天两张凭证都在这批里时，`list_of` 会从两端各读回
+    // 同一条关联（A→B 与 B→A），不去重就会在附页上列两遍、小计重复计金额。
+    // 保留首次出现的顺序，主凭证取先扫到的那一端（＝列表顺序里靠前的那张）。
     let pairs: Vec<(i64, VoucherLink)> = ctx.db.with_conn(|conn| {
         let mut out: Vec<(i64, VoucherLink)> = Vec::new();
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
         for id in voucher_ids {
             for l in voucher_link_repo::list_of(conn, *id)? {
-                out.push((*id, l));
+                if seen.insert(l.id) {
+                    out.push((*id, l));
+                }
             }
         }
         Ok(out)

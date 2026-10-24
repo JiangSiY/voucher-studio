@@ -63,7 +63,7 @@ describe("v0.22 关联批契约", () => {
     expect(src).toContain("api.removeVoucherFromGroup");
   });
 
-  it("前端 API 与命令名一一对应（10 个）", () => {
+  it("前端 API 与命令名一一对应（12 个）", () => {
     const src = read(CLIENT);
     for (const [method, cmd] of [
       ["linkVouchers", "link_vouchers"],
@@ -76,6 +76,8 @@ describe("v0.22 关联批契约", () => {
       ["voucherGroupsOf", "voucher_groups_of"],
       ["listVoucherGroups", "list_voucher_groups"],
       ["deleteVoucherGroup", "delete_voucher_group"],
+      ["voucherLinkCounts", "voucher_link_counts"],
+      ["listVoucherGroupEvents", "list_voucher_group_events"],
     ] as const) {
       expect(src, `${method} 应走 ${cmd}`).toContain(`${method}:`);
       expect(src, `缺少命令名 ${cmd}`).toContain(`invoke<`);
@@ -126,6 +128,25 @@ describe("v0.22 关联批契约", () => {
     expect(src).toContain('aria-label="搜索凭证"');
     expect(src).toContain("async function search()");
     expect(src).toContain("api.linkVouchers(");
+  });
+
+  it("列表行有关系徽标与「+N」展开（方案批次②：列表上要能看出谁有佐证）", () => {
+    const src = read(LIBRARY);
+    // 计数字段：一页一次查询，不做 N+1
+    expect(src).toContain("api.voucherLinkCounts(");
+    expect(src).toContain("const linkCounts = ref<Record<number, VoucherLinkCount>>({})");
+    // 徽标＝关系总数（explains + detail + groups），0 不渲染
+    expect(src).toContain("function linkTotal(id: number): number");
+    expect(src).toContain('v-if="linkTotal(v.id) > 0"');
+    expect(src).toContain("rel-badge");
+    // 「+N」展开：点徽标才取明细，明细复用 listVoucherLinks / voucherGroupsOf
+    expect(src).toContain("function toggleLinks(v: Voucher)");
+    expect(src).toContain("api.listVoucherLinks(v.id)");
+    expect(src).toContain("api.voucherGroupsOf(v.id)");
+    expect(src).toContain('v-if="expandedLinks.has(v.id)"');
+    // 展开行点一张凭证 → 走既有深链聚焦动线（不另造跳转）
+    expect(src).toContain("async function relJump(id: number)");
+    expect(src).toContain("await focusFromLink(id)");
   });
 
   it("列表提供「未被佐证」筛选：已并入「待补项」下拉（控件、URL 回显、清空三处都在）", () => {

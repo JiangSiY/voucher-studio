@@ -73,7 +73,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：157 单元 + 135 集成，共 292 用例；加 src-tauri 3 用例共 295；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：157 单元 + 138 集成，共 295 用例；加 src-tauri 3 用例共 298；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

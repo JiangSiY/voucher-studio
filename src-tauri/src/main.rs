@@ -330,6 +330,8 @@ fn main() {
             commands::enhance_hit_trend,
             commands::create_memo_voucher,
             commands::link_vouchers,
+            commands::voucher_link_counts,
+            commands::list_voucher_group_events,
             commands::unlink_vouchers,
             commands::list_voucher_links,
             commands::list_voucher_link_events,

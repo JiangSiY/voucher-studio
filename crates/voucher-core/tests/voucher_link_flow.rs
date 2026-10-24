@@ -13,6 +13,7 @@
 mod common;
 
 use common::*;
+use voucher_core::db::repos::voucher_link_repo;
 use voucher_core::models::enums::VoucherLinkKind;
 use voucher_core::models::NewVoucher;
 use voucher_core::services::query::VoucherQuery;
@@ -467,5 +468,125 @@ fn multi_status_filter_matches_any_of_the_statuses() -> Result<()> {
     );
     // 空数组 = 不筛
     assert_eq!(ids(&VoucherQuery::default())?.len(), 3);
+    Ok(())
+}
+
+/// 2026-10-24 缺陷锁：同一天的两张凭证互为关联时，`appendix_rows` 必须**每对只列一次**。
+///
+/// 历史行为（bug）：`append_rows` 对每个当日 id 调 `list_of`，A→B 与 B→A 各读回一次同一行，
+/// 附页与 CSV 因此把同一对列两遍，小计也把同一笔金额重复计入。
+#[test]
+fn appendix_rows_lists_each_link_once_when_both_ends_share_the_day() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let a = mk(&ctx, "记-A", Some(10_000))?;
+    let b = mk(&ctx, "记-B", Some(20_000))?;
+    links::link(&ctx, a, b, VoucherLinkKind::Explains, "解释用途")?;
+
+    // 两端都在当日批次里 → 仍然只有 1 行
+    let rows = links::appendix_rows(&ctx, &[a, b])?;
+    assert_eq!(rows.len(), 1, "同一对不能因为两端都在当天就列两遍");
+    assert_eq!(rows[0].kind_key, "explains");
+    assert!(rows[0].summary.contains("解释用途"));
+
+    // 只有一端在批次里 → 也是 1 行（另一端的编号作为「相关凭证」出现）
+    let rows_one = links::appendix_rows(&ctx, &[b])?;
+    assert_eq!(rows_one.len(), 1);
+    assert_eq!(
+        rows_one[0].amount_cents,
+        Some(10_000),
+        "金额取相关凭证自己的金额"
+    );
+
+    // 多对关系不乱：再加一张 C 与 B 关联，两天都在这批里 → 2 行
+    let c = mk(&ctx, "记-C", Some(30_000))?;
+    links::link(&ctx, b, c, VoucherLinkKind::Detail, "")?;
+    let rows3 = links::appendix_rows(&ctx, &[a, b, c])?;
+    assert_eq!(rows3.len(), 2, "两条不同的关联各列一次");
+    Ok(())
+}
+
+/// 事项组的建组 / 加成员 / 移出 / 删组都必须写 append-only 审计，
+/// 且幂等重复加成员不得重复留痕。
+#[test]
+fn group_writes_are_audited() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let a = mk(&ctx, "记-A", Some(10_000))?;
+    let b = mk(&ctx, "记-B", Some(20_000))?;
+
+    let before = ctx.db.with_conn(voucher_link_repo::count_group_events)?;
+    let g = links::create_group(&ctx, "八月差旅", "")?;
+    let after_create = ctx.db.with_conn(voucher_link_repo::count_group_events)?;
+    assert_eq!(after_create - before, 1, "建组要留痕");
+
+    links::add_to_group(&ctx, g.id, &[a, b])?;
+    let after_add = ctx.db.with_conn(voucher_link_repo::count_group_events)?;
+    assert_eq!(after_add - after_create, 2, "每张真正加入的凭证各一条事件");
+
+    // 幂等：重复加同一批不应再记事件
+    links::add_to_group(&ctx, g.id, &[a, b])?;
+    let after_dup = ctx.db.with_conn(voucher_link_repo::count_group_events)?;
+    assert_eq!(after_dup, after_add, "重复加成员不重复留痕");
+
+    links::remove_from_group(&ctx, g.id, a)?;
+    let after_remove = ctx.db.with_conn(voucher_link_repo::count_group_events)?;
+    assert_eq!(after_remove - after_dup, 1, "移出成员要留痕");
+
+    // 幂等：移除不存在的成员不记事件
+    links::remove_from_group(&ctx, g.id, a)?;
+    assert_eq!(
+        ctx.db.with_conn(voucher_link_repo::count_group_events)?,
+        after_remove
+    );
+
+    links::delete_group(&ctx, g.id)?;
+    let events = links::group_events_of(&ctx, g.id)?;
+    let actions: Vec<&str> = events.iter().map(|e| e.action.as_str()).collect();
+    assert_eq!(
+        actions,
+        vec![
+            "deleted",
+            "member_removed",
+            "member_added",
+            "member_added",
+            "created"
+        ],
+        "事件按新→旧；删组记在最后一条"
+    );
+    let deleted = &events[0];
+    assert!(deleted.note.contains("八月差旅"), "删组事件留下组标题");
+    assert!(deleted.note.contains("1 张"), "删组事件留下当时的成员数");
+    assert_eq!(events[1].voucher_id, Some(a));
+    Ok(())
+}
+
+/// 列表徽标：一批凭证的关系计数（explains / detail / 所属组数），两个方向都算。
+#[test]
+fn link_counts_for_list_badges() -> Result<()> {
+    let (_dir, ctx) = new_ctx();
+    let a = mk(&ctx, "记-A", Some(10_000))?;
+    let b = mk(&ctx, "记-B", Some(20_000))?;
+    let c = mk(&ctx, "记-C", Some(30_000))?;
+    let d = mk(&ctx, "记-D", Some(40_000))?;
+
+    links::link(&ctx, a, b, VoucherLinkKind::Explains, "")?;
+    links::link(&ctx, a, c, VoucherLinkKind::Explains, "")?;
+    links::link(&ctx, a, d, VoucherLinkKind::Detail, "")?;
+    let g = links::create_group(&ctx, "一组", "")?;
+    links::add_to_group(&ctx, g.id, &[a, d])?;
+
+    let counts = links::link_counts(&ctx, &[a, b, c, d])?;
+    assert_eq!(counts.len(), 4, "入参顺序返回 4 条");
+    let ca = &counts[0];
+    assert_eq!(ca.voucher_id, a);
+    assert_eq!((ca.explains, ca.detail, ca.groups), (2, 1, 1));
+    assert_eq!(ca.total(), 4);
+    let cb = &counts[1];
+    assert_eq!((cb.explains, cb.detail, cb.groups), (1, 0, 0), "双向都算");
+
+    // 不存在的凭证 / 空入参：不报错、不返回噪音
+    let counts2 = links::link_counts(&ctx, &[999_999])?;
+    assert_eq!(counts2.len(), 1);
+    assert_eq!(counts2[0].total(), 0);
+    assert!(links::link_counts(&ctx, &[])?.is_empty());
     Ok(())
 }

@@ -9,8 +9,13 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::dup_decision_repo::normalize_pair;
+use std::collections::HashMap;
+
 use crate::models::enums::VoucherLinkKind;
-use crate::models::{NewVoucherLink, NewVoucherLinkEvent, VoucherLink, VoucherLinkEvent};
+use crate::models::{
+    NewVoucherGroupEvent, NewVoucherLink, NewVoucherLinkEvent, VoucherGroupEvent, VoucherLink,
+    VoucherLinkEvent,
+};
 use crate::utils::paths::now_iso;
 use crate::Result;
 
@@ -135,6 +140,142 @@ pub fn count_events(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM voucher_link_events", [], |r| r.get(0))?)
 }
 
+// ---------- 事项组审计（append-only，v10） ----------
+
+/// 追加一条组审计事件，返回事件 id
+pub fn insert_group_event(conn: &Connection, e: &NewVoucherGroupEvent) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO voucher_group_events (group_id, action, voucher_id, note, at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            e.group_id,
+            e.action.as_str(),
+            e.voucher_id,
+            e.note,
+            now_iso()
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// 某个组的事件（新→旧）——测试与排查用
+pub fn group_events_of(conn: &Connection, group_id: i64) -> Result<Vec<VoucherGroupEvent>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, group_id, action, voucher_id, note, at FROM voucher_group_events
+         WHERE group_id = ?1 ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map(params![group_id], |row| {
+        Ok(VoucherGroupEvent {
+            id: row.get(0)?,
+            group_id: row.get(1)?,
+            action: row.get(2)?,
+            voucher_id: row.get(3)?,
+            note: row.get(4)?,
+            at: row.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// 某张凭证相关的组事件（建组/删组这类无 voucher_id 事件不会命中）
+pub fn group_events_of_voucher(
+    conn: &Connection,
+    voucher_id: i64,
+) -> Result<Vec<VoucherGroupEvent>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, group_id, action, voucher_id, note, at FROM voucher_group_events
+         WHERE voucher_id = ?1 ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map(params![voucher_id], |row| {
+        Ok(VoucherGroupEvent {
+            id: row.get(0)?,
+            group_id: row.get(1)?,
+            action: row.get(2)?,
+            voucher_id: row.get(3)?,
+            note: row.get(4)?,
+            at: row.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// 组审计表总行数（测试断言）
+pub fn count_group_events(conn: &Connection) -> Result<i64> {
+    Ok(
+        conn.query_row("SELECT COUNT(*) FROM voucher_group_events", [], |r| {
+            r.get(0)
+        })?,
+    )
+}
+
+// ---------- 列表徽标用的批量计数 ----------
+
+/// 一批凭证各自的关系条数：`voucher_id -> (explains 条数, detail 条数)`。
+///
+/// 一次 `IN` 查询覆盖整页（不做 N+1）；两个方向都算——a 端与 b 端各记一次，
+/// 与 `list_of` 的口径一致。
+pub fn link_counts_in(conn: &Connection, voucher_ids: &[i64]) -> Result<HashMap<i64, (i64, i64)>> {
+    let mut out: HashMap<i64, (i64, i64)> = HashMap::new();
+    if voucher_ids.is_empty() {
+        return Ok(out);
+    }
+    let wanted: std::collections::HashSet<i64> = voucher_ids.iter().copied().collect();
+    let placeholders = vec!["?"; voucher_ids.len()].join(",");
+    let sql = format!(
+        "SELECT a_id, b_id, kind FROM voucher_links
+         WHERE a_id IN ({placeholders}) OR b_id IN ({placeholders})"
+    );
+    // 两段占位符各要一份绑定值
+    let mut args: Vec<i64> = Vec::with_capacity(voucher_ids.len() * 2);
+    args.extend_from_slice(voucher_ids);
+    args.extend_from_slice(voucher_ids);
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for r in rows {
+        let (a_id, b_id, kind) = r?;
+        for vid in [a_id, b_id] {
+            if !wanted.contains(&vid) {
+                continue;
+            }
+            let e = out.entry(vid).or_insert((0, 0));
+            if kind == VoucherLinkKind::Explains.as_str() {
+                e.0 += 1;
+            } else if kind == VoucherLinkKind::Detail.as_str() {
+                e.1 += 1;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// 一批凭证各自所属的事项组个数：`voucher_id -> 组数`
+pub fn group_counts_in(conn: &Connection, voucher_ids: &[i64]) -> Result<HashMap<i64, i64>> {
+    let mut out: HashMap<i64, i64> = HashMap::new();
+    if voucher_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = vec!["?"; voucher_ids.len()].join(",");
+    let sql = format!(
+        "SELECT voucher_id, COUNT(DISTINCT group_id) FROM voucher_group_items
+         WHERE voucher_id IN ({placeholders}) GROUP BY voucher_id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(voucher_ids.iter()), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for r in rows {
+        let (vid, n) = r?;
+        out.insert(vid, n);
+    }
+    Ok(out)
+}
+
 // ---------- 事项组 ----------
 
 /// 新建组，返回 id
@@ -191,8 +332,10 @@ pub fn member_ids(conn: &Connection, group_id: i64) -> Result<Vec<i64>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// 加入成员（已存在则跳过；`sort_order` 追加到末尾），返回新增行数
-pub fn add_members(conn: &Connection, group_id: i64, voucher_ids: &[i64]) -> Result<usize> {
+/// 加入成员（已存在则跳过；`sort_order` 追加到末尾），返回**真正新增**的凭证 id。
+///
+/// 返回 id 而不是行数：服务层要按"真的加进去了"逐张写审计（幂等重复调用不应重复留痕）。
+pub fn add_members(conn: &Connection, group_id: i64, voucher_ids: &[i64]) -> Result<Vec<i64>> {
     let mut next: i64 = conn
         .query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM voucher_group_items WHERE group_id = ?1",
@@ -200,7 +343,7 @@ pub fn add_members(conn: &Connection, group_id: i64, voucher_ids: &[i64]) -> Res
             |r| r.get(0),
         )
         .unwrap_or(0);
-    let mut added = 0usize;
+    let mut added: Vec<i64> = Vec::new();
     for vid in voucher_ids {
         let n = conn.execute(
             "INSERT OR IGNORE INTO voucher_group_items (group_id, voucher_id, sort_order)
@@ -208,7 +351,7 @@ pub fn add_members(conn: &Connection, group_id: i64, voucher_ids: &[i64]) -> Res
             params![group_id, vid, next],
         )?;
         if n > 0 {
-            added += 1;
+            added.push(*vid);
             next += 1;
         }
     }

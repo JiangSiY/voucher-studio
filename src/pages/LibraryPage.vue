@@ -28,6 +28,9 @@ import {
   type Voucher,
   type VoucherDetail,
   type VoucherStatus,
+  type VoucherLinkCount,
+  type LinkedVoucher,
+  type VoucherGroup,
 } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -61,6 +64,13 @@ const dateFrom = ref("");
 const dateTo = ref("");
 
 const items = ref<Voucher[]>([]);
+/** 列表关系徽标的计数（v0.22.5 补齐批次②：一页一次查询，不做 N+1） */
+const linkCounts = ref<Record<number, VoucherLinkCount>>({});
+/** 展开「+N」的行（点徽标才展开，展开时才按需取关联明细） */
+const expandedLinks = ref<Set<number>>(new Set());
+/** 已取到的展开明细（避免每次展开都重拉） */
+const relDetail = ref<Record<number, { links: LinkedVoucher[]; groups: VoucherGroup[] }>>({});
+const REL_KIND_LABEL: Record<string, string> = { explains: "附件说明", detail: "明细" };
 const total = ref(0);
 const page = ref(1);
 const pageSize = 10; // 2026-10-17 用户要求：列表一页 10 条
@@ -145,6 +155,8 @@ async function load() {
     items.value = res.items;
     total.value = res.total;
     thumbs.value = res.thumbs;
+    // 关系徽标：行数据换了就重算（不阻塞列表渲染，失败静默）
+    void loadLinkCounts();
 
     // 深链优先：其他页面"去看这一张"（处理完把它从 URL 摘掉，避免后续筛选变化时重复聚焦）
     if (pendingFocus != null) {
@@ -176,6 +188,68 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+/** 拉本页凭证的关系计数（失败静默：徽标是辅助信息，不该挡住列表） */
+async function loadLinkCounts() {
+  const ids = items.value.map((v) => v.id);
+  if (!ids.length) {
+    linkCounts.value = {};
+    return;
+  }
+  try {
+    const rows = await api.voucherLinkCounts(ids);
+    const next: Record<number, VoucherLinkCount> = {};
+    for (const r of rows) next[r.voucherId] = r;
+    linkCounts.value = next;
+  } catch {
+    linkCounts.value = {};
+  }
+}
+
+/** 徽标上的「N」＝ 两种两两关联 + 所属组数；0 就不显示徽标 */
+function linkTotal(id: number): number {
+  const c = linkCounts.value[id];
+  if (!c) return 0;
+  return c.explains + c.detail + c.groups;
+}
+
+/** 徽标的无障碍说明（屏幕阅读器/悬浮提示都读这句，别只给一个数字） */
+function linkBadgeTitle(id: number): string {
+  const c = linkCounts.value[id];
+  if (!c) return "";
+  const parts: string[] = [];
+  if (c.explains) parts.push(`附件说明 ${c.explains}`);
+  if (c.detail) parts.push(`明细 ${c.detail}`);
+  if (c.groups) parts.push(`事项组 ${c.groups}`);
+  return `相关凭证：${parts.join("、")}（点击展开）`;
+}
+
+/** 点徽标展开 / 收起「+N」：首次展开才去取明细 */
+async function toggleLinks(v: Voucher) {
+  const next = new Set(expandedLinks.value);
+  if (next.has(v.id)) {
+    next.delete(v.id);
+    expandedLinks.value = next;
+    return;
+  }
+  next.add(v.id);
+  expandedLinks.value = next;
+  if (relDetail.value[v.id]) return;
+  try {
+    const [links, groups] = await Promise.all([
+      api.listVoucherLinks(v.id),
+      api.voucherGroupsOf(v.id),
+    ]);
+    relDetail.value = { ...relDetail.value, [v.id]: { links, groups } };
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+/** 列表里点展开的关联行 → 复用既有深链聚焦动线（页外会提示，不会让人以为筛选坏了） */
+async function relJump(id: number) {
+  await focusFromLink(id);
 }
 
 /** 把 `focus` 从 URL 摘掉（保留其余筛选键）：深链是一次性动作，不该留在地址栏里 */
@@ -900,10 +974,50 @@ watch(keyword, () => {
                 <span class="dot">·</span>
                 <span class="party">{{ v.counterparty || "（无对方）" }}</span>
                 <span class="flex-1"></span>
+                <!-- v0.22.5 批次②：关系徽标 + 「+N」展开。只显示数量，点开才取明细 -->
+                <button
+                  v-if="linkTotal(v.id) > 0"
+                  class="rel-badge"
+                  :class="{ open: expandedLinks.has(v.id) }"
+                  :title="linkBadgeTitle(v.id)"
+                  :aria-label="linkBadgeTitle(v.id)"
+                  :aria-expanded="expandedLinks.has(v.id)"
+                  @click.stop="toggleLinks(v)"
+                >
+                  关联 {{ linkTotal(v.id) }}
+                  <span class="rel-badge-caret">{{ expandedLinks.has(v.id) ? "▴" : "▾" }}</span>
+                </button>
                 <span class="tag" :class="STATUS_META[v.status].tag">{{
                   STATUS_META[v.status].label
                 }}</span>
               </div>
+              <!-- 「+N」展开区：两两关联逐条列，事项组按组名列出 -->
+              <ul v-if="expandedLinks.has(v.id)" class="row-rel" @click.stop>
+                <template v-if="relDetail[v.id]">
+                  <li
+                    v-if="!relDetail[v.id].links.length && !relDetail[v.id].groups.length"
+                    class="muted"
+                  >
+                    （没有关系明细）
+                  </li>
+                  <li v-for="l in relDetail[v.id].links" :key="l.linkId">
+                    <button class="rel-line" @click="relJump(l.other.id)">
+                      <span class="rel-kind">{{ REL_KIND_LABEL[l.kind] ?? l.kind }}</span>
+                      <span class="mono">{{ l.other.voucherNo }}</span>
+                      <span class="rel-amount">{{ fmtAmount(l.other.amountCents) }}</span>
+                      <span v-if="l.note" class="rel-line-note">{{ l.note }}</span>
+                    </button>
+                  </li>
+                  <li v-for="g in relDetail[v.id].groups" :key="'g' + g.id">
+                    <button class="rel-line" @click="relJump(g.members[0]?.id ?? v.id)">
+                      <span class="rel-kind rel-kind-group">事项组</span>
+                      <span>{{ g.title }}</span>
+                      <span class="muted">{{ g.members.length }} 张</span>
+                    </button>
+                  </li>
+                </template>
+                <li v-else class="muted">载入中…</li>
+              </ul>
             </div>
           </li>
         </ul>
@@ -1186,6 +1300,73 @@ watch(keyword, () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* v0.22.5 批次②：关系徽标（数字＝该凭证的关系总数，点开才显示明细） */
+.rel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--type-caption);
+  line-height: 16px;
+  cursor: pointer;
+}
+.rel-badge:hover,
+.rel-badge.open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.rel-badge-caret {
+  /* 字号不写死（tokenContract 门禁）：用缩放让箭头略小于文字 */
+  transform: scale(0.8);
+}
+.row-rel {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rel-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--type-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.rel-line:hover {
+  background: var(--fill-subtle, rgba(0, 0, 0, 0.04));
+}
+.rel-line-note {
+  color: var(--label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rel-kind {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--fill-subtle, rgba(0, 0, 0, 0.06));
+  color: var(--label-secondary);
+}
+.rel-kind-group {
+  color: var(--label-primary);
+}
+.rel-amount {
+  font-variant-numeric: tabular-nums;
 }
 .dot {
   color: var(--label-quaternary);

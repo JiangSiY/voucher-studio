@@ -5,7 +5,9 @@
 
 use super::*;
 use voucher_core::models::enums::VoucherLinkKind;
-use voucher_core::models::{LinkedVoucher, VoucherGroup, VoucherLink, VoucherLinkEvent};
+use voucher_core::models::{
+    LinkedVoucher, VoucherGroup, VoucherGroupEvent, VoucherLink, VoucherLinkCount, VoucherLinkEvent,
+};
 use voucher_core::services::links;
 
 /// 关联类型字符串 → 枚举（错误文案面向用户，列出全部合法值）
@@ -109,4 +111,22 @@ pub fn list_voucher_groups(ctx: Ctx) -> std::result::Result<Vec<VoucherGroup>, A
 #[tauri::command]
 pub fn delete_voucher_group(ctx: Ctx, group_id: i64) -> std::result::Result<bool, ApiError> {
     err_api(links::delete_group(&ctx, group_id))
+}
+
+/// 列表徽标：一页凭证的关系计数（explains / detail / 所属组数）
+#[tauri::command]
+pub fn voucher_link_counts(
+    ctx: Ctx,
+    voucher_ids: Vec<i64>,
+) -> std::result::Result<Vec<VoucherLinkCount>, ApiError> {
+    err_api(links::link_counts(&ctx, &voucher_ids))
+}
+
+/// 某个事项组的审计事件（新→旧）
+#[tauri::command]
+pub fn list_voucher_group_events(
+    ctx: Ctx,
+    group_id: i64,
+) -> std::result::Result<Vec<VoucherGroupEvent>, ApiError> {
+    err_api(links::group_events_of(&ctx, group_id))
 }
