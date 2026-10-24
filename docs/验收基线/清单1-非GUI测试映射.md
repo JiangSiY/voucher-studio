@@ -23,7 +23,7 @@
 > `backup_flow.rs` 的 `backup_and_restore_roundtrip` 补 P1 断言：备份是 `VACUUM INTO` 整库快照，
 > 恢复后 `voucher_links` / `voucher_group_items` / `voucher_link_events` / `voucher_group_events`
 > 四表内容必须随库恢复（用例数不变，仍 11）。
-> 前端 `voucherRelationContract.test.ts` 8 → **9 例**（列表行关系徽标 + 「+N」展开、命令表 10 → 12 个）
+> 前端 `voucherRelationContract.test.ts` 9 → **10 例**（列表行关系徽标 + 「+N」展开、命令表 10 → 12 个）
 > → 前端 **55 文件 345 用例**。
 > 口径说明：本机 `keyring_native`（1 例）因沙箱内 Keychain 拒绝返回 `UNIX[Operation not permitted]`
 > 而失败，属环境限制，不随本批改动变化（CI 上正常）。
