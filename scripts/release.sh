@@ -123,7 +123,11 @@ else
 fi
 
 step "5/7 构建 + 打包（**必须** package-macos.sh：收 OpenCV dylib + 改 @rpath + 重签 + 出 dmg）"
-run npm run tauri build
+# 只让 tauri 出 .app：发布用的 dmg 由 package-macos.sh 用 hdiutil 生成
+# （tauri 自带的 dmg 目标会调 bundle_dmg.sh 做 Finder 美化排版，依赖 AppleScript 自动化权限；
+#  在没有 GUI 权限的环境——CI runner、受限终端——会直接失败于 osascript -10004，
+#  而它产出的 dmg 反正不会被上传，所以这里不必让它跑）
+run npm run tauri build -- --bundles app
 run bash package-macos.sh
 
 if [ "${APPLY}" -eq 1 ]; then
