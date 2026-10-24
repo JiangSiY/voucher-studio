@@ -141,7 +141,19 @@ DMG_NAME="$(printf '%s_%s_%s.dmg' "$APP_NAME" "$SHORT_VER" "$(uname -m)" | tr ' 
 DMG="$OUT_DIR/$DMG_NAME"
 rm -f "$DMG"
 echo "==> 生成 dmg: $DMG"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"
+if ! hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"; then
+  # 受限环境回退（2026-10-24 发布 0.22.5 时实测）：`hdiutil create -srcfolder` 会先建临时卷再
+  # 灌入内容，在没有图形/磁盘仲裁权限的沙箱里直接报「目录非空」而失败；改为不挂载的两步法
+  # ——先 makehybrid 出 HFS 镜像，再 convert 压成 UDZO。产物与常规 dmg 等价（可挂载、可拖入
+  # 应用程序），只是少了 Finder 里的图标排版。
+  echo "   （hdiutil create 失败，回退 makehybrid + convert）" >&2
+  RAW="${DMG%.dmg}.raw.dmg"   # makehybrid 见到非 .dmg 后缀会自行追加 .dmg，这里直接给对名字
+  rm -f "$RAW"
+  hdiutil makehybrid -hfs -hfs-volume-name "$APP_NAME" -o "$RAW" "$STAGE"
+  hdiutil convert "$RAW" -format UDZO -o "$DMG"
+  rm -f "$RAW"
+fi
+[ -f "$DMG" ] || { echo "生成 dmg 失败：$DMG" >&2; exit 1; }
 
 ( cd "$OUT_DIR" && shasum -a 256 "$DMG_NAME" > sha256sums.txt && cat sha256sums.txt )
 echo "==> 完成：$OUT_DIR"
