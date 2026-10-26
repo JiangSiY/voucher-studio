@@ -36,3 +36,13 @@ pub fn get(conn: &Connection, cache_key: &str) -> Result<Option<(String, String,
         None => None,
     })
 }
+
+/// 删除（重新识别换了引擎、且新结果不带结构化要素时用来清掉旧要素，
+/// 否则旧云端要素会一直压过新版面/纯文本结果）
+pub fn delete(conn: &Connection, cache_key: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM ocr_field_cache WHERE cache_key = ?1",
+        params![cache_key],
+    )?;
+    Ok(())
+}

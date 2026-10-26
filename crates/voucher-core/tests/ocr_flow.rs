@@ -511,6 +511,56 @@ fn statement_list_page_does_not_autofill_amount_or_counterparty() -> Result<()> 
     Ok(())
 }
 
+/// v0.23.2（2026-10-26 真机缺陷）：点「重新识别」必须**跳过缓存**真重跑。
+///
+/// 缺陷现场：用户把引擎切到本地后点「重新识别」，界面提示成功，但 `ocr_cache.engine`
+/// 仍是 `deepseek`、标签不变——因为 `run_for_attachment` 命中缓存就直接返回旧文本。
+/// 修法：`ocr::rerun_for_attachment`（force）不读缓存，且换了引擎要能覆写三层缓存。
+#[test]
+fn rerun_bypasses_cache_and_switches_engine() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("rerun.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let att_id = imported.vouchers[0].attachment.id;
+    let file_hash = imported.vouchers[0].attachment.file_hash.clone();
+
+    // 造一条「旧引擎」缓存（模拟上一次云端识别留下的结果）
+    ctx.db.with_conn(|conn| {
+        voucher_core::db::repos::ocr_cache_repo::upsert(conn, &file_hash, "deepseek", "旧引擎文本")
+    })?;
+
+    // 普通识别：命中缓存，原样返回旧文本（导入 / 批量识别的语义，不该变）
+    let cached = ocr::run_for_attachment(&ctx, att_id)?;
+    assert_eq!(cached.ocr_text.as_deref(), Some("旧引擎文本"));
+
+    // 重新识别：切到一个可用的假云端，必须真跑并覆写引擎
+    let port = start_batch_mock(1, "重新识别后的新文本 合计 88.00");
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "cloud".to_string();
+    cfg.ocr.provider = "custom".to_string();
+    cfg.ocr.api_url = format!("http://127.0.0.1:{port}/ocr");
+    cfg.ocr.model = "mock".to_string();
+    ctx.set_config(cfg)?;
+
+    let rerun = ocr::rerun_for_attachment(&ctx, att_id)?;
+    assert_eq!(
+        rerun.ocr_text.as_deref(),
+        Some("重新识别后的新文本 合计 88.00"),
+        "重新识别必须真的重跑，不能拿回缓存"
+    );
+    let engine = ctx
+        .db
+        .with_conn(|conn| voucher_core::db::repos::ocr_cache_repo::get(conn, &file_hash))?
+        .map(|(e, _)| e);
+    assert_eq!(engine.as_deref(), Some("cloud"), "缓存里的引擎要跟着换");
+
+    // 详情接口随之带出新引擎（界面上「已识别」旁的标签就是读它）
+    let detail = voucher_mgr::get_detail(&ctx, imported.vouchers[0].voucher_id)?;
+    assert_eq!(detail.attachments[0].ocr_engine.as_deref(), Some("cloud"));
+    Ok(())
+}
+
 /// 多连接迷你 HTTP 服务：为「导入期并发识别」提供 N 次应答（自定义协议 `{text}`）。
 fn start_batch_mock(replies: usize, text: &'static str) -> u16 {
     use std::io::{Read, Write};

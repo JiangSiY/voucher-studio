@@ -169,6 +169,9 @@ pub async fn pick_and_reconcile(
 
 /// 识别附件并自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 /// 附件可能被语义化重命名，故返回整份凭证详情供前端刷新。
+///
+/// 这是界面上「重新识别」按钮的入口：**跳过缓存真重跑**（`ocr::rerun_for_attachment`）——
+/// 命中缓存直接返回旧文本会在换引擎后让人以为「识别成功但什么都没变」。
 #[tauri::command]
 pub async fn run_ocr(
     ctx: Ctx<'_>,
@@ -176,7 +179,7 @@ pub async fn run_ocr(
 ) -> std::result::Result<voucher_mgr::VoucherDetail, ApiError> {
     let core = ctx.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let att = err_api(ocr::run_for_attachment(&core, attachment_id))?;
+        let att = err_api(ocr::rerun_for_attachment(&core, attachment_id))?;
         err_api(voucher_core::services::ocr_fields::apply_for_attachment(
             &core,
             att.voucher_id,

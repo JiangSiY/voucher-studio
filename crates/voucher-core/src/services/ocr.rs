@@ -52,8 +52,24 @@ const DEEPSEEK_PROMPT: &str = r#"你是票据/凭证信息抽取器。请阅读�
 只输出一个 json 对象，不要输出任何解释文字，字段固定为：
 {"text": "整图文字", "date": "2026-08-19", "amount": "1234.56", "counterparty": "杭州某某科技有限公司", "merchant": "杭州某某科技有限公司"}"#;
 
-/// 识别单个附件；命中缓存直接返回。
+/// 识别单个附件；命中缓存直接返回（导入、批量识别走这条）。
+///
+/// 注意：**命中缓存时不重跑**——用户在界面上点「重新识别」要的是真重跑，
+/// 请用 [`rerun_for_attachment`]，否则换了引擎也只会拿回旧引擎的文本。
 pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attachment> {
+    run_attachment(ctx, attachment_id, false)
+}
+
+/// 用户显式「重新识别」：**跳过缓存**，按当前设置真跑一次并覆写三层缓存。
+///
+/// 为什么必须区分（2026-10-26 真机缺陷）：`ocr_cache` 以图片内容哈希为键，
+/// 普通识别命中缓存就直接返回旧文本；用户把引擎从云端切到本地后点「重新识别」，
+/// toast 提示成功但 `ocr_cache.engine` 没变 → 界面标签还是旧引擎，实际什么都没跑。
+pub fn rerun_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attachment> {
+    run_attachment(ctx, attachment_id, true)
+}
+
+fn run_attachment(ctx: &CoreContext, attachment_id: i64, force: bool) -> Result<Attachment> {
     let attachment = ctx.db.with_conn(|conn| {
         attachment_repo::get(conn, attachment_id)?
             .ok_or_else(|| CoreError::NotFound(format!("附件 {attachment_id} 不存在")))
@@ -96,7 +112,11 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         abs.clone()
     };
 
-    let recognised = resolve_recognition(ctx, &cfg, &attachment.file_hash, &ocr_target)?;
+    let recognised = if force {
+        force_recognise(ctx, &cfg, &attachment.file_hash, &ocr_target)?
+    } else {
+        resolve_recognition(ctx, &cfg, &attachment.file_hash, &ocr_target)?
+    };
 
     ctx.db.with_conn(|conn| {
         attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&recognised.text))?;
@@ -262,7 +282,7 @@ fn resolve_recognition(
         if !is_cloud_engine(&engine) && wants_cloud(&cfg.ocr.engine) && upgrade_allowed(file_hash) {
             match cloud_recognise(ctx, cfg, image) {
                 Ok(r) => {
-                    store_recognition(ctx, file_hash, &r)?;
+                    store_recognition(ctx, file_hash, &r, false)?;
                     return Ok(r);
                 }
                 Err(e) => {
@@ -275,28 +295,74 @@ fn resolve_recognition(
     }
 
     let r = infer_ocr(ctx, cfg, image)?;
-    store_recognition(ctx, file_hash, &r)?;
+    store_recognition(ctx, file_hash, &r, false)?;
     Ok(r)
 }
 
-/// 写回三层缓存（短锁；失败只告警，不影响识别结果本身）
-fn store_recognition(ctx: &CoreContext, file_hash: &str, r: &Recognised) -> Result<()> {
+/// 显式重跑：不读缓存，直接推理并**覆写**缓存。
+///
+/// `force` 语义下还要清掉与本次结果不匹配的旧缓存：
+/// - 本次没有结构化要素（本地引擎）→ 删旧云要素缓存，否则它会一直压过新版面/纯文本；
+/// - 本次没有版面（云端）→ 由调用方在写回时删旧版面（见 `run_attachment`）。
+fn force_recognise(
+    ctx: &CoreContext,
+    cfg: &AppConfig,
+    file_hash: &str,
+    image: &Path,
+) -> Result<Recognised> {
+    // 允许再试一次云端：换引擎后不该被「本进程内已试过」的标记挡住
+    allow_upgrade(file_hash);
+    let r = infer_ocr(ctx, cfg, image)?;
+    store_recognition(ctx, file_hash, &r, true)?;
+    Ok(r)
+}
+
+/// 写回三层缓存（短锁；失败只告警，不影响识别结果本身）。
+/// `replace`：显式重跑时置 true——新结果没有要素就删掉旧要素缓存。
+fn store_recognition(
+    ctx: &CoreContext,
+    file_hash: &str,
+    r: &Recognised,
+    replace: bool,
+) -> Result<()> {
     ctx.db
         .with_conn(|conn| ocr_cache_repo::upsert(conn, file_hash, r.engine, &r.text))?;
-    if let Some(fields) = &r.fields {
-        let json = fields.to_string();
-        if let Err(e) = ctx.db.with_conn(|conn| {
-            ocr_field_cache_repo::upsert(conn, file_hash, r.engine, &r.model, &json)
-        }) {
-            log::warn!("写入云端要素缓存失败（不影响识别）: {e}");
+    match (&r.fields, replace) {
+        (Some(fields), _) => {
+            let json = fields.to_string();
+            if let Err(e) = ctx.db.with_conn(|conn| {
+                ocr_field_cache_repo::upsert(conn, file_hash, r.engine, &r.model, &json)
+            }) {
+                log::warn!("写入云端要素缓存失败（不影响识别）: {e}");
+            }
         }
+        (None, true) => {
+            if let Err(e) = ctx
+                .db
+                .with_conn(|conn| ocr_field_cache_repo::delete(conn, file_hash))
+            {
+                log::warn!("清理旧要素缓存失败（不影响识别）: {e}");
+            }
+        }
+        (None, false) => {}
     }
     Ok(())
 }
 
 /// 进程内「已试过云端升级」的图片哈希集合（避免断网时每张图都等满超时）
+static TRIED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+/// 重新允许这张图再试一次云端升级（显式「重新识别」时调用）
+fn allow_upgrade(file_hash: &str) {
+    if let Some(set) = TRIED.get() {
+        set.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(file_hash);
+    }
+}
+
+/// 进程内「已试过云端升级」的图片哈希集合（避免断网时每张图都等满超时）
 fn upgrade_allowed(file_hash: &str) -> bool {
-    static TRIED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let set = TRIED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = set.lock().unwrap_or_else(|p| p.into_inner());
     if guard.len() > 4096 {
