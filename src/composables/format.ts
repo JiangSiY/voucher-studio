@@ -29,7 +29,9 @@ export const OCR_ENGINE_LABELS: Record<string, string> = {
 export const OCR_ENGINE_SHORT: Record<string, string> = {
   deepseek: "DeepSeek",
   cloud: "云端自建",
-  local: "Vision",
+  // v0.23 之前的本地引擎是 PP-OCRv5、缓存里同样记 `local`：短名只写「本地」，
+  // 避免把历史记录错标成 Vision（完整名在结果卡与 title 里给）
+  local: "本地",
 };
 
 /** 引擎中文名（未知值原样返回，空值返回空串） */
