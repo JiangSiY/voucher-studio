@@ -121,6 +121,18 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
     })
 }
 
+/// 并发识别路数：云端是网络等待（单张 1–3s），3 路并行；本地 Vision 走系统框架，
+/// 框架内部已并行，多个请求互相争抢反而更慢，故保持串行。
+///
+/// 导入与批量识别共用同一口径（导入 8 张从 40s 降到 ~15s）。
+pub fn import_ocr_workers(ctx: &CoreContext) -> usize {
+    if wants_cloud(&ctx.config().ocr.engine) {
+        3
+    } else {
+        1
+    }
+}
+
 /// 批量识别待处理附件，返回成功数（失败的逐个记为 failed，不中断批次）。
 /// 识别成功后自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 /// `on_progress` 每处理完一张回调 (已完成数, 总数)，供上层做进度反馈（传 `&|_, _| {}` 忽略）。
@@ -136,8 +148,7 @@ pub fn run_pending(
         .db
         .with_conn(|conn| attachment_repo::list_pending_ocr(conn, limit))?;
     let total = pending.len();
-    let cloud_mode = wants_cloud(&ctx.config().ocr.engine);
-    let workers = if cloud_mode { 3 } else { 1 };
+    let workers = import_ocr_workers(ctx);
 
     let mut done = 0usize;
     let mut ok = 0usize;
@@ -295,7 +306,7 @@ fn upgrade_allowed(file_hash: &str) -> bool {
 }
 
 /// 引擎配置是否希望使用云端
-fn wants_cloud(engine: &str) -> bool {
+pub(crate) fn wants_cloud(engine: &str) -> bool {
     engine != OCR_ENGINE_LOCAL
 }
 

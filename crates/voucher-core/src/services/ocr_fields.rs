@@ -74,6 +74,13 @@ pub struct ExtractedFields {
     /// 字段级置信度（纯文本路径按来源标档；版面路径由几何佐证改写，
     /// 两路径都会经 ocr_validate 升降级——自动填单按此门控）
     pub confidence: FieldConfidence,
+    /// 本条要素由哪个引擎认出（`deepseek` / `cloud` / `local`）。
+    /// 只有预览接口（`query::ocr_preview`）填它——结果卡要告诉用户「这次是谁认的」；
+    /// 回填路径不需要（引擎已记在 `ocr_cache.engine`）。
+    pub engine: Option<String>,
+    /// 疑似「流水 / 明细列表页」：一张图里排着多笔交易，任何单一金额/对方都只是其中一行，
+    /// 因此金额与对方被刻意留空、日期降为低置信（`should_autofill` 不会写），由用户自己判断。
+    pub statement_list: bool,
 }
 
 /// 金额标签优先级：靠前的优先命中。注意「价税合计」必须排在「合计」之前——
@@ -133,6 +140,7 @@ pub fn extract(text: &str) -> ExtractedFields {
         merchant,
         amount_source,
         confidence,
+        ..Default::default()
     }
 }
 
@@ -642,6 +650,116 @@ fn extract_merchant_with_source(text: &str) -> Option<(String, bool)> {
     None
 }
 
+// ---------- 流水 / 明细列表页 ----------
+
+/// 数文本里像日期的 token（`2026-08-19` / `2026/8/19` / `2026.08.19` / `2026年8月19日`）。
+///
+/// 不引正则：只需「四位年份 + 分隔符 + 月 + 分隔符 + 日」这一种形状，字节扫描足够，
+/// 也避免为了一个计数把 regex 拉进 core 的依赖树。
+fn count_date_tokens(text: &str) -> usize {
+    let b = text.as_bytes();
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i < b.len() {
+        // 票据没有 19xx 场景，只认 20xx 可减少编号/数量里的假日期
+        if b[i] == b'2' && i + 8 <= b.len() {
+            if let Some(len) = date_token_len(&b[i..]) {
+                n += 1;
+                i += len;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    n
+}
+
+/// 单个日期 token 的字节长度（形如 `2026-08-19` / `2026年8月19日`），不是日期返回 None。
+fn date_token_len(rest: &[u8]) -> Option<usize> {
+    if rest.len() < 8 || !rest[..4].iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let sep = rest[4];
+    if matches!(sep, b'-' | b'/' | b'.') {
+        let mut i = 5usize;
+        let mut month = 0;
+        while i < rest.len() && rest[i].is_ascii_digit() && month < 2 {
+            i += 1;
+            month += 1;
+        }
+        if month == 0 || rest.get(i) != Some(&sep) {
+            return None;
+        }
+        i += 1;
+        let mut day = 0;
+        while i < rest.len() && rest[i].is_ascii_digit() && day < 2 {
+            i += 1;
+            day += 1;
+        }
+        if day == 0 {
+            return None;
+        }
+        return Some(i);
+    }
+    // 形态二：2026年8月19日
+    const NIAN: &[u8] = "年".as_bytes();
+    const YUE: &[u8] = "月".as_bytes();
+    const RI: &[u8] = "日".as_bytes();
+    if !rest[4..].starts_with(NIAN) {
+        return None;
+    }
+    let mut i = 4 + NIAN.len();
+    let mut month = 0;
+    while i < rest.len() && rest[i].is_ascii_digit() && month < 2 {
+        i += 1;
+        month += 1;
+    }
+    if month == 0 || !rest[i..].starts_with(YUE) {
+        return None;
+    }
+    i += YUE.len();
+    let mut day = 0;
+    while i < rest.len() && rest[i].is_ascii_digit() && day < 2 {
+        i += 1;
+        day += 1;
+    }
+    if day == 0 || !rest[i..].starts_with(RI) {
+        return None;
+    }
+    Some(i + RI.len())
+}
+
+/// 疑似「流水 / 账户明细列表页」判定。
+///
+/// 判据只用**行数证据**，不靠关键词表：一张凭证类票据通常只有 1–2 个日期，而列表页每行
+/// 都有一个日期；「余额」在多笔交易的截图里几乎必然出现。宁可漏判（照旧填）不可误判
+/// （把正常单据的金额挡掉），所以阈值取「≥3 个日期」这一档最硬的证据。
+///
+/// 背景（2026-10-26 真机）：8 张导入里有一张账户明细列表，云端把第一行
+/// `1158.00 / 袁彦开` 当成凭证要素填了进去——识别没错，是语义判断错。
+pub(crate) fn looks_like_statement_list(text: &str) -> bool {
+    let dates = count_date_tokens(text);
+    let yuan = text.matches('¥').count() + text.matches('￥').count();
+    let balance = text.matches("余额").count();
+    dates >= 3
+        || (dates >= 2 && balance >= 1)
+        || (yuan >= 3 && dates >= 1)
+        || (balance >= 2 && yuan >= 2)
+}
+
+/// 列表页不做要素自动填写：金额与对方清空、日期降为低置信
+/// （`should_autofill` 的 Date/Counterparty 只认 High/Medium，因此日期也不会被写入）。
+/// 商家保留——附件重命名要用，且列表页里的商户名通常是对的。
+pub(crate) fn suppress_for_statement_list(f: &mut ExtractedFields) {
+    f.amount_cents = None;
+    f.amount_source = None;
+    f.counterparty = None;
+    f.confidence.date = Some(Confidence::Low);
+    f.confidence.amount = Some(Confidence::Low);
+    f.confidence.counterparty = Some(Confidence::Low);
+    f.statement_list = true;
+}
+
 // ---------- 填单 + 重命名 ----------
 
 /// 识别完成后应用：抽取字段回填凭证 + 附件语义化重命名。
@@ -679,7 +797,7 @@ pub fn apply_for_attachment(
         }
     });
 
-    let fields = match cloud_json {
+    let mut fields = match cloud_json {
         Some(v) => from_structured(&v, text),
         None => {
             let layout = ctx.db.with_conn(|conn| {
@@ -694,6 +812,11 @@ pub fn apply_for_attachment(
             }
         }
     };
+    // 流水/明细列表页：第一行的金额/对方不是这张凭证的要素，宁可留空让用户填
+    if looks_like_statement_list(text) {
+        suppress_for_statement_list(&mut fields);
+        log::info!("疑似流水/明细列表页，跳过金额与对方的自动填写（附件 {attachment_id}）");
+    }
     apply_fields(ctx, voucher_id, &fields, mode)?;
     semantic_rename(ctx, voucher_id, &attachment)?;
     Ok(())
@@ -1468,5 +1591,51 @@ mod tests {
         assert!(f.date.is_none());
         // 「收款方」是标签词，不当名字
         assert!(f.counterparty.is_none());
+    }
+
+    #[test]
+    fn date_token_counter_handles_common_layouts() {
+        assert_eq!(count_date_tokens("无日期"), 0);
+        assert_eq!(count_date_tokens("2026-08-19 一笔"), 1);
+        assert_eq!(count_date_tokens("2026/8/19 与 2026.09.24"), 2);
+        assert_eq!(count_date_tokens("2026年8月19日"), 1);
+        // 编号里的数字组不是日期（缺分隔结构）
+        assert_eq!(count_date_tokens("凭证编号 20260819-001"), 0);
+    }
+
+    #[test]
+    fn statement_list_detected_by_row_evidence_not_keywords() {
+        // 账户明细列表：多行日期 + 余额
+        let list = "账户明细\n交易时间 2026-10-20 收入 1200.00 余额 5300.00\n交易时间 2026-10-21 支出 88.00 余额 5212.00\n交易时间 2026-10-24 支出 3500.00 余额 1712.00";
+        assert!(looks_like_statement_list(list));
+
+        // 单张转账回执：1 个日期 + 一个金额（即使有「余额」字样也不该判成列表页）
+        let receipt = "转账回执\n交易时间 2026-10-24 14:22\n收款方：梧桐泪\n金额 3500.00元";
+        assert!(!looks_like_statement_list(receipt));
+
+        // 普通发票
+        let invoice = "电子发票（普通发票）\n开票日期：2026年8月19日\n价税合计 ¥1,234.56";
+        assert!(!looks_like_statement_list(invoice));
+    }
+
+    #[test]
+    fn statement_list_suppresses_amount_counterparty_and_date() {
+        let mut f = ExtractedFields {
+            date: Some("2026-10-20".into()),
+            amount_cents: Some(530_000),
+            counterparty: Some("袁彦开".into()),
+            merchant: Some("某某公司".into()),
+            ..Default::default()
+        };
+        suppress_for_statement_list(&mut f);
+        assert!(f.statement_list);
+        assert!(f.amount_cents.is_none());
+        assert!(f.counterparty.is_none());
+        // 日期降为低置信 → should_autofill 不放行，等于不填但保留给用户看
+        assert!(f.date.is_some());
+        assert_eq!(f.confidence.date, Some(Confidence::Low));
+        assert!(!should_autofill(FillField::Date, f.confidence.date));
+        // 商家留着（附件重命名要用）
+        assert_eq!(f.merchant.as_deref(), Some("某某公司"));
     }
 }

@@ -270,20 +270,42 @@ pub fn import_images(
 
     // 可选 OCR + 自动填单 + 重命名（尽力而为，失败仅告警）
     // v0.6 C 步：OCR 服务内部已读 attachments.enhanced_path，存在则用增强图、否则回退原图
+    // v0.23.1：识别按引擎分块并发（云端 3 路，本地串行；见 `ocr::import_ocr_workers`），
+    // 回填仍逐张串行——写库保持单线程，不与导入事务争用连接锁。
     if run_ocr {
-        for v in &summary.vouchers {
-            match ocr::run_for_attachment(ctx, v.attachment.id) {
-                Ok(att) => {
-                    if let Err(e) = ocr_fields::apply_for_attachment(
-                        ctx,
-                        v.voucher_id,
-                        att.id,
-                        ocr_fields::FillMode::Import,
-                    ) {
-                        log::warn!("OCR 自动填单失败（凭证 {}）: {e}", v.voucher_id);
+        let workers = ocr::import_ocr_workers(ctx);
+        for chunk in summary.vouchers.chunks(workers) {
+            let results: Vec<Result<Attachment>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|v| {
+                        let id = v.attachment.id;
+                        scope.spawn(move || ocr::run_for_attachment(ctx, id))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            Err(CoreError::Invalid("OCR 识别线程异常退出".into()))
+                        })
+                    })
+                    .collect()
+            });
+            for (v, r) in chunk.iter().zip(results) {
+                match r {
+                    Ok(att) => {
+                        if let Err(e) = ocr_fields::apply_for_attachment(
+                            ctx,
+                            v.voucher_id,
+                            att.id,
+                            ocr_fields::FillMode::Import,
+                        ) {
+                            log::warn!("OCR 自动填单失败（凭证 {}）: {e}", v.voucher_id);
+                        }
                     }
+                    Err(e) => log::warn!("导入后 OCR 失败（附件 {}）: {e}", v.attachment.id),
                 }
-                Err(e) => log::warn!("导入后 OCR 失败（附件 {}）: {e}", v.attachment.id),
             }
         }
     }

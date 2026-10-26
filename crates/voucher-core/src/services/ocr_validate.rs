@@ -191,6 +191,7 @@ mod tests {
             merchant: None,
             amount_source: None,
             confidence: FieldConfidence::default(),
+            ..Default::default()
         }
     }
 

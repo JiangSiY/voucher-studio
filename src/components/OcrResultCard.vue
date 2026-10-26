@@ -30,6 +30,18 @@ const extractedCount = computed(() => {
 });
 const badge = computed(() => (extractedCount.value ? `识别到 ${extractedCount.value} 项` : ""));
 
+/** 引擎来源标签：让人知道这次是谁认出来的（云端更准、本地离线） */
+const ENGINE_LABELS: Record<string, string> = {
+  deepseek: "云端 DeepSeek 视觉",
+  cloud: "云端自建接口",
+  local: "本地 Apple Vision",
+};
+const engineLabel = computed(() => {
+  const engine = props.extracted?.engine;
+  if (!engine) return "";
+  return ENGINE_LABELS[engine] ?? engine;
+});
+
 /** 提取字段是否可填入（至少一个字段非空才显示卡片） */
 const hasExtracted = computed(() => {
   const f = props.extracted;
@@ -49,6 +61,16 @@ const hasExtracted = computed(() => {
         正在提取字段…
       </div>
       <template v-else-if="extracted">
+        <div
+          v-if="engineLabel || extracted.statementList"
+          class="ext-note"
+          :class="{ 'ext-note-warn': extracted.statementList }"
+        >
+          <span v-if="engineLabel" class="tag">{{ engineLabel }}</span>
+          <span v-if="extracted.statementList">
+            疑似流水/明细列表页：金额与对方已留空，请按实际业务手动填写。
+          </span>
+        </div>
         <div class="ext-row">
           <span class="ext-label">日期</span>
           <span class="ext-value mono">
@@ -162,5 +184,20 @@ const hasExtracted = computed(() => {
   margin-top: 8px;
   font-size: var(--fs-caption);
   color: var(--text-4);
+}
+
+/* 识别来源 / 列表页提示（卡片顶部一行） */
+.ext-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0 8px;
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+
+.ext-note-warn {
+  color: var(--warning);
 }
 </style>

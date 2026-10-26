@@ -444,3 +444,166 @@ fn auto_mode_falls_back_to_local_when_cloud_fails() -> Result<()> {
     assert!(health.last_cloud_error.is_some(), "应记录云端失败原因");
     Ok(())
 }
+
+/// v0.23.1：流水/明细列表页不自动填金额与对方。
+///
+/// 真机教训（2026-10-26）：一张账户明细列表被云端识别后，模型把**第一行**的
+/// `1158.00 / 袁彦开` 当成了整张凭证的要素——识别没错，是语义判断错。
+/// 这里复制那个形状：多行交易 + 余额，云端要素给了其中一行的金额与对方。
+#[test]
+fn statement_list_page_does_not_autofill_amount_or_counterparty() -> Result<()> {
+    use voucher_core::db::repos::{attachment_repo, ocr_field_cache_repo};
+    use voucher_core::services::{ocr_fields, query};
+
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("statement.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let v = imported.vouchers[0].clone();
+    let att = v.attachment.clone();
+
+    // 列表页正文：三行交易各带日期 + 余额
+    let text = "账户明细\n\
+交易时间 2026-10-20 收入 1200.00 余额 5300.00\n\
+交易时间 2026-10-21 支出 88.00 余额 5212.00\n\
+交易时间 2026-10-24 支出 3500.00 余额 1712.00";
+    ctx.db
+        .with_conn(|conn| attachment_repo::set_ocr(conn, att.id, OcrStatus::Done, Some(text)))?;
+    // 云端要素（模拟模型只看第一行时给出的结果）
+    ctx.db.with_conn(|conn| {
+        ocr_field_cache_repo::upsert(
+            conn,
+            &att.file_hash,
+            "deepseek",
+            "deepseek-flash",
+            r#"{"text":"账户明细","date":"2026-10-24","amount":"1158.00","counterparty":"袁彦开"}"#,
+        )
+    })?;
+
+    let preview = query::ocr_preview(&ctx, att.id)?;
+    assert!(preview.statement_list, "应判成流水/明细列表页");
+    assert!(preview.amount_cents.is_none(), "列表页不给金额");
+    assert!(preview.counterparty.is_none(), "列表页不给对方");
+    assert_eq!(
+        preview.engine.as_deref(),
+        Some("deepseek"),
+        "仍要报告引擎来源"
+    );
+
+    ocr_fields::apply_for_attachment(&ctx, v.voucher_id, att.id, ocr_fields::FillMode::Import)?;
+    let detail = voucher_mgr::get_detail(&ctx, v.voucher_id)?;
+    assert!(
+        detail.voucher.amount_cents.is_none(),
+        "列表页的金额不能写进凭证"
+    );
+    assert!(
+        detail.voucher.counterparty.is_empty(),
+        "列表页的对方不能写进凭证"
+    );
+    Ok(())
+}
+
+/// 多连接迷你 HTTP 服务：为「导入期并发识别」提供 N 次应答（自定义协议 `{text}`）。
+fn start_batch_mock(replies: usize, text: &'static str) -> u16 {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind batch mock");
+    let port = listener.local_addr().expect("batch mock addr").port();
+    let served = Arc::new(AtomicUsize::new(0));
+    let counter = served.clone();
+    std::thread::spawn(move || {
+        for _ in 0..replies {
+            let Ok((mut sock, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 1024];
+            let mut body_len = 0usize;
+            // 读满头部，再按 Content-Length 读净 body（否则客户端会看到重置）
+            while let Ok(n) = sock.read(&mut tmp) {
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                if body_len == 0 {
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                        body_len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if buf.len() >= pos + 4 + body_len {
+                            break;
+                        }
+                    }
+                } else if buf.len() >= body_len + 4 {
+                    break;
+                }
+            }
+            counter.fetch_add(1, Ordering::SeqCst);
+            let body = format!(r#"{{"text":"{text}"}}"#);
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = sock.write_all(resp.as_bytes());
+        }
+    });
+    port
+}
+
+/// v0.23.1：导入期 OCR 分块并发（云端 3 路）——4 张图必须全部拿到云端文本，
+/// 且请求真的发出 4 次（并发块不会漏图、不会因为 chunk 边界丢结果）。
+#[test]
+fn import_runs_cloud_ocr_in_parallel_chunks() -> Result<()> {
+    let port = start_batch_mock(4, "批量云端文本 合计 12.00");
+
+    let (dir, ctx) = test_ctx();
+    // 同批每张内容必须不同，否则会被 MD5 去重掉
+    let imgs: Vec<PathBuf> = (0..4)
+        .map(|i| {
+            let p = dir.path().join(format!("batch{i}.png"));
+            make_png_variant(&p, 30 + i as u8 * 40);
+            p
+        })
+        .collect();
+
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "auto".to_string();
+    cfg.ocr.provider = "custom".to_string();
+    cfg.ocr.api_url = format!("http://127.0.0.1:{port}/ocr");
+    cfg.ocr.model = "mock".to_string();
+    ctx.set_config(cfg)?;
+
+    // run_ocr = true → 走 ingestion 的并发识别块
+    let imported = ingestion::import_images(&ctx, &imgs, None, true)?;
+    assert_eq!(imported.vouchers.len(), 4, "4 张都该入库");
+
+    ctx.db.with_conn(|conn| {
+        let mut n = 0;
+        for v in &imported.vouchers {
+            let att = voucher_core::db::repos::attachment_repo::get(conn, v.attachment.id)?
+                .ok_or_else(|| CoreError::Invalid("附件丢失".into()))?;
+            let text = att.ocr_text.unwrap_or_default();
+            assert!(
+                text.contains("批量云端文本"),
+                "附件 {} 应拿到云端文本: {text}",
+                att.id
+            );
+            n += 1;
+        }
+        assert_eq!(n, 4);
+        let cloud: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM ocr_cache WHERE engine = 'cloud'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(cloud, 4, "4 张都该缓存云端结果");
+        Ok(())
+    })
+}

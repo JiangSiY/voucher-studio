@@ -53,6 +53,20 @@ describe("OCR 引擎设置契约（云端优先 + 本地 Vision）", () => {
     }
   });
 
+  it("识别结果卡显示本次识别引擎与列表页提示", () => {
+    const card = read("src/components/OcrResultCard.vue");
+    // 引擎标签：三种来源都要有中文名
+    expect(card).toContain("云端 DeepSeek 视觉");
+    expect(card).toContain("本地 Apple Vision");
+    expect(card).toContain("extracted?.engine");
+    // 列表页提示：金额与对方留空要说清原因
+    expect(card).toContain("extracted.statementList");
+    expect(card).toContain("疑似流水/明细列表页");
+    const client = read("src/api/client.ts");
+    expect(client).toContain("statementList?: boolean");
+    expect(client).toContain("engine?: string | null");
+  });
+
   it("默认配置为云端优先（engine=auto + provider=deepseek）", () => {
     const defaults = read("src/config-defaults.ts");
     expect(defaults).toContain('engine: "auto"');

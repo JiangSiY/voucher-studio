@@ -6,11 +6,11 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-26（v0.23 OCR 换代：云端优先 DeepSeek 视觉 + 本地 Apple Vision）**：`voucher-core` 测试 **310 个**（src 内联 **169** + tests/ 集成 **141**，含
+> 截至 **2026-10-26（v0.23.1 OCR 三处优化：导入并发 / 列表页不误填 / 结果卡显示引擎）**：`voucher-core` 测试 **315 个**（src 内联 **172** + tests/ 集成 **143**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 8 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **56 文件 350 用例**（2026-10-26 `ocrEngineContract.test.ts` 5 例加入后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **56 文件 351 用例**（2026-10-26 `ocrEngineContract.test.ts` 6 例加入后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -37,6 +37,13 @@
 > → 单元 157 → **169**、集成 138 → **141**、`voucher-core` 295 → **310**、总数 298 → **313**。
 > 前端新增 `ocrEngineContract.test.ts` 5 例（三档引擎 / 两种云端协议 / 旧 PP-OCRv5 文案清零 / `ocr_health` 命令对应 / 默认 auto+deepseek）
 > → **56 文件 350 用例**。
+> **2026-10-26 v0.23.1（三处优化，第六十八笔）**：
+> 内联新增 `ocr_fields` 3 例（日期 token 计数 / 列表页行数证据判据 / 列表页抑制金额与对方）；
+> 集成新增 `ocr_flow` 2 例（`statement_list_page_does_not_autofill_amount_or_counterparty`、
+> `import_runs_cloud_ocr_in_parallel_chunks`——后者带一个多连接迷你 HTTP mock，验 4 张图分块并发全部拿到云端文本）
+> → 单元 169 → **172**、集成 141 → **143**、`voucher-core` 310 → **315**、总数 313 → **318**。
+> 前端 `ocrEngineContract.test.ts` +1 例（结果卡显示引擎标签与列表页提示）→ **56 文件 351 用例**。
+>
 > 口径说明：本机 `keyring_native`（1 例）因沙箱内 Keychain 拒绝返回 `UNIX[Operation not permitted]`
 > 而失败，属环境限制，不随本批改动变化（CI 上正常）。
 > 2026-10-09 OCR 置信度门控批新增 8 例（纯文本路径置信度标档 / 填单门控矩阵 / 大写金额解析 / 大写互验扩展至纯文本路径），内联 134 → **142**；

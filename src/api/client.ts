@@ -213,6 +213,10 @@ export interface ExtractedFields {
     counterparty: "high" | "medium" | "low" | null;
     merchant: "high" | "medium" | "low" | null;
   };
+  /** v0.23.1：这次识别由哪个引擎完成（deepseek=云端 DeepSeek 视觉 / cloud=自建接口 / local=Apple Vision） */
+  engine?: string | null;
+  /** v0.23.1：疑似流水/明细列表页 —— 金额与对方被刻意留空，请手动填写 */
+  statementList?: boolean;
 }
 
 export interface RecoveryReport {

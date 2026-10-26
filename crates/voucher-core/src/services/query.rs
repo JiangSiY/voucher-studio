@@ -211,25 +211,50 @@ pub fn ocr_preview(ctx: &CoreContext, attachment_id: i64) -> Result<ocr_fields::
             .ok_or_else(|| crate::CoreError::NotFound(format!("附件 {attachment_id} 不存在")))?;
         let text = att.ocr_text.as_deref().unwrap_or("").to_string();
 
+        // 引擎来源：结果卡要显示「这次是谁认出来的」，故三层里谁命中就留谁的名字
+        let mut engine: Option<String> = None;
+
         // 1. 云端要素（重新识别不再付费；要素比文本正则准）
         let cloud = crate::db::repos::ocr_field_cache_repo::get(conn, &att.file_hash)?;
-        let cloud_json = cloud.and_then(|(engine, _model, json)| {
-            if crate::services::ocr::is_cloud_engine(&engine) {
-                serde_json::from_str::<serde_json::Value>(&json).ok()
+        let structured = cloud.and_then(|(cache_engine, _model, json)| {
+            if crate::services::ocr::is_cloud_engine(&cache_engine) {
+                serde_json::from_str::<serde_json::Value>(&json)
+                    .ok()
+                    .map(|v| (cache_engine, v))
             } else {
                 None
             }
         });
-        if let Some(v) = cloud_json {
-            return Ok(ocr_fields::from_structured(&v, &text));
-        }
 
-        // 2. 本地版面坐标（几何配对） 3. 纯文本
-        let layout = ocr_layout_repo::get_layout(conn, attachment_id)?;
-        Ok(match layout {
-            Some((_engine, lines)) if !lines.is_empty() => ocr_layout::extract_with_layout(&lines),
-            _ => ocr_fields::extract_validated(&text),
-        })
+        let mut fields = match structured {
+            Some((cache_engine, v)) => {
+                engine = Some(cache_engine);
+                ocr_fields::from_structured(&v, &text)
+            }
+            None => {
+                // 2. 本地版面坐标（几何配对） 3. 纯文本
+                let layout = ocr_layout_repo::get_layout(conn, attachment_id)?;
+                match layout {
+                    Some((layout_engine, lines)) if !lines.is_empty() => {
+                        engine = Some(layout_engine);
+                        ocr_layout::extract_with_layout(&lines)
+                    }
+                    _ => ocr_fields::extract_validated(&text),
+                }
+            }
+        };
+
+        // 三层都没给出引擎名时（老附件），退回识别缓存里记录的那个
+        if engine.is_none() {
+            engine = crate::db::repos::ocr_cache_repo::get(conn, &att.file_hash)?.map(|(e, _)| e);
+        }
+        fields.engine = engine;
+
+        // 流水/明细列表页：别把第一行的金额/对方当成本凭证的要素
+        if ocr_fields::looks_like_statement_list(&text) {
+            ocr_fields::suppress_for_statement_list(&mut fields);
+        }
+        Ok(fields)
     })
 }
 
