@@ -6,9 +6,9 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-26（v0.23.1 OCR 三处优化：导入并发 / 列表页不误填 / 结果卡显示引擎）**：`voucher-core` 测试 **315 个**（src 内联 **172** + tests/ 集成 **143**，含
+> 截至 **2026-10-26（v0.23.1 OCR 三处优化：导入并发 / 列表页不误填 / 结果卡显示引擎）**：`voucher-core` 测试 **316 个**（src 内联 **172** + tests/ 集成 **144**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
-> **keyring_native 1** / ocr_flow 8 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
+> **keyring_native 1** / ocr_flow 9 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
 > 合法待恢复库正常落位）；前端 vitest **56 文件 352 用例**（2026-10-26 `ocrEngineContract.test.ts` 6 例加入后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
