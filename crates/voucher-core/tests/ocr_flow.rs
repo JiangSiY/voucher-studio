@@ -4,8 +4,14 @@ mod common;
 
 use common::*;
 use std::path::PathBuf;
-use voucher_core::models::{OcrStatus, VoucherStatus};
-use voucher_core::services::{export, ingestion, ocr, search, voucher_mgr};
+use voucher_core::models::OcrStatus;
+use voucher_core::services::{ingestion, ocr, search, voucher_mgr};
+// 下面两项只被 `#[cfg(target_os = "macos")]` 的闭环用例用到：
+// 不加 cfg 就会在 CI 的 Linux rust job（clippy -D warnings）报 unused_import。
+#[cfg(target_os = "macos")]
+use voucher_core::models::VoucherStatus;
+#[cfg(target_os = "macos")]
+use voucher_core::services::export;
 use voucher_core::{CoreError, Result};
 #[test]
 fn import_images_dedups_and_ocr_text_searchable() -> Result<()> {
