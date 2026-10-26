@@ -149,6 +149,34 @@ mod imp {
         unsafe { CString::from_vec_unchecked(bytes) }
     }
 
+    /// 诊断开关：设置 `VOUCHER_OCR_TRACE=1` 时把 Vision 管线中间态打到 stderr。
+    /// 只在排查「识别返回 0 行」时用，正常路径零开销（每次判断一个环境变量）。
+    fn trace_on() -> bool {
+        std::env::var_os("VOUCHER_OCR_TRACE").is_some()
+    }
+
+    fn trace(what: &str, detail: &str) {
+        if trace_on() {
+            eprintln!("[vision-trace] {what}: {detail}");
+        }
+    }
+
+    /// 把任意 ObjC 对象按 `description` 转成字符串（诊断用）
+    unsafe fn describe(obj: *mut c_void) -> String {
+        if obj.is_null() {
+            return "<nil>".into();
+        }
+        let desc = send_msg0(obj, sel("description"));
+        if desc.is_null() {
+            return "<no description>".into();
+        }
+        let utf8 = send_msg0(desc, sel("UTF8String")) as *const c_char;
+        if utf8.is_null() {
+            return "<no utf8>".into();
+        }
+        CStr::from_ptr(utf8).to_string_lossy().into_owned()
+    }
+
     unsafe fn cls(name: &str) -> *mut c_void {
         objc_getClass(cstr(name).as_ptr())
     }
@@ -220,8 +248,10 @@ mod imp {
         f(obj, s, a)
     }
 
-    unsafe fn send_f64_0(obj: *mut c_void, s: *mut c_void) -> f64 {
-        let f: unsafe extern "C" fn(*mut c_void, *mut c_void) -> f64 =
+    /// 注意：`VNRecognizedText.confidence` / `VNObservation.confidence` 是 **float（32 位）**，
+    /// 不是 double——按 f64 读会把返回值当垃圾（实测置信度全变 0，于是所有行都被 0.3 阈值滤掉）。
+    unsafe fn send_f32_0(obj: *mut c_void, s: *mut c_void) -> f32 {
+        let f: unsafe extern "C" fn(*mut c_void, *mut c_void) -> f32 =
             std::mem::transmute(objc_msgSend as *const ());
         f(obj, s)
     }
@@ -311,6 +341,9 @@ mod imp {
                 image_path.display()
             )));
         }
+        if trace_on() {
+            trace("url", &describe(url));
+        }
         let guard = UrlGuard(url);
 
         let request = send_msg0(cls("VNRecognizeTextRequest"), sel("alloc"));
@@ -344,6 +377,10 @@ mod imp {
         let options = send_msg0(cls("NSDictionary"), sel("dictionary"));
         let handler = send_msg0(cls("VNImageRequestHandler"), sel("alloc"));
         let handler = send_msg2(handler, sel("initWithURL:options:"), url, options);
+        if trace_on() {
+            trace("handler", &describe(handler));
+            trace("request", &describe(request));
+        }
 
         let req_objs = [request];
         let req_arr = send_array_with_objects(
@@ -360,6 +397,10 @@ mod imp {
             req_arr,
             &mut err as *mut *mut c_void as *mut c_void,
         );
+        if trace_on() {
+            trace("perform ok", &ok.to_string());
+            trace("error", &describe(err));
+        }
         if !ok {
             return Err(CoreError::LocalOcr(
                 "Vision 识别请求执行失败（VNImageRequestHandler.performRequests 返回 NO）".into(),
@@ -368,6 +409,9 @@ mod imp {
 
         let results = send_msg0(request, sel("results"));
         let count = send_usize0(results, sel("count"));
+        if trace_on() {
+            trace("results count", &count.to_string());
+        }
         let mut lines: Vec<OcrLine> = Vec::with_capacity(count);
         for i in 0..count {
             let obs = send_usize1(results, sel("objectAtIndex:"), i);
@@ -377,6 +421,9 @@ mod imp {
             }
             let cand = send_usize1(candidates, sel("objectAtIndex:"), 0);
             let ns_text = send_msg0(cand, sel("string"));
+            if trace_on() {
+                trace("obs", &format!("{i}: {}", describe(ns_text)));
+            }
             let utf8 = send_msg0(ns_text, sel("UTF8String")) as *const c_char;
             if utf8.is_null() {
                 continue;
@@ -385,7 +432,10 @@ mod imp {
             if text.trim().is_empty() {
                 continue;
             }
-            let score = send_f64_0(cand, sel("confidence")) as f32;
+            let score = send_f32_0(cand, sel("confidence"));
+            if trace_on() {
+                trace("obs score", &format!("{i}: {score:.3}"));
+            }
             let rect = send_rect0(obs, sel("boundingBox"));
             lines.push(OcrLine {
                 text: text.trim().to_string(),
