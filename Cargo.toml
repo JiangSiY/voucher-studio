@@ -4,7 +4,7 @@ resolver = "2"
 members = ["crates/voucher-core", "src-tauri"]
 
 [workspace.package]
-version = "0.22.5"
+version = "0.23.0"
 edition = "2021"
 authors = ["Voucher Studio"]
 license = "MIT"
