@@ -18,6 +18,12 @@
 //! 坐标契约与 `OcrLine` 一致：**原图像素、左上原点、y 向下**。Vision 的
 //! `boundingBox` 是归一化 + **左下原点**，在 [`pixel_box`] 里翻转。
 
+// 纯逻辑后处理（同行合并 / 阅读顺序 / 文本拼接）与平台无关，**但只有 macOS 的 `recognize()`
+// 会调用它们**；非 macOS 构建只剩 stub，不声明的话 `clippy -D warnings` 会以 dead_code 判红
+// （2026-10-26 v0.23.0 的 CI 就是这么红的：本地 macOS 绿、Linux 的 rust job 红）。
+// 它们的单元测试在 Linux 上也照跑，所以只放行 dead_code，不把函数 cfg 掉。
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use std::path::Path;
 
 use crate::models::OcrLine;
