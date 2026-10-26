@@ -53,12 +53,29 @@ describe("OCR 引擎设置契约（云端优先 + 本地 Vision）", () => {
     }
   });
 
+  it("附件面板在「已识别」旁显示引擎来源标签", () => {
+    const panel = read("src/components/voucher/AttachmentPanel.vue");
+    // 引擎标签紧挨 OCR 状态标签，且只在识别完成且有引擎时出现
+    expect(panel).toContain("a.ocrStatus === 'done' && a.ocrEngine");
+    expect(panel).toContain("OCR_ENGINE_SHORT[a.ocrEngine]");
+    expect(panel).toContain("ocrEngineLabel(a.ocrEngine)");
+    // 标签表收敛在一处（附件面板与结果卡共用）
+    const format = read("src/composables/format.ts");
+    expect(format).toContain("OCR_ENGINE_LABELS");
+    expect(format).toContain("OCR_ENGINE_SHORT");
+    expect(format).toContain("export function ocrEngineLabel");
+    // 后端详情接口要把引擎带到附件上
+    expect(read("src/api/client.ts")).toContain("ocrEngine?: string | null;");
+  });
+
   it("识别结果卡显示本次识别引擎与列表页提示", () => {
     const card = read("src/components/OcrResultCard.vue");
-    // 引擎标签：三种来源都要有中文名
-    expect(card).toContain("云端 DeepSeek 视觉");
-    expect(card).toContain("本地 Apple Vision");
-    expect(card).toContain("extracted?.engine");
+    // 引擎标签：中文名收敛在 format.ts，卡片只负责渲染
+    const format = read("src/composables/format.ts");
+    expect(format).toContain("云端 DeepSeek 视觉");
+    expect(format).toContain("本地 Apple Vision");
+    expect(card).toContain("ocrEngineLabel(props.extracted?.engine)");
+    expect(card).toContain("engineLabel");
     // 列表页提示：金额与对方留空要说清原因
     expect(card).toContain("extracted.statementList");
     expect(card).toContain("疑似流水/明细列表页");

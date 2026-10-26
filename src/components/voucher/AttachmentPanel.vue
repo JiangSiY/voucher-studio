@@ -8,7 +8,7 @@
 import { ref } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Attachment } from "../../api/client";
-import { OCR_META } from "../../composables/format";
+import { OCR_ENGINE_SHORT, OCR_META, ocrEngineLabel } from "../../composables/format";
 import { toastError } from "../../stores/toast";
 import ImageViewerDialog from "../ImageViewerDialog.vue";
 import CropDialog from "../CropDialog.vue";
@@ -207,6 +207,13 @@ async function onCropSave(
               <span class="tag" :class="OCR_META[a.ocrStatus].tag">{{
                 OCR_META[a.ocrStatus].label
               }}</span>
+              <!-- v0.23.1：识别来源（云端优先 / 本地兜底），点开详情第一眼就能看出是谁认的 -->
+              <span
+                v-if="a.ocrStatus === 'done' && a.ocrEngine"
+                class="tag tag-muted"
+                :title="`本次识别由${ocrEngineLabel(a.ocrEngine)}完成`"
+                >{{ OCR_ENGINE_SHORT[a.ocrEngine] ?? a.ocrEngine }}</span
+              >
               <span
                 v-if="a.enhancedSource === 'screenshot'"
                 class="tag tag-muted"

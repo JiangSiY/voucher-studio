@@ -376,6 +376,14 @@ fn cloud_engine_is_preferred_and_cached() -> Result<()> {
     })?;
     assert_eq!(engine, "cloud");
     assert_eq!(ctx.ocr_health().last_engine.as_deref(), Some("cloud"));
+
+    // v0.23.1：编辑页要在「已识别」旁显示来源，详情接口须把引擎带到附件上
+    let detail = voucher_mgr::get_detail(&ctx, imported.vouchers[0].voucher_id)?;
+    assert_eq!(
+        detail.attachments[0].ocr_engine.as_deref(),
+        Some("cloud"),
+        "详情接口应带出上一次识别的引擎"
+    );
     Ok(())
 }
 

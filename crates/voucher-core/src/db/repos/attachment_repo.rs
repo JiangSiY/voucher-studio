@@ -27,6 +27,7 @@ fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
         created_at: row.get(11)?,
         // 界面展示字段：由 services::attachment_view 在下发前填充，DB 层恒为 None
         file_abs: None,
+        ocr_engine: None,
         enhanced_abs: None,
     })
 }
@@ -85,6 +86,32 @@ pub fn set_ocr(conn: &Connection, id: i64, status: OcrStatus, text: Option<&str>
         params![status.as_str(), text, id],
     )?;
     Ok(())
+}
+
+/// 批量取附件「上一次识别的引擎」（`ocr_cache.engine`，按 `file_hash` 关联）。
+///
+/// 界面要显示「这张图是云端认的还是本地认的」，但引擎只记在识别缓存里，
+/// 不在 `attachments` 表上——故这里一次查完，避免详情页 N+1。
+pub fn ocr_engines_of(
+    conn: &Connection,
+    attachment_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, String>> {
+    let mut out = std::collections::HashMap::new();
+    if attachment_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = vec!["?"; attachment_ids.len()].join(",");
+    let sql = format!(
+        "SELECT a.id, c.engine FROM attachments a
+         JOIN ocr_cache c ON c.cache_key = a.file_hash
+         WHERE a.id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(attachment_ids.iter()))?;
+    while let Some(r) = rows.next()? {
+        out.insert(r.get(0)?, r.get(1)?);
+    }
+    Ok(out)
 }
 
 pub fn list_pending_ocr(conn: &Connection, limit: u32) -> Result<Vec<Attachment>> {

@@ -233,6 +233,15 @@ pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
     // 下发界面时剥掉这类路径，前端 `enhancedPath ?? filePath` 自然回退原图
     // （与 export.rs / ocr.rs 的 .exists() 回退同口径）。
     crate::services::attachment_view::hide_missing_enhanced_all(ctx, &mut detail.attachments);
+    // v0.23.1：附件上带出「上一次识别由哪个引擎完成」，编辑页在「已识别」旁显示来源标签。
+    // 一次查询，避免逐附件 N+1。
+    let ids: Vec<i64> = detail.attachments.iter().map(|a| a.id).collect();
+    let engines = ctx
+        .db
+        .with_conn(|conn| attachment_repo::ocr_engines_of(conn, &ids))?;
+    for a in &mut detail.attachments {
+        a.ocr_engine = engines.get(&a.id).cloned();
+    }
     Ok(detail)
 }
 

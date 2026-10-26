@@ -75,6 +75,8 @@ export interface Attachment {
   enhancedAbs?: string | null;
   /** v0.6：来源分类（screenshot=截图 / scan=扫描件 / unknown=未识别） */
   enhancedSource: "screenshot" | "scan" | "unknown";
+  /** v0.23.1：上一次识别由哪个引擎完成（deepseek / cloud / local；未识别过为 null） */
+  ocrEngine?: string | null;
   createdAt: string;
 }
 

@@ -9,7 +9,7 @@ import type { ExtractedFields } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel.vue";
 import ConfidenceTag from "./ConfidenceTag.vue";
 import FluentIcon from "./FluentIcon.vue";
-import { fmtAmount } from "../composables/format";
+import { fmtAmount, ocrEngineLabel } from "../composables/format";
 
 const props = defineProps<{
   extracted: ExtractedFields | null;
@@ -31,16 +31,7 @@ const extractedCount = computed(() => {
 const badge = computed(() => (extractedCount.value ? `识别到 ${extractedCount.value} 项` : ""));
 
 /** 引擎来源标签：让人知道这次是谁认出来的（云端更准、本地离线） */
-const ENGINE_LABELS: Record<string, string> = {
-  deepseek: "云端 DeepSeek 视觉",
-  cloud: "云端自建接口",
-  local: "本地 Apple Vision",
-};
-const engineLabel = computed(() => {
-  const engine = props.extracted?.engine;
-  if (!engine) return "";
-  return ENGINE_LABELS[engine] ?? engine;
-});
+const engineLabel = computed(() => ocrEngineLabel(props.extracted?.engine));
 
 /** 提取字段是否可填入（至少一个字段非空才显示卡片） */
 const hasExtracted = computed(() => {

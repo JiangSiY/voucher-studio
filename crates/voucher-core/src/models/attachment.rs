@@ -71,6 +71,11 @@ pub struct Attachment {
     /// v3：来源分类（截图/扫描件/未识别）
     pub enhanced_source: EnhanceSource,
     pub created_at: String,
+    /// v0.23.1：这张图**上一次识别由哪个引擎完成**（`deepseek` / `cloud` / `local`）。
+    /// 与 `file_abs` 一样是**下发界面用的填充字段**：DB 读写不涉及，由
+    /// `voucher_mgr::get_detail` 按 `ocr_cache.engine` 填好（`attachment_repo::ocr_engines_of`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocr_engine: Option<String>,
     /// 下发界面用的**绝对路径**（view 层填充，见 `services::attachment_view`；DB 读写不涉及）。
     /// 前端一律用它交给 `convertFileSrc`，不再自行拼接——拼接曾在拼分隔符时把
     /// macOS 路径拼坏（`\`），导致 asset protocol 拒绝全部图片请求。

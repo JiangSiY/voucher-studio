@@ -15,6 +15,29 @@ export const OCR_META: Record<string, { label: string; tag: string }> = {
   failed: { label: "识别失败", tag: "tag-danger" },
 };
 
+/**
+ * v0.23.1：识别引擎的中文名（附件面板与识别结果卡共用一套口径）。
+ * `deepseek` = 云端 DeepSeek 视觉；`cloud` = 自建旧协议；`local` = Apple Vision。
+ */
+export const OCR_ENGINE_LABELS: Record<string, string> = {
+  deepseek: "云端 DeepSeek 视觉",
+  cloud: "云端自建接口",
+  local: "本地 Apple Vision",
+};
+
+/** 附件面板用的短名：一行里还要放状态与来源，长名会换行（完整名放 title） */
+export const OCR_ENGINE_SHORT: Record<string, string> = {
+  deepseek: "DeepSeek",
+  cloud: "云端自建",
+  local: "Vision",
+};
+
+/** 引擎中文名（未知值原样返回，空值返回空串） */
+export function ocrEngineLabel(engine: string | null | undefined): string {
+  if (!engine) return "";
+  return OCR_ENGINE_LABELS[engine] ?? engine;
+}
+
 export function fmtAmount(cents: number | null): string {
   if (cents == null) return "—";
   return (cents / 100).toLocaleString("zh-CN", {
