@@ -44,9 +44,6 @@
     "active": true,
     "targets": ["app", "dmg"],
     "icon": ["icons/icon.png"],
-    "resources": {
-      "../assets/ocr-models/": "ocr-models/"
-    },
     "createUpdaterArtifacts": false
   },
   "plugins": {

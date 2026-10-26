@@ -52,7 +52,15 @@ export function defaultConfig(): AppConfig {
       sidebarCollapsed: SIDEBAR_COLLAPSED_DEFAULT,
     },
     naming: { template: DEFAULT_NAMING_TEMPLATE },
-    ocr: { engine: "local", enabled: true, apiUrl: "", model: "" },
+    // OCR 默认云端优先（DeepSeek 视觉），云端不可用自动回退本地 Apple Vision。
+    // 与 Rust `OcrConfig::default()` 保持一致（apiUrl/model 留空 = 用 DeepSeek 默认值）。
+    ocr: {
+      engine: "auto",
+      provider: "deepseek",
+      enabled: true,
+      apiUrl: "",
+      model: "",
+    },
     backup: {
       autoEnabled: true,
       intervalHours: 24,

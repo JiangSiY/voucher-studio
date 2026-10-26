@@ -23,7 +23,7 @@
 mod common;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use common::*;
 use serde::Deserialize;
@@ -106,22 +106,15 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
         return Ok(());
     }
 
-    // 模型前置（仓库自带 assets/ocr-models）
-    let models = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
-    if !voucher_core::LocalOcr::is_installed(&models) {
-        println!("跳过：本地 OCR 模型不存在（{}）", models.display());
-        return Ok(());
-    }
-
     let manifest: Manifest =
         serde_json::from_str(&std::fs::read_to_string(&manifest_path).expect("读 manifest.json"))
             .expect("解析 manifest.json");
 
     let (tdir, ctx) = test_ctx();
-    assert!(
-        voucher_core::LocalOcr::ensure_installed(&models, &ctx.paths.models)?,
-        "临时库应装载模型"
-    );
+    // 评测本地引擎（Apple Vision）；避免走云端产生真实费用
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "local".to_string();
+    ctx.set_config(cfg)?;
 
     let mut raw_amount = Tally::default();
     let mut raw_date = Tally::default();
@@ -183,7 +176,8 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
         let layout = ctx
             .db
             .with_conn(|conn| voucher_core::db::repos::ocr_layout_repo::get_layout(conn, att.id))?;
-        let fields = match &layout {
+        let lines = layout.as_ref().map(|(_engine, lines)| lines.clone());
+        let fields = match &lines {
             Some(lines) if !lines.is_empty() => ocr_layout::extract_with_layout(lines),
             _ => ocr_fields::extract_validated(text),
         };
@@ -197,7 +191,7 @@ fn eval_ocr_autofill_accuracy() -> Result<()> {
                 e.id,
                 serde_json::to_string_pretty(&fields).unwrap_or_default()
             );
-            if let Some(lines) = &layout {
+            if let Some((_engine, lines)) = &layout {
                 println!("--- #{} 版面坐标 ---", e.id);
                 for l in lines {
                     let b = l.box_xyxy;

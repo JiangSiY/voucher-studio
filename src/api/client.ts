@@ -496,7 +496,22 @@ export interface AppConfig {
     sidebarCollapsed: boolean;
   };
   naming: { template: string };
-  ocr: { engine: "cloud" | "local"; enabled: boolean; apiUrl: string; model: string };
+  /**
+   * OCR 引擎策略：
+   * - `auto`（默认）：云端优先，云端不可用（无 Key / 断网 / 返回异常）自动回退本地
+   * - `cloud`：只用云端（失败即报错）
+   * - `local`：只用本地（macOS 原生 Vision，完全离线）
+   */
+  ocr: {
+    engine: "auto" | "cloud" | "local";
+    /** 云端协议：deepseek = DeepSeek 视觉（默认）；custom = 自建 {image_base64, model} → {text} */
+    provider: "deepseek" | "custom";
+    enabled: boolean;
+    apiUrl: string;
+    model: string;
+    /** 老配置（engine=local）已迁移为 auto 的一次性标记 */
+    migratedToAuto?: boolean;
+  };
   backup: {
     autoEnabled: boolean;
     intervalHours: number;
@@ -672,10 +687,17 @@ export interface WebdavBackupRow {
 }
 
 export interface LocalOcrStatus {
-  installed: boolean;
-  modelsDir: string;
-  files: { name: string; size: number }[];
-  totalSize: number;
+  /** 本地引擎是否可用（macOS 原生 Vision） */
+  available: boolean;
+  engineName: string;
+  note: string;
+}
+
+/** 最近一次 OCR 的实际引擎与云端失败原因（设置页展示，判断「为什么没走云端」） */
+export interface OcrHealth {
+  lastEngine: string | null;
+  lastCloudError: string | null;
+  lastAt: string | null;
 }
 
 // ---------- API ----------
@@ -890,6 +912,8 @@ export const api = {
     invoke<ExtractedFields>("ocr_preview_fields", { attachmentId }),
   runOcrPending: (limit?: number) => invoke<number>("run_ocr_pending", { limit }),
   getLocalOcrStatus: () => invoke<LocalOcrStatus>("local_ocr_status"),
+  /** 最近一次 OCR 的实际引擎 / 云端失败原因 */
+  ocrHealth: () => invoke<OcrHealth>("ocr_health"),
 
   /** v0.10：表格式导出（Excel / CSV；列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行） */
   exportTable: (voucherIds: number[], format: TableFormat) =>

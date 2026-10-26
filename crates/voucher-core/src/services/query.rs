@@ -204,16 +204,31 @@ pub fn attachment(ctx: &CoreContext, id: i64) -> Result<Option<Attachment>> {
 }
 
 /// OCR 字段提取预览（只读）：从附件已识别文本抽取结构化字段，不写库。
-/// 有版面数据走几何配对（含置信度），否则回退纯文本抽取；附件不存在返回 NotFound。
+/// 优先级与填单一致：云端结构化要素 > 本地版面几何配对 > 纯文本抽取；附件不存在返回 NotFound。
 pub fn ocr_preview(ctx: &CoreContext, attachment_id: i64) -> Result<ocr_fields::ExtractedFields> {
     ctx.db.with_conn(|conn| {
-        let text = attachment_repo::get(conn, attachment_id)?
-            .map(|a| a.ocr_text)
+        let att = attachment_repo::get(conn, attachment_id)?
             .ok_or_else(|| crate::CoreError::NotFound(format!("附件 {attachment_id} 不存在")))?;
+        let text = att.ocr_text.as_deref().unwrap_or("").to_string();
+
+        // 1. 云端要素（重新识别不再付费；要素比文本正则准）
+        let cloud = crate::db::repos::ocr_field_cache_repo::get(conn, &att.file_hash)?;
+        let cloud_json = cloud.and_then(|(engine, _model, json)| {
+            if crate::services::ocr::is_cloud_engine(&engine) {
+                serde_json::from_str::<serde_json::Value>(&json).ok()
+            } else {
+                None
+            }
+        });
+        if let Some(v) = cloud_json {
+            return Ok(ocr_fields::from_structured(&v, &text));
+        }
+
+        // 2. 本地版面坐标（几何配对） 3. 纯文本
         let layout = ocr_layout_repo::get_layout(conn, attachment_id)?;
         Ok(match layout {
-            Some(lines) if !lines.is_empty() => ocr_layout::extract_with_layout(&lines),
-            _ => ocr_fields::extract_validated(text.as_deref().unwrap_or("")),
+            Some((_engine, lines)) if !lines.is_empty() => ocr_layout::extract_with_layout(&lines),
+            _ => ocr_fields::extract_validated(&text),
         })
     })
 }

@@ -8,10 +8,10 @@ pub mod services;
 pub mod utils;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 
 pub use db::Database;
-pub use services::ocr_local::LocalOcr;
+pub use models::OcrHealth;
 pub use utils::config::{
     AppConfig, SECRET_BACKUP_PASSWORD, SECRET_OCR_API_KEY, SECRET_WEBDAV_PASSWORD,
 };
@@ -61,8 +61,8 @@ pub struct CoreContext {
     pub db: Database,
     pub config: RwLock<AppConfig>,
     pub secrets: SecretStore,
-    /// 本地 OCR 引擎（首次使用时加载；Session::run 需 &mut，用 Mutex 串行化）
-    local_ocr: RwLock<Option<Arc<Mutex<LocalOcr>>>>,
+    /// 最近一次 OCR 的实际引擎与云端失败原因（设置页展示；进程内状态，不落盘）
+    ocr_health: RwLock<OcrHealth>,
     /// 备份互斥：手动/定时/关闭前备份可能并发触发，
     /// VACUUM INTO 写同一固定 temp 路径 + zip 时间戳秒级可碰撞——串行化整个备份流程
     backup_lock: Mutex<()>,
@@ -84,7 +84,7 @@ impl CoreContext {
             db: Database::new(conn),
             config: RwLock::new(config),
             secrets: SecretStore::new("VoucherStudio"),
-            local_ocr: RwLock::new(None),
+            ocr_health: RwLock::new(OcrHealth::default()),
             backup_lock: Mutex::new(()),
             paths,
         })
@@ -124,26 +124,19 @@ impl CoreContext {
         self.backup_lock.try_lock().ok()
     }
 
-    /// 本地 OCR 引擎（懒加载 + 共享）。模型未安装时报错并提示处理方式。
-    /// 锁中毒自动恢复；`RwLock` 写锁非重入，持锁期间不得回调会再次取同一把锁的逻辑。
-    pub fn local_ocr(&self) -> Result<Arc<Mutex<LocalOcr>>> {
-        if let Some(e) = self.read_local_ocr().clone() {
-            return Ok(e);
-        }
-        if !LocalOcr::is_installed(&self.paths.models) {
-            return Err(CoreError::LocalOcr(format!(
-                "本地 OCR 模型未安装（期望位于 {}）",
-                self.paths.models.display()
-            )));
-        }
-        let engine = Arc::new(Mutex::new(LocalOcr::load(&self.paths.models)?));
-        *self.write_local_ocr() = Some(engine.clone());
-        Ok(engine)
+    /// 最近一次 OCR 状态（设置页展示：实际走的云端还是本地、云端为何没用上）
+    pub fn ocr_health(&self) -> OcrHealth {
+        self.read_ocr_health().clone()
     }
 
-    /// 本地 OCR 是否可用（模型已安装）
-    pub fn local_ocr_ready(&self) -> bool {
-        LocalOcr::is_installed(&self.paths.models)
+    /// 记录一次 OCR 结果。
+    /// `engine` 是**实际产出结果**的引擎；`cloud_error` 仅当云端尝试失败时传入
+    /// （云端成功传 None 会清空上一条失败原因，避免设置页一直挂着过期的红字）。
+    pub fn record_ocr_run(&self, engine: &str, cloud_error: Option<&str>) {
+        let mut guard = self.write_ocr_health();
+        guard.last_engine = Some(engine.to_string());
+        guard.last_cloud_error = cloud_error.map(|s| s.to_string());
+        guard.last_at = Some(chrono::Utc::now().to_rfc3339());
     }
 
     // ---------- 锁中毒恢复辅助（体检 Q-2：中毒=上一持锁线程 panic 过，不静默恢复） ----------
@@ -162,16 +155,16 @@ impl CoreContext {
         })
     }
 
-    fn read_local_ocr(&self) -> std::sync::RwLockReadGuard<'_, Option<Arc<Mutex<LocalOcr>>>> {
-        self.local_ocr.read().unwrap_or_else(|poisoned| {
-            log::error!("本地 OCR 锁中毒：上一持锁线程 panic，已恢复继续使用");
+    fn read_ocr_health(&self) -> std::sync::RwLockReadGuard<'_, OcrHealth> {
+        self.ocr_health.read().unwrap_or_else(|poisoned| {
+            log::error!("OCR 状态锁中毒：上一持锁线程 panic，已恢复继续使用");
             poisoned.into_inner()
         })
     }
 
-    fn write_local_ocr(&self) -> std::sync::RwLockWriteGuard<'_, Option<Arc<Mutex<LocalOcr>>>> {
-        self.local_ocr.write().unwrap_or_else(|poisoned| {
-            log::error!("本地 OCR 锁中毒：上一持锁线程 panic，已恢复继续使用");
+    fn write_ocr_health(&self) -> std::sync::RwLockWriteGuard<'_, OcrHealth> {
+        self.ocr_health.write().unwrap_or_else(|poisoned| {
+            log::error!("OCR 状态锁中毒：上一持锁线程 panic，已恢复继续使用");
             poisoned.into_inner()
         })
     }

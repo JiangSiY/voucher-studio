@@ -6,7 +6,7 @@
 
 - **凭证管理**：编号自动生成（命名规则可配置）、状态流转（草稿/已复核/已导出/已归档）、快照历史、**收支方向**（原「标签」，只用来表达金额正负）
 - **图片导入**：拖放/文件选择导入，MD5 自动去重，支持 BMP/JPEG/PNG/WebP
-- **OCR 识别**：本地引擎（PP-OCRv5 det + cls + rec，完全离线，数据不出本机；准确度基线见 `crates/voucher-core/tests/ocr_eval.rs` 评测）与云端引擎（HTTP API）可切换；识别结果缓存、批量补识别
+- **OCR 识别**：**云端优先、本地兜底**（v0.23 起）——默认走 DeepSeek 视觉 API（`deepseek-flash`，一次调用同时返回全文与日期/对方/金额，准确度基准见 `docs/开发日志.md` 第六十七笔），识别时图片会上传（约 0.003 元/张）；云端不可用（未配 Key / 断网 / 报错）自动回退**本地 Apple Vision**（系统自带、零模型资产、完全离线）；设置页可锁定 `自动 / 云端 / 本地` 三档与云端协议（DeepSeek / 自建 HTTP，兼容旧接口）；识别结果缓存、批量补识别
 - **智能记账**：OCR 识别结果结构化抽取（日期/金额/对方账户/商户），凭证表单一键填入
 - **批量操作**：批量状态流转、批量编辑（日期/备注/收支方向）、批量导出 PDF
 - **待处理驱动**（v0.18 起的主骨架；原称「收件箱驱动」）：首页是**待办流水线**——待识别 → 待核对 → 待打印 → 疑似重复，每项可就地推进；完成的项自动隐藏（不给已完成的事留版面），全部清零时给明确状态
@@ -73,7 +73,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：157 单元 + 138 集成，共 295 用例；加 src-tauri 3 用例共 298；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：169 单元 + 141 集成，共 310 用例；加 src-tauri 3 用例共 313；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

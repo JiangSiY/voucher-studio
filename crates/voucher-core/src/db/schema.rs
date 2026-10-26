@@ -267,6 +267,22 @@ CREATE INDEX IF NOT EXISTS idx_voucher_group_events_at
     ON voucher_group_events(at DESC);
 "#;
 
+/// v11 附加结构（v0.23 OCR 换代）：**云端结构化要素缓存**。
+///
+/// 为什么单独建表而不塞进 `ocr_cache`：`ocr_cache` 的键只有图片内容哈希，
+/// 存的是「文本」；云端一次返回的是**结构化要素**（日期/金额/对方/商家 + 置信度），
+/// 与文本是两种产物、失效条件也不同（换模型/换引擎要各自失效）。
+/// 幂等只增，不动 `SCHEMA_VERSION`（bump 会触发清库分支）。
+pub const SCHEMA_V11: &str = r#"
+CREATE TABLE IF NOT EXISTS ocr_field_cache (
+    cache_key   TEXT PRIMARY KEY,
+    engine      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    fields_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -294,23 +310,32 @@ pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_V9)?;
     // v10：事项组审计（幂等只增，v0.22.5；同上不动 SCHEMA_VERSION）
     conn.execute_batch(SCHEMA_V10)?;
+    // v11：云端结构化要素缓存（幂等只增，v0.23 OCR 换代；同上不动 SCHEMA_VERSION）
+    conn.execute_batch(SCHEMA_V11)?;
+    // v11：ocr_layouts 补 engine 列——版面由哪个引擎产出必须可辨，否则
+    // 「云端识别成功、库里却留着上一次本地版面」时几何配对会吃掉云端结果（要素来源混淆）。
+    if !has_column(conn, "ocr_layouts", "engine")? {
+        conn.execute_batch(
+            "ALTER TABLE ocr_layouts ADD COLUMN engine TEXT NOT NULL DEFAULT 'local'",
+        )?;
+    }
     // v6：export_batches 补 format 列（ALTER 不幂等，先查列存在）
-    let has_format: bool = {
-        let mut stmt = conn.prepare("PRAGMA table_info(export_batches)")?;
-        let mut rows = stmt.query([])?;
-        let mut found = false;
-        while let Some(r) = rows.next()? {
-            if r.get::<_, String>(1)? == "format" {
-                found = true;
-                break;
-            }
-        }
-        found
-    };
-    if !has_format {
+    if !has_column(conn, "export_batches", "format")? {
         conn.execute_batch(
             "ALTER TABLE export_batches ADD COLUMN format TEXT NOT NULL DEFAULT 'pdf'",
         )?;
     }
     Ok(())
+}
+
+/// 列是否存在（`ALTER TABLE ... ADD COLUMN` 不幂等，加列前先查 `PRAGMA table_info`）
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(r) = rows.next()? {
+        if r.get::<_, String>(1)? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

@@ -8,6 +8,11 @@
 //!
 //! 用法（在项目根目录）：
 //!   cargo run -p ocr-poc -- [--models assets/ocr-models] [--data spikes/ocr-poc/testdata]
+//!
+//! **已退役（2026-10-26，第六十七笔）**：v0.23 把本地 OCR 从 `ort` + PP-OCRv5 换成 Apple Vision，
+//! `services/ocr_local.rs` 与 `assets/ocr-models/` 已删除，因此本 spike **不再随工作区编译**——
+//! 它记录的 G1 证据（`report.json`：字符级 99.90% / 字段级 99.07%）仍保留，需要复现时取
+//! git 历史中 v0.22.5 及之前的版本。
 //!                          [--report spikes/ocr-poc/report.json] [--verbose]
 
 use std::path::PathBuf;

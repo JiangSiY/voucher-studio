@@ -1,20 +1,58 @@
-//! OCR 服务（对应 v4.3 的 `ocr.py`）
+//! OCR 服务：**云端优先（DeepSeek 视觉）+ 本地兜底（Apple Vision）**
 //!
-//! - 本地（默认）：ort + RapidOCR PP-OCRv5，完全离线（2026-10-09 由 v4 升级，评测基线见开发日志）
-//! - 云端：通用 HTTP API（配置地址 + API Key 走系统凭据库）
-//! - 结果以附件内容哈希为键落缓存（ocr_cache 表），同一张图不重复识别
+//! 配置语义（`AppConfig.ocr.engine`）：
+//! - `auto`（默认）：先走云端；云端不可用（无 Key / 网络失败 / 返回异常）才用本地。
+//! - `cloud`：只走云端，失败即报错（用户显式选择，不做静默回退）。
+//! - `local`：只走本地（离线可用）。
+//!
+//! 为什么改成云端优先：云端模型能一次给出「文本 + 日期/金额/对方/商家」结构化要素，
+//! 比本地正则抽取准；本地保留只为「断网/无 Key 也得能用」。本地引擎换成 Apple Vision
+//! 后零模型资产（原 PP-OCRv5 需 21MB 模型 + ONNX Runtime），实测快约 3.8×、要素命中持平。
+//!
+//! 缓存三层（都以图片内容哈希为键）：
+//! - `ocr_cache`：识别文本（含产出引擎名，用于「本地缓存 → 云端升级重试」判定）
+//! - `ocr_field_cache`：云端结构化要素（重新识别不再付费调 API）
+//! - `ocr_layouts`：本地版面坐标框（几何配对），云端产物没有版面故写库时清掉
+//!
+//! 锁纪律（审计 B8）：推理（本地数百 ms、云端可达 60s）**绝不持 DB 连接锁**；
+//! 查缓存 / 写缓存各取一次短锁。
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use base64::Engine;
+use base64::Engine as _;
 
-use crate::db::repos::{attachment_repo, enhance_hit_repo, ocr_cache_repo, ocr_layout_repo};
-use crate::models::{Attachment, OcrStatus};
-use crate::utils::config::SECRET_OCR_API_KEY;
+use crate::db::repos::{
+    attachment_repo, enhance_hit_repo, ocr_cache_repo, ocr_field_cache_repo, ocr_layout_repo,
+};
+use crate::models::{Attachment, OcrLine, OcrStatus};
+use crate::utils::config::{
+    AppConfig, OCR_ENGINE_CLOUD, OCR_ENGINE_LOCAL, OCR_PROVIDER_DEEPSEEK, SECRET_OCR_API_KEY,
+};
 use crate::{CoreContext, CoreError, Result};
 
-/// 识别单个附件；命中缓存直接返回
+/// DeepSeek 引擎标识（写 ocr_cache.engine 溯源）
+const DEFAULT_DEEPSEEK_ENGINE: &str = "deepseek";
+
+/// 云端请求超时（图片上传 + 推理；DeepSeek 视觉首字较慢，留足余量）
+const CLOUD_TIMEOUT_SECS: u64 = 90;
+/// 上传前把长边压到该上限（官方限制单边 8192、单图 32MiB；2048 足够看清票据文字，
+/// 能省流量与推理时间，且不会因过度缩放丢小字）
+const CLOUD_MAX_SIDE: u32 = 2048;
+/// 上传 JPEG 质量
+const CLOUD_JPEG_QUALITY: u8 = 88;
+
+/// 云端要素抽取提示词：要求输出 JSON（JSON mode 要求提示里出现 "json" 与样例）
+const DEEPSEEK_PROMPT: &str = r#"你是票据/凭证信息抽取器。请阅读这张图片，完成两件事：
+1. 把整张图上所有可见文字按阅读顺序（先上后下、先左后右）用换行拼成一个字符串放到 text。
+2. 抽取结构化要素：date（凭证/交易日期，格式 YYYY-MM-DD）、amount（价税合计/实付金额，单位元，只保留数字与小数点，如 1234.56）、counterparty（对方单位：收款方/销售方/商户名，不含地址电话）、merchant（开票方或商家名称，可与 counterparty 相同）。
+规则：看不清、不存在或不确定的字段一律填 null，不要猜测、不要编造；金额不要带 ¥ 或"元"。
+只输出一个 json 对象，不要输出任何解释文字，字段固定为：
+{"text": "整图文字", "date": "2026-08-19", "amount": "1234.56", "counterparty": "杭州某某科技有限公司", "merchant": "杭州某某科技有限公司"}"#;
+
+/// 识别单个附件；命中缓存直接返回。
 pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attachment> {
     let attachment = ctx.db.with_conn(|conn| {
         attachment_repo::get(conn, attachment_id)?
@@ -31,6 +69,11 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
             "附件文件缺失: {}",
             abs.display()
         )));
+    }
+
+    let cfg = ctx.config();
+    if !cfg.ocr.enabled {
+        return Err(CoreError::Invalid("OCR 未启用（设置 → OCR）".into()));
     }
 
     // v0.6 C 步：优先用增强版（5 步算法后的彩色 JPEG）做 OCR；
@@ -53,26 +96,24 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
         abs.clone()
     };
 
-    // 识别：缓存命中走短锁；未命中则**锁外推理**、再用短锁写回。
-    // 推理（本地 ONNX 每张数百 ms 至数秒；云端超时上限 60s）绝不能持 DB 连接锁——
-    // 旧实现把它夹在同一个 `with_conn` 内，于是识别期间列表、保存、备份等**所有**
-    // DB 操作都被阻塞（2026-09-23 审计 B8）。批量识别时这个阻塞会被放大成"界面卡住"。
-    let (text, lines) = match cached_ocr(ctx, &attachment.file_hash)? {
-        Some(text) => (text, None),
-        None => {
-            let (text, lines, engine) = infer_ocr(ctx, &ocr_target)?;
-            store_ocr_cache(ctx, &attachment.file_hash, engine, &text)?;
-            (text, lines)
-        }
-    };
+    let recognised = resolve_recognition(ctx, &cfg, &attachment.file_hash, &ocr_target)?;
 
     ctx.db.with_conn(|conn| {
-        attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&text))?;
-        // v5：本地引擎的版面数据（行文本+置信度+坐标框）落 ocr_layouts，
-        // 供 ocr_fields 几何配对；缓存命中（None）时保留旧 layout 不动
-        if let Some(lines) = &lines {
-            if let Err(e) = ocr_layout_repo::set_layout(conn, attachment.id, lines) {
-                log::warn!("写入 OCR 版面失败（不影响识别结果）: {e}");
+        attachment_repo::set_ocr(conn, attachment.id, OcrStatus::Done, Some(&recognised.text))?;
+        // 版面：本地引擎产出行坐标 → 落表供几何配对；
+        // 云端没有版面 → 清掉旧版面，否则旧本地坐标会在下次填单时压过云端文本。
+        match &recognised.lines {
+            Some(lines) => {
+                if let Err(e) =
+                    ocr_layout_repo::set_layout(conn, attachment.id, recognised.engine, lines)
+                {
+                    log::warn!("写入 OCR 版面失败（不影响识别结果）: {e}");
+                }
+            }
+            None => {
+                if let Err(e) = ocr_layout_repo::delete_layout(conn, attachment.id) {
+                    log::warn!("清理旧 OCR 版面失败（不影响识别结果）: {e}");
+                }
             }
         }
         attachment_repo::get(conn, attachment.id)?
@@ -83,6 +124,9 @@ pub fn run_for_attachment(ctx: &CoreContext, attachment_id: i64) -> Result<Attac
 /// 批量识别待处理附件，返回成功数（失败的逐个记为 failed，不中断批次）。
 /// 识别成功后自动填单（Manual 模式：只填空字段，不覆盖已录入内容）。
 /// `on_progress` 每处理完一张回调 (已完成数, 总数)，供上层做进度反馈（传 `&|_, _| {}` 忽略）。
+///
+/// 并发：云端请求是网络等待（单张 1–3s），故 3 路并发；本地 Vision 走系统框架，
+/// 保持串行（框架内部已并行，多个请求互相争抢反而更慢）。
 pub fn run_pending(
     ctx: &CoreContext,
     limit: u32,
@@ -92,149 +136,455 @@ pub fn run_pending(
         .db
         .with_conn(|conn| attachment_repo::list_pending_ocr(conn, limit))?;
     let total = pending.len();
-    let mut ok = 0;
-    for (i, a) in pending.into_iter().enumerate() {
-        match run_for_attachment(ctx, a.id) {
-            Ok(att) => {
-                if let Err(e) = crate::services::ocr_fields::apply_for_attachment(
-                    ctx,
-                    att.voucher_id,
-                    att.id,
-                    crate::services::ocr_fields::FillMode::Manual,
-                ) {
-                    log::warn!("OCR 自动填单失败（凭证 {}）: {e}", att.voucher_id);
-                }
+    let cloud_mode = wants_cloud(&ctx.config().ocr.engine);
+    let workers = if cloud_mode { 3 } else { 1 };
+
+    let mut done = 0usize;
+    let mut ok = 0usize;
+
+    if workers == 1 {
+        for a in &pending {
+            if finish_one(ctx, a, run_for_attachment(ctx, a.id)) {
                 ok += 1;
             }
-            Err(e) => {
-                log::warn!("OCR 失败（附件 {}）: {e}", a.id);
-                let _ = ctx.db.with_conn(|conn| {
-                    attachment_repo::set_ocr(conn, a.id, OcrStatus::Failed, None)
-                });
+            done += 1;
+            on_progress(done, total);
+        }
+    } else {
+        // 分块并发：块内 3 张并行识别（网络等待为主），块间串行。
+        // `on_progress` 可能持有 AppHandle（`&dyn Fn` 非 Sync），故只在主线程按块回调。
+        for chunk in pending.chunks(workers) {
+            let results: Vec<Result<Attachment>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|a| {
+                        let id = a.id;
+                        scope.spawn(move || run_for_attachment(ctx, id))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            Err(CoreError::Invalid("OCR 识别线程异常退出".into()))
+                        })
+                    })
+                    .collect()
+            });
+            for (a, r) in chunk.iter().zip(results) {
+                if finish_one(ctx, a, r) {
+                    ok += 1;
+                }
+                done += 1;
+                on_progress(done, total);
             }
         }
-        on_progress(i + 1, total);
     }
     Ok(ok)
 }
 
-/// 缓存命中的识别文本（**短锁**：只读 ocr_cache 后立即释放）。
-/// 版面数据不入缓存：命中时返回 None，字段抽取回退纯文本模式（与旧行为一致）。
-fn cached_ocr(ctx: &CoreContext, file_hash: &str) -> Result<Option<String>> {
-    Ok(ctx
-        .db
-        .with_conn(|conn| ocr_cache_repo::get(conn, file_hash))?
-        .map(|(_engine, text)| text))
-}
-
-/// **锁外推理**：返回 (纯文本, 版面数据, 引擎名)。
-/// 调用方负责在推理前后各取一次**短锁**（查缓存 / 写缓存），推理本身不持任何 DB 锁
-/// ——见 [`cached_ocr`] 与 [`store_ocr_cache`] 的注释（审计 B8）。
-fn infer_ocr(
-    ctx: &CoreContext,
-    abs: &Path,
-) -> Result<(String, Option<Vec<crate::models::OcrLine>>, &'static str)> {
-    let cfg = ctx.config();
-    if !cfg.ocr.enabled {
-        return Err(CoreError::Invalid("OCR 未启用（设置 → OCR）".into()));
+/// 收尾一张：成功就自动填单，失败就记 failed。返回是否成功。
+fn finish_one(ctx: &CoreContext, a: &Attachment, r: Result<Attachment>) -> bool {
+    match r {
+        Ok(att) => {
+            if let Err(e) = crate::services::ocr_fields::apply_for_attachment(
+                ctx,
+                att.voucher_id,
+                att.id,
+                crate::services::ocr_fields::FillMode::Manual,
+            ) {
+                log::warn!("OCR 自动填单失败（凭证 {}）: {e}", att.voucher_id);
+            }
+            true
+        }
+        Err(e) => {
+            log::warn!("OCR 失败（附件 {}）: {e}", a.id);
+            let _ = ctx
+                .db
+                .with_conn(|conn| attachment_repo::set_ocr(conn, a.id, OcrStatus::Failed, None));
+            false
+        }
     }
-    let engine = engine_for(&cfg.ocr.engine)?;
-    let (text, lines) = engine.recognize(ctx, abs)?;
-    Ok((text, lines, engine.name()))
 }
 
-/// 写回识别缓存（**短锁**）
-fn store_ocr_cache(ctx: &CoreContext, file_hash: &str, engine: &str, text: &str) -> Result<()> {
+// ---------- 缓存 + 引擎选择 ----------
+
+/// 一次识别的产物
+struct Recognised {
+    text: String,
+    /// 版面数据：本地引擎有，云端没有
+    lines: Option<Vec<OcrLine>>,
+    /// 云端结构化要素（原样 JSON 对象；本地引擎为 None）
+    fields: Option<serde_json::Value>,
+    /// 产出引擎标识，写 `ocr_cache.engine` 溯源
+    engine: &'static str,
+    /// 模型名（云端才有意义），随要素一起入 `ocr_field_cache`
+    model: String,
+}
+
+impl Recognised {
+    fn from_cache(engine: String, text: String) -> Self {
+        Self {
+            text,
+            lines: None,
+            fields: None,
+            engine: Box::leak(engine.into_boxed_str()),
+            model: String::new(),
+        }
+    }
+}
+
+/// 取识别结果：缓存命中直接用；命中本地缓存而当前策略含云端 → 尝试一次云端升级。
+fn resolve_recognition(
+    ctx: &CoreContext,
+    cfg: &AppConfig,
+    file_hash: &str,
+    image: &Path,
+) -> Result<Recognised> {
+    let cached = ctx
+        .db
+        .with_conn(|conn| ocr_cache_repo::get(conn, file_hash))?;
+
+    if let Some((engine, text)) = cached {
+        // 缓存来自本地、而当前策略希望云端 → 升一次级（进程内每张图只试一次，
+        // 断网时不会每张都白等 90s 超时）
+        if !is_cloud_engine(&engine) && wants_cloud(&cfg.ocr.engine) && upgrade_allowed(file_hash) {
+            match cloud_recognise(ctx, cfg, image) {
+                Ok(r) => {
+                    store_recognition(ctx, file_hash, &r)?;
+                    return Ok(r);
+                }
+                Err(e) => {
+                    log::warn!("云端识别失败，沿用本地缓存结果: {e}");
+                    ctx.record_ocr_run(&engine, Some(&e.to_string()));
+                }
+            }
+        }
+        return Ok(Recognised::from_cache(engine, text));
+    }
+
+    let r = infer_ocr(ctx, cfg, image)?;
+    store_recognition(ctx, file_hash, &r)?;
+    Ok(r)
+}
+
+/// 写回三层缓存（短锁；失败只告警，不影响识别结果本身）
+fn store_recognition(ctx: &CoreContext, file_hash: &str, r: &Recognised) -> Result<()> {
     ctx.db
-        .with_conn(|conn| ocr_cache_repo::upsert(conn, file_hash, engine, text))
+        .with_conn(|conn| ocr_cache_repo::upsert(conn, file_hash, r.engine, &r.text))?;
+    if let Some(fields) = &r.fields {
+        let json = fields.to_string();
+        if let Err(e) = ctx.db.with_conn(|conn| {
+            ocr_field_cache_repo::upsert(conn, file_hash, r.engine, &r.model, &json)
+        }) {
+            log::warn!("写入云端要素缓存失败（不影响识别）: {e}");
+        }
+    }
+    Ok(())
 }
 
-// ---------- 引擎抽象（体检 A-2 / 第四批 19 项） ----------
+/// 进程内「已试过云端升级」的图片哈希集合（避免断网时每张图都等满超时）
+fn upgrade_allowed(file_hash: &str) -> bool {
+    static TRIED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let set = TRIED.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = set.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.len() > 4096 {
+        guard.clear();
+    }
+    guard.insert(file_hash.to_string())
+}
 
-/// OCR 引擎统一接口：换引擎 / 加引擎实现此 trait 即可，
-/// [`infer_ocr`] 经 [`engine_for`] 工厂分发，不再感知具体种类。
+/// 引擎配置是否希望使用云端
+fn wants_cloud(engine: &str) -> bool {
+    engine != OCR_ENGINE_LOCAL
+}
+
+/// 引擎名是否属于云端家族（本地只有 `local`）
+pub(crate) fn is_cloud_engine(engine: &str) -> bool {
+    engine != OCR_ENGINE_LOCAL
+}
+
+/// **锁外推理**：按配置选择引擎（auto 含云端失败回退本地）
+fn infer_ocr(ctx: &CoreContext, cfg: &AppConfig, image: &Path) -> Result<Recognised> {
+    match cfg.ocr.engine.as_str() {
+        OCR_ENGINE_LOCAL => local_recognise(ctx, image),
+        OCR_ENGINE_CLOUD => {
+            let r = cloud_recognise(ctx, cfg, image)?;
+            Ok(r)
+        }
+        // auto（含未知值，normalize 已收口到这里）
+        _ => match cloud_recognise(ctx, cfg, image) {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                log::warn!("云端 OCR 不可用，回退本地识别: {e}");
+                let r = local_recognise(ctx, image);
+                if r.is_ok() {
+                    ctx.record_ocr_run("local", Some(&e.to_string()));
+                }
+                r
+            }
+        },
+    }
+}
+
+// ---------- 引擎抽象 ----------
+
+/// OCR 引擎统一接口
 trait OcrEngine {
-    /// 引擎标识（写 ocr_cache.engine 溯源，与配置串一致）
+    /// 引擎标识（写 ocr_cache.engine 溯源）
     fn name(&self) -> &'static str;
-    /// 识别：返回 (纯文本, 版面数据)。无版面的引擎返回 None
-    /// （字段抽取回退纯文本模式，见 ocr_fields）。
-    fn recognize(
-        &self,
-        ctx: &CoreContext,
-        image_path: &Path,
-    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)>;
+    /// 模型名（云端才有意义）
+    fn model(&self) -> String;
+    /// 识别：返回文本（本地引擎另带版面数据）
+    fn recognize(&self, ctx: &CoreContext, image_path: &Path) -> Result<Recognised>;
 }
 
-struct LocalEngine;
+/// 本地引擎：Apple Vision（macOS 系统框架）
+struct VisionEngine;
 
-impl OcrEngine for LocalEngine {
+impl OcrEngine for VisionEngine {
     fn name(&self) -> &'static str {
         "local"
     }
 
-    fn recognize(
-        &self,
-        ctx: &CoreContext,
-        image_path: &Path,
-    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
-        local_recognize(ctx, image_path)
-    }
-}
-
-struct CloudEngine;
-
-impl OcrEngine for CloudEngine {
-    fn name(&self) -> &'static str {
-        "cloud"
+    fn model(&self) -> String {
+        String::new()
     }
 
-    fn recognize(
-        &self,
-        ctx: &CoreContext,
-        image_path: &Path,
-    ) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
-        Ok((cloud_recognize(ctx, image_path)?, None))
-    }
-}
-
-/// 引擎配置名 → 引擎实例（未知配置在此收口报错）
-fn engine_for(engine: &str) -> Result<Box<dyn OcrEngine>> {
-    match engine {
-        "local" => Ok(Box::new(LocalEngine)),
-        "cloud" => Ok(Box::new(CloudEngine)),
-        other => Err(CoreError::Invalid(format!("未知 OCR 引擎: {other}"))),
-    }
-}
-
-/// 本地识别（ort + RapidOCR PP-OCRv5，完全离线）
-/// v5：返回版面数据（每行文本 + 置信度 + 坐标框），不再丢坐标。
-fn local_recognize(
-    ctx: &CoreContext,
-    image_path: &Path,
-) -> Result<(String, Option<Vec<crate::models::OcrLine>>)> {
-    let engine = ctx.local_ocr()?;
-    let decoded = image::io::Reader::open(image_path)
-        .map_err(|e| e.to_string())
-        .and_then(|r| r.decode().map_err(|e| e.to_string()));
-    let img = decoded
-        .map_err(|e| CoreError::LocalOcr(format!("读取图片失败 {}. {e}", image_path.display())))?;
-    let lines = engine
-        .lock()
-        .unwrap_or_else(|poisoned| {
-            log::error!("本地 OCR 引擎锁中毒：上一持锁线程 panic，已恢复继续使用");
-            poisoned.into_inner()
+    fn recognize(&self, _ctx: &CoreContext, image_path: &Path) -> Result<Recognised> {
+        let lines = crate::services::ocr_vision::recognize(image_path)?;
+        let text = lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(Recognised {
+            text,
+            lines: Some(lines),
+            fields: None,
+            engine: self.name(),
+            model: self.model(),
         })
-        .recognize_image(&img)?;
-    let text = lines
-        .iter()
-        .map(|l| l.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok((text, Some(lines)))
+    }
 }
+
+/// 云端引擎：DeepSeek 视觉（OpenAI 兼容 chat/completions）
+struct DeepseekEngine {
+    model: String,
+}
+
+impl OcrEngine for DeepseekEngine {
+    fn name(&self) -> &'static str {
+        "deepseek"
+    }
+
+    fn model(&self) -> String {
+        self.model.clone()
+    }
+
+    fn recognize(&self, ctx: &CoreContext, image_path: &Path) -> Result<Recognised> {
+        deepseek_recognise(ctx, image_path, &self.model)
+    }
+}
+
+/// 云端引擎：自建通用协议（v0.22 起的 `{image_base64, model}` → `{text}`）
+struct CustomCloudEngine {
+    model: String,
+}
+
+impl OcrEngine for CustomCloudEngine {
+    fn name(&self) -> &'static str {
+        OCR_ENGINE_CLOUD
+    }
+
+    fn model(&self) -> String {
+        self.model.clone()
+    }
+
+    fn recognize(&self, ctx: &CoreContext, image_path: &Path) -> Result<Recognised> {
+        let text = custom_cloud_recognise(ctx, image_path)?;
+        ctx.record_ocr_run(self.name(), None);
+        Ok(Recognised {
+            text,
+            lines: None,
+            fields: None,
+            engine: self.name(),
+            model: self.model(),
+        })
+    }
+}
+
+/// 云端识别（按 provider 分派）
+fn cloud_recognise(ctx: &CoreContext, cfg: &AppConfig, image_path: &Path) -> Result<Recognised> {
+    let engine: Box<dyn OcrEngine> = if cfg.ocr.provider == OCR_PROVIDER_DEEPSEEK {
+        Box::new(DeepseekEngine {
+            model: cfg.ocr.model.clone(),
+        })
+    } else {
+        Box::new(CustomCloudEngine {
+            model: cfg.ocr.model.clone(),
+        })
+    };
+    engine.recognize(ctx, image_path)
+}
+
+/// 本地识别（Apple Vision）：行文本按阅读顺序拼接为纯文本
+fn local_recognise(ctx: &CoreContext, image_path: &Path) -> Result<Recognised> {
+    let engine = VisionEngine;
+    let r = engine.recognize(ctx, image_path)?;
+    ctx.record_ocr_run(engine.name(), None);
+    Ok(r)
+}
+
+// ---------- DeepSeek 视觉（OpenAI 兼容） ----------
+
+/// 构造 OpenAI 兼容请求体（纯函数，便于单测校验协议字段）
+fn deepseek_body(model: &str, data_url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": DEEPSEEK_PROMPT},
+                {"type": "image_url", "image_url": {"url": data_url, "detail": "original"}},
+            ],
+        }],
+        // JSON 模式：要求提示里含 "json" 字样（见 DEEPSEEK_PROMPT），否则官方会拒
+        "response_format": {"type": "json_object"},
+        // 关闭思考模式：识别是确定性抽取，思考只会拖长耗时、抬高费用
+        "thinking": {"type": "disabled"},
+        "max_tokens": 2048,
+        "stream": false,
+    })
+}
+
+fn deepseek_recognise(ctx: &CoreContext, image_path: &Path, model: &str) -> Result<Recognised> {
+    let cfg = ctx.config();
+    let api_url = cfg.ocr.api_url.trim().to_string();
+    if api_url.is_empty() {
+        return Err(CoreError::Invalid(
+            "云端 OCR API 地址未配置（设置 → OCR）".into(),
+        ));
+    }
+    validate_api_url(&api_url)?;
+    let (b64, mime) = encode_image_for_cloud(image_path)?;
+    let data_url = format!("data:{mime};base64,{b64}");
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(CLOUD_TIMEOUT_SECS))
+        .build()?;
+    let mut req = client.post(&api_url).json(&deepseek_body(model, &data_url));
+    if let Some(key) = ctx.secrets.get(SECRET_OCR_API_KEY)? {
+        if !key.is_empty() {
+            req = req.bearer_auth(key);
+        } else {
+            return Err(CoreError::Invalid(
+                "云端 OCR API Key 未设置（设置 → 密钥管理）".into(),
+            ));
+        }
+    } else {
+        return Err(CoreError::Invalid(
+            "云端 OCR API Key 未设置（设置 → 密钥管理）".into(),
+        ));
+    }
+
+    let resp: serde_json::Value = req
+        .send()?
+        .error_for_status()
+        .map_err(|e| CoreError::Invalid(format!("云端 OCR 调用失败: {e}")))?
+        .json()?;
+
+    let content = resp
+        .pointer("/choices/0/message/content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let fields = parse_json_object(content).ok_or_else(|| {
+        CoreError::Invalid(format!(
+            "云端 OCR 返回内容不是合法 json（可能被截断或模型未按格式输出）: {}",
+            truncate_for_log(content)
+        ))
+    })?;
+    let text = json_text(&fields);
+    if text.trim().is_empty() {
+        return Err(CoreError::Invalid(
+            "云端 OCR 返回空文本（整图未识别到文字）".into(),
+        ));
+    }
+    ctx.record_ocr_run(DEFAULT_DEEPSEEK_ENGINE, None);
+    Ok(Recognised {
+        text,
+        lines: None,
+        fields: Some(fields),
+        engine: DEFAULT_DEEPSEEK_ENGINE,
+        model: model.to_string(),
+    })
+}
+
+/// 从模型输出里取出 JSON 对象：容忍 ```json 围栏与前后解释文字
+fn parse_json_object(content: &str) -> Option<serde_json::Value> {
+    let trimmed = content.trim();
+    let candidate = match (trimmed.find('{'), trimmed.rfind('}')) {
+        (Some(start), Some(end)) if end > start => &trimmed[start..=end],
+        _ => return None,
+    };
+    serde_json::from_str::<serde_json::Value>(candidate)
+        .ok()
+        .filter(|v| v.is_object())
+}
+
+/// 结构化要素里的整图文本；缺失时退回「要素拼装」保证 ocr_text 可搜索
+fn json_text(fields: &serde_json::Value) -> String {
+    if let Some(t) = fields.get("text").and_then(|v| v.as_str()) {
+        if !t.trim().is_empty() {
+            return t.trim().to_string();
+        }
+    }
+    let mut parts = Vec::new();
+    for key in ["date", "amount", "counterparty", "merchant"] {
+        if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
+            if !v.trim().is_empty() {
+                parts.push(v.trim().to_string());
+            }
+        }
+    }
+    parts.join("\n")
+}
+
+fn truncate_for_log(s: &str) -> String {
+    let mut out: String = s.chars().take(120).collect();
+    if s.chars().count() > 120 {
+        out.push('…');
+    }
+    out
+}
+
+/// 上传前预处理：长边压到 [`CLOUD_MAX_SIDE`]、转 JPEG（体积与推理时间都显著下降）
+fn encode_image_for_cloud(image_path: &Path) -> Result<(String, &'static str)> {
+    let img = image::open(image_path)
+        .map_err(|e| CoreError::Invalid(format!("读取图片失败 {}: {e}", image_path.display())))?;
+    let (w, h) = (img.width(), img.height());
+    let img = if w > CLOUD_MAX_SIDE || h > CLOUD_MAX_SIDE {
+        img.resize(
+            CLOUD_MAX_SIDE,
+            CLOUD_MAX_SIDE,
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        img
+    };
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageOutputFormat::Jpeg(CLOUD_JPEG_QUALITY))
+        .map_err(|e| CoreError::Invalid(format!("图片编码失败: {e}")))?;
+    Ok((
+        base64::engine::general_purpose::STANDARD.encode(buf.into_inner()),
+        "image/jpeg",
+    ))
+}
+
+// ---------- 自建通用云端协议（v0.22 遗留，给存量用户） ----------
 
 /// 云端识别：POST {image_base64, model} → {text}（兼容 data.text / result 字段）
-fn cloud_recognize(ctx: &CoreContext, image_path: &Path) -> Result<String> {
+fn custom_cloud_recognise(ctx: &CoreContext, image_path: &Path) -> Result<String> {
     let cfg = ctx.config();
     let api_url = cfg.ocr.api_url.trim().to_string();
     if api_url.is_empty() {
@@ -249,7 +599,7 @@ fn cloud_recognize(ctx: &CoreContext, image_path: &Path) -> Result<String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(CLOUD_TIMEOUT_SECS))
         .build()?;
 
     let mut req = client.post(&api_url).json(&serde_json::json!({
@@ -349,5 +699,57 @@ mod tests {
 
         assert!(validate_api_url("ftp://ocr.example.com/v1").is_err());
         assert!(validate_api_url("not a url").is_err());
+    }
+
+    /// 请求体必须是 OpenAI 兼容的 vision 形态（图走 image_url data URL）
+    #[test]
+    fn deepseek_body_is_openai_vision_shaped() {
+        let body = deepseek_body("deepseek-flash", "data:image/jpeg;base64,AAA");
+        assert_eq!(body["model"], "deepseek-flash");
+        let content = &body["messages"][0]["content"];
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[1]["image_url"]["url"], "data:image/jpeg;base64,AAA");
+        // JSON 模式 + 关闭思考（识别任务不需要思考，省时省钱）
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(body["thinking"]["type"], "disabled");
+        // 官方要求 JSON 模式时提示词里必须出现 "json"
+        assert!(DEEPSEEK_PROMPT.contains("json"));
+    }
+
+    /// 模型输出可能带 ```json 围栏或前后解释，必须能取出 JSON 对象
+    #[test]
+    fn parse_json_object_tolerates_fences_and_prose() {
+        let v =
+            parse_json_object("```json\n{\"text\":\"合计 100 元\",\"date\":null}\n```").unwrap();
+        assert_eq!(v["text"], "合计 100 元");
+        assert!(v["date"].is_null());
+
+        let v = parse_json_object("这是结果：{\"text\":\"abc\"} 请查收").unwrap();
+        assert_eq!(v["text"], "abc");
+
+        assert!(parse_json_object("").is_none());
+        assert!(parse_json_object("完全不是 json").is_none());
+        assert!(parse_json_object("[1,2,3]").is_none(), "数组不算要素对象");
+    }
+
+    /// text 缺失时不能用空文本落缓存（否则搜索无内容），退回要素拼装
+    #[test]
+    fn json_text_falls_back_to_fields() {
+        let v = serde_json::json!({"date": "2026-08-19", "amount": "1234.56", "text": ""});
+        assert_eq!(json_text(&v), "2026-08-19\n1234.56");
+        let v = serde_json::json!({"text": "整图文字"});
+        assert_eq!(json_text(&v), "整图文字");
+    }
+
+    #[test]
+    fn engine_classification_and_cloud_preference() {
+        assert!(wants_cloud("auto"));
+        assert!(wants_cloud("cloud"));
+        assert!(!wants_cloud("local"));
+
+        assert!(!is_cloud_engine("local"));
+        assert!(is_cloud_engine("deepseek"));
+        assert!(is_cloud_engine("cloud"));
     }
 }

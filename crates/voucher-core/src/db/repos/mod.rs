@@ -6,6 +6,7 @@ pub mod dup_decision_repo;
 pub mod enhance_hit_repo;
 pub mod export_repo;
 pub mod ocr_cache_repo;
+pub mod ocr_field_cache_repo;
 pub mod ocr_layout_repo;
 pub mod period_repo;
 pub mod snapshot_repo;

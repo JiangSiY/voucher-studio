@@ -7,7 +7,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { api, errMsg, type LocalOcrStatus } from "../../api/client";
+import { api, errMsg, type LocalOcrStatus, type OcrHealth } from "../../api/client";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useTaskStore } from "../../stores/tasks";
@@ -16,6 +16,7 @@ import { useSettingsDraft } from "../../stores/settingsDraft";
 const { cfg: draftCfg } = storeToRefs(useSettingsDraft());
 
 const localOcr = ref<LocalOcrStatus | null>(null);
+const ocrHealth = ref<OcrHealth | null>(null);
 
 // 批量识别待处理附件（列表页导入未跑 OCR 的、历史失败件等），成功后自动填单（只填空字段）
 const taskStore = useTaskStore();
@@ -23,6 +24,16 @@ const taskStore = useTaskStore();
 let ocrTaskId: number | null = null;
 const ocrPendingBusy = ref(false);
 const ocrProgress = ref<{ done: number; total: number } | null>(null);
+
+const usesCloud = computed(() => draftCfg.value.ocr.engine !== "local");
+
+/** 引擎标识 → 展示名 */
+function engineLabel(engine: string | null | undefined): string {
+  if (!engine) return "未知";
+  if (engine === "local") return "本地 Apple Vision";
+  if (engine === "deepseek") return "云端 DeepSeek";
+  return "云端服务";
+}
 
 const ocrProgressPct = computed(() => {
   const p = ocrProgress.value;
@@ -61,6 +72,7 @@ let unlistenOcrProgress: UnlistenFn | null = null;
 onMounted(async () => {
   try {
     localOcr.value = await api.getLocalOcrStatus();
+    ocrHealth.value = await api.ocrHealth();
   } catch (e) {
     toastError(e);
   }
@@ -92,44 +104,67 @@ onUnmounted(() => {
       <div class="field">
         <label>识别引擎</label>
         <select v-model="draftCfg.ocr.engine" class="input settings-narrow-lg">
-          <option value="local" :disabled="!localOcr?.installed">本地（离线 · 推荐）</option>
-          <option value="cloud">云端（HTTP API）</option>
+          <option value="auto">云端优先，失败自动用本地（推荐）</option>
+          <option value="cloud" :disabled="!localOcr?.available">仅云端（DeepSeek 视觉）</option>
+          <option value="local" :disabled="!localOcr?.available">
+            仅本地（离线 · Apple Vision）
+          </option>
         </select>
-        <div class="desc">本地引擎完全离线运行，数据不出本机（PP-OCRv5）。</div>
-      </div>
-      <div v-if="localOcr?.installed" class="callout success settings-note">
-        <span class="ci"><FluentIcon name="checkCircle" :size="18" /></span>
-        <div class="ct">
-          <strong>本地模型已安装</strong>
-          <span v-if="localOcr.files.length"
-            >（{{ localOcr.files.length }} 个文件，约
-            {{ (localOcr.totalSize / 1048576).toFixed(1) }} MB）</span
-          >
-          ：RapidOCR PP-OCRv5 检测 + 方向分类 + 识别，首次识别时加载约 0.2 秒。
+        <div class="desc">
+          云端能直接给出日期/金额/对方，识别最准；本地用 macOS 原生 Vision，完全离线、无需下载模型。
+          <span v-if="localOcr">（本地：{{ localOcr.engineName }} · {{ localOcr.note }}）</span>
         </div>
       </div>
-      <div v-else class="callout warning settings-note">
-        <span class="ci"><FluentIcon name="warning" :size="18" /></span>
+      <div v-if="ocrHealth?.lastEngine" class="callout settings-note">
+        <span class="ci"><FluentIcon name="sparkle" :size="18" /></span>
         <div class="ct">
-          <strong>本地模型未安装</strong>——将模型文件（ch_PP-OCRv5_mobile_det.onnx 等 3 个）放入
-          <code>{{ localOcr?.modelsDir || "数据目录/models" }}</code> 后重启应用即可启用。
+          <strong>最近一次识别：{{ engineLabel(ocrHealth.lastEngine) }}</strong>
+          <template v-if="ocrHealth.lastCloudError">
+            <br />但云端未用上：{{ ocrHealth.lastCloudError }}（已回退本地）
+          </template>
         </div>
       </div>
-      <template v-if="draftCfg.ocr.engine === 'cloud'">
+      <template v-if="usesCloud">
+        <div class="field">
+          <label>云端服务</label>
+          <select v-model="draftCfg.ocr.provider" class="input settings-narrow-lg">
+            <option value="deepseek">DeepSeek 视觉（推荐）</option>
+            <option value="custom">自建 HTTP 服务（兼容旧协议）</option>
+          </select>
+          <div class="desc">
+            识别时图片会上传到云端服务（单张约 0.003 元），API Key 在「密钥管理 → 云端 OCR API
+            Key」设置。
+          </div>
+        </div>
         <div class="field">
           <label>API 地址</label>
           <input
             v-model="draftCfg.ocr.apiUrl"
             class="input mono"
-            placeholder="https://api.example.com/ocr"
+            :placeholder="
+              draftCfg.ocr.provider === 'deepseek'
+                ? 'https://api.deepseek.com/chat/completions'
+                : 'https://api.example.com/ocr'
+            "
           />
           <div class="desc">
-            POST JSON：{image_base64, model}，返回 {text}；API Key 在「密钥管理」页设置。
+            <template v-if="draftCfg.ocr.provider === 'deepseek'">
+              OpenAI 兼容接口，需 https；字段留空即用默认地址。
+            </template>
+            <template v-else>
+              POST JSON：{image_base64, model}，返回 {text}（须 https；回环地址允许 http）。
+            </template>
           </div>
         </div>
         <div class="field">
-          <label>模型名（可选）</label>
-          <input v-model="draftCfg.ocr.model" class="input" placeholder="如：voucher-ocr-v1" />
+          <label>模型名</label>
+          <input
+            v-model="draftCfg.ocr.model"
+            class="input"
+            :placeholder="
+              draftCfg.ocr.provider === 'deepseek' ? 'deepseek-flash' : '如：voucher-ocr-v1'
+            "
+          />
         </div>
       </template>
       <div class="field settings-section">

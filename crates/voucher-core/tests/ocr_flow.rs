@@ -59,14 +59,9 @@ fn ocr_cache_hits_without_network() -> Result<()> {
 }
 
 #[test]
-#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
-fn local_ocr_end_to_end() -> Result<()> {
-    // 模型位于项目 assets/ocr-models（仓库自带）；缺失时跳过（如 CI 未含大文件）
-    let models = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
-    if !voucher_core::LocalOcr::is_installed(&models) {
-        eprintln!("跳过：本地 OCR 模型不存在（{}）", models.display());
-        return Ok(());
-    }
+#[cfg(target_os = "macos")]
+#[ignore = "需要在真实 macOS 环境跑 Apple Vision（CI 的 macos job 以 --include-ignored 执行）"]
+fn vision_ocr_end_to_end() -> Result<()> {
     let sample =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/ocr_sample.png");
     if !sample.is_file() {
@@ -74,9 +69,8 @@ fn local_ocr_end_to_end() -> Result<()> {
         return Ok(());
     }
 
-    let mut engine = voucher_core::LocalOcr::load(&models)?;
-    let img = image::io::Reader::open(&sample).unwrap().decode().unwrap();
-    let lines = engine.recognize_image(&img)?;
+    let lines = voucher_core::services::ocr_vision::recognize(&sample)?;
+    assert!(!lines.is_empty(), "Vision 应识别出文字行");
     let all: String = lines
         .iter()
         .map(|l| l.text.as_str())
@@ -93,23 +87,29 @@ fn local_ocr_end_to_end() -> Result<()> {
     ] {
         assert!(
             compact.contains(expect),
-            "OCR 结果缺少「{expect}」，实际识别: {compact}"
+            "Vision 识别缺少「{expect}」，实际识别: {compact}"
         );
     }
+    // 坐标必须是原图像素、左上原点（转换错了几何配对全盘失效）
+    assert!(lines
+        .iter()
+        .all(|l| l.box_xyxy[0] >= 0.0 && l.box_xyxy[1] >= 0.0));
+    assert!(
+        lines
+            .iter()
+            .all(|l| l.box_xyxy[2] >= l.box_xyxy[0] && l.box_xyxy[3] >= l.box_xyxy[1]),
+        "bbox 应为 (x0,y0,x1,y1) 且 x1≥x0、y1≥y0"
+    );
     Ok(())
 }
 
 /// G2 标准②直接证据：图片导入 → 本地 OCR 真实识别 → 全文搜索 → PDF 导出 全链路闭环。
 /// 与分段测试的区别：OCR 文本由本地引擎识别落库（非手工写 DB），导出走真实 PDF 生成。
 #[test]
-#[ignore = "环境缺模型/字体时自动跳过；CI 以 --include-ignored 全量执行"]
+#[cfg(target_os = "macos")]
+#[ignore = "需要真实 macOS + Apple Vision（CI macos job 以 --include-ignored 执行）"]
 fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
-    // 前置素材缺失时跳过（模型/样张不随 git 走的环境，如精简 CI）
-    let models = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ocr-models");
-    if !voucher_core::LocalOcr::is_installed(&models) {
-        eprintln!("跳过：本地 OCR 模型不存在（{}）", models.display());
-        return Ok(());
-    }
+    // 前置素材缺失时跳过（样张不随 git 走的环境，如精简 CI）
     let sample =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/ocr_sample.png");
     if !sample.is_file() {
@@ -123,12 +123,10 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
 
     let (dir, ctx) = test_ctx();
 
-    // 1. 模型装入临时库 models 目录（全新库 → 真实走 ensure_installed 复制路径）
-    assert!(
-        voucher_core::LocalOcr::ensure_installed(&models, &ctx.paths.models)?,
-        "全新临时库应触发模型复制"
-    );
-    assert!(ctx.local_ocr_ready());
+    // 1. 显式选本地引擎（Apple Vision；不依赖模型文件，全新库即可用）
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "local".to_string();
+    ctx.set_config(cfg)?;
 
     // 2. 导入样张并触发 OCR（默认配置 engine=local / enabled=true，走本地引擎）
     let img = dir.path().join("ocr_sample.png");
@@ -146,7 +144,7 @@ fn g2_closed_loop_import_ocr_pdf() -> Result<()> {
     for expect in ["报销凭证", "金额：1234.56元"] {
         assert!(
             compact.contains(expect),
-            "本地引擎识别结果缺少「{expect}」，实际: {compact}"
+            "本地（Vision）识别结果缺少「{expect}」，实际: {compact}"
         );
     }
     // 识别走的是本地引擎且已落缓存（区别于旧测试手工写入 DB 的路径）
@@ -307,6 +305,8 @@ fn ocr_inference_does_not_hold_db_lock() -> Result<()> {
     let mock = BlockingOcrMock::start("mock 识别结果");
     let mut cfg = ctx.config();
     cfg.ocr.engine = "cloud".into();
+    // 用「自建通用协议」跑 mock（deepseek 协议要求 API Key，本测试不涉及鉴权）
+    cfg.ocr.provider = "custom".into();
     cfg.ocr.api_url = format!("http://127.0.0.1:{}/ocr", mock.port);
     cfg.ocr.enabled = true;
     cfg.ocr.model = "mock".into();
@@ -341,4 +341,106 @@ fn ocr_inference_does_not_hold_db_lock() -> Result<()> {
         );
         Ok(())
     })
+}
+
+/// v0.23：云端优先——`auto` 且云端可用时必须走云端（并落 engine=cloud 的缓存）。
+/// 用本文件内建 mock（127.0.0.1 明文，validate_api_url 明确放行回环地址）。
+#[test]
+fn cloud_engine_is_preferred_and_cached() -> Result<()> {
+    use std::sync::atomic::Ordering;
+
+    let mock = BlockingOcrMock::start("云端识别文本 合计 88.00");
+    mock.release.store(true, Ordering::SeqCst);
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("cloud.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let att_id = imported.vouchers[0].attachment.id;
+
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "auto".to_string();
+    cfg.ocr.provider = "custom".to_string();
+    cfg.ocr.api_url = format!("http://127.0.0.1:{}/ocr", mock.port);
+    cfg.ocr.model = "mock".to_string();
+    ctx.set_config(cfg)?;
+
+    let att = ocr::run_for_attachment(&ctx, att_id)?;
+    assert_eq!(att.ocr_status, OcrStatus::Done);
+    let text = att.ocr_text.unwrap_or_default();
+    assert!(text.contains("云端识别文本"), "应使用云端返回文本: {text}");
+
+    // 缓存记录产出引擎（决定下次是否还需要「本地缓存升级重试」）
+    let engine: String = ctx.db.with_conn(|conn| {
+        conn.query_row("SELECT engine FROM ocr_cache LIMIT 1", [], |r| r.get(0))
+            .map_err(CoreError::from)
+    })?;
+    assert_eq!(engine, "cloud");
+    assert_eq!(ctx.ocr_health().last_engine.as_deref(), Some("cloud"));
+    Ok(())
+}
+
+/// v0.23：云端结构化要素优先于旧本地版面——同一附件既有本地坐标又有云端要素时，
+/// 预览必须以云端为准（否则几何配对会盖掉更准的结果）。
+#[test]
+fn cloud_fields_take_priority_over_local_layout() -> Result<()> {
+    use voucher_core::db::repos::{ocr_field_cache_repo, ocr_layout_repo};
+    use voucher_core::models::OcrLine;
+    use voucher_core::services::query;
+
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("fields.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let att = imported.vouchers[0].attachment.clone();
+
+    // 本地版面里写「合计 10.00」（几何路径会抽出 10.00）
+    let lines = vec![OcrLine {
+        text: "合计 10.00".to_string(),
+        score: 0.9,
+        box_xyxy: [0.0, 0.0, 60.0, 12.0],
+    }];
+    ctx.db
+        .with_conn(|conn| ocr_layout_repo::set_layout(conn, att.id, "local", &lines))?;
+    // 云端要素给 88.00 + 日期 + 对方
+    ctx.db.with_conn(|conn| {
+        ocr_field_cache_repo::upsert(
+            conn,
+            &att.file_hash,
+            "deepseek",
+            "deepseek-flash",
+            r#"{"text":"云端文本","date":"2026-08-19","amount":"88.00","counterparty":"某某公司"}"#,
+        )
+    })?;
+
+    let f = query::ocr_preview(&ctx, att.id)?;
+    assert_eq!(f.amount_cents, Some(8_800), "云端要素应优先于本地版面");
+    assert_eq!(f.date.as_deref(), Some("2026-08-19"));
+    assert_eq!(f.counterparty.as_deref(), Some("某某公司"));
+    Ok(())
+}
+
+/// v0.23：`auto` 下云端不可用（连接被拒）必须自动回退本地 Vision，并把失败原因记进健康状态。
+#[test]
+#[cfg(target_os = "macos")]
+#[ignore = "需要真实 macOS Vision（CI macos job 以 --include-ignored 执行）"]
+fn auto_mode_falls_back_to_local_when_cloud_fails() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("fallback.png");
+    make_png(&img);
+    let imported = ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let att_id = imported.vouchers[0].attachment.id;
+
+    let mut cfg = ctx.config();
+    cfg.ocr.engine = "auto".to_string();
+    cfg.ocr.provider = "custom".to_string();
+    // 1 号端口上没有服务 → 云端连接失败
+    cfg.ocr.api_url = "http://127.0.0.1:1/ocr".to_string();
+    ctx.set_config(cfg)?;
+
+    let att = ocr::run_for_attachment(&ctx, att_id)?;
+    assert_eq!(att.ocr_status, OcrStatus::Done, "云端失败后应已回退本地");
+    let health = ctx.ocr_health();
+    assert_eq!(health.last_engine.as_deref(), Some("local"));
+    assert!(health.last_cloud_error.is_some(), "应记录云端失败原因");
+    Ok(())
 }

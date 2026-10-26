@@ -6,11 +6,11 @@
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-10-24（v0.22 关联批收口：关联逻辑三修 + 列表关系徽标 + 备份断言）**：`voucher-core` 测试 **295 个**（src 内联 **157** + tests/ 集成 **138**，含
+> 截至 **2026-10-26（v0.23 OCR 换代：云端优先 DeepSeek 视觉 + 本地 Apple Vision）**：`voucher-core` 测试 **310 个**（src 内联 **169** + tests/ 集成 **141**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **keyring_native 1** / ocr_flow 6 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **55 文件 345 用例**（2026-10-24 列表关系徽标契约新增 1 例后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **56 文件 350 用例**（2026-10-26 `ocrEngineContract.test.ts` 5 例加入后**实测**值；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
@@ -25,6 +25,18 @@
 > 四表内容必须随库恢复（用例数不变，仍 11）。
 > 前端 `voucherRelationContract.test.ts` 9 → **10 例**（列表行关系徽标 + 「+N」展开、命令表 10 → 12 个）
 > → 前端 **55 文件 345 用例**。
+> **2026-10-26 v0.23 OCR 换代**：删除 PP-OCRv5/ONNX 体系（`ocr_local.rs` + 21MB 模型资产 + `ort` 依赖），
+> 本地引擎改为 Apple Vision（`crates/voucher-core/src/services/ocr_vision.rs`，手写 objc FFI、零新增依赖），
+> 云端新增 DeepSeek 视觉协议（`ocr.rs` 的 `DeepseekEngine`）与三档策略 `auto/cloud/local`。
+> 测试侧：`ocr_flow.rs` 的 `local_ocr_end_to_end` 改为 `vision_ocr_end_to_end`（`#[ignore]` + macOS，
+> CI macos job 覆盖），`g2_closed_loop_import_ocr_pdf` 改为显式本地引擎，新增 3 例——
+> ① `cloud_engine_is_preferred_and_cached`（mock 云端：文本来自云端、缓存 `engine=cloud`、健康状态记录）；
+> ② `cloud_fields_take_priority_over_local_layout`（同附件同时有本地版面与云端要素时，取云端要素）；
+> ③ `auto_mode_falls_back_to_local_when_cloud_fails`（云端连不上 → 回退本地并记 `last_cloud_error`，`#[ignore]`）；
+> 内联新增 `ocr_vision` 6 例（同行合并 / 标签值拼接 / 置信度 0.3 过滤 / 阅读顺序 / 坐标翻转）+ `ocr_fields::from_structured` 4 例
+> → 单元 157 → **169**、集成 138 → **141**、`voucher-core` 295 → **310**、总数 298 → **313**。
+> 前端新增 `ocrEngineContract.test.ts` 5 例（三档引擎 / 两种云端协议 / 旧 PP-OCRv5 文案清零 / `ocr_health` 命令对应 / 默认 auto+deepseek）
+> → **56 文件 350 用例**。
 > 口径说明：本机 `keyring_native`（1 例）因沙箱内 Keychain 拒绝返回 `UNIX[Operation not permitted]`
 > 而失败，属环境限制，不随本批改动变化（CI 上正常）。
 > 2026-10-09 OCR 置信度门控批新增 8 例（纯文本路径置信度标档 / 填单门控矩阵 / 大写金额解析 / 大写互验扩展至纯文本路径），内联 134 → **142**；

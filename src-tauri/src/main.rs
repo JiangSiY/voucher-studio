@@ -77,29 +77,12 @@ fn main() {
             let ctx = Arc::new(CoreContext::init(base)?);
             app.manage(ctx.clone());
 
-            // 3.5 本地 OCR 模型：首次启动从安装源复制到数据目录（幂等）
-            // 资源目录优先（打包版：macOS 在 Contents/Resources），
-            // 否则打包版会因「应用旁没有 ocr-models」而静默拿不到本地 OCR 模型。
-            let resource_dir = app.path().resource_dir().ok();
-            for src in
-                voucher_core::services::ocr_local::default_model_sources(resource_dir.as_deref())
-            {
-                match voucher_core::LocalOcr::ensure_installed(&src, &ctx.paths.models) {
-                    Ok(true) => {
-                        log::info!("本地 OCR 模型已从 {} 安装", src.display());
-                        break;
-                    }
-                    Ok(false) => {
-                        if voucher_core::LocalOcr::is_installed(&ctx.paths.models) {
-                            break;
-                        }
-                    }
-                    Err(e) => log::warn!("本地 OCR 模型安装失败（{}）: {e}", src.display()),
-                }
-            }
-
             // 4. 定时备份调度（配置启用时生效）
             platform::spawn_backup_scheduler(app.handle().clone(), ctx.clone());
+
+            // 4.2 OCR 预热：Apple Vision 首次调用要加载系统模型（实测 ~29s），
+            // 放后台线程跑，避免用户第一次点「识别」时干等
+            tauri::async_runtime::spawn_blocking(voucher_core::services::ocr_vision::warm_up);
 
             // 4.5 启动补传：WebDAV 上传曾失败的本地备份（延迟 15s 等网络就绪；失败仅日志）
             {
@@ -305,6 +288,7 @@ fn main() {
             commands::run_ocr_pending,
             commands::re_enhance_all,
             commands::local_ocr_status,
+            commands::ocr_health,
             commands::export_pdf_daily,
             commands::export_table,
             commands::list_export_batches,

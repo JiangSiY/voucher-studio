@@ -9,6 +9,17 @@ use crate::Result;
 
 /// 密钥在系统凭据库中的账号名（密钥不明文落盘）
 pub const SECRET_OCR_API_KEY: &str = "ocr_api_key";
+/// OCR 引擎选择：auto（云端优先，云端不可用才用本地，默认）/ cloud（只云端）/ local（只本地）
+pub const OCR_ENGINE_AUTO: &str = "auto";
+pub const OCR_ENGINE_CLOUD: &str = "cloud";
+pub const OCR_ENGINE_LOCAL: &str = "local";
+/// 云端 OCR 服务提供方：deepseek（OpenAI 兼容 chat/completions + image_url）/
+/// custom（本项目 v0.22 起的通用协议 `{image_base64, model}` → `{text}`，给自建服务用）
+pub const OCR_PROVIDER_DEEPSEEK: &str = "deepseek";
+pub const OCR_PROVIDER_CUSTOM: &str = "custom";
+/// 云端 OCR 默认地址与模型：DeepSeek 视觉（2026-10-26 官方文档：模型名 `deepseek-flash`）
+pub const DEFAULT_DEEPSEEK_OCR_URL: &str = "https://api.deepseek.com/chat/completions";
+pub const DEFAULT_DEEPSEEK_OCR_MODEL: &str = "deepseek-flash";
 pub const SECRET_WEBDAV_PASSWORD: &str = "webdav_password";
 /// v0.14-A：备份加密密码（backup.encrypted 启用时备份文件用 age passphrase 信封密封，
 /// 密码存凭据管理器 SECRET_BACKUP_PASSWORD）
@@ -101,25 +112,37 @@ impl Default for NamingConfig {
     }
 }
 
-/// OCR：本地（ort + PP-OCRv5，离线）优先；云端（HTTP API）备选
+/// OCR：**云端优先**（DeepSeek 视觉，要素识别更准）+ 本地兜底（Apple Vision，离线可用）
+///
+/// 2026-10-26 换代（v0.23）：本地引擎由 ort + PP-OCRv5 换成 macOS 原生 Vision
+/// （零模型资产、实测快约 3.8×、要素命中持平）；云端由「自建通用协议」换成 DeepSeek。
+/// 默认 `auto`：先走云端，云端不可用（无 Key / 网络失败 / 返回异常）才回退本地。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OcrConfig {
-    /// local | cloud
+    /// auto | cloud | local（默认 auto）
     pub engine: String,
+    /// deepseek | custom（默认 deepseek）
+    pub provider: String,
     pub enabled: bool,
-    /// 云端 OCR API 地址
+    /// 云端 OCR API 地址（deepseek 默认官方 chat/completions）
     pub api_url: String,
+    /// 云端模型名（deepseek 默认 `deepseek-flash`）
     pub model: String,
+    /// 老配置 `engine = "local"` 已一次性迁移到 `auto` 的标记。
+    /// 迁移只在**读盘时**做，之后用户显式选 local 不会被再次覆盖。
+    pub migrated_to_auto: bool,
 }
 
 impl Default for OcrConfig {
     fn default() -> Self {
         Self {
-            engine: "local".into(),
+            engine: OCR_ENGINE_AUTO.into(),
+            provider: OCR_PROVIDER_DEEPSEEK.into(),
             enabled: true,
-            api_url: String::new(),
-            model: String::new(),
+            api_url: DEFAULT_DEEPSEEK_OCR_URL.into(),
+            model: DEFAULT_DEEPSEEK_OCR_MODEL.into(),
+            migrated_to_auto: false,
         }
     }
 }
@@ -288,6 +311,37 @@ impl AppConfig {
             .backup
             .interval_hours
             .clamp(MIN_BACKUP_INTERVAL_HOURS, MAX_BACKUP_INTERVAL_HOURS);
+        // OCR 引擎 / 提供方：手改 app.json 可能写入任意串。旧版 `engine_for` 遇未知值
+        // 直接 `Invalid("未知 OCR 引擎")` 让识别整条链路失败，这里统一收口为 auto/deepseek。
+        self.ocr.engine = match self.ocr.engine.trim() {
+            OCR_ENGINE_CLOUD => OCR_ENGINE_CLOUD.into(),
+            OCR_ENGINE_LOCAL => OCR_ENGINE_LOCAL.into(),
+            _ => OCR_ENGINE_AUTO.into(),
+        };
+        self.ocr.provider = match self.ocr.provider.trim() {
+            OCR_PROVIDER_CUSTOM => OCR_PROVIDER_CUSTOM.into(),
+            _ => OCR_PROVIDER_DEEPSEEK.into(),
+        };
+        if self.ocr.provider == OCR_PROVIDER_DEEPSEEK {
+            if self.ocr.api_url.trim().is_empty() {
+                self.ocr.api_url = DEFAULT_DEEPSEEK_OCR_URL.into();
+            }
+            if self.ocr.model.trim().is_empty() {
+                self.ocr.model = DEFAULT_DEEPSEEK_OCR_MODEL.into();
+            }
+        }
+    }
+
+    /// 老配置迁移（只在读盘后调用）：v0.22 的默认是 `engine = "local"`，
+    /// 而 v0.23 的诉求是「云端优先」——一次性把它改成 `auto` 并打标记。
+    ///
+    /// 为什么要标记：`normalize` 在每次保存时也会跑，若把迁移写在 normalize 里，
+    /// 用户显式选回 local 会被下一次保存悄悄改回 auto。
+    fn migrate_legacy_ocr(&mut self) {
+        if !self.ocr.migrated_to_auto && self.ocr.engine == OCR_ENGINE_LOCAL {
+            self.ocr.engine = OCR_ENGINE_AUTO.into();
+            self.ocr.migrated_to_auto = true;
+        }
     }
 
     /// 读取配置；文件不存在时返回默认值（并在下次保存时重建）
@@ -295,6 +349,7 @@ impl AppConfig {
         match jsonio::read_json::<Self>(path)? {
             Some(mut cfg) => {
                 cfg.normalize();
+                cfg.migrate_legacy_ocr();
                 Ok(cfg)
             }
             None => Ok(Self::default()),

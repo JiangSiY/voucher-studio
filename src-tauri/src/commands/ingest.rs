@@ -250,42 +250,36 @@ pub async fn re_enhance_all(
     .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
-// ---------- 本地 OCR 状态 ----------
+// ---------- OCR 引擎状态 ----------
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalOcrModelFile {
-    pub name: String,
-    pub size: u64,
-}
-
+/// 本地引擎能力（v0.23 起本地识别用 macOS 原生 Vision，不再需要下载模型）
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalOcrStatus {
-    pub installed: bool,
-    pub models_dir: String,
-    pub files: Vec<LocalOcrModelFile>,
-    pub total_size: u64,
+    /// 本地引擎是否可用（仅 macOS 有 Vision）
+    pub available: bool,
+    /// 引擎名称（展示用）
+    pub engine_name: String,
+    /// 说明文案（无需安装模型 / 仅 macOS 可用）
+    pub note: String,
 }
 
 #[tauri::command]
-pub fn local_ocr_status(ctx: Ctx) -> LocalOcrStatus {
-    let dir = &ctx.paths.models;
-    let mut files = Vec::new();
-    let mut total = 0u64;
-    for name in voucher_core::services::ocr_local::MODEL_FILES {
-        if let Ok(meta) = std::fs::metadata(dir.join(name)) {
-            total += meta.len();
-            files.push(LocalOcrModelFile {
-                name: name.to_string(),
-                size: meta.len(),
-            });
-        }
-    }
+pub fn local_ocr_status() -> LocalOcrStatus {
+    let macos = cfg!(target_os = "macos");
     LocalOcrStatus {
-        installed: voucher_core::LocalOcr::is_installed(dir),
-        models_dir: dir.to_string_lossy().to_string(),
-        files,
-        total_size: total,
+        available: macos,
+        engine_name: "Apple Vision".to_string(),
+        note: if macos {
+            "本地识别使用 macOS 原生 Vision 框架，无需下载模型".to_string()
+        } else {
+            "本地识别仅 macOS 可用；其它平台请使用云端识别".to_string()
+        },
     }
+}
+
+/// 最近一次 OCR 的实际引擎与云端失败原因（设置页显示，判断「为什么没走云端」）
+#[tauri::command]
+pub fn ocr_health(ctx: Ctx) -> voucher_core::OcrHealth {
+    ctx.ocr_health()
 }

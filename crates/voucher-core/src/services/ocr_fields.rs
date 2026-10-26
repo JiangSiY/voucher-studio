@@ -662,19 +662,187 @@ pub fn apply_for_attachment(
         return Ok(());
     }
 
-    // v5：有版面数据走几何配对（准确率更高），否则回退纯文本抽取（旧路径不变）
-    let layout = ctx
-        .db
-        .with_conn(|conn| crate::db::repos::ocr_layout_repo::get_layout(conn, attachment_id))?;
-    let fields = match layout {
-        Some(lines) if !lines.is_empty() => {
-            crate::services::ocr_layout::extract_with_layout(&lines)
+    // 三层优先级（v0.23）：
+    // 1. 云端结构化要素——模型直接给「日期/金额/对方」，比本地正则抽得准；命中即用，
+    //    且此时**不再看版面坐标**（云端没有版面，旧本地版面会把云端结果盖掉）。
+    // 2. 本地版面几何配对（同一次本地识别的坐标框）。
+    // 3. 纯文本正则抽取（旧路径，兜底）。
+    let cloud_fields = ctx.db.with_conn(|conn| {
+        crate::db::repos::ocr_field_cache_repo::get(conn, &attachment.file_hash)
+    })?;
+    let cloud_json = cloud_fields.and_then(|(engine, _model, json)| {
+        // 只有云端产出的要素才当结构化结果（防御：引擎名对不上就当没有）
+        if crate::services::ocr::is_cloud_engine(&engine) {
+            serde_json::from_str::<serde_json::Value>(&json).ok()
+        } else {
+            None
         }
-        _ => extract_validated(text),
+    });
+
+    let fields = match cloud_json {
+        Some(v) => from_structured(&v, text),
+        None => {
+            let layout = ctx.db.with_conn(|conn| {
+                crate::db::repos::ocr_layout_repo::get_layout(conn, attachment_id)
+            })?;
+            match layout {
+                // 第二个元素是识别引擎名；云端不写版面，故这里恒为本地坐标系
+                Some((_engine, lines)) if !lines.is_empty() => {
+                    crate::services::ocr_layout::extract_with_layout(&lines)
+                }
+                _ => extract_validated(text),
+            }
+        }
     };
     apply_fields(ctx, voucher_id, &fields, mode)?;
     semantic_rename(ctx, voucher_id, &attachment)?;
     Ok(())
+}
+
+/// 云端结构化要素 → `ExtractedFields`（v0.23）
+///
+/// 云端模型（DeepSeek 视觉）直接给出「日期 / 金额 / 对方 / 商家」，比本地正则从文本里
+/// 猜标签准得多，所以**命中云端要素就不再走文本抽取**。这里只做两件后验：
+/// - 日期年份窗口（超窗丢弃：票据上常印有效期/打印日期，模型偶尔抓错年份）
+/// - 名称噪声过滤（模型偶尔把「收款方」这类标签词当名字返回）
+///
+/// 刻意**不跑** `ocr_validate` 的大写金额互验：本地互验的前提是「标签行数值」与
+/// 「大写金额」是两个独立来源；云端结构化值是模型对整图的整体判断，若与文本里的
+/// 大写金额不一致，多半是大写那侧被识别错——互验反而会清掉最可靠的字段。
+pub fn from_structured(v: &serde_json::Value, _text: &str) -> ExtractedFields {
+    // 容错：模型可能把要素包在 {"fields": …} / {"data": …} 里
+    let obj = if v.get("date").is_some()
+        || v.get("amount").is_some()
+        || v.get("counterparty").is_some()
+        || v.get("text").is_some()
+    {
+        v
+    } else {
+        v.get("fields").or_else(|| v.get("data")).unwrap_or(v)
+    };
+
+    let mut out = ExtractedFields::default();
+
+    if let Some(date) = json_scalar(obj, "date").and_then(|s| normalize_date(&s)) {
+        out.date = Some(date);
+        out.confidence.date = Some(Confidence::High);
+    }
+    if let Some(cents) = json_scalar(obj, "amount").and_then(|s| normalize_amount_cents(&s)) {
+        out.amount_cents = Some(cents);
+        out.amount_source = Some(AmountSource::Labeled);
+        out.confidence.amount = Some(Confidence::High);
+    }
+    if let Some(cp) = json_scalar(obj, "counterparty").and_then(|s| clean_name(&s)) {
+        out.counterparty = Some(cp);
+        out.confidence.counterparty = Some(Confidence::High);
+    }
+    if let Some(m) = json_scalar(obj, "merchant").and_then(|s| clean_name(&s)) {
+        out.merchant = Some(m);
+        out.confidence.merchant = Some(Confidence::High);
+    }
+
+    // 年份窗口（与 ocr_validate 同口径：当前年 ±3，超窗宁可丢弃也不填错档号）
+    if let Some(d) = out.date.clone() {
+        if let Some(year) = d.get(0..4).and_then(|y| y.parse::<i32>().ok()) {
+            use chrono::Datelike;
+            let now_year = chrono::Utc::now().year();
+            if (year - now_year).abs() > 3 {
+                out.date = None;
+                out.confidence.date = None;
+            }
+        }
+    }
+    out
+}
+
+/// 取 JSON 里的标量字段：字符串去空白后非空才算，数字转字符串（模型可能直接给 1234.56）
+fn json_scalar(v: &serde_json::Value, key: &str) -> Option<String> {
+    match v.get(key)? {
+        serde_json::Value::String(s) => {
+            let t = s.trim().to_string();
+            if t.is_empty() || t.eq_ignore_ascii_case("null") || t == "无" {
+                None
+            } else {
+                Some(t)
+            }
+        }
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// 日期归一化：容忍 `2026-08-19` / `2026/8/19` / `20260819` / `2026年8月19日` / `26-08-19`
+fn normalize_date(raw: &str) -> Option<String> {
+    let mut nums: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in raw.chars() {
+        if c.is_ascii_digit() {
+            cur.push(c);
+        } else if !cur.is_empty() {
+            nums.push(std::mem::take(&mut cur));
+        }
+    }
+    if !cur.is_empty() {
+        nums.push(cur);
+    }
+
+    let (y, m, d) = match nums.len() {
+        3 => (nums[0].clone(), nums[1].clone(), nums[2].clone()),
+        1 if nums[0].len() == 8 => (
+            nums[0][0..4].to_string(),
+            nums[0][4..6].to_string(),
+            nums[0][6..8].to_string(),
+        ),
+        _ => return None,
+    };
+    let y = match y.len() {
+        4 => y,
+        2 => format!("20{y}"),
+        _ => return None,
+    };
+    let year: i32 = y.parse().ok()?;
+    let month: u32 = m.parse().ok()?;
+    let day: u32 = d.parse().ok()?;
+    chrono::NaiveDate::from_ymd_opt(year, month, day)?;
+    Some(format!("{year:04}-{month:02}-{day:02}"))
+}
+
+/// 金额归一化：`1234.56` / `¥1,234.56` / `1234.56元` / `1,234` → 分
+fn normalize_amount_cents(raw: &str) -> Option<i64> {
+    let negative = raw.trim_start().starts_with('-') || raw.contains("−");
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if cleaned.is_empty() || cleaned.matches('.').count() > 1 {
+        return None;
+    }
+    let (int_part, frac_part) = match cleaned.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (cleaned.as_str(), ""),
+    };
+    let yuan: i64 = int_part.parse().ok()?;
+    let frac: String = format!("{frac_part:0<2}").chars().take(2).collect();
+    let cents: i64 = frac.parse().ok()?;
+    let total = yuan.checked_mul(100)?.checked_add(cents)?;
+    Some(if negative { -total } else { total })
+}
+
+/// 名称清洗：去包裹标点；过短或命中噪声词则丢弃
+fn clean_name(raw: &str) -> Option<String> {
+    let t = raw
+        .trim()
+        .trim_matches(|c: char| {
+            c == '"' || c == '\'' || c == ' ' || c == ':' || c == '：' || c == '，' || c == ','
+        })
+        .trim();
+    if t.chars().count() < 2 {
+        return None;
+    }
+    if is_value_noise(t) {
+        return None;
+    }
+    Some(t.to_string())
 }
 
 /// 门控字段（金额与 日期/对方 的政策不同，见 `should_autofill`）
@@ -1234,5 +1402,71 @@ mod tests {
         assert_eq!(f.confidence.counterparty, Some(Confidence::Medium));
         let f2 = extract("扫二维码付款-给冰\n-2000.00\n支付成功");
         assert_eq!(f2.counterparty, Some("冰".into()));
+    }
+
+    #[test]
+    fn structured_fields_from_cloud_json() {
+        let v = serde_json::json!({
+            "text": "价税合计 1234.56 元\n杭州某某科技有限公司",
+            "date": "2026-08-19",
+            "amount": "1234.56",
+            "counterparty": "杭州某某科技有限公司",
+            "merchant": "杭州某某科技有限公司"
+        });
+        let f = from_structured(&v, "");
+        assert_eq!(f.date.as_deref(), Some("2026-08-19"));
+        assert_eq!(f.amount_cents, Some(123_456));
+        assert_eq!(f.amount_source, Some(AmountSource::Labeled));
+        assert_eq!(f.counterparty.as_deref(), Some("杭州某某科技有限公司"));
+        assert_eq!(f.merchant.as_deref(), Some("杭州某某科技有限公司"));
+        // 云端给的都是「整图判断」，一律 High
+        assert_eq!(f.confidence.date, Some(Confidence::High));
+        assert_eq!(f.confidence.amount, Some(Confidence::High));
+        assert_eq!(f.confidence.counterparty, Some(Confidence::High));
+    }
+
+    #[test]
+    fn structured_fields_tolerate_null_number_and_nested() {
+        // null / "无" / 缺失 → 不填；数字类型金额可直接用
+        let v = serde_json::json!({"date": null, "amount": 88.5, "counterparty": "无"});
+        let f = from_structured(&v, "");
+        assert!(f.date.is_none());
+        assert_eq!(f.amount_cents, Some(8_850));
+        assert!(f.counterparty.is_none());
+
+        // 包在 fields 里
+        let v = serde_json::json!({"fields": {"date": "20260819", "amount": "9.90"}});
+        let f = from_structured(&v, "");
+        assert_eq!(f.date.as_deref(), Some("2026-08-19"));
+        assert_eq!(f.amount_cents, Some(990));
+    }
+
+    #[test]
+    fn structured_date_and_amount_normalisation() {
+        assert_eq!(normalize_date("2026/8/19").as_deref(), Some("2026-08-19"));
+        assert_eq!(
+            normalize_date("2026年8月19日").as_deref(),
+            Some("2026-08-19")
+        );
+        assert_eq!(normalize_date("26-08-19").as_deref(), Some("2026-08-19"));
+        assert!(normalize_date("2026-02-30").is_none(), "非法日期不接受");
+        assert!(normalize_date("看不清").is_none());
+
+        assert_eq!(normalize_amount_cents("¥1,234.56"), Some(123_456));
+        assert_eq!(normalize_amount_cents("1234.56元"), Some(123_456));
+        assert_eq!(normalize_amount_cents("1,200"), Some(120_000));
+        assert_eq!(normalize_amount_cents("-88.00"), Some(-8_800));
+        assert!(normalize_amount_cents("1.234.56").is_none());
+        assert!(normalize_amount_cents("").is_none(), "空金额不能用 0 冒充");
+    }
+
+    #[test]
+    fn structured_fields_drop_out_of_window_date_and_noise_names() {
+        // 2033 年远超 ±3 年窗口 → 丢弃（避免把有效期当年份）
+        let v = serde_json::json!({"date": "2033-01-01", "counterparty": "收款方"});
+        let f = from_structured(&v, "");
+        assert!(f.date.is_none());
+        // 「收款方」是标签词，不当名字
+        assert!(f.counterparty.is_none());
     }
 }
