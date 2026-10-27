@@ -44,7 +44,7 @@ describe("自动更新", () => {
 
   it("发版脚本在 package-macos.sh 之后重打更新包 + 签名 + 写 latest.json", () => {
     const iPack = releaseSh.indexOf("bash package-macos.sh");
-    const iTar = releaseSh.indexOf('tar -czf "${UPD_TGZ}"'); // 真正的打包动作（注释里也提到 .app.tar.gz，不能用它定位）
+    const iTar = releaseSh.indexOf('-czf "${UPD_TGZ}"'); // 真正的打包动作（注释里也提到 .app.tar.gz，不能用它定位）
     expect(iPack).toBeGreaterThan(-1);
     expect(iTar).toBeGreaterThan(iPack); // 顺序即正确性：打包修复之后才做更新包
     expect(releaseSh).toContain("tauri signer sign");
@@ -52,5 +52,13 @@ describe("自动更新", () => {
     expect(releaseSh).toContain("darwin-aarch64");
     // 上传清单里必须带更新资产，漏传等于更新源 404
     expect(releaseSh).toContain("app.tar.gz.sig");
+    // 更新包不能带 AppleDouble：macOS 的 bsdtar 默认把扩展属性写成 `._Xxx` 条目，
+    // 而 tauri updater 解包是 `path().skip(1)`，第一条 `._App.app` 会变成空路径 → EISDIR，
+    // 用户侧表现为「检查更新失败：failed to unpack `._Voucher Studio.app`」（2026-10-27 真机踩到）
+    expect(releaseSh).toContain("COPYFILE_DISABLE=1");
+    expect(releaseSh).toContain("--no-mac-metadata");
+    expect(releaseSh).toContain("--no-xattrs");
+    // 并且发版脚本自己也要守住：包内成员形态不合法时直接判红
+    expect(releaseSh).toContain("AppleDouble");
   });
 });
