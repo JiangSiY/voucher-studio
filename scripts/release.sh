@@ -132,7 +132,14 @@ run bash package-macos.sh
 
 if [ "${APPLY}" -eq 1 ]; then
   UPD_TGZ="target/release-artifacts/Voucher.Studio_${VERSION}_arm64.app.tar.gz"
-  tar -czf "${UPD_TGZ}" -C "target/release/bundle/macos" "Voucher Studio.app" || fail "打更新包失败"
+  # COPYFILE_DISABLE / --no-mac-metadata / --no-xattrs 三件套缺一不可：
+  # macOS 的 bsdtar 默认会把扩展属性写成 AppleDouble（`._Voucher Studio.app`、`Contents/._Info.plist` …），
+  # 而 tauri updater 的解包是「entry.path().iter().skip(1)」——第一条 `._Voucher Studio.app` 的 skip(1)
+  # 结果为空路径，等于把普通文件解包到临时目录本身 → EISDIR，用户侧报
+  # 「failed to unpack `._Voucher Studio.app` into …/tauri_updated_appXXXX/」（2026-10-27 真机 #39 首次验证踩到）。
+  # 解包失败时它还会删掉临时目录再 return，所以表现为「每次检查更新都失败」，且 app 本身没坏。
+  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf "${UPD_TGZ}" \
+    -C "target/release/bundle/macos" "Voucher Studio.app" || fail "打更新包失败"
   npx tauri signer sign -f "${UPDATER_KEY}" -p "" "${UPD_TGZ}" >/dev/null || fail "更新包签名失败"
   python3 - "${VERSION}" "${UPD_TGZ}.sig" "target/release-artifacts/latest.json" "docs/release-notes/${VERSION}.md" "${REPO_SLUG}" <<'PYUPD'
 import datetime, json, pathlib, sys
@@ -207,6 +214,26 @@ else
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["version"]==sys.argv[2]; sig=d["platforms"]["darwin-aarch64"]["signature"]; assert len(sig)>40' "target/release-artifacts/latest.json" "${VERSION}" \
     || fail "latest.json 内容不合法"
   rm -rf "${UPD_TMP}"
+  # ⑥ 更新包成员形态：不能有 AppleDouble / 顶层散文件，否则 tauri updater 的 skip(1) 解包会失败
+  python3 - "${UPD_TGZ}" <<'PYTAR' || fail "更新包成员形态不合法（见上方输出）"
+import sys, tarfile
+bad = []
+with tarfile.open(sys.argv[1]) as t:
+    for m in t.getmembers():
+        name = m.name
+        if name.startswith("._") or "/._" in name:
+            bad.append(f"AppleDouble:{name}")
+            continue
+        parts = name.split("/")[1:]
+        if not parts and not m.isdir():
+            bad.append(f"顶层非目录:{name}")
+for b in bad[:10]:
+    print(f"     ✗ {b}")
+if bad:
+    print(f"    共 {len(bad)} 条不合法成员（tar 里的条目应为：顶层只允许 <App>.app 目录，其余都在它下面）")
+    sys.exit(1)
+print("  ✓ 更新包成员形态正确（无 AppleDouble、无顶层散文件）")
+PYTAR
   echo "  ✓ 自动更新包自包含校验通过（Frameworks / 无绝对路径 / latest.json）"
 fi
 
