@@ -68,7 +68,7 @@ describe("选图片入口键盘可达（打磨第五批）", () => {
     // ① 吸顶
     const bar = src.slice(src.indexOf(".filter-bar {"));
     expect(bar.slice(0, 300)).toContain("position: sticky");
-    expect(bar.slice(0, 300)).toContain("top: 0");
+    expect(bar.slice(0, 300)).toContain("top: var(--s-3)");
     // ② 四个筛选都改成可多选下拉
     for (const name of ["状态", "OCR 状态", "缺项", "收支方向"]) {
       expect(src, `缺少多选下拉：${name}`).toContain(`label="${name}"`);

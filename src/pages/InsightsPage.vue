@@ -204,7 +204,6 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 <template>
   <div class="insights">
     <header class="head">
-      <h2>洞察</h2>
       <div class="range-presets">
         <button
           v-for="p in RANGE_PRESETS"
@@ -423,7 +422,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 .insights {
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
+  gap: var(--s-5);
 }
 .head {
   display: flex;
@@ -431,29 +430,26 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
-.head h2 {
-  font: var(--type-title);
-  color: var(--label-primary);
-  margin: 0;
-  font-size: var(--fs-display);
-}
 .scope {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 .flex-1 {
   flex: 1;
 }
 .ledgers {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--s-3);
 }
 .panel {
-  padding: var(--s-3);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--bg-content);
+  padding: var(--s-4);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
@@ -467,6 +463,13 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
   font: var(--type-title);
   color: var(--label-primary);
   margin: 0;
+  /* 卡宽收到 280px 时也保持标题一行，把换行留给右侧口径说明 */
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sh .scope {
+  flex: 1;
+  text-align: right;
 }
 .kv {
   display: flex;
@@ -480,7 +483,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
   align-items: baseline;
 }
 .kv dt {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
 }
 .kv dd {
@@ -507,7 +510,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
   gap: var(--s-2);
 }
 .muted {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
 }
 .link {
@@ -523,14 +526,18 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 .range-presets {
   display: inline-flex;
   flex: 0 0 auto;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card-sunken);
   overflow: hidden;
 }
 .seg {
   height: var(--control-h-sm);
   padding: 0 var(--s-3);
   border: none;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--label-secondary);
   font: var(--type-caption);
@@ -538,13 +545,11 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
   white-space: nowrap;
   cursor: default;
 }
-.seg + .seg {
-  border-left: 1px solid var(--separator);
-}
 .seg.active {
-  background: var(--bg-selection);
+  background: var(--bg-card-strong);
   color: var(--label-primary);
   font-weight: 600;
+  box-shadow: 0 0 0 1px var(--card-hairline);
 }
 .breakdown {
   display: grid;
@@ -587,7 +592,7 @@ function rowsOf(rows: BreakdownRow[], month: string): BreakdownRow[] {
 }
 .bd-count {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   white-space: nowrap;
 }
 .bd-amount {

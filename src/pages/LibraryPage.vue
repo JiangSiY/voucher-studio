@@ -915,7 +915,7 @@ watch(keyword, () => {
     </div>
 
     <!-- 主体：左列表（双行）+ 右编辑器（v0.19：右栏即编辑器；双击/回车展开） -->
-    <div class="split" :class="{ 'split--wide': wide }">
+    <div class="split" :class="{ 'split--wide': wide, 'split--empty': !shown }">
       <section class="list-pane">
         <ul v-if="loading && !items.length" class="rows" aria-busy="true" aria-label="正在加载凭证">
           <li v-for="i in 6" :key="i" class="row sk-row" aria-hidden="true">
@@ -1158,19 +1158,24 @@ watch(keyword, () => {
   gap: var(--s-2);
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  top: var(--s-3);
   z-index: 5;
-  padding: var(--s-2) 0;
-  background: var(--bg-content);
-  /* 分隔线用 border 而非 box-shadow：阴影在 sticky 吸顶时会随滚动叠出灰边 */
-  border-bottom: 1px solid var(--separator);
+  padding: var(--s-2) var(--s-3);
+  /* 玻璃浮条：吸顶时内容从下面透出来，故用从不透明的 card-strong 起底的材质，
+     不靠下边线硬切（滚动时会留下一条灰边）。 */
+  background: var(--bg-card-strong);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
 }
 .flex-1 {
   flex: 1;
 }
 .count {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 .inline-check {
   display: inline-flex;
@@ -1205,14 +1210,27 @@ watch(keyword, () => {
 .split--wide {
   grid-template-columns: minmax(300px, 0.7fr) minmax(720px, 1.6fr);
 }
+
+/* 未选中凭证（检视器隐藏）时列表独占整行：空态不再只占左半屏。
+   放在 .split--wide 之后，保证宽档 + 未选中时同样收起右栏。 */
+.split--empty {
+  grid-template-columns: minmax(0, 1fr);
+}
 .list-pane {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
   min-width: 0;
+  padding: var(--s-2);
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
 }
 .hint {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-body);
   padding: var(--s-4);
 }
@@ -1253,7 +1271,7 @@ watch(keyword, () => {
   justify-content: center;
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
   color: var(--label-quaternary);
   overflow: hidden;
 }
@@ -1293,7 +1311,7 @@ watch(keyword, () => {
   align-items: center;
   gap: var(--s-2);
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   min-width: 0;
 }
 .line2 .party {
@@ -1383,7 +1401,7 @@ watch(keyword, () => {
   padding: var(--s-2);
 }
 .muted {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
 }
 
@@ -1391,10 +1409,13 @@ watch(keyword, () => {
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
-  padding: var(--s-3);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--bg-content);
+  padding: var(--s-4);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   position: sticky;
   top: 0;
   /* 右栏自成一个滚动区：字段多了（v0.19 起含图片/表单/快照）也不把整页拖长 */
@@ -1417,7 +1438,7 @@ watch(keyword, () => {
   min-width: 84px;
   text-align: center;
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font-variant-numeric: tabular-nums;
 }
 .link {
@@ -1448,7 +1469,7 @@ watch(keyword, () => {
   align-items: baseline;
 }
 .ins-meta dt {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
   white-space: nowrap;
 }
@@ -1466,7 +1487,7 @@ watch(keyword, () => {
 .ins-hint {
   margin: 0;
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 
 @media (max-width: 1100px) {

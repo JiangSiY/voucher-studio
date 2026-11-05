@@ -128,10 +128,15 @@ describe("列表与细节一致性（U5）", () => {
     expect(cssBlock(css, ".row-thumb img")).toContain("object-fit: contain");
   });
 
-  it("筛选栏用 border 作分隔线，不再用 box-shadow 模拟", () => {
+  it("筛选栏是吸顶玻璃浮条（Loon 风，2026-11-04 起不再用 border-bottom 硬切）", () => {
     const bar = cssBlock(styleText("pages/LibraryPage.vue"), ".filter-bar");
-    expect(bar).toContain("border-bottom: 1px solid var(--separator)");
-    expect(bar).not.toMatch(/box-shadow\s*:/);
+    expect(bar).toContain("position: sticky");
+    expect(bar).toContain("top: var(--s-3)");
+    expect(bar).toContain("background: var(--bg-card-strong)");
+    expect(bar).toContain("border-radius: var(--radius-card)");
+    expect(bar).toContain("box-shadow: var(--shadow-card)");
+    expect(bar).toContain("backdrop-filter: var(--blur-card)");
+    expect(bar).not.toContain("border-bottom");
   });
 
   it("A/B 对比标签两侧共用同一材质（底色 + 模糊只在基类）", () => {

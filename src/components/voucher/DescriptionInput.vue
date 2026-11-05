@@ -126,8 +126,10 @@ function onDescKeydown(e: KeyboardEvent) {
   top: 100%;
   z-index: 30;
   margin-top: 4px;
-  background: var(--surface);
+  background: var(--bg-popover);
   border: 1px solid var(--stroke);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   border-radius: var(--radius-control);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   max-height: 240px;
@@ -151,7 +153,7 @@ function onDescKeydown(e: KeyboardEvent) {
 }
 
 .desc-option.active {
-  background: var(--surface-3);
+  background: var(--bg-selection);
 }
 
 .desc-text {

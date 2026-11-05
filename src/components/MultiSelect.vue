@@ -132,8 +132,10 @@ onBeforeUnmount(() => {
   max-height: 260px;
   overflow-y: auto;
   padding: var(--s-2);
-  background: var(--bg-content);
+  background: var(--bg-popover);
   border: 1px solid var(--separator-strong);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   border-radius: var(--radius-control);
   box-shadow: var(--shadow-2);
   display: flex;

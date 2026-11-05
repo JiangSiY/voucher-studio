@@ -56,6 +56,8 @@ const navItems = computed(() => [
 ]);
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "");
+/** Loon 式副标题：说明「这一页此刻能做什么」，只在路由声明，不在页面里重复写。 */
+const pageSubtitle = computed(() => (route.meta.subtitle as string) ?? "");
 
 /**
  * 侧栏收起（用户 2026-10-16 要求：可收起，收起后只显示图标）。
@@ -141,7 +143,10 @@ function toggleSidebar() {
              （整行按钮，见 `<aside>` 内 `.sidebar-toggle`）。 -->
         <!-- 工具栏里不再放按钮：命令面板按钮 2026-10-16 按用户要求去掉
              （"基本没用过，没有价值"）；⌘K 仍可用（`App.vue` 全局快捷键 → `stores/ui.ts`）。 -->
-        <h1 class="toolbar-title">{{ pageTitle }}</h1>
+        <div class="toolbar-heading">
+          <h1 class="toolbar-title">{{ pageTitle }}</h1>
+          <p v-if="pageSubtitle" class="toolbar-subtitle">{{ pageSubtitle }}</p>
+        </div>
       </header>
       <div class="main-scroll">
         <div class="page" :class="{ 'page--reading': isReading }">

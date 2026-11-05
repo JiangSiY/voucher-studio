@@ -227,9 +227,8 @@ onUnmounted(() => {
 
 <template>
   <div class="inbox">
-    <!-- 一句话现状：今天有几件事 -->
+    <!-- 一句话现状：今天有几件事。页标题由工具栏承担（Loon 不在页内重复大标题）。 -->
     <header class="inbox-head">
-      <h2>待处理</h2>
       <span class="scope">
         <template v-if="inbox.pendingCount">有 {{ inbox.pendingCount }} 件事等着办</template>
         <template v-else>暂时没有待办</template>
@@ -326,7 +325,7 @@ onUnmounted(() => {
 .inbox {
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
+  gap: var(--s-5);
 }
 
 .inbox-head {
@@ -335,36 +334,43 @@ onUnmounted(() => {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
-.inbox-head h2 {
-  font: var(--type-title);
-  color: var(--label-primary);
-  margin: 0;
-  font-size: var(--fs-display);
+.inbox-head .scope {
+  font: var(--type-body);
+  color: var(--label-secondary);
 }
 .flex-1 {
   flex: 1;
 }
 
-/* 待办行：一行一件，高 44px 左右——比卡片网格省下大量纵向空间。
-   行 = 主按钮（整行动作）+ 可选次要按钮；背景与描边挂在行上，视觉上仍是一整行。 */
+/* 待办行：一行一件，高 52px 左右——比卡片网格省下大量纵向空间
+   （2026-10-16 起就是这条取舍，Loon 化只把它搬进一张玻璃卡，不改回卡片网格）。
+   行 = 主按钮（整行动作）+ 可选次要按钮；整块卡片负责材质，行内只用悬停反馈。 */
+.todos {
+  padding: var(--s-2);
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+}
 .todos ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 .todo-row {
   display: flex;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
-  background: var(--bg-content);
+  background: transparent;
+  transition: background var(--motion-fast) var(--motion-curve);
 }
 .todo-row:hover {
   background: var(--bg-selection);
-  border-color: var(--separator);
 }
 .todo {
   display: flex;
@@ -372,7 +378,8 @@ onUnmounted(() => {
   gap: var(--s-3);
   flex: 1;
   min-width: 0;
-  padding: 10px var(--s-3);
+  min-height: calc(52px * var(--font-scale));
+  padding: 0 var(--s-3);
   border: 0;
   background: transparent;
   text-align: left;
@@ -392,7 +399,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .todo-count {
-  font: var(--type-body);
+  font: var(--type-metric);
   font-weight: 600;
   color: var(--label-primary);
   font-variant-numeric: tabular-nums;
@@ -402,11 +409,11 @@ onUnmounted(() => {
   margin-left: 4px;
   font: var(--type-caption);
   font-weight: 400;
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 .todo-hint {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -425,7 +432,7 @@ onUnmounted(() => {
   border-radius: var(--radius-small);
   background: transparent;
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   white-space: nowrap;
   cursor: default;
 }
@@ -438,10 +445,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
-  background: var(--bg-content);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
   color: var(--label-secondary);
   font: var(--type-body);
 }
@@ -458,10 +466,13 @@ onUnmounted(() => {
   gap: var(--s-3);
 }
 .panel {
-  padding: var(--s-3);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--bg-content);
+  padding: var(--s-4);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
 }
 .section-head {
   display: flex;
@@ -489,7 +500,7 @@ onUnmounted(() => {
   background: var(--bg-selection);
 }
 .muted {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
 }
 .link {
@@ -503,7 +514,7 @@ onUnmounted(() => {
   text-decoration: underline;
 }
 .empty-hint {
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-body);
   margin: var(--s-2) 0;
 }

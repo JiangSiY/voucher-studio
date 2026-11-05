@@ -17,7 +17,8 @@ body {
 
 body {
   font-family: var(--font);
-  /* 透明以透出窗口级 Mica/Acrylic 效果；可读性由 .main-area 的不透明背景保证 */
+  /* 透明以透出窗口级 Mica/Acrylic 效果；画布渐变铺在 .app-shell 上，
+     卡片的可读性由 --bg-card 的不透明度 + 软阴影保证。 */
   background: transparent;
   color: var(--text);
   font-size: var(--fs-body);
@@ -38,6 +39,10 @@ body {
 .app-shell {
   display: flex;
   height: 100vh;
+  /* Loon 画布：柔和渐变从窗口左上打光，并透出 7% 原生 vibrancy。
+     回退（reduced-transparency / 不支持 backdrop-filter）由 tokens 把
+     --canvas-gradient 换成 --canvas-solid 的实色线性渐变。 */
+  background: var(--canvas-gradient);
   /* 侧边栏拖拽手柄的定位上下文（手柄必须挂在 shell 上：.sidebar 自身滚动，
      放里面会随内容滚走） */
   position: relative;
@@ -51,7 +56,7 @@ body {
      模糊质感由窗口级材质提供；`prefers-reduced-transparency: reduce` 时
      tokens 会把 --bg-sidebar 换成实色（无障碍回退，Spike M 已验证媒体查询可读） */
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--separator);
+  border-right: 1px solid var(--card-hairline);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -80,13 +85,16 @@ body {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 10px var(--s-3);
-  border-radius: var(--radius-small);
+  min-height: calc(38px * var(--font-scale));
+  padding: 0 var(--s-3);
+  border-radius: var(--radius-control);
   color: var(--text-2);
   text-decoration: none;
   font-size: var(--fs-body);
-  transition: background var(--motion-fast) var(--motion-curve);
-  margin-bottom: 1px;
+  transition:
+    background var(--motion-fast) var(--motion-curve),
+    color var(--motion-fast) var(--motion-curve);
+  margin-bottom: 2px;
   position: relative;
 }
 
@@ -94,22 +102,13 @@ body {
   background: var(--bg-selection);
 }
 
+/* Loon 的选中态是一枚淡色圆角胶囊，不再用 macOS 27 的 3px 左侧竖条
+   （原实现见 v0.18–v0.23 历史正本；2026-11-04 Loon 化时删除）。 */
 .sidebar-nav a.router-link-active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg-card-strong);
+  color: var(--label-primary);
   font-weight: 600;
-}
-
-.sidebar-nav a.router-link-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  border-radius: var(--radius-small);
-  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--card-hairline);
 }
 
 .sidebar-nav .nav-icon {
@@ -132,7 +131,7 @@ body {
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-pill);
   background: var(--warning-soft);
   color: var(--warning);
   font-size: var(--fs-caption);
@@ -194,31 +193,57 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  /* 内容区**不透明**：材质只用于窗口 chrome（侧栏/工具栏），正文对比度优先（规范 §0.1） */
-  background: var(--bg-content);
+  /* 内容区不再单独铺白：画布渐变由 .app-shell 统一提供（Loon 化，
+     2026-11-04；原为不透明 --bg-content，见历史正本 §0.1）。 */
+  background: transparent;
 }
 
-/* 统一工具栏（自绘，规范 §1.4/§1.5）：整条可拖动窗口、双击最大化；
-   左侧留白给交通灯（--toolbar-inset-start = 84px，对应 trafficLightPosition 14,18） */
+/* 统一工具栏（自绘，规范 §1.4/§1.5）：整条可拖动窗口、双击最大化。
+   侧栏展开时左内边距 24（标题与内容左缘对齐）；收起时由下方
+   `[data-sidebar-collapsed="true"]` 规则切回 84，给 56px 侧栏里的交通灯让位。 */
 .unified-toolbar {
   height: var(--toolbar-h);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 0 var(--s-3) 0 var(--toolbar-inset-start);
-  border-bottom: 1px solid var(--separator-strong);
-  /* 与侧栏同源：材质由窗口提供，这里只叠着色 */
-  background: var(--bg-sidebar);
+  padding: 0 var(--s-6) 0 var(--s-6);
+  border-bottom: none;
+  background: transparent;
   -webkit-user-select: none;
   user-select: none;
 }
 
+:root[data-sidebar-collapsed="true"] .unified-toolbar {
+  padding-left: var(--toolbar-inset-start);
+}
+
+.unified-toolbar .toolbar-heading {
+  display: flex;
+  /* Loon 的标题行：大标题 + 同行小灰字，基线对齐。
+     早期版本把副标题竖排在标题下面，标题被顶到工具栏上沿；改同行后
+     标题自然落在 56px 工具栏的垂直中线上，与交通灯齐平。 */
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex: 1;
+  min-width: 0;
+}
+
 .unified-toolbar .toolbar-title {
-  font: var(--type-title);
+  font: var(--type-page-title);
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
   color: var(--label-primary);
   margin: 0;
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-toolbar .toolbar-subtitle {
+  font: var(--type-caption);
+  color: var(--label-secondary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -234,7 +259,8 @@ body {
 .main-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: var(--s-8);
+  /* 顶部只留 12，让第一张卡贴近工具栏（Loon 的紧凑观感）；左右/底部保持 24。 */
+  padding: var(--s-3) var(--s-6) var(--s-6);
 }
 
 /* 宽内容页（凭证列表 / 仪表盘 / 打印中心）铺满可用宽度；
@@ -243,26 +269,38 @@ body {
   margin: 0 auto;
 }
 
-/* ===== Fluent 卡片/面板 ===== */
+/* ===== 玻璃卡片（Loon）===== */
 
 .fluent-panel {
-  /* 类名沿用（20+ 模板在用），观感按新规范：12px 圆角、发丝描边、**不投影**
-     ——层级用分隔线与留白表达，不用重投影与嵌套卡片（规范 §0.2） */
-  background: var(--bg-content);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
+  /* 类名沿用（20+ 模板在用），观感改为 Loon 玻璃卡：20px 大圆角、
+     半透明底、发丝边、一层软托起。层级仍靠卡片间距表达；
+     卡内嵌板用 `.fluent-panel .fluent-panel` 降级，避免"每层都发亮"。 */
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   overflow: hidden;
   margin-bottom: var(--s-4);
 }
 
+/* 嵌套面板：只作为卡内分区，不再叠模糊/阴影，否则两层半透明会互染成灰。 */
+.fluent-panel .fluent-panel {
+  background: var(--bg-card-sunken);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: var(--radius-panel);
+}
+
 .fluent-panel-header {
-  padding: var(--s-3) var(--s-4);
+  padding: var(--s-4) var(--s-5);
   border-bottom: 1px solid var(--separator);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-2);
-  /* 标题条不再用另一层底色（避免"卡片套卡片"的观感），只靠分隔线区分 */
   background: transparent;
 }
 
@@ -272,7 +310,15 @@ body {
 }
 
 .fluent-panel-body {
-  padding: var(--s-4);
+  padding: var(--s-5);
+}
+
+/* 不支持 backdrop-filter 时（老 WebKit / 减少透明度），卡片升到实色，
+   否则文字直接坐在渐变上会花。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .fluent-panel {
+    background: var(--bg-card-strong);
+  }
 }
 
 /* ===== 按钮 ===== */
@@ -291,7 +337,7 @@ body {
   font-weight: 500;
   cursor: default;
   font-family: var(--font);
-  background: var(--bg-control);
+  background: var(--bg-field);
   color: var(--label-primary);
   transition:
     background var(--motion-fast) var(--motion-curve),
@@ -521,7 +567,7 @@ body {
   border-radius: var(--radius-control);
   font: var(--type-body);
   font-family: var(--font);
-  background: var(--bg-control);
+  background: var(--bg-field);
   color: var(--label-primary);
   transition:
     border-color var(--motion-fast) var(--motion-curve),
@@ -578,15 +624,16 @@ select.input {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border-radius: var(--radius-control);
-  background: var(--bg-selection);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card-sunken);
+  border: 1px solid var(--card-hairline);
 }
 
 .segmented .seg-item {
   min-height: calc(var(--control-h-sm) + 2px);
   padding: 4px var(--s-4);
   border: none;
-  border-radius: calc(var(--radius-control) - 2px);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--label-secondary);
   font: var(--type-body);
@@ -601,10 +648,12 @@ select.input {
 
 /* 选中段：实底 + 发丝描边（不用重投影） */
 .segmented .seg-item.active {
-  background: var(--bg-control);
+  background: var(--bg-card-strong);
   color: var(--label-primary);
   font-weight: 600;
-  box-shadow: 0 0 0 0.5px var(--separator);
+  box-shadow:
+    0 0 0 1px var(--card-hairline),
+    0 2px 6px rgba(31, 54, 41, 0.08);
 }
 
 /* ===== 数据表 ===== */
@@ -698,7 +747,7 @@ select.input {
   padding: 0 var(--s-2);
   border: 1px solid var(--separator-strong);
   border-radius: var(--radius-control);
-  background: var(--bg-control);
+  background: var(--bg-field);
 }
 
 .search:focus-within {
@@ -797,7 +846,7 @@ select.input {
   height: var(--control-h-sm);
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
-  background: var(--surface);
+  background: var(--bg-field);
   cursor: pointer;
   font-size: var(--fs-caption);
   color: var(--text-3);
@@ -820,12 +869,27 @@ select.input {
   cursor: not-allowed;
 }
 
-/* ===== 凭证卡片（打印预览用，三种风格，无 QR 码） ===== */
+/* ===== 凭证卡片（打印预览用，三种风格，无 QR 码） =====
+   纸面永远是白的：深色主题下必须把文字/分隔线也局部切回纸面墨色，
+   否则会复现 2026-11-04 审计发现的「白底白字、预览全白」缺陷。 */
 .print-area {
-  background: white;
-  border: 1px solid var(--separator);
+  background: var(--bg-paper);
+  border: 1px solid var(--paper-line);
   border-radius: var(--radius-control);
   padding: var(--s-5);
+  color: var(--paper-ink);
+  --label-primary: var(--paper-ink);
+  --label-secondary: var(--paper-ink-2);
+  --label-tertiary: var(--paper-ink-2);
+  --text: var(--paper-ink);
+  --text-2: var(--paper-ink-2);
+  --text-3: var(--paper-ink-2);
+  --text-4: var(--paper-ink-2);
+  --separator: var(--paper-line);
+  --separator-strong: var(--paper-line);
+  --surface: var(--bg-paper);
+  --surface-2: var(--bg-paper);
+  --surface-3: var(--bg-paper);
 }
 
 /* ===== D-9 打印中心：图片附录预览（与 PDF 附录同取图规则） ===== */
@@ -846,9 +910,9 @@ select.input {
 }
 .appendix-cell {
   margin: 0;
-  border: 1px solid var(--separator);
+  border: 1px solid var(--paper-line);
   border-radius: var(--radius-small);
-  background: var(--surface-2);
+  background: var(--bg-paper);
   overflow: hidden;
 }
 .appendix-cell img {
@@ -865,8 +929,8 @@ select.input {
   gap: 4px;
   padding: 4px 6px;
   font-size: var(--fs-caption);
-  color: var(--label-secondary);
-  border-top: 1px solid var(--separator);
+  color: var(--paper-ink-2);
+  border-top: 1px solid var(--paper-line);
 }
 .appendix-badge {
   font-size: var(--fs-caption);
@@ -883,7 +947,7 @@ select.input {
   text-align: center;
   color: var(--text-3);
   transition: all var(--motion-fast);
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
 }
 
 .dropzone.dragover {
@@ -963,7 +1027,7 @@ select.input {
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
   overflow: hidden;
-  background: var(--surface);
+  background: var(--bg-card-sunken);
 }
 
 .att-card .att-img {
@@ -1333,7 +1397,7 @@ select.input {
   border-radius: var(--radius-small);
   padding: var(--s-2) var(--s-3);
   margin-bottom: var(--s-2);
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
   font-size: var(--fs-caption);
 }
 
@@ -1426,7 +1490,7 @@ select.input {
   gap: 12px;
   margin: 8px 0 16px;
   padding: 12px;
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
   border: 1px solid var(--separator);
   border-radius: var(--radius-control);
 }
@@ -1728,6 +1792,17 @@ select.input {
   .att-ops .ops-label {
     display: none;
   }
+}
+
+/* 设置页正文：Loon 的「一张大玻璃卡」，分区切换条浮在卡片上方 */
+.settings-body {
+  padding: var(--s-5);
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
 }
 
 /* ===== 设置页（U4）：六个分区共用一套分区/行/说明类 =====

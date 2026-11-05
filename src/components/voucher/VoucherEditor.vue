@@ -634,7 +634,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   bottom: 0;
   z-index: 2;
   padding: var(--s-2) 0;
-  background: var(--bg-content);
+  background: var(--bg-card-solid);
   border-top: 1px solid var(--separator);
 }
 
@@ -766,7 +766,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   bottom: 0;
   z-index: 2;
   padding: var(--s-2) 0;
-  background: var(--bg-content);
+  background: var(--bg-card-solid);
   border-top: 1px solid var(--separator);
 }
 

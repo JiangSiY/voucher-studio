@@ -651,7 +651,7 @@ onBeforeUnmount(() => {
   border-bottom: none;
 }
 .dup-pair.active {
-  background: var(--surface-2, transparent);
+  background: var(--bg-card-sunken);
 }
 .dup-pair-main {
   flex: 1;
@@ -698,7 +698,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+  background: var(--bg-card-sunken);
   border-radius: var(--radius-control);
   overflow: hidden;
 }

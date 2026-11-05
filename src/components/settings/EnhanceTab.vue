@@ -643,7 +643,7 @@ onUnmounted(() => {
   padding: 4px 10px;
   border-radius: var(--radius-small);
   border: 1px solid var(--stroke);
-  background: var(--surface-2);
+  background: var(--bg-field);
   color: var(--text-2);
   cursor: pointer;
   transition:
@@ -652,7 +652,7 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 .btn-mini:hover {
-  background: var(--surface-3);
+  background: var(--bg-card-strong);
   border-color: var(--accent);
   color: var(--text);
 }
@@ -705,7 +705,7 @@ onUnmounted(() => {
   border-radius: var(--radius-control);
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--surface);
+  background: var(--bg-card-sunken);
 }
 .ht-head {
   display: flex;
@@ -727,7 +727,7 @@ onUnmounted(() => {
   padding: 2px 8px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-small);
-  background: var(--surface-2);
+  background: var(--bg-field);
   color: var(--text-3);
   cursor: pointer;
   transition: all var(--motion-fast) var(--motion-curve);
@@ -811,7 +811,7 @@ onUnmounted(() => {
   border-radius: var(--radius-control);
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--surface);
+  background: var(--bg-card-sunken);
 }
 .cs-title {
   font-size: var(--fs-caption);
@@ -843,7 +843,7 @@ onUnmounted(() => {
   padding: 2px 6px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-small);
-  background: var(--surface-2);
+  background: var(--bg-field);
   color: var(--text);
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -858,7 +858,7 @@ onUnmounted(() => {
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   padding: 12px;
-  background: var(--surface);
+  background: var(--bg-card-sunken);
 }
 .re-title {
   font-size: var(--fs-caption);
@@ -877,7 +877,7 @@ onUnmounted(() => {
   color: var(--text-3);
   padding: 4px 8px;
   border-bottom: 1px solid var(--stroke);
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
 }
 .re-table td {
   padding: 6px 8px;
@@ -914,7 +914,7 @@ onUnmounted(() => {
   color: var(--accent);
 }
 .re-hit.off {
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
   color: var(--text-3);
 }
 .re-empty {

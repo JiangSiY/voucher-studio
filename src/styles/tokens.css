@@ -1,7 +1,8 @@
 /**
- * 设计令牌（v0.18 重写：**macOS 27 语义层**）
+ * 设计令牌（v0.18 起为 macOS 27 语义层；2026-11-04 起转为 **Loon 玻璃卡片层**）
  *
- * 正本：`docs/UI-设计规范-macOS27.md` §1。要点：
+ * 正本：`docs/UI-设计规范-Loon.md`；历史正本 `docs/UI-设计规范-macOS27.md` 保留 v0.18–v0.23 记录。
+ * 要点：
  * - 新语义令牌（`--bg-*` / `--label-*` / `--separator*` / `--radius-*` / `--control-h-*` /
  *   `--type-*` / `--motion-*`）是**唯一真源**；
  * - 旧 Fluent 令牌（`--surface*` / `--text*` / `--stroke*` / `--r-*` / `--shadow-*` /
@@ -17,21 +18,50 @@
 :root,
 html[data-theme="light"] {
   /* ===== 新语义层：表面 ===== */
-  --bg-window: #ececec;
-  /* 侧栏/工具栏：叠在**原生材质**上的着色。alpha 刻意压低（0.28）——用户反馈
-     "没有看到玻璃效果"，此前 0.55 把模糊盖住了；降低后材质透出更明显。
-     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。
-     **浅色侧不抬不透明度**：2026-10-16 深色侧因对比度抬到 0.94 时，浅色侧刻意保持 0.28
-     （同一轮用户明确要"看得到玻璃"）；代价是浅色侧栏叠在深色桌面壁纸上仍会偏灰，
-     由 `prefers-reduced-transparency: reduce` 或改用深色主题兜底。 */
-  --bg-sidebar: rgba(243, 243, 243, 0.28);
-  --bg-sidebar-solid: #e8e8ec;
-  /* 内容区：**不透明**，长阅读对比度优先 */
+  --bg-window: #dfe9e2;
+  /* 画布：Loon 式的鼠尾草绿灰渐变；两处径向高光负责"窗口后方有光"。
+     `--canvas-solid` 是 reduced-transparency 与不支持 backdrop-filter 时的回退底色。
+     （原 macOS 27 为纯色 #ececec，自 2026-11-04 Loon 化起改为渐变。） */
+  --canvas-solid: #d9e4dc;
+  --canvas-gradient:
+    radial-gradient(900px 520px at 8% -14%, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0) 62%),
+    radial-gradient(760px 460px at 96% 108%, rgba(160, 188, 170, 0.5), rgba(160, 188, 170, 0) 64%),
+    linear-gradient(
+      155deg,
+      rgba(212, 226, 215, 0.96) 0%,
+      rgba(195, 214, 201, 0.96) 52%,
+      rgba(205, 221, 209, 0.96) 100%
+    );
+  /* 侧栏/工具栏：叠在**原生材质**上的着色。浅色保留低 alpha（用户明确要"看得到玻璃"），
+     但带绿调才能和画布成一体；alpha 上限受 `a11yContract.test.ts:55` 约束（浅色 ≤0.35）。
+     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
+  --bg-sidebar: rgba(158, 182, 167, 0.3);
+  --bg-sidebar-solid: #dfe8e1;
+  /* 内容区实色：只留给对话框、吸顶表头、打印纸张等**必须不透明**的载体；
+     内容卡片改用 `--bg-card*`，主画布不再消费它。 */
   --bg-content: #ffffff;
   --bg-control: #ffffff;
   --bg-popover: rgba(247, 247, 250, 0.92);
   --bg-popover-solid: #f7f7fa;
   --bg-selection: rgba(10, 132, 255, 0.12);
+
+  /* 玻璃卡片三层：regular（主卡）/ strong（浮条、检视器）/ sunken（卡内嵌板）。
+     solid 版本供 reduced-transparency 与 backdrop-filter 缺失时回退。 */
+  --bg-card: rgba(255, 255, 255, 0.6);
+  --bg-card-strong: rgba(255, 255, 255, 0.74);
+  --bg-card-sunken: rgba(31, 54, 41, 0.055);
+  --bg-card-solid: #f4f8f5;
+  --bg-card-sunken-solid: #e9f1eb;
+  --bg-field: rgba(255, 255, 255, 0.55);
+  --card-hairline: rgba(255, 255, 255, 0.6);
+  --blur-card: blur(22px) saturate(1.15);
+  /* 纸面：打印预览与最终 PDF 的纸永远是白的，不随主题变。
+     深色下 `.print-area` 必须把 `--label-*` 局部覆盖成 `--paper-*`，
+     否则会复现 2026-11-04 审计发现的「白底白字」缺陷。 */
+  --bg-paper: #ffffff;
+  --paper-ink: rgba(0, 0, 0, 0.86);
+  --paper-ink-2: rgba(0, 0, 0, 0.6);
+  --paper-line: rgba(0, 0, 0, 0.12);
 
   /* ===== 新语义层：文字 ===== */
   --label-primary: rgba(0, 0, 0, 0.85);
@@ -62,12 +92,16 @@ html[data-theme="light"] {
 
   /* ===== 新语义层：圆角（同心：子圆角 = 父圆角 − 内边距，clamp ≥4）===== */
   --radius-window: 10px;
+  /* 对话框/浮层仍用 12：它们不跟着内容卡一起放大，避免弹窗"变胖"。 */
   --radius-panel: 12px;
   /* 通知条（toast）圆角：规范 §1.5 点名 10px——比面板小一档、比控件大一档，
      是 macOS 通知的观感；不塞进上面三档是有意的（改三档不该顺带动 toast）。 */
   --radius-toast: 10px;
-  --radius-control: 6px;
-  --radius-small: 4px;
+  /* 内容卡：Loon 的大圆角；控件与小组件依次缩小，保持同心。 */
+  --radius-card: 20px;
+  --radius-control: 10px;
+  --radius-small: 8px;
+  --radius-pill: 999px;
 
   /* ===== 新语义层：控件高度（大字号基线：行内 26 / 常规 32 / 主操作 36）===== */
   --control-h-xs: calc(20px * var(--font-scale));
@@ -85,6 +119,8 @@ html[data-theme="light"] {
      已于 2026-10-18（U1）全部收编为 `--fs-*`。 */
   --font-scale: 1;
   --type-title: 600 calc(17px * var(--font-scale)) / 1.35 var(--font);
+  --type-page-title: 600 calc(22px * var(--font-scale)) / 1.25 var(--font);
+  --type-metric: 600 calc(24px * var(--font-scale)) / 1.15 var(--font);
   --type-body: 400 calc(15px * var(--font-scale)) / 1.5 var(--font);
   --type-caption: 400 calc(13px * var(--font-scale)) / 1.4 var(--font);
   --type-mono-sm: 400 calc(14px * var(--font-scale)) / 1.45 var(--font-mono);
@@ -93,11 +129,15 @@ html[data-theme="light"] {
      与 `--type-*` 同源同比例（标题 17 / 正文 15 / 辅助 13 × --font-scale）。
      历史：旧组件里 159 处 `font-size: Npx` 字面量与令牌双轨，导致「界面字号」档位只改约 1/3 界面。 */
   --fs-title: calc(17px * var(--font-scale));
+  --fs-page-title: calc(22px * var(--font-scale));
+  --fs-metric: calc(24px * var(--font-scale));
   --fs-body: calc(15px * var(--font-scale));
   --fs-caption: calc(13px * var(--font-scale));
   --fs-display: calc(20px * var(--font-scale));
 
-  /* ===== 新语义层：阴影（内容区不用阴影，仅浮层）===== */
+  /* ===== 新语义层：阴影（Loon 化后内容卡允许一层**软**托起；浮层仍用更重的投影）===== */
+  --shadow-card: 0 18px 40px -26px rgba(31, 54, 41, 0.55), 0 2px 6px rgba(31, 54, 41, 0.06);
+  --shadow-card-hover: 0 22px 46px -26px rgba(31, 54, 41, 0.62), 0 3px 8px rgba(31, 54, 41, 0.08);
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
 
@@ -115,6 +155,7 @@ html[data-theme="light"] {
   --s-4: 16px;
   --s-5: 20px;
   --s-6: 24px;
+  --s-7: 28px;
   --s-8: 32px;
   --s-10: 40px;
   --s-16: 64px;
@@ -123,8 +164,11 @@ html[data-theme="light"] {
   /* 默认宽度与 `SIDEBAR_WIDTH_DEFAULT`（前端 config-defaults / Rust AppearanceConfig）同值：
      2026-10-16 随"去掉侧栏左上角图标 + 徽标改角标"一起收窄 260 → 220。 */
   --sidebar-w: 220px;
-  /* 统一工具栏高度（自绘工具栏；左侧为交通灯留白 84px，见规范 §1.4） */
-  --toolbar-h: 52px;
+  /* 统一工具栏高度（自绘工具栏，Loon 大标题需要 56px）。
+     左侧内边距分两态：侧栏展开时 24（标题与内容左缘对齐）；侧栏收起时 84，
+     给 56px 宽侧栏里的交通灯（x=14–80）让位——由 base.css 的
+     `[data-sidebar-collapsed="true"]` 规则切回 `--toolbar-inset-start`。 */
+  --toolbar-h: 56px;
   --toolbar-inset-start: 84px;
 
   /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6，2026-10-18 U1 已完成字号收编）===== */
@@ -160,20 +204,38 @@ html[data-theme="light"] {
 }
 
 html[data-theme="dark"] {
-  --bg-window: #1e1e1e;
-  /* 侧栏材质：深色下**只抬不透明度**（0.35 → 0.94），色相与实色回退保持不变。
-     0.35 的深色叠在浅色底上会被冲成中灰（浅色画布实测合成 rgb(179,179,180)），
-     白字对比度掉到 1.9:1，侧栏观感随桌面壁纸忽明忽暗；0.94 后合成稳定在深灰
-     （浅底 rgb(51,51,55) / 深底 rgb(36,36,40)），比内容区 `#1c1c1e` 略亮一层，仍是"侧栏面板"。
-     **只动深色**：浅色侧用户明确要"看得到玻璃"，保持 0.28 不动。
-     `prefers-reduced-transparency: reduce` 照旧回退实色。 */
-  --bg-sidebar: rgba(38, 38, 42, 0.94);
-  --bg-sidebar-solid: #252528;
+  --bg-window: #121715;
+  /* 侧栏材质：深色下必须保持"深色 + 高不透明度"——若改成白色低 alpha，
+     `a11yContract.test.ts` 会把它算进浅色条目并判红，且侧栏会随桌面壁纸发灰。
+     0.9 的深绿灰叠在深色画布上，比内容卡略亮一层，仍是"侧栏面板"。
+     浅色侧保持低 alpha（用户明确要"看得到玻璃"，alpha 上限 0.35）。
+     `prefers-reduced-transparency: reduce` 时回退实色。
+     **必须是深色 rgba（r<128）且 alpha ≥0.85**（a11yContract 硬约束）。 */
+  --bg-sidebar: rgba(42, 54, 47, 0.9);
+  --bg-sidebar-solid: #1b211e;
   --bg-content: #1c1c1e;
   --bg-control: #2c2c2e;
   --bg-popover: rgba(42, 42, 45, 0.94);
   --bg-popover-solid: #2a2a2d;
   --bg-selection: rgba(10, 132, 255, 0.2);
+
+  --canvas-solid: #121715;
+  --canvas-gradient:
+    radial-gradient(800px 480px at 10% -14%, rgba(120, 150, 134, 0.28), rgba(120, 150, 134, 0) 60%),
+    radial-gradient(700px 420px at 92% 108%, rgba(70, 96, 82, 0.45), rgba(70, 96, 82, 0) 62%),
+    linear-gradient(
+      155deg,
+      rgba(18, 23, 21, 0.94) 0%,
+      rgba(23, 30, 26, 0.94) 55%,
+      rgba(17, 22, 20, 0.94) 100%
+    );
+  --bg-card: rgba(255, 255, 255, 0.065);
+  --bg-card-strong: rgba(255, 255, 255, 0.1);
+  --bg-card-sunken: rgba(255, 255, 255, 0.04);
+  --bg-card-solid: #232925;
+  --bg-card-sunken-solid: #1d2320;
+  --bg-field: rgba(255, 255, 255, 0.08);
+  --card-hairline: rgba(255, 255, 255, 0.1);
 
   --label-primary: rgba(255, 255, 255, 0.92);
   --label-secondary: rgba(255, 255, 255, 0.62);
@@ -197,6 +259,8 @@ html[data-theme="dark"] {
   --danger-soft: rgba(255, 99, 105, 0.16);
   --info-soft: rgba(10, 132, 255, 0.12);
 
+  --shadow-card: 0 18px 40px -26px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 22px 46px -26px rgba(0, 0, 0, 0.78), 0 3px 8px rgba(0, 0, 0, 0.3);
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
   --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 
@@ -224,14 +288,36 @@ html[data-theme="dark"] {
    两者数值保持一致，改一处请同步另一处）。 */
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
-    --bg-window: #1e1e1e;
-    --bg-sidebar: rgba(38, 38, 42, 0.94);
-    --bg-sidebar-solid: #252528;
+    --bg-window: #121715;
+    --bg-sidebar: rgba(42, 54, 47, 0.9);
+    --bg-sidebar-solid: #1b211e;
     --bg-content: #1c1c1e;
     --bg-control: #2c2c2e;
     --bg-popover: rgba(42, 42, 45, 0.94);
     --bg-popover-solid: #2a2a2d;
     --bg-selection: rgba(10, 132, 255, 0.2);
+    --canvas-solid: #121715;
+    --canvas-gradient:
+      radial-gradient(
+        800px 480px at 10% -14%,
+        rgba(120, 150, 134, 0.28),
+        rgba(120, 150, 134, 0) 60%
+      ),
+      radial-gradient(700px 420px at 92% 108%, rgba(70, 96, 82, 0.45), rgba(70, 96, 82, 0) 62%),
+      linear-gradient(
+        155deg,
+        rgba(18, 23, 21, 0.94) 0%,
+        rgba(23, 30, 26, 0.94) 55%,
+        rgba(17, 22, 20, 0.94) 100%
+      );
+    --bg-card: rgba(255, 255, 255, 0.065);
+    --bg-card-strong: rgba(255, 255, 255, 0.1);
+    --bg-card-sunken: rgba(255, 255, 255, 0.04);
+    --bg-card-solid: #232925;
+    --bg-card-sunken-solid: #1d2320;
+    --bg-field: rgba(255, 255, 255, 0.08);
+    --card-hairline: rgba(255, 255, 255, 0.1);
+    --shadow-card: 0 18px 40px -26px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
     --label-primary: rgba(255, 255, 255, 0.92);
     --label-secondary: rgba(255, 255, 255, 0.62);
     --label-tertiary: rgba(255, 255, 255, 0.42);
@@ -249,6 +335,13 @@ html[data-theme="dark"] {
   html[data-theme="dark"] {
     --bg-sidebar: var(--bg-sidebar-solid);
     --bg-popover: var(--bg-popover-solid);
+    --bg-card: var(--bg-card-solid);
+    --bg-card-strong: var(--bg-card-solid);
+    --bg-card-sunken: var(--bg-card-sunken-solid);
+    --bg-field: var(--bg-control);
+    --blur-card: none;
+    --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
+    --card-hairline: var(--separator);
   }
 }
 
@@ -280,6 +373,7 @@ html[data-theme="dark"] {
   html[data-theme="light"],
   html[data-theme="dark"] {
     --separator: var(--separator-strong);
+    --card-hairline: var(--separator-strong);
     --text-2: var(--label-primary);
     --text-3: var(--label-primary);
     --text-4: var(--label-secondary);

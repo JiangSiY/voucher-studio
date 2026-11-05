@@ -80,16 +80,18 @@ onMounted(load);
     </button>
   </div>
 
-  <GeneralTab v-show="tab === 'general'" />
-  <NamingTab v-show="tab === 'naming'" />
-  <OcrTab v-show="tab === 'ocr'" />
-  <EnhanceTab v-show="tab === 'enhance'" />
-  <SecretsTab v-show="tab === 'secrets'" />
-  <BackupTab v-show="tab === 'backup'" />
+  <div class="settings-body">
+    <GeneralTab v-show="tab === 'general'" />
+    <NamingTab v-show="tab === 'naming'" />
+    <OcrTab v-show="tab === 'ocr'" />
+    <EnhanceTab v-show="tab === 'enhance'" />
+    <SecretsTab v-show="tab === 'secrets'" />
+    <BackupTab v-show="tab === 'backup'" />
 
-  <div class="settings-actions">
-    <button class="btn btn-primary" :disabled="saving" @click="save">
-      {{ saving ? "保存中…" : "保存设置" }}
-    </button>
+    <div class="settings-actions">
+      <button class="btn btn-primary" :disabled="saving" @click="save">
+        {{ saving ? "保存中…" : "保存设置" }}
+      </button>
+    </div>
   </div>
 </template>

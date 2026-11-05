@@ -634,7 +634,7 @@ onUnmounted(() => {
 }
 .action-bar .scope {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 .flex-1 {
   flex: 1;
@@ -673,7 +673,7 @@ onUnmounted(() => {
   justify-content: center;
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
-  background: var(--surface-2);
+  background: var(--bg-card-sunken);
   color: var(--label-quaternary);
   overflow: hidden;
 }
@@ -713,7 +713,7 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--s-2);
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   min-width: 0;
 }
 .dot {
@@ -723,7 +723,7 @@ onUnmounted(() => {
   padding: var(--s-2);
   text-align: center;
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 
 .field-strong {
@@ -747,18 +747,18 @@ onUnmounted(() => {
   padding: var(--s-3);
   border: 1px dashed var(--separator-strong);
   border-radius: var(--radius-control);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   font: var(--type-caption);
 }
 .muted-small {
   font: var(--type-caption);
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
 }
 
 /* 原先写死 #8e8e8e 的说明文字 → 语义令牌（深浅两色自动适配） */
 .muted-center {
   text-align: center;
-  color: var(--label-tertiary);
+  color: var(--label-secondary);
   padding: var(--s-8) 0;
   font: var(--type-body);
 }
