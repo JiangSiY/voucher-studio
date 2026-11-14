@@ -24,6 +24,8 @@ pub struct Voucher {
     pub tags: Vec<String>,
     /// 备注
     pub note: String,
+    /// 台账关联键（流水号/单据号），唯一索引，幂等导入核心键
+    pub ledger_ref: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -43,6 +45,8 @@ pub struct NewVoucher {
     pub status: Option<VoucherStatus>,
     pub tags: Vec<String>,
     pub note: String,
+    /// 台账关联键（流水号/单据号），提供则用于幂等查重
+    pub ledger_ref: Option<String>,
 }
 
 /// 更新凭证入参（None = 不修改该字段）
@@ -59,6 +63,8 @@ pub struct VoucherUpdate {
     pub status: Option<VoucherStatus>,
     pub tags: Option<Vec<String>>,
     pub note: Option<String>,
+    /// 台账关联键（流水号/单据号）
+    pub ledger_ref: Option<String>,
 }
 
 impl Voucher {

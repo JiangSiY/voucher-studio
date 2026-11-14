@@ -40,6 +40,7 @@ fn upgrade_from_pre_v016_db_keeps_vouchers_and_adds_decisions_table() -> Result<
                     status: None,
                     tags: Vec::new(),
                     note: String::new(),
+                    ledger_ref: None,
                 },
             )?;
             Ok(v.id)

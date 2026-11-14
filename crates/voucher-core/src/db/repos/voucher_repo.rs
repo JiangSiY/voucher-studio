@@ -113,7 +113,7 @@ pub struct VoucherStats {
 
 /// 全列清单（dedup / reconcile 等服务层查询共用，保证行映射口径唯一）
 pub(crate) const COLS: &str =
-    "id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at";
+    "id, voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, ledger_ref, created_at, updated_at";
 
 /// 行 → Voucher 唯一映射（vouchers 表结构变更只需改这一处）
 ///
@@ -154,8 +154,9 @@ pub(crate) fn row_to_voucher(row: &rusqlite::Row<'_>) -> rusqlite::Result<Vouche
             }
         },
         note: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        ledger_ref: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 
@@ -168,8 +169,8 @@ pub fn insert(conn: &Connection, v: &NewVoucher) -> Result<Voucher> {
     };
     let status = v.status.unwrap_or(VoucherStatus::Draft);
     conn.execute(
-        "INSERT INTO vouchers (voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+        "INSERT INTO vouchers (voucher_no, voucher_date, description, counterparty, amount_cents, status, tags, note, ledger_ref, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
         params![
             v.voucher_no,
             date,
@@ -179,6 +180,7 @@ pub fn insert(conn: &Connection, v: &NewVoucher) -> Result<Voucher> {
             status.as_str(),
             serde_json::to_string(&v.tags)?,
             v.note,
+            v.ledger_ref,
             now
         ],
     )?;
@@ -200,6 +202,18 @@ pub fn get_by_no(conn: &Connection, voucher_no: &str) -> Result<Option<Voucher>>
         "SELECT {COLS} FROM vouchers WHERE voucher_no = ?1"
     ))?;
     let mut rows = stmt.query(params![voucher_no])?;
+    Ok(match rows.next()? {
+        Some(r) => Some(row_to_voucher(r)?),
+        None => None,
+    })
+}
+
+/// 按台账关联键查找凭证（幂等导入核心查询）
+pub fn find_by_ledger_ref(conn: &Connection, ledger_ref: &str) -> Result<Option<Voucher>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM vouchers WHERE ledger_ref = ?1"
+    ))?;
+    let mut rows = stmt.query(params![ledger_ref])?;
     Ok(match rows.next()? {
         Some(r) => Some(row_to_voucher(r)?),
         None => None,
@@ -233,9 +247,11 @@ pub fn update(conn: &Connection, id: i64, u: &VoucherUpdate) -> Result<bool> {
         Some(t) => serde_json::to_string(t)?,
         None => serde_json::to_string(&current.tags)?,
     };
+    // ledger_ref：Some 覆盖，None 保持不变（与 note 同口径，避免误清空幂等键）
+    let ledger_ref = u.ledger_ref.clone().or(current.ledger_ref);
     let n = conn.execute(
         "UPDATE vouchers SET voucher_no=?1, voucher_date=?2, description=?3, counterparty=?4, amount_cents=?5,
-         status=?6, tags=?7, note=?8, updated_at=?9 WHERE id=?10",
+         status=?6, tags=?7, note=?8, ledger_ref=?9, updated_at=?10 WHERE id=?11",
         params![
             voucher_no,
             u.voucher_date.clone().unwrap_or(current.voucher_date),
@@ -245,6 +261,7 @@ pub fn update(conn: &Connection, id: i64, u: &VoucherUpdate) -> Result<bool> {
             status,
             tags,
             u.note.clone().unwrap_or(current.note),
+            ledger_ref,
             now_iso(),
             id
         ],
@@ -663,7 +680,7 @@ pub fn search(
     };
 
     let sql = format!(
-        "SELECT DISTINCT v.id, v.voucher_no, v.voucher_date, v.description, v.counterparty, v.amount_cents, v.status, v.tags, v.note, v.created_at, v.updated_at
+        "SELECT DISTINCT v.id, v.voucher_no, v.voucher_date, v.description, v.counterparty, v.amount_cents, v.status, v.tags, v.note, v.ledger_ref, v.created_at, v.updated_at
          FROM vouchers v
          LEFT JOIN attachments a ON a.voucher_id = v.id
          WHERE (v.voucher_no LIKE ?1 ESCAPE '\\'

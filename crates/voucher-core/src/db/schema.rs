@@ -325,6 +325,23 @@ pub fn init(conn: &Connection) -> Result<()> {
             "ALTER TABLE export_batches ADD COLUMN format TEXT NOT NULL DEFAULT 'pdf'",
         )?;
     }
+    // v12（财务工作流集成）：vouchers 加 ledger_ref 列 + 唯一索引。
+    // ledger_ref = 台账流水号/单据号，是台账导入的幂等键（同一笔台账只对应一张凭证）。
+    // 幂等只增，不动 `SCHEMA_VERSION`；SQLite 的 `ALTER TABLE ... ADD COLUMN` 不幂等，
+    // 故一律先 `has_column` 探测再加。
+    if !has_column(conn, "vouchers", "ledger_ref")? {
+        conn.execute_batch("ALTER TABLE vouchers ADD COLUMN ledger_ref TEXT")?;
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_vouchers_ledger_ref ON vouchers(ledger_ref) WHERE ledger_ref IS NOT NULL",
+        )?;
+    }
+    // v12：attachments 加 is_pdf、page_count 列
+    if !has_column(conn, "attachments", "is_pdf")? {
+        conn.execute_batch("ALTER TABLE attachments ADD COLUMN is_pdf BOOLEAN NOT NULL DEFAULT 0")?;
+    }
+    if !has_column(conn, "attachments", "page_count")? {
+        conn.execute_batch("ALTER TABLE attachments ADD COLUMN page_count INTEGER")?;
+    }
     Ok(())
 }
 

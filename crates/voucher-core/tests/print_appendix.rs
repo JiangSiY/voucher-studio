@@ -25,6 +25,7 @@ fn mk(ctx: &CoreContext, no: &str, amount_cents: Option<i64>) -> Result<i64> {
             status: None,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
         },
     )?
     .id)

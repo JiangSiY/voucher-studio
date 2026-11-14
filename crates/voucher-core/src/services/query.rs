@@ -199,6 +199,55 @@ pub fn voucher_ids(ctx: &CoreContext, query: &VoucherQuery) -> Result<Vec<i64>> 
 }
 
 /// 附件实体查询（附件不存在返回 `Ok(None)`，由调用方决定文案）。
+/// 待归档的台账凭证（有 ledger_ref 但还没有附件）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingLedgerItem {
+    pub voucher_id: i64,
+    pub voucher_no: String,
+    pub voucher_date: String,
+    pub ledger_ref: String,
+    pub ledger_kind: String,
+    pub amount_cents: Option<i64>,
+    pub counterparty: String,
+    pub has_attachment: bool,
+}
+
+/// 列出所有「台账导入且缺附件」的凭证（CLI list-pending 用）。
+pub fn list_pending_ledger(ctx: &CoreContext) -> Result<Vec<PendingLedgerItem>> {
+    ctx.db.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(v.ledger_ref,''),
+                    v.tags, v.amount_cents, v.counterparty,
+                    EXISTS(SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)
+             FROM vouchers v
+             WHERE TRIM(COALESCE(v.ledger_ref,'')) <> ''
+             ORDER BY v.voucher_date DESC, v.id DESC",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next()? {
+            let tags_json: String = r.get(4)?;
+            let kind = serde_json::from_str::<Vec<String>>(&tags_json)
+                .unwrap_or_default()
+                .into_iter()
+                .find_map(|t| t.strip_prefix("kind:").map(str::to_string))
+                .unwrap_or_default();
+            out.push(PendingLedgerItem {
+                voucher_id: r.get(0)?,
+                voucher_no: r.get(1)?,
+                voucher_date: r.get(2)?,
+                ledger_ref: r.get(3)?,
+                ledger_kind: kind,
+                amount_cents: r.get(5)?,
+                counterparty: r.get(6)?,
+                has_attachment: r.get::<_, i64>(7)? != 0,
+            });
+        }
+        Ok(out)
+    })
+}
+
 pub fn attachment(ctx: &CoreContext, id: i64) -> Result<Option<Attachment>> {
     ctx.db.with_conn(|conn| attachment_repo::get(conn, id))
 }

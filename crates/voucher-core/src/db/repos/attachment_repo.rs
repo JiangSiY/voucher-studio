@@ -7,11 +7,13 @@ use crate::utils::paths::now_iso;
 use crate::{CoreError, Result};
 
 const COLS: &str =
-    "id, voucher_id, file_name, file_path, file_hash, file_size, mime_type, ocr_status, ocr_text, enhanced_path, enhanced_source, created_at";
+    "id, voucher_id, file_name, file_path, file_hash, file_size, mime_type, ocr_status, ocr_text, enhanced_path, enhanced_source, is_pdf, page_count, created_at";
 
 fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
     let status: String = row.get(7)?;
     let source: String = row.get(10)?;
+    let is_pdf: bool = row.get(11).unwrap_or(false);
+    let page_count: Option<u32> = row.get(12).ok().flatten();
     Ok(Attachment {
         id: row.get(0)?,
         voucher_id: row.get(1)?,
@@ -24,7 +26,9 @@ fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
         ocr_text: row.get(8)?,
         enhanced_path: row.get(9)?,
         enhanced_source: EnhanceSource::parse(&source).unwrap_or(EnhanceSource::Unknown),
-        created_at: row.get(11)?,
+        is_pdf,
+        page_count,
+        created_at: row.get(13)?,
         // 界面展示字段：由 services::attachment_view 在下发前填充，DB 层恒为 None
         file_abs: None,
         ocr_engine: None,
@@ -34,12 +38,36 @@ fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
 
 pub fn insert(conn: &Connection, a: &NewAttachment) -> Result<Attachment> {
     conn.execute(
-        "INSERT INTO attachments (voucher_id, file_name, file_path, file_hash, file_size, mime_type, ocr_status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7)",
-        params![a.voucher_id, a.file_name, a.file_path, a.file_hash, a.file_size as i64, a.mime_type, now_iso()],
+        "INSERT INTO attachments (voucher_id, file_name, file_path, file_hash, file_size, mime_type, ocr_status, is_pdf, page_count, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9)",
+        params![
+            a.voucher_id,
+            a.file_name,
+            a.file_path,
+            a.file_hash,
+            a.file_size as i64,
+            a.mime_type,
+            a.is_pdf.unwrap_or(false) as i64,
+            a.page_count,
+            now_iso()
+        ],
     )?;
     let id = conn.last_insert_rowid();
     get(conn, id)?.ok_or_else(|| CoreError::Invalid("附件插入后读取失败".into()))
+}
+
+/// 更新 PDF 字段（事务外调用）
+pub fn set_pdf_meta(
+    conn: &Connection,
+    id: i64,
+    is_pdf: bool,
+    page_count: Option<u32>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE attachments SET is_pdf = ?1, page_count = ?2 WHERE id = ?3",
+        params![is_pdf as i64, page_count, id],
+    )?;
+    Ok(())
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<Option<Attachment>> {

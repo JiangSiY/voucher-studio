@@ -289,6 +289,8 @@ fn main() {
             commands::re_enhance_all,
             commands::local_ocr_status,
             commands::ocr_health,
+            commands::cli_import_ledger,
+            commands::cli_list_pending,
             commands::export_pdf_daily,
             commands::export_table,
             commands::list_export_batches,

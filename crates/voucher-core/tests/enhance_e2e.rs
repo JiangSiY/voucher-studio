@@ -370,6 +370,7 @@ fn first_thumb_for_vouchers_omits_voucher_without_attachment() {
                     status: Some(VoucherStatus::Draft),
                     tags: vec![],
                     note: String::new(),
+                    ledger_ref: None,
                 },
             )
         })

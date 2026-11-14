@@ -39,6 +39,7 @@ fn mk(ctx: &CoreContext, no: &str, amount_cents: Option<i64>) -> Result<i64> {
             status: None,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
         },
     )?;
     Ok(v.id)
@@ -305,6 +306,7 @@ fn memo_voucher_without_image_is_allowed_and_does_not_break_flows() -> Result<()
             status: None,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
         },
     )?;
     assert!(!v.voucher_no.is_empty(), "编号应自动生成");

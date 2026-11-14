@@ -65,6 +65,7 @@ fn bench_list_and_aggregations() -> Result<()> {
                 status: None,
                 tags: vec![format!("标签{}", i % 20)],
                 note: String::new(),
+                ledger_ref: None,
             },
         )?;
     }

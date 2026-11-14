@@ -251,6 +251,37 @@ export interface ImportSummary {
   vouchers: ImportedVoucher[];
   skippedDuplicates: string[];
   failed: { fileName: string; reason: string }[];
+  /** 台账导入（cli_import_ledger）：已匹配现有凭证数 */
+  matched?: number;
+  /** 台账导入：新建凭证数 */
+  created?: number;
+  /** 台账导入：跳过/异常行数（明细见 errors） */
+  skipped?: number;
+  /** 台账导入：逐行错误（同时落盘 exports/import-errors-*.csv） */
+  errors?: ImportError[];
+}
+
+/** 台账导入的行级错误 */
+export interface ImportError {
+  /** CSV 中的第几条数据行（不含表头） */
+  line: number;
+  ledgerRef: string;
+  reason: string;
+}
+
+/** 台账清单类型：收款 / 付款 / 计提 */
+export type LedgerKindName = "shoukuan" | "fukuan" | "jiti";
+
+/** 待归档的台账凭证（有 ledger_ref 但还没附件） */
+export interface PendingLedgerItem {
+  voucherId: number;
+  voucherNo: string;
+  voucherDate: string;
+  ledgerRef: string;
+  ledgerKind: string;
+  amountCents: number | null;
+  counterparty: string;
+  hasAttachment: boolean;
 }
 
 export interface ExportBatch {
@@ -911,6 +942,14 @@ export const api = {
   ) => invoke<Attachment>("crop_attachment", { attachmentId, rect, rotationDeg }),
   /** v0.13：选账单 CSV → 对账（只读匹配；报告自动落 exports/）。null = 用户取消 */
   pickAndReconcile: () => invoke<ReconcileReport | null>("pick_and_reconcile"),
+  /**
+   * 台账清单（收款/付款/计提 CSV）导入为凭证：ledger_ref 幂等，坏行记错误不中断。
+   * dryRun 只统计不落库。路径由调用方给出（CLI 侧选文件）。
+   */
+  importLedgerCsv: (csvPath: string, kind: LedgerKindName, dryRun = false) =>
+    invoke<ImportSummary>("cli_import_ledger", { args: { csvPath, kind, dryRun } }),
+  /** 待归档的台账凭证（长期挂着缺附件的清单） */
+  listPendingLedger: () => invoke<PendingLedgerItem[]>("cli_list_pending"),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   /** v0.7 S-2：OCR 字段提取预览（只读） */

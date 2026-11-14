@@ -4,13 +4,23 @@
 //! 命令层不直连仓储层或裸数据库连接（CI grep 门禁固化）。
 
 use super::*;
+use serde::Deserialize;
 use voucher_core::services::query as qsvc;
 use voucher_core::services::{ingestion, ocr, voucher_mgr};
-// ---------- 导入 / 附件 / OCR（文件选择在 Rust 侧完成，绕开 WebView JS 事件桥的已知竞态） ----------
+// 允许扩展名：图片 + PDF
+const SUPPORTED_EXTS: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp", "pdf"];
 
-const IMAGE_FILTER: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp"];
+/// CLI 导入台账清单参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LedgerImportArgs {
+    pub csv_path: String,
+    pub kind: ingestion::LedgerKind,
+    #[serde(default)]
+    pub dry_run: bool,
+}
 
-/// 系统对话框选图并直接导入（一图一凭证）。返回 None = 用户取消选择。
+/// 系统对话框选图/PDF并直接导入（一图一凭证）。返回 None = 用户取消选择。
 #[tauri::command]
 pub async fn pick_and_import(
     app: AppHandle,
@@ -22,7 +32,7 @@ pub async fn pick_and_import(
         use tauri_plugin_dialog::DialogExt;
         app.dialog()
             .file()
-            .add_filter("图片", IMAGE_FILTER)
+            .add_filter("图片和 PDF", SUPPORTED_EXTS)
             .blocking_pick_files()
     })
     .await
@@ -34,14 +44,14 @@ pub async fn pick_and_import(
         .filter_map(|f| f.into_path().ok())
         .collect();
     if files.is_empty() {
-        log::info!("导入对话框：用户取消或未选出图片");
+        log::info!("导入对话框：用户取消或未选出文件");
         return Ok(None);
     }
-    log::info!("点击导入：选择了 {} 张图片", files.len());
+    log::info!("点击导入：选择了 {} 个文件", files.len());
     let core = ctx.inner().clone();
     let started = std::time::Instant::now();
     let summary = tauri::async_runtime::spawn_blocking(move || {
-        err_api(ingestion::import_images(
+        err_api(ingestion::import_files(
             &core,
             &files,
             None,
@@ -64,7 +74,7 @@ pub async fn pick_and_import(
     Ok(Some(summary))
 }
 
-/// 系统对话框选一张图片更换凭证图片（换图不换卡）。返回 None = 用户取消选择。
+/// 更换凭证附件（换图/换 PDF 不换卡）。返回 None = 用户取消选择。
 #[tauri::command]
 pub async fn pick_and_replace_image(
     app: AppHandle,
@@ -75,7 +85,7 @@ pub async fn pick_and_replace_image(
         use tauri_plugin_dialog::DialogExt;
         app.dialog()
             .file()
-            .add_filter("图片", IMAGE_FILTER)
+            .add_filter("图片和 PDF", SUPPORTED_EXTS)
             .blocking_pick_file()
     })
     .await
@@ -84,11 +94,11 @@ pub async fn pick_and_replace_image(
     let path = match picked.and_then(|f| f.into_path().ok()) {
         Some(p) => p,
         None => {
-            log::info!("换图对话框：用户取消");
+            log::info!("换附件对话框：用户取消");
             return Ok(None);
         }
     };
-    log::info!("更换图片：凭证 {voucher_id} ← {}", path.display());
+    log::info!("更换附件：凭证 {voucher_id} ← {}", path.display());
     let core = ctx.inner().clone();
     let detail = tauri::async_runtime::spawn_blocking(move || {
         err_api(ingestion::replace_attachment(&core, voucher_id, &path))?;
@@ -285,4 +295,34 @@ pub fn local_ocr_status() -> LocalOcrStatus {
 #[tauri::command]
 pub fn ocr_health(ctx: Ctx) -> voucher_core::OcrHealth {
     ctx.ocr_health()
+}
+
+/// CLI 导入台账清单（CSV）
+#[tauri::command]
+pub async fn cli_import_ledger(
+    ctx: Ctx<'_>,
+    args: LedgerImportArgs,
+) -> std::result::Result<ingestion::ImportSummary, ApiError> {
+    let path = std::path::PathBuf::from(&args.csv_path);
+    if !path.exists() {
+        return Err(ApiError::plain(
+            "not_found",
+            format!("CSV 不存在：{}", args.csv_path),
+        ));
+    }
+    let core = ctx.inner().clone();
+    let kind = args.kind;
+    let dry_run = args.dry_run;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(ingestion::import_ledger_csv(&core, &path, kind, dry_run))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+}
+
+/// CLI 待归档清单
+#[tauri::command]
+pub fn cli_list_pending(ctx: Ctx) -> std::result::Result<Vec<qsvc::PendingLedgerItem>, ApiError> {
+    err_api(qsvc::list_pending_ledger(&ctx))
 }

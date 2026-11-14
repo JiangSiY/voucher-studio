@@ -1,0 +1,15 @@
+[package]
+name = "voucher-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "voucher-studio 的命令行入口：台账清单导入、待归档查询（供脚本/自动化调用）"
+
+[[bin]]
+name = "voucher-cli"
+path = "src/main.rs"
+
+[dependencies]
+voucher-core = { path = "../voucher-core" }
+serde_json.workspace = true

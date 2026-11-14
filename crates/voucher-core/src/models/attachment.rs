@@ -70,6 +70,10 @@ pub struct Attachment {
     pub enhanced_path: Option<String>,
     /// v3：来源分类（截图/扫描件/未识别）
     pub enhanced_source: EnhanceSource,
+    /// v12：是否为 PDF（快速判断，不做 OCR、不增强）
+    pub is_pdf: bool,
+    /// v12：PDF 页数（导入时解析）
+    pub page_count: Option<u32>,
     pub created_at: String,
     /// v0.23.1：这张图**上一次识别由哪个引擎完成**（`deepseek` / `cloud` / `local`）。
     /// 与 `file_abs` 一样是**下发界面用的填充字段**：DB 读写不涉及，由
@@ -108,4 +112,10 @@ pub struct NewAttachment {
     pub file_hash: String,
     pub file_size: u64,
     pub mime_type: String,
+    /// v12：是否为 PDF（导入时设定）
+    #[serde(default)]
+    pub is_pdf: Option<bool>,
+    /// v12：PDF 页数（导入时解析）
+    #[serde(default)]
+    pub page_count: Option<u32>,
 }

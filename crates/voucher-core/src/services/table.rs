@@ -179,6 +179,7 @@ mod tests {
             status: VoucherStatus::Draft,
             tags: vec!["办公".into(), "报销".into()],
             note: "含\"引号\"字段".into(),
+            ledger_ref: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -192,6 +193,7 @@ mod tests {
             status: VoucherStatus::Reviewed,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -205,6 +207,7 @@ mod tests {
             status: VoucherStatus::Archived,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -248,6 +251,7 @@ mod tests {
             status: VoucherStatus::Draft,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
             created_at: String::new(),
             updated_at: String::new(),
         }];

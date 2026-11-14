@@ -31,6 +31,7 @@ fn mk(
             status: None,
             tags: Vec::new(),
             note: String::new(),
+            ledger_ref: None,
         },
     )?;
     Ok(v.id)
@@ -48,6 +49,8 @@ fn attach(ctx: &CoreContext, voucher_id: i64, hash: &str) -> Result<()> {
                 file_hash: hash.into(),
                 file_size: 10,
                 mime_type: "image/jpeg".into(),
+                is_pdf: Some(false),
+                page_count: None,
             },
         )
         .map(|_| ())
