@@ -6,7 +6,7 @@
 use super::*;
 use serde::Deserialize;
 use voucher_core::services::query as qsvc;
-use voucher_core::services::{ingestion, ocr, voucher_mgr};
+use voucher_core::services::{ingestion, ledger as lsvc, ocr, voucher_mgr};
 // 允许扩展名：图片 + PDF
 const SUPPORTED_EXTS: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp", "pdf"];
 
@@ -325,4 +325,119 @@ pub async fn cli_import_ledger(
 #[tauri::command]
 pub fn cli_list_pending(ctx: Ctx) -> std::result::Result<Vec<qsvc::PendingLedgerItem>, ApiError> {
     err_api(qsvc::list_pending_ledger(&ctx))
+}
+
+// ---- v13 台账页（GUI 入口）：选 CSV / 两条列表 / 概览 / 批次 / 撤销 / 已入账标记 ----
+
+/// 选一份台账清单 CSV。返回 None = 用户取消。
+///
+/// 只返回路径、不导入：界面要先跑一次 dry-run 预演，再由用户点「写入」，
+/// 所以「选文件」与「导入」必须是两条命令，不能像图片导入那样一步到底。
+#[tauri::command]
+pub async fn pick_ledger_csv(app: AppHandle) -> std::result::Result<Option<String>, ApiError> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("台账清单 CSV", &["csv"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    let path = picked
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string());
+    log::info!("台账导入：选择清单文件 = {path:?}");
+    Ok(path)
+}
+
+/// 给**已存在**的凭证挂一张票据（台账凭证补附件用）：选图/PDF → 直接落库。
+///
+/// 与 `pick_and_import` 的区别只有一个：`attach_to = Some(voucher_id)`，
+/// 即不新建凭证、而是把附件挂到既有凭证上（一凭证一附件上限由 `import_files` 前置校验）。
+/// 返回 None = 用户取消。
+#[tauri::command]
+pub async fn pick_and_attach_image(
+    app: AppHandle,
+    ctx: Ctx<'_>,
+    voucher_id: i64,
+    run_ocr: Option<bool>,
+) -> std::result::Result<Option<ingestion::ImportSummary>, ApiError> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("图片和 PDF", SUPPORTED_EXTS)
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    let files: Vec<PathBuf> = picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .collect();
+    if files.is_empty() {
+        log::info!("补附件对话框：用户取消");
+        return Ok(None);
+    }
+    log::info!("补附件：凭证 {voucher_id} ← {} 个文件", files.len());
+    let core = ctx.inner().clone();
+    let summary = tauri::async_runtime::spawn_blocking(move || {
+        err_api(ingestion::import_files(
+            &core,
+            &files,
+            Some(voucher_id),
+            run_ocr.unwrap_or(true),
+        ))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))??;
+    Ok(Some(summary))
+}
+
+/// 台账页概览（待补附件 / 待入账 / 有效批次）
+#[tauri::command]
+pub fn ledger_counts(ctx: Ctx) -> std::result::Result<lsvc::LedgerCounts, ApiError> {
+    err_api(lsvc::counts(&ctx))
+}
+
+/// 台账凭证列表：`stage` = `unattached`（待补附件）| `unbooked`（待入账）
+#[tauri::command]
+pub fn list_ledger_items(
+    ctx: Ctx,
+    stage: String,
+) -> std::result::Result<Vec<lsvc::LedgerItem>, ApiError> {
+    let parsed = err_api(lsvc::LedgerStage::parse(&stage))?;
+    err_api(lsvc::list_items(&ctx, parsed))
+}
+
+/// 导入批次列表（新的在前）
+#[tauri::command]
+pub fn list_import_batches(
+    ctx: Ctx,
+    limit: Option<u32>,
+) -> std::result::Result<Vec<voucher_core::models::ImportBatch>, ApiError> {
+    err_api(lsvc::list_batches(&ctx, limit.unwrap_or(50)))
+}
+
+/// 撤销一批导入（只删「未补附件、未导出/归档」的凭证，其余保留并说明原因）
+#[tauri::command]
+pub fn undo_import_batch(
+    ctx: Ctx,
+    batch_id: i64,
+) -> std::result::Result<lsvc::UndoBatchResult, ApiError> {
+    err_api(lsvc::undo_batch(&ctx, batch_id))
+}
+
+/// 勾 / 取消「已入账」
+#[tauri::command]
+pub fn set_ledger_booked(
+    ctx: Ctx,
+    voucher_id: i64,
+    booked: bool,
+) -> std::result::Result<(), ApiError> {
+    err_api(lsvc::set_booked(&ctx, voucher_id, booked))
 }

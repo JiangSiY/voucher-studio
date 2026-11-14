@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::db::repos::attachment_repo;
-use crate::models::{Attachment, EnhanceSource, NewAttachment, NewVoucher};
+use crate::models::{Attachment, EnhanceSource, NewAttachment, NewImportBatch, NewVoucher};
 use crate::services::{dedup, enhance, imaging, naming, ocr, ocr_fields, voucher_mgr};
 use crate::{CoreContext, CoreError, Result};
 
@@ -44,6 +44,9 @@ pub struct ImportSummary {
     /// 台账导入：错误详情
     #[serde(default)]
     pub errors: Vec<ImportError>,
+    /// 台账导入：本次落下的批次 id（dry-run 或整份文件无任何数据行时为 None）
+    #[serde(default)]
+    pub batch_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -468,12 +471,16 @@ pub fn import_ledger_csv(
 
     let mut summary = ImportSummary::default();
     let mut line_no = 0usize;
+    let mut rows_total = 0usize;
+    // 新建凭证的 id：导入完要一并挂到本批次上（撤销按批进行）
+    let mut created_ids: Vec<i64> = Vec::new();
 
     for raw in lines {
         if raw.trim().is_empty() {
             continue;
         }
         line_no += 1;
+        rows_total += 1;
         let cells = parse_csv_line(raw);
         let row = LedgerRow {
             flow_no: get(&cells, "流水号"),
@@ -517,19 +524,44 @@ pub fn import_ledger_csv(
             }
             None => {
                 if !dry_run {
-                    if let Err(e) = create_voucher_from_ledger(ctx, &row, kind, &ledger_ref) {
-                        summary.errors.push(ImportError {
-                            line: line_no,
-                            ledger_ref: ledger_ref.clone(),
-                            reason: e.to_string(),
-                        });
-                        summary.skipped += 1;
-                        continue;
+                    match create_voucher_from_ledger(ctx, &row, kind, &ledger_ref) {
+                        Ok(id) => created_ids.push(id),
+                        Err(e) => {
+                            summary.errors.push(ImportError {
+                                line: line_no,
+                                ledger_ref: ledger_ref.clone(),
+                                reason: e.to_string(),
+                            });
+                            summary.skipped += 1;
+                            continue;
+                        }
                     }
                 }
                 summary.created += 1;
             }
         }
+    }
+
+    // 批次只在真正写库时落；dry-run 不留痕（预演不改变任何状态）
+    if !dry_run {
+        let batch = crate::services::ledger::record_batch(
+            ctx,
+            &NewImportBatch {
+                kind: kind.as_str().to_string(),
+                file_name: csv_path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                file_path: csv_path.to_string_lossy().to_string(),
+                rows_total: i64::try_from(rows_total).unwrap_or(i64::MAX),
+                created: i64::try_from(summary.created).unwrap_or(i64::MAX),
+                matched: i64::try_from(summary.matched).unwrap_or(i64::MAX),
+                skipped: i64::try_from(summary.skipped).unwrap_or(i64::MAX),
+                error_rows: i64::try_from(summary.errors.len()).unwrap_or(i64::MAX),
+            },
+            &created_ids,
+        )?;
+        summary.batch_id = Some(batch.id);
     }
 
     if !summary.errors.is_empty() {
@@ -625,7 +657,7 @@ fn create_voucher_from_ledger(
     row: &LedgerRow,
     kind: LedgerKind,
     ledger_ref: &str,
-) -> Result<()> {
+) -> Result<i64> {
     let cfg = ctx.config();
     let engine = crate::services::naming::NamingEngine::new(&cfg.naming.template);
     // 日期先校验：坏行返回行级错误（调用方记入 errors 后继续），既不进事务也不 panic
@@ -660,7 +692,7 @@ fn create_voucher_from_ledger(
             }
         };
 
-        let _ = crate::db::repos::voucher_repo::insert(
+        let voucher = crate::db::repos::voucher_repo::insert(
             tx,
             &crate::models::NewVoucher {
                 voucher_no,
@@ -675,7 +707,8 @@ fn create_voucher_from_ledger(
             },
         )?;
 
-        Ok(())
+        // 返回 id：调用方把新建的凭证挂到本批次（撤销按批进行）
+        Ok(voucher.id)
     })
 }
 

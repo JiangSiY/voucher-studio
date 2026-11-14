@@ -9,6 +9,7 @@ pub mod dup_review;
 pub mod export;
 pub mod imaging;
 pub mod ingestion;
+pub mod ledger;
 pub mod links;
 pub mod naming;
 pub mod ocr;

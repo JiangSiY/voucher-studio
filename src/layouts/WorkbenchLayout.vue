@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
 import { useInboxStore } from "../stores/inbox";
+import { useLedgerStore } from "../stores/ledger";
 import { toastError } from "../stores/toast";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
@@ -12,6 +13,7 @@ const route = useRoute();
 const configStore = useConfigStore();
 const dupStore = useDupStore();
 const inboxStore = useInboxStore();
+const ledgerStore = useLedgerStore();
 
 // 阅读型页面（表单 / 设置 / 帮助）保留 1100px 上限；宽内容页（列表/仪表盘/打印中心）铺满
 const isReading = computed(() => route.meta.reading === true);
@@ -40,6 +42,14 @@ const navItems = computed(() => [
     badgeLabel: "项待办",
   },
   { to: "/vouchers", icon: "list", label: "全部凭证", badge: 0, badgeLabel: "" },
+  // v13：台账 = 月度清单导入 → 补附件 → 等入账（角标 = 待补附件张数）
+  {
+    to: "/ledger",
+    icon: "file",
+    label: "台账",
+    badge: ledgerStore.unattached,
+    badgeLabel: "张待补附件",
+  },
   {
     to: "/duplicates",
     icon: "duplicate",

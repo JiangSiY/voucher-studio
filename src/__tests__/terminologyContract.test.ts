@@ -82,7 +82,7 @@ describe("术语统一", () => {
   it("工具栏标题与侧栏条目同名（同一页面两个叫法最伤记忆）", () => {
     const nav = navLabels();
     const titles = routeTitles();
-    expect(nav.size).toBe(9);
+    expect(nav.size).toBe(10);
     const mismatched: string[] = [];
     for (const [path, label] of nav) {
       const title = titles.get(path);
@@ -92,10 +92,11 @@ describe("术语统一", () => {
     expect(mismatched, `侧栏与标题不一致：\n${mismatched.join("\n")}`).toEqual([]);
   });
 
-  it("侧栏九项用的是定稿名称与顺序（顺序即分区，不能随手改名）", () => {
+  it("侧栏十项用的是定稿名称与顺序（顺序即分区，不能随手改名）", () => {
     expect([...navLabels().values()]).toEqual([
       "待处理",
       "全部凭证",
+      "台账",
       "重复核查",
       "洞察",
       "打印与导出",

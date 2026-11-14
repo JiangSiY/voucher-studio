@@ -26,10 +26,12 @@ import {
 import FluentIcon from "../components/FluentIcon.vue";
 import { STATUS_META, fmtDate } from "../composables/format";
 import { useInboxStore } from "../stores/inbox";
+import { useLedgerStore } from "../stores/ledger";
 import { toast, toastError } from "../stores/toast";
 
 const router = useRouter();
 const inbox = useInboxStore();
+const ledger = useLedgerStore();
 
 const stats = ref<VoucherStats | null>(null);
 const recentDrafts = ref<Voucher[]>([]);
@@ -115,6 +117,18 @@ const todoItems = computed(() => {
         : "同日期同金额，需人工判定",
       action: { label: "去核查", run: () => router.push("/duplicates") },
     },
+    // 台账流水线（v13）：导入清单后每张凭证都等着挂票据。
+    // 这张卡只是**入口**（只读计数，不在这里挂附件）——挂附件要看清票据、逐张做，
+    // 那是台账页的活；这里只回答"还有多少张没挂"。
+    {
+      key: "ledger",
+      icon: "file",
+      title: "台账凭证待补附件",
+      count: ledger.counts?.unattached ?? 0,
+      unit: "张",
+      hint: "从台账清单导入的凭证，还没挂上对应票据扫描件",
+      action: { label: "去补附件", run: () => router.push("/ledger") },
+    },
     {
       key: "amount",
       icon: "edit",
@@ -188,6 +202,7 @@ function openVoucher(id: number) {
 async function load() {
   await Promise.all([
     inbox.refresh(),
+    ledger.refresh(),
     (async () => {
       try {
         const [s, drafts, bs, cov] = await Promise.all([

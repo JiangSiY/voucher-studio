@@ -31,6 +31,13 @@ export const router = createRouter({
           component: () => import("../pages/DuplicateReviewPage.vue"),
           meta: { title: "重复核查", subtitle: "同图或同字段的证据比对" },
         },
+        // v13（2026-11-14）：台账页 = 清单导入 → 补附件 → 等入账的一条流水线
+        {
+          path: "ledger",
+          name: "ledger",
+          component: () => import("../pages/LedgerPage.vue"),
+          meta: { title: "台账", subtitle: "月度清单导入 · 补附件 · 等入账" },
+        },
         {
           path: "vouchers/new",
           name: "voucher-new",

@@ -283,6 +283,31 @@ CREATE TABLE IF NOT EXISTS ocr_field_cache (
 );
 "#;
 
+/// v13 附加结构（台账导入批次）：**每次导入落一条批次**，撤销按批进行。
+///
+/// 为什么单独建表而不只靠 `vouchers.import_batch_id`：批次要能留住"这次导的是哪个文件、
+/// 新建多少张、命中多少张、坏行多少行"——这些是凭证数据本身没有的信息，撤销与回看都靠它。
+/// 撤销**不物理删批次行**（只写 `undone_at`），因为"这批曾经存在、后来被撤"本身是审计事实
+/// （与 `voucher_link_events` / `dup_decisions` 同一套语义）。
+/// 幂等只增，不动 `SCHEMA_VERSION`（bump 会触发清库分支）。
+pub const SCHEMA_V13: &str = r#"
+CREATE TABLE IF NOT EXISTS import_batches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT    NOT NULL,
+    kind        TEXT    NOT NULL CHECK (kind IN ('shoukuan','fukuan','jiti')),
+    file_name   TEXT    NOT NULL DEFAULT '',
+    file_path   TEXT    NOT NULL DEFAULT '',
+    rows_total  INTEGER NOT NULL DEFAULT 0,
+    created     INTEGER NOT NULL DEFAULT 0,
+    matched     INTEGER NOT NULL DEFAULT 0,
+    skipped     INTEGER NOT NULL DEFAULT 0,
+    error_rows  INTEGER NOT NULL DEFAULT 0,
+    undone_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_import_batches_created
+    ON import_batches(created_at DESC);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -341,6 +366,19 @@ pub fn init(conn: &Connection) -> Result<()> {
     }
     if !has_column(conn, "attachments", "page_count")? {
         conn.execute_batch("ALTER TABLE attachments ADD COLUMN page_count INTEGER")?;
+    }
+    // v13（台账批次）：批次表 + 凭证上的批次指针与「已入账」标记。
+    // 批次是撤销的单位（只撤未补附件、未导出的凭证），「已入账」是人工勾的标记——
+    // 金蝶凭证号暂不入库（挂账，见 docs/开发日志.md 第七十五笔），故先用时间戳表达"人已确认入账"。
+    conn.execute_batch(SCHEMA_V13)?;
+    if !has_column(conn, "vouchers", "import_batch_id")? {
+        conn.execute_batch("ALTER TABLE vouchers ADD COLUMN import_batch_id INTEGER")?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_vouchers_import_batch ON vouchers(import_batch_id)",
+        )?;
+    }
+    if !has_column(conn, "vouchers", "ledger_booked_at")? {
+        conn.execute_batch("ALTER TABLE vouchers ADD COLUMN ledger_booked_at TEXT")?;
     }
     Ok(())
 }

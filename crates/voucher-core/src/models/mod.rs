@@ -4,6 +4,7 @@ pub mod attachment;
 pub mod dup_decision;
 pub mod enums;
 pub mod export_batch;
+pub mod import_batch;
 pub mod ocr_health;
 pub mod ocr_line;
 pub mod snapshot;
@@ -17,6 +18,7 @@ pub use enums::{
     VoucherLinkKind, VoucherStatus,
 };
 pub use export_batch::{ExportBatch, ExportFormat, ExportItem, NewExportBatch};
+pub use import_batch::{ImportBatch, NewImportBatch};
 pub use ocr_health::OcrHealth;
 pub use ocr_line::OcrLine;
 pub use snapshot::VoucherSnapshot;

@@ -15,6 +15,7 @@ import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { useDupStore } from "./stores/dup";
 import { useInboxStore } from "./stores/inbox";
+import { useLedgerStore } from "./stores/ledger";
 import { useUiStore } from "./stores/ui";
 import { toast } from "./stores/toast";
 import ToastHost from "./components/ToastHost.vue";
@@ -26,6 +27,7 @@ import { useTaskStore } from "./stores/tasks";
 const configStore = useConfigStore();
 const dupStore = useDupStore();
 const inboxStore = useInboxStore();
+const ledgerStore = useLedgerStore();
 const router = useRouter();
 
 // v0.13：全局命令面板（Ctrl+K）
@@ -130,6 +132,7 @@ onMounted(async () => {
   unlistenImportDone = await safeListen<ImportSummary>("import:done", (e) => {
     importing.value = false;
     void inboxStore.refresh(); // 导入即产生"待识别/待核对"，侧栏待办徽标随之刷新
+    void ledgerStore.refresh(); // 补附件也会改变台账「待补附件」数
     const s = e.payload;
     const parts: string[] = [];
     if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张图片，各建一张凭证`);
@@ -166,9 +169,11 @@ onMounted(async () => {
   // 之后由事件驱动刷新（导入/备份/处置都会改变待办构成）
   void dupStore.refresh();
   void inboxStore.refresh();
+  void ledgerStore.refresh(); // 台账徽标（待补附件张数）：与台账页同源 ledger_counts
   unlistenDupChanged = await safeListen("dup:changed", () => {
     void dupStore.refresh();
     void inboxStore.refresh();
+    void ledgerStore.refresh();
   });
 });
 

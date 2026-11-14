@@ -33,13 +33,14 @@ describe("主骨架：收件箱驱动", () => {
     expect(existsSync(`${root}src/pages/DashboardPage.vue`)).toBe(false);
   });
 
-  it("侧栏为扁平一列：分组标题已删除，九个入口按流程顺序排列", () => {
+  it("侧栏为扁平一列：分组标题已删除，十个入口按流程顺序排列", () => {
     // 曾经的「收件箱 / 资料库 / 设置」三组标题按钮按用户要求删除（2026-10-16），别再加回来
     expect(layoutSrc).not.toMatch(/group:\s*"/);
     const routes = [...layoutSrc.matchAll(/to:\s*"(\/[^"]*)"/g)].map((m) => m[1]);
     expect(routes).toEqual([
       "/inbox",
       "/vouchers",
+      "/ledger",
       "/duplicates",
       "/insights",
       "/print",

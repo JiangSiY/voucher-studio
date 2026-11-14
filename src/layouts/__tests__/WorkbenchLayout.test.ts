@@ -42,6 +42,7 @@ const mockApi = vi.mocked(api);
 const NAV_LABELS = [
   "待处理",
   "全部凭证",
+  "台账",
   "重复核查",
   "洞察",
   "打印与导出",

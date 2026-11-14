@@ -259,6 +259,8 @@ export interface ImportSummary {
   skipped?: number;
   /** 台账导入：逐行错误（同时落盘 exports/import-errors-*.csv） */
   errors?: ImportError[];
+  /** 台账导入：本次落下的批次 id（dry-run 为 null；撤销按这个 id） */
+  batchId?: number | null;
 }
 
 /** 台账导入的行级错误 */
@@ -282,6 +284,64 @@ export interface PendingLedgerItem {
   amountCents: number | null;
   counterparty: string;
   hasAttachment: boolean;
+}
+
+// ---- v13 台账页（/ledger）：导入批次 · 待补附件 · 待入账 ----
+
+/** 台账凭证条目（待补附件 / 待入账两条列表共用） */
+export interface LedgerItem {
+  voucherId: number;
+  voucherNo: string;
+  voucherDate: string;
+  ledgerRef: string;
+  /** 收款/付款/计提（历史数据可能为空） */
+  ledgerKind: string;
+  amountCents: number | null;
+  counterparty: string;
+  description: string;
+  hasAttachment: boolean;
+  /** 已勾「已入账」 */
+  booked: boolean;
+  importBatchId: number | null;
+}
+
+/** 台账页概览计数（与两条列表同口径） */
+export interface LedgerCounts {
+  unattached: number;
+  unbooked: number;
+  activeBatches: number;
+}
+
+/** 台账页两个阶段：待补附件 / 待入账 */
+export type LedgerStage = "unattached" | "unbooked";
+
+/** 一次台账导入的批次（撤销的单位） */
+export interface ImportBatch {
+  id: number;
+  createdAt: string;
+  kind: LedgerKindName;
+  fileName: string;
+  filePath: string;
+  rowsTotal: number;
+  created: number;
+  matched: number;
+  skipped: number;
+  errorRows: number;
+  /** 撤销时间；null = 批次仍有效 */
+  undoneAt: string | null;
+}
+
+/** 撤销时被保留的凭证与原因 */
+export interface KeptVoucher {
+  voucherNo: string;
+  ledgerRef: string;
+  reason: string;
+}
+
+export interface UndoBatchResult {
+  batchId: number;
+  removed: number;
+  kept: KeptVoucher[];
 }
 
 export interface ExportBatch {
@@ -950,6 +1010,24 @@ export const api = {
     invoke<ImportSummary>("cli_import_ledger", { args: { csvPath, kind, dryRun } }),
   /** 待归档的台账凭证（长期挂着缺附件的清单） */
   listPendingLedger: () => invoke<PendingLedgerItem[]>("cli_list_pending"),
+
+  // ---- v13 台账页（GUI 入口）：选 CSV → 预演 → 写入 → 补附件 → 已入账 ----
+  /** 选一份台账清单 CSV（Rust 侧对话框）。null = 用户取消 */
+  pickLedgerCsv: () => invoke<string | null>("pick_ledger_csv"),
+  /** 给**已有**凭证挂一张票据（台账凭证补附件）。null = 用户取消 */
+  pickAndAttachImage: (voucherId: number, runOcr = true) =>
+    invoke<ImportSummary | null>("pick_and_attach_image", { voucherId, runOcr }),
+  /** 台账页概览：待补附件 / 待入账 / 有效批次 */
+  ledgerCounts: () => invoke<LedgerCounts>("ledger_counts"),
+  /** 台账凭证列表（按阶段） */
+  listLedgerItems: (stage: LedgerStage) => invoke<LedgerItem[]>("list_ledger_items", { stage }),
+  /** 导入批次列表（新的在前） */
+  listImportBatches: (limit?: number) => invoke<ImportBatch[]>("list_import_batches", { limit }),
+  /** 撤销一批导入：只删「未补附件、未导出/归档」的凭证，其余保留并说明原因 */
+  undoImportBatch: (batchId: number) => invoke<UndoBatchResult>("undo_import_batch", { batchId }),
+  /** 勾 / 取消「已入账」（人工确认在金蝶入过账） */
+  setLedgerBooked: (voucherId: number, booked: boolean) =>
+    invoke<void>("set_ledger_booked", { voucherId, booked }),
   /** 识别附件并自动填单（只填空字段）；附件可能被语义化重命名，返回整份凭证详情供刷新 */
   runOcr: (attachmentId: number) => invoke<VoucherDetail>("run_ocr", { attachmentId }),
   /** v0.7 S-2：OCR 字段提取预览（只读） */

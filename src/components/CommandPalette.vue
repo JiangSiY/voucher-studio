@@ -47,6 +47,13 @@ const commands: Command[] = [
     run: () => router.push("/duplicates"),
   },
   {
+    key: "nav:ledger",
+    label: "前往 台账",
+    hint: "导入清单 / 补附件 / 等入账",
+    icon: "file",
+    run: () => router.push("/ledger"),
+  },
+  {
     key: "nav:new",
     label: "新建凭证",
     hint: "选图建卡 + OCR",
