@@ -10,12 +10,13 @@
 > 前端 vitest **实测 57 文件 / 360 用例**（原 56 / 352）。Rust 侧本批零改动，计数不变。
 >
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-11-14（台账导入批次收尾）**：`voucher-core` 测试 **322 个**（src 内联 **172** + tests/ 集成 **150**，含
+> 截至 **2026-11-14（台账页 P0 收口）**：`voucher-core` 测试 **330 个**（src 内联 **172** + tests/ 集成 **158**，含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **ledger_import_flow 6（2026-11-14 新增：台账 CSV 导入的字段映射 / 幂等 / 坏行不中断 / dry-run / 缺列拒绝）** /
+> **ledger_batches 8（2026-11-14 新增：批次落库与归属 / 待补附件与待入账口径 / 撤销边界与重复撤销 / 重导不改归属）** /
 > **keyring_native 1** / ocr_flow 9 / **ocr_eval 1（`VOUCHER_OCR_EVAL` 门控，CI 默认不跑）** / spike_a_print 5 / **voucher_flow 43** / **voucher_link_flow 11 + print_appendix 1（v0.22 关联批 / 批次③ / 收⑦ 收支方向 / 状态多选）** / **spike_a_print 1（v0.22 批次①b：原 5 例中 4 例测卡片版式，随「单份 PDF」下线删除，保留日报样张探针）** / webdav_mock 5）；
 > 另 `src-tauri` **3** 个（恢复残留清理 + 2026-09-23 新增：半截待恢复库被拒且活库不丢、
-> 合法待恢复库正常落位）；前端 vitest **57 文件 360 用例**（2026-11-04 `loonVisualContract.test.ts` 8 例加入后**实测**值；原 56/352，2026-10-26 `ocrEngineContract.test.ts` 6 例加入时；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
+> 合法待恢复库正常落位）；前端 vitest **59 文件 376 用例**（2026-11-14 台账页 `LedgerPage.test.ts` 10 例 + `LedgerImportDialog.test.ts` 6 例加入后**实测**值；原 56/352，2026-10-26 `ocrEngineContract.test.ts` 6 例加入时；文档一律写实测、不再并列 `it(` 静态计数——有动态生成用例，静态数会长期差 1；含 `DuplicateReviewPage.test.ts` 8 例交互测试、
 > `dateRange.test.ts` 13 例时间窗口径用例，以及 2026-09-27 新增的 `registrationContract.test.ts` 5 例通用登记守卫、
 > `timerContract.test.ts` 3 例前端资源清理守卫；2026-09-28 右栏编辑器改造后 `LibraryPage.test.ts` 增至 9 例（7 字段保存 / 双击展宽 / `focus` 深链），另补 `voucherEditorLayout.test.ts` 3 例布局契约——锁住「表单一条标签列」，防「每行各算宽度」的错位复发）；
 > Rust 侧另有 `tests/perf_bench.rs`（1 例，`VOUCHER_BENCH=1` 门控，CI 默认不跑性能断言）。
