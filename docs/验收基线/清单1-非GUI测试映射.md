@@ -10,7 +10,10 @@
 > 前端 vitest **实测 57 文件 / 360 用例**（原 56 / 352）。Rust 侧本批零改动，计数不变。
 >
 > ⚠️ **修订注记（2026-09-09 初版；2026-10-16 按当前工作区更新）**：本文档固化于 G1 门，测试全集此后持续增长。
-> 截至 **2026-11-14（台账页 P0 收口）**：`voucher-core` 测试 **330 个**（src 内联 **172** + tests/ 集成 **158**，含
+> 截至 **2026-11-18（Center 网页版 M0–M2 收口）**：`voucher-core` 测试 **342 个**（src 内联 **184** + tests/ 集成 **158**
+> ——本轮内联 +12：`services/biz` 4 例（台账字段往返 / 未知类型拒绝 / 必填条件 / 归档名切换）、
+> `services/accounting` 5 例（默认映射播种 / 收款分组 / 缺映射不猜 / 计提分组 / 落草稿再导出）、
+> `services/naming::archive` 3 例（V5 四条公式的样例断言），含
 > backup_flow 11 / **dashboard_flow 20** / db_resilience 5 / **dup_review_flow 7** / **dup_decisions_upgrade 1** / enhance_e2e 24 /
 > **ledger_import_flow 6（2026-11-14 新增：台账 CSV 导入的字段映射 / 幂等 / 坏行不中断 / dry-run / 缺列拒绝）** /
 > **ledger_batches 8（2026-11-14 新增：批次落库与归属 / 待补附件与待入账口径 / 撤销边界与重复撤销 / 重导不改归属）** /

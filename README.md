@@ -24,6 +24,20 @@
 - **安全**：敏感凭据（WebDAV 密码、云端 OCR API Key）存入系统凭据库（macOS 钥匙串 / Keychain），密钥不明文落盘
 - **稳定性**：数据目录文件锁 + 单实例保护，同一目录同一时刻只允许一个实例写入；异常退出后启动健康检查并提供恢复选项
 
+## Center 网页版（v0.26 起）
+
+同一个 Rust 内核，多了一层**网页服务端**：浏览器就是客户端，桌面版保留为离线增强版。
+
+- **一条命令起服务**：`cargo run -p center-server`（默认 `127.0.0.1:8787`）；首次访问在浏览器里设置访问密码，之后用密码登录（`HttpOnly` 会话 Cookie，30 天）
+- **多端**：手机/另一台电脑打开同一个地址即可（经 Tailscale 私网或反向代理），无需安装客户端；桌面版继续用 `npm run tauri dev`
+- **上传**：网页里拖放即可（图片/PDF 批量），台账清单 CSV 也从同一个上传口进
+- **台账字段**（v0.26）：每张凭证多出「入账要素」——单据类型 / 分类 / 结算账户 / 项目 / 票据类型 / 发票号 / 来源单据号 / 物料；面板实时显示**还缺哪些必填**，并给出按 V5 公式算出的**归档名**
+- **按台账改名**：一键把附件改成 `260716-张帅-应付0001-某供应商` 这种台账口径的名字（先落盘后写库，重名自动 `-2` 避让）
+- **会计投影**（v0.26）：按月把台账凭证折成借贷分录——收款按日+账户、付款按日+账户、计提按月+分类；导出 **KIS 引入 CSV / 抄单纸 xlsx / V5「凭证分录」JSON**，科目映射可在页面里改
+- **必填闸门**：台账凭证（或已填过入账要素的凭证）没补齐字段不允许复核——复核是"这张能入账"的承诺
+
+**部署（用户 2026-11-18 定稿）**：公司那台 Mac 常开做主机（`launchd` 守护 + `tailscale serve` 提供私网 HTTPS），i3 PC 作冷备；**不买云服务器**，成本只有云端 OCR（约 0.003 元/张）。
+
 ## 代码审计
 
 - **审计指南**：[`docs/审计指南.md`](docs/审计指南.md)（15 个维度 / 四级严重度 / 闭环三档 L1–L3 / 报告模板）
@@ -44,7 +58,8 @@
 | 层 | 技术 |
 |---|---|
 | 业务核心 | Rust（`crates/voucher-core`，不依赖 Tauri，可独立测试） |
-| 桌面壳 | Tauri 2（单实例、对话框、日志、opener 插件） |
+| 桌面壳 | Tauri 2（单实例、对话框、日志、opener 插件）；命令实现已下沉到 `crates/voucher-api` |
+| 网页服务 | `crates/center-server`：hyper 1 + tokio，认证 / RPC / 上传 / 附件 / SPA 托管（单用户密码会话，PBKDF2-SHA256） |
 | 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv5 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
@@ -74,7 +89,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：172 单元 + 158 集成，共 330 用例；加 src-tauri 3 用例共 333；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：184 单元 + 158 集成，共 342 用例；加 src-tauri 3 用例共 345；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
@@ -174,6 +189,8 @@ bash scripts/release.sh 0.22.3 --apply    # 真正发版
 
 ```
 ├── crates/voucher-core/   # 业务核心（models / db / services / utils）
+├── crates/voucher-api/    # 命令层：96 条命令的唯一实现（桌面与网页共用）
+├── crates/center-server/  # 网页服务端（认证 / RPC / 上传 / 附件 / SPA）
 ├── src-tauri/             # Tauri 壳（commands / platform）
 ├── src/                   # Vue 3 前端（pages / components / stores）
 ├── assets/ocr-models/     # 本地 OCR 模型（PP-OCRv5）
@@ -183,7 +200,8 @@ bash scripts/release.sh 0.22.3 --apply    # 真正发版
 
 ## 数据存储
 
-- macOS：`~/Library/Application Support/VoucherStudio`
+- 桌面版（macOS）：`~/Library/Application Support/VoucherStudio`
+- 网页服务端：`CENTER_DATA_DIR` 指定的目录（默认同样是上面的路径）；密钥改用 `config/secrets.json`（0600），不再依赖 Keychain
 
 包含：`voucher.db`（SQLite）、`attachments/`（附件图片）、`backups/`（备份）、`exports/`（导出 PDF）、`models/`（OCR 模型）、`logs/`。
 
