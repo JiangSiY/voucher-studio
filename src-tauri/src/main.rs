@@ -237,6 +237,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            commands::pack_build,
             commands::get_biz_fields,
             commands::save_biz_fields,
             commands::apply_archive_name,

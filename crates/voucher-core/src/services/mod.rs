@@ -19,6 +19,7 @@ pub mod ocr_fields;
 pub mod ocr_layout;
 pub mod ocr_validate;
 pub mod ocr_vision;
+pub mod pack;
 pub mod pdf;
 pub mod period;
 pub mod query;

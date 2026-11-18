@@ -25,6 +25,9 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 #     只在 `text_layout` feature 下真实生效；不开就整份字体入库（Hiragino ≈9.4MB/份）。
 #     它带来 azul-layout / rust-fontconfig 依赖，但纯 Rust、无系统库，编译约 +45s。
 printpdf = { version = "0.12.8", default-features = false, features = ["png", "jpeg", "text_layout"] }
+# v0.26 M3：PDF 合并（把用户丢进来的多份 PDF 原件按顺序并成一份）。printpdf 内部已依赖
+# lopdf ^0.44，这里显式声明同一版本，避免出现两份 lopdf 的 Object 类型互不兼容。
+lopdf = "0.44"
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
 # v0.6 文档扫描矫正与增强（5.5 方案）：opencv-rust 绑定 OpenCV 4.x
 # +30MB 装包、首次编译 3-8 分钟。链接到系统 OpenCV 4.x（环境变量 OpenCV_DIR + OPENCV_LINK_*）。

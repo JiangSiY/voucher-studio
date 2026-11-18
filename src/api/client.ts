@@ -548,6 +548,17 @@ export interface GlEntry {
   status: string;
 }
 
+export interface PackResult {
+  path: string;
+  kind: string;
+  vouchers: number;
+  skipped: number;
+  pages: number;
+}
+
+/** 汇总册类型：图片册 / 发票册 / PDF 合并 */
+export type PackKind = "image" | "invoice" | "pdf";
+
 export interface CategoryMap {
   category: string;
   accountCode: string;
@@ -1327,6 +1338,9 @@ export const api = {
   ocrHealth: () => invoke<OcrHealth>("ocr_health"),
 
   /** v0.10：表格式导出（Excel / CSV；列：凭证号/日期/摘要/对方/金额/状态/标签/备注 + 合计行） */
+  packBuild: (voucherIds: number[], kind: PackKind) =>
+    invoke<PackResult>("pack_build", { voucherIds, kind }),
+
   exportTable: (voucherIds: number[], format: TableFormat) =>
     invoke<ExportBatch>("export_table", { voucherIds, format }),
   /** v0.9 导出历史反查：批次包含的凭证（按导出时排序；已删除的跳过） */

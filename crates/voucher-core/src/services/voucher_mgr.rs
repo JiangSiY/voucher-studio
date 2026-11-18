@@ -55,6 +55,14 @@ pub fn create_voucher(ctx: &CoreContext, new: NewVoucher) -> Result<Voucher> {
 /// 缺口在这一刻拦住，台账/分录/导出才不会带着半张凭证往下走。
 fn ensure_reviewable(tx: &Connection, v: &crate::models::Voucher) -> Result<()> {
     let b = crate::services::biz::load(tx, v.id)?;
+    // 闸门只对「要入账的凭证」生效：
+    // - 台账凭证（ledger_ref 非空）——它们最终要回写金蝶，字段缺一项都过不去；
+    // - 或已经开始填台账字段的凭证（BizFields 非空）——填一半就复核是最常见的漏项。
+    // 纯档案凭证（拍照存档、说明型无图凭证）不强制单据类型/分类：
+    // 它们的「规范」是能被搜到、能打印，不是能入账。
+    if v.ledger_ref.is_none() && b.is_empty() {
+        return Ok(());
+    }
     crate::services::biz::ensure_required(v, &b)
 }
 

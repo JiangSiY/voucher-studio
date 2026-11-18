@@ -1213,6 +1213,7 @@ mod tests {
     use super::*;
     use crate::db::schema;
     use crate::models::biz::BizFields;
+    use crate::models::Voucher;
     use crate::models::{NewVoucher, VoucherStatus};
 
     fn ctx() -> crate::CoreContext {
@@ -1276,7 +1277,7 @@ mod tests {
             .iter()
             .any(|m| m.account_key == "微信" && m.account_code == "100203"));
         // 幂等：再跑一次不会重复
-        c.db.with_conn(|conn| seed_defaults(conn)).unwrap();
+        c.db.with_conn(seed_defaults).unwrap();
         assert_eq!(list_category_maps(&c).unwrap().len(), cats.len());
     }
 
@@ -1287,7 +1288,7 @@ mod tests {
             &c,
             1,
             "2026-11-02",
-            500_00,
+            50_000,
             "张帅",
             BizFields {
                 doc_type: DOC_TYPE_CASH_IN.into(),
@@ -1302,7 +1303,7 @@ mod tests {
             &c,
             2,
             "2026-11-02",
-            300_00,
+            30_000,
             "李四",
             BizFields {
                 doc_type: DOC_TYPE_CASH_IN.into(),
@@ -1318,8 +1319,8 @@ mod tests {
                 .unwrap();
         assert_eq!(plan.receipts.len(), 1, "同日同账户合成一张");
         let v = &plan.receipts[0];
-        assert_eq!(v.debit_cents, 800_00);
-        assert_eq!(v.credit_cents, 800_00);
+        assert_eq!(v.debit_cents, 80_000);
+        assert_eq!(v.credit_cents, 80_000);
         assert!(v.balanced());
         // 贷方按客户拆成两行
         let credits: Vec<_> = v.lines.iter().filter(|l| l.credit_cents > 0).collect();
@@ -1333,7 +1334,7 @@ mod tests {
             &c,
             1,
             "2026-11-03",
-            100_00,
+            10_000,
             "王五",
             BizFields {
                 doc_type: DOC_TYPE_CASH_OUT.into(),
@@ -1354,7 +1355,7 @@ mod tests {
     #[test]
     fn accrual_groups_by_month_and_category() {
         let c = ctx();
-        for (i, (d, a)) in [("2026-11-01", 200_00), ("2026-11-20", 100_00)]
+        for (i, (d, a)) in [("2026-11-01", 20_000), ("2026-11-20", 10_000)]
             .into_iter()
             .enumerate()
         {
@@ -1376,8 +1377,8 @@ mod tests {
                 .unwrap();
         assert_eq!(plan.accruals.len(), 1);
         let v = &plan.accruals[0];
-        assert_eq!(v.debit_cents, 300_00);
-        assert_eq!(v.credit_cents, 300_00);
+        assert_eq!(v.debit_cents, 30_000);
+        assert_eq!(v.credit_cents, 30_000);
         assert_eq!(v.lines.len(), 2);
         assert_eq!(v.lines[1].account_code, PAYABLE_CODE);
     }
@@ -1389,7 +1390,7 @@ mod tests {
             &c,
             1,
             "2026-11-05",
-            128_50,
+            12_850,
             "张帅",
             BizFields {
                 doc_type: DOC_TYPE_CASH_IN.into(),
@@ -1401,7 +1402,7 @@ mod tests {
         );
         let r = post_period(&c, "2026-11").unwrap();
         assert_eq!(r.vouchers, 1);
-        assert_eq!(r.debit_cents, 128_50);
+        assert_eq!(r.debit_cents, 12_850);
         let entries = list_entries(&c, "2026-11").unwrap();
         assert_eq!(entries.len(), 2);
         let csv = export_kis_csv(&c, "2026-11").unwrap();

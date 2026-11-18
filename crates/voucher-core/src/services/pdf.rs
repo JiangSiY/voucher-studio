@@ -1347,6 +1347,211 @@ fn font_candidates() -> Vec<PathBuf> {
     .collect()
 }
 
+// ---------- 汇总册（v0.26 M3）：图片册 / 发票册 / PDF 合并 ----------
+
+/// 汇总册里的一条：一页（或合并进 PDF 的一份原件）。
+#[derive(Debug, Clone)]
+pub struct BundleItem {
+    /// 名称（图片册页标题 / 清单里的一行标题）
+    pub caption: String,
+    /// 图下方的信息行（日期、金额、对方…按调用方给的顺序打印）
+    pub lines: Vec<String>,
+    /// 要贴到页面上的图片（发票册/图片册用；PDF 合并为 None）
+    pub image: Option<PdfImage>,
+}
+
+/// 生成「图片册 / 发票册」PDF：一条一页（图片等比缩放 + 名称 + 信息行），末尾附清单页。
+///
+/// 为什么一条一页：用户场景是「打完这份册子要能一张张对着原图核账」，
+/// 拼成 3×3 九宫格虽然省纸，但小票上的字会糊到看不清——省纸不是这里的诉求。
+pub fn generate_bundle(path: &Path, title: &str, items: &[BundleItem]) -> Result<()> {
+    if items.is_empty() {
+        return Err(CoreError::Invalid("没有可汇总的凭证".into()));
+    }
+    let mut b = PdfBuild::new(title)?;
+    for (i, it) in items.iter().enumerate() {
+        let page = b.add_page();
+        let mut c = b.canvas(page);
+        draw_bundle_header(&mut c, title, i + 1, items.len(), &it.caption);
+        let mut top = MARGIN + HEADER_H + 6.0;
+        if let Some(img) = &it.image {
+            let h = PAGE_H - top - MARGIN - FOOTER_H - 40.0;
+            place_image(&mut c, img, MARGIN, top, PAGE_W - MARGIN * 2.0, h);
+            top += h + 4.0;
+        }
+        for (k, line) in it.lines.iter().enumerate() {
+            let clipped =
+                truncate_chars(line, chars_for_width(line, BODY_PT, PAGE_W - MARGIN * 2.0));
+            c.text(&clipped, BODY_PT, MARGIN, top + k as f32 * 6.0, BODY);
+        }
+    }
+    draw_bundle_list(&mut b, title, items);
+    b.save(path)
+}
+
+fn draw_bundle_header(c: &mut Canvas<'_>, title: &str, idx: usize, total: usize, caption: &str) {
+    c.text(title, TITLE_PT, MARGIN, MARGIN + 6.0, DARK);
+    let counter = format!("第 {idx} / {total} 页");
+    let x = right_x(&counter, BODY_PT, PAGE_W - MARGIN);
+    c.text(&counter, BODY_PT, x, MARGIN + 6.5, GREY);
+    let cap = truncate_chars(
+        caption,
+        chars_for_width(caption, CAPTION_PT, PAGE_W - MARGIN * 2.0),
+    );
+    c.text(&cap, CAPTION_PT, MARGIN, MARGIN + 14.0, ACCENT);
+}
+
+/// 清单页：逐条列出名称与信息（最多 30 条/页，超出续页）。
+fn draw_bundle_list(b: &mut PdfBuild, title: &str, items: &[BundleItem]) {
+    const PER_PAGE: usize = 28;
+    let chunks: Vec<&[BundleItem]> = items.chunks(PER_PAGE).collect();
+    for (pi, chunk) in chunks.iter().enumerate() {
+        let page = b.add_page();
+        let mut c = b.canvas(page);
+        let head = if chunks.len() > 1 {
+            format!("{title} · 清单（{} / {}）", pi + 1, chunks.len())
+        } else {
+            format!("{title} · 清单")
+        };
+        c.text(&head, TITLE_PT, MARGIN, MARGIN + 6.0, DARK);
+        let mut top = MARGIN + 16.0;
+        for (i, it) in chunk.iter().enumerate() {
+            let no = pi * PER_PAGE + i + 1;
+            c.text(&format!("{no:02}"), BODY_PT, MARGIN, top, GREY);
+            let cap = truncate_chars(&it.caption, chars_for_width(&it.caption, BODY_PT, 96.0));
+            c.text(&cap, BODY_PT, MARGIN + 10.0, top, DARK);
+            let rest = it.lines.join(" · ");
+            let rest = truncate_chars(
+                &rest,
+                chars_for_width(&rest, BODY_PT, PAGE_W - MARGIN * 2.0 - 106.0),
+            );
+            c.text(&rest, BODY_PT, MARGIN + 106.0, top, BODY);
+            top += 8.0;
+        }
+    }
+}
+
+/// 合并若干 PDF 文件（按给定顺序），返回合并后的页数。
+///
+/// 为什么自己搬对象而不是拼字节：PDF 的页面靠对象引用串起来（Page → Contents → Font/XObject），
+/// 直接拼字节会得到"能打开但页面空白/字体丢失"的文件。这里逐对象深拷贝并重编号，
+/// 流对象的 `/Length` 改写成实长，避免指向原文件的间接长度对象。
+pub fn merge_pdfs(path: &Path, files: &[PathBuf]) -> Result<usize> {
+    use lopdf::{Dictionary, Document, Object, ObjectId};
+    use std::collections::HashMap;
+
+    if files.is_empty() {
+        return Err(CoreError::Invalid("没有可合并的 PDF".into()));
+    }
+    let mut out = Document::with_version("1.5");
+    let mut max_id = 0u32;
+    let mut page_ids: Vec<ObjectId> = Vec::new();
+
+    for f in files {
+        let doc = Document::load(f)
+            .map_err(|e| CoreError::Invalid(format!("读取 PDF 失败：{}（{e}）", f.display())))?;
+        let mut map: HashMap<ObjectId, ObjectId> = HashMap::new();
+        let mut ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+        ids.sort_by_key(|(n, _)| *n);
+        for pid in ids {
+            let copied = copy_pdf_object(&doc, pid, &mut out, &mut map, &mut max_id)?;
+            page_ids.push(copied);
+        }
+    }
+
+    let mut pages_dict = Dictionary::new();
+    pages_dict.set("Type", Object::Name(b"Pages".to_vec()));
+    pages_dict.set(
+        "Kids",
+        Object::Array(page_ids.iter().map(|id| Object::Reference(*id)).collect()),
+    );
+    pages_dict.set("Count", Object::Integer(page_ids.len() as i64));
+    max_id += 1;
+    let pages_id = (max_id, 0);
+    out.objects.insert(pages_id, Object::Dictionary(pages_dict));
+    for pid in &page_ids {
+        if let Ok(Object::Dictionary(d)) = out.get_object_mut(*pid) {
+            d.set("Parent", Object::Reference(pages_id));
+        }
+    }
+
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", Object::Name(b"Catalog".to_vec()));
+    catalog.set("Pages", Object::Reference(pages_id));
+    max_id += 1;
+    let catalog_id = (max_id, 0);
+    out.objects.insert(catalog_id, Object::Dictionary(catalog));
+    out.max_id = max_id;
+    out.trailer.set("Root", Object::Reference(catalog_id));
+
+    let mut buf = BufWriter::new(std::fs::File::create(path)?);
+    out.save_to(&mut buf)
+        .map_err(|e| CoreError::Invalid(format!("写出合并 PDF 失败：{e}")))?;
+    buf.flush()?;
+    Ok(page_ids.len())
+}
+
+fn copy_pdf_object(
+    doc: &lopdf::Document,
+    id: lopdf::ObjectId,
+    out: &mut lopdf::Document,
+    map: &mut std::collections::HashMap<lopdf::ObjectId, lopdf::ObjectId>,
+    max_id: &mut u32,
+) -> Result<lopdf::ObjectId> {
+    if let Some(hit) = map.get(&id) {
+        return Ok(*hit);
+    }
+    let src = doc
+        .get_object(id)
+        .map_err(|e| CoreError::Invalid(format!("PDF 对象 {id:?} 读取失败：{e}")))?
+        .clone();
+    *max_id += 1;
+    let new_id = (*max_id, 0);
+    map.insert(id, new_id);
+    let copied = copy_pdf_value(doc, &src, out, map, max_id)?;
+    out.objects.insert(new_id, copied);
+    Ok(new_id)
+}
+
+fn copy_pdf_value(
+    doc: &lopdf::Document,
+    obj: &lopdf::Object,
+    out: &mut lopdf::Document,
+    map: &mut std::collections::HashMap<lopdf::ObjectId, lopdf::ObjectId>,
+    max_id: &mut u32,
+) -> Result<lopdf::Object> {
+    use lopdf::Object;
+    Ok(match obj {
+        Object::Reference(id) => Object::Reference(copy_pdf_object(doc, *id, out, map, max_id)?),
+        Object::Array(a) => {
+            let mut v = Vec::with_capacity(a.len());
+            for x in a {
+                v.push(copy_pdf_value(doc, x, out, map, max_id)?);
+            }
+            Object::Array(v)
+        }
+        Object::Dictionary(d) => {
+            let mut nd = lopdf::Dictionary::new();
+            for (k, v) in d.iter() {
+                nd.set(k.clone(), copy_pdf_value(doc, v, out, map, max_id)?);
+            }
+            Object::Dictionary(nd)
+        }
+        Object::Stream(s) => {
+            let mut ns = s.clone();
+            if let Object::Dictionary(d) =
+                copy_pdf_value(doc, &Object::Dictionary(s.dict.clone()), out, map, max_id)?
+            {
+                ns.dict = d;
+            }
+            ns.dict
+                .set("Length", Object::Integer(s.content.len() as i64));
+            Object::Stream(ns)
+        }
+        other => other.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

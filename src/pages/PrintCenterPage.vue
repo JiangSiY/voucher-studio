@@ -227,6 +227,38 @@ async function generate() {
   }
 }
 
+/** v0.26 M3：汇总册（图片册 / 发票册 / PDF 合并） */
+async function makePack(kind: "image" | "invoice" | "pdf") {
+  if (!selected.value.size) {
+    toast.warning("请先勾选要汇总的凭证");
+    return;
+  }
+  if (busy.value) return;
+  busy.value = true;
+  const label = kind === "image" ? "图片册" : kind === "invoice" ? "发票册" : "PDF 合并";
+  const taskId = taskStore.start("export", `生成${label}（${selected.value.size} 张凭证）`);
+  try {
+    const r = await api.packBuild([...selected.value], kind);
+    const detail =
+      r.skipped > 0
+        ? `${r.vouchers} 张入册 · ${r.skipped} 张没有可用附件已跳过`
+        : `${r.vouchers} 张入册${r.pages ? ` · 共 ${r.pages} 页` : ""}`;
+    taskStore.finish(taskId, {
+      detail,
+      action: { label: "打开文件", onClick: () => void api.openPath(r.path) },
+    });
+    toast.success(`${label}已生成：${detail}`, {
+      label: "打开文件",
+      onClick: () => void api.openPath(r.path),
+    });
+  } catch (e) {
+    taskStore.fail(taskId, errMsg(e));
+    toastError(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function openLastPdf() {
   try {
     await Promise.all(lastBatches.value.map((b) => api.openPath(b.pdfPath)));
@@ -293,6 +325,32 @@ onUnmounted(() => {
         全选筛选结果
       </button>
       <button class="btn" :disabled="!selected.size" @click="selectNone">清空</button>
+      <span class="pack-group" role="group" aria-label="汇总册">
+        <button
+          class="btn"
+          :disabled="!selected.size || busy"
+          title="每张凭证一页：原图 + 名称 + 信息，末尾附清单"
+          @click="makePack('image')"
+        >
+          图片册
+        </button>
+        <button
+          class="btn"
+          :disabled="!selected.size || busy"
+          title="只收填了票据类型的凭证：发票字段在上、票面在下，末尾附清单"
+          @click="makePack('invoice')"
+        >
+          发票册
+        </button>
+        <button
+          class="btn"
+          :disabled="!selected.size || busy"
+          title="把 PDF 附件按顺序并成一份，末尾附清单"
+          @click="makePack('pdf')"
+        >
+          PDF 合并
+        </button>
+      </span>
       <button class="btn btn-primary" :disabled="!selected.size || busy" @click="generate()">
         <FluentIcon v-if="!busy" name="print" :size="16" /> {{ generateLabel }}
       </button>
@@ -635,6 +693,10 @@ onUnmounted(() => {
 .action-bar .scope {
   font: var(--type-caption);
   color: var(--label-secondary);
+}
+.pack-group {
+  display: inline-flex;
+  gap: var(--s-1);
 }
 .flex-1 {
   flex: 1;

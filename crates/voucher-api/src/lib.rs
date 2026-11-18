@@ -19,6 +19,7 @@ pub mod enhance;
 pub mod export;
 pub mod ingest;
 pub mod links;
+pub mod pack;
 pub mod settings;
 pub mod vouchers;
 
@@ -309,6 +310,11 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
             ctx,
             get(&args, "voucher_ids")?,
             get(&args, "options")?,
+        )?)?,
+        "pack_build" => to_value(pack::pack_build(
+            ctx,
+            get(&args, "voucherIds")?,
+            get(&args, "kind")?,
         )?)?,
         "export_table" => to_value(export::export_table(
             ctx,
