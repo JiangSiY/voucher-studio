@@ -99,7 +99,7 @@ describe("主骨架：工作台 + 四页签", () => {
     expect(dataSrc).toContain("新建条目");
     expect(dataSrc).toContain("打印导出");
     expect(dataSrc).toContain("open('export')");
-    expect(dataSrc).toContain("later('导入凭证')");
+    expect(dataSrc).toContain("pickAndImport");
   });
 
   it("命令面板只登记四页 + 新建 + 记录搜索，无旧词与旧路由", () => {

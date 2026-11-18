@@ -733,7 +733,14 @@ export const MOCK = {
   groups: GROUPS,
   dupPending: { groups: 2, pairs: 3 },
   dupCount: { groups: 2, pairs: 3, highPairs: 1 },
-  health: { total: 12, noImage: 1, ocrPending: 2, unlinked: 4 },
+  health: {
+    total: 12,
+    noImage: 1,
+    noImageRequired: 1,
+    noImageOptional: 0,
+    ocrPending: 2,
+    unlinked: 4,
+  },
 };
 
 /**
@@ -772,8 +779,16 @@ export function installTauriMock(mock) {
     const pageSize = Math.max(1, Number(q.pageSize) || 10);
     const items = rows.slice((page - 1) * pageSize, page * pageSize);
     const thumbs = {};
-    for (const v of items) if (mock.thumbs[v.id]) thumbs[v.id] = mock.thumbs[v.id];
-    return { items, total: rows.length, thumbs };
+    const meta = {};
+    for (const v of items) {
+      if (mock.thumbs[v.id]) thumbs[v.id] = mock.thumbs[v.id];
+      meta[v.id] = {
+        booked: v.status !== "draft",
+        batchId: null,
+        attachmentRequired: true,
+      };
+    }
+    return { items, total: rows.length, thumbs, meta };
   };
 
   const handlers = {
@@ -786,6 +801,15 @@ export function installTauriMock(mock) {
     duplicate_pending_summary: () => mock.dupPending,
     duplicate_pending_count: () => mock.dupCount,
     list_vouchers: (args) => listVouchers(args),
+    list_import_batches: () => [],
+    get_biz_fields: (args) => ({
+      voucherId: Number(args?.voucherId),
+      fields: {},
+      missing: [],
+      archiveName: "",
+      archiveError: "",
+    }),
+    gl_list_category_maps: () => [],
     list_voucher_ids: () => mock.vouchers.map((v) => v.id),
     get_voucher: (args) => {
       const id = Number(args?.id);
@@ -795,6 +819,7 @@ export function installTauriMock(mock) {
         voucher,
         attachments: mock.attachments.filter((a) => a.voucherId === id),
         snapshots: [],
+        rowMeta: { booked: voucher.status !== "draft", batchId: null, attachmentRequired: true },
       };
     },
     get_voucher_neighbor: (args) => {
