@@ -66,7 +66,14 @@ sed -e "s#__BIN__#$BIN_DIR/center-server#g" \
 # 4) 装载
 say "装载 launchd 服务"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$UID" "$PLIST"
+# 重复安装时 bootout 与 bootstrap 之间要留一拍：紧接着 bootstrap 偶发
+# `Bootstrap failed: 5: Input/output error`（2026-11-18 重装时踩到，隔一秒重试即成功）
+sleep 1
+if ! launchctl bootstrap "gui/$UID" "$PLIST"; then
+  warn "bootstrap 失败，等 1 秒重试一次"
+  sleep 1
+  launchctl bootstrap "gui/$UID" "$PLIST"
+fi
 launchctl enable "gui/$UID/$LABEL"
 sleep 1
 if curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then
