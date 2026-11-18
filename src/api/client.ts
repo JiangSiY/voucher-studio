@@ -2,24 +2,176 @@
  * 后端 API 封装：类型与 Tauri invoke 一一对应（src-tauri/src/commands）
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { errMsg } from "./errors";
+import { isTauri } from "./env";
 
 // 错误归一工具（结构化 ApiError{code,message} 解析）；独立纯模块便于 node 环境测试
 export { asApiError, errMsg, type ApiErrorPayload } from "./errors";
 
 /** 是否运行在 Tauri 桌面壳内（纯浏览器打开 dev URL 时为 false） */
-export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export { isTauri } from "./env";
 
 /**
  * 统一 invoke 封装：纯浏览器环境（如误开 dev URL）下返回可读的中文错误，
  * 避免 UI 弹出 "Cannot read properties of undefined (reading 'invoke')" 这类裸 JS 错误。
  */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri) {
-    return Promise.reject(
-      new Error("桌面功能不可用：当前页面运行在纯浏览器中，请通过 Voucher Studio 桌面应用使用"),
-    );
+  if (isTauri) return tauriInvoke<T>(cmd, args);
+  return webInvoke<T>(cmd, args);
+}
+
+/**
+ * 网页版命令通道：`POST /api/cmd/{cmd}`（服务端 `voucher_api::dispatch`，与桌面版同一套业务代码）。
+ * 错误体统一是 `{ error: { code, message, fields? } }`，这里原样抛出对象，
+ * 让 `asApiError` / `errMsg` 继续工作，调用方一行都不用改。
+ */
+async function webInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const resp = await fetch(`/api/cmd/${cmd}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(args ?? {}),
+    credentials: "same-origin",
+  }).catch((e: unknown) => {
+    throw new Error(`连不上服务器：${errMsg(e)}`);
+  });
+  return readJson<T>(resp);
+}
+
+async function readJson<T>(resp: Response): Promise<T> {
+  const text = await resp.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* 非 JSON 响应（例如网关错误页）按纯文本处理 */
+    }
   }
-  return tauriInvoke<T>(cmd, args);
+  const payload = data as { error?: { code?: string; message?: string; fields?: string[] } } | null;
+  if (!resp.ok || payload?.error) {
+    if (resp.status === 401) window.dispatchEvent(new CustomEvent("center:unauthorized"));
+    const err = payload?.error;
+    throw {
+      code: err?.code ?? `http_${resp.status}`,
+      message: err?.message ?? (text || resp.statusText),
+      fields: err?.fields,
+    };
+  }
+  return data as T;
+}
+
+/** 网页版可选文件类型（与 Rust 侧 SUPPORTED_EXTS 对齐） */
+const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.bmp,.webp,.pdf";
+
+/**
+ * 浏览器没有原生文件对话框 API：临时 input 触发选择，取消时靠 window focus 兜底
+ * （`input` 只有 change 事件，用户点「取消」不会触发）。
+ */
+function pickFiles(accept: string, multiple = true): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = multiple;
+    let settled = false;
+    let timer: number | null = null;
+
+    const done = (files: File[]) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+      resolve(files);
+    };
+    const onFocus = () => {
+      timer = window.setTimeout(() => {
+        if (!input.files?.length) done([]);
+      }, 500);
+    };
+
+    input.addEventListener("change", () => done(Array.from(input.files ?? [])));
+    // 用户点「取消」不会触发 change：窗口重新聚焦后再等半秒，仍无选择就当作取消
+    window.addEventListener("focus", onFocus, { once: true });
+    input.click();
+  });
+}
+
+async function uploadFiles(files: File[], fields: Record<string, string>): Promise<unknown> {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  for (const f of files) fd.append("file", f, f.name);
+  const resp = await fetch("/api/upload", {
+    method: "POST",
+    body: fd,
+    credentials: "same-origin",
+  }).catch((e: unknown) => {
+    throw new Error(`上传失败：${errMsg(e)}`);
+  });
+  return readJson<unknown>(resp);
+}
+
+async function webPickAndImport(runOcr: boolean): Promise<ImportSummary | null> {
+  const files = await pickFiles(IMAGE_ACCEPT);
+  if (!files.length) return null;
+  return (await uploadFiles(files, {
+    mode: "import",
+    runOcr: runOcr ? "true" : "false",
+  })) as ImportSummary;
+}
+
+async function webPickAndAttachImage(
+  voucherId: number,
+  runOcr = true,
+): Promise<ImportSummary | null> {
+  const files = await pickFiles(IMAGE_ACCEPT, false);
+  if (!files.length) return null;
+  return (await uploadFiles(files, {
+    mode: "attach",
+    attachTo: String(voucherId),
+    runOcr: runOcr ? "true" : "false",
+  })) as ImportSummary;
+}
+
+async function webPickAndReplaceImage(voucherId: number): Promise<VoucherDetail | null> {
+  const files = await pickFiles(IMAGE_ACCEPT, false);
+  if (!files.length) return null;
+  return (await uploadFiles(files, {
+    mode: "replace",
+    attachTo: String(voucherId),
+  })) as VoucherDetail;
+}
+
+/**
+ * 网页版拖放导入：浏览器拿到的是 `File` 对象（不是磁盘路径），必须先上传。
+ * 桌面版没有对应函数——Tauri 的拖放由原生层直接给路径。
+ */
+export async function uploadDroppedFiles(files: File[], runOcr = true): Promise<ImportSummary> {
+  return (await uploadFiles(files, {
+    mode: "import",
+    runOcr: runOcr ? "true" : "false",
+  })) as ImportSummary;
+}
+
+/** 网页版「打开文件」：浏览器只能下载/新窗口预览，不能打开 Finder */
+function openInBrowser(path: string): Promise<void> {
+  const url = `/api/download?path=${encodeURIComponent(path)}`;
+  const win = window.open(url, "_blank");
+  if (!win) return Promise.reject(new Error("浏览器拦截了新窗口：请允许本站弹出窗口后重试"));
+  return Promise.resolve();
+}
+
+/** 台账 CSV：先 stage 到服务端临时目录，再让两侧共用同一个路径做「预演 → 写入」 */
+async function webPickLedgerCsv(): Promise<string | null> {
+  const files = await pickFiles(".csv", false);
+  if (!files.length) return null;
+  const out = (await uploadFiles(files, { mode: "stage" })) as { paths?: string[] };
+  return out.paths?.[0] ?? null;
+}
+
+async function webPickAndReconcile(): Promise<ReconcileReport | null> {
+  const files = await pickFiles(".csv", false);
+  if (!files.length) return null;
+  return (await uploadFiles(files, { mode: "reconcile" })) as ReconcileReport;
 }
 
 // ---------- 类型 ----------
@@ -875,7 +1027,7 @@ export interface NewVoucherInput {
 
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
-  openPath: (path: string) => invoke<void>("open_path", { path }),
+  openPath: (path: string) => (isTauri ? invoke<void>("open_path", { path }) : openInBrowser(path)),
   restartApp: () => invoke<void>("restart_app"),
 
   getConfig: () => invoke<AppConfig>("get_config"),
@@ -988,10 +1140,15 @@ export const api = {
     invoke<SearchHit[]>("search_vouchers", { keyword, filters: filters ?? null, limit }),
 
   /** Rust 侧对话框选图并直接导入（绕开 JS 对话框桥的竞态）。null = 用户取消 */
-  pickAndImport: (runOcr: boolean) => invoke<ImportSummary | null>("pick_and_import", { runOcr }),
+  pickAndImport: (runOcr: boolean) =>
+    isTauri
+      ? invoke<ImportSummary | null>("pick_and_import", { runOcr })
+      : webPickAndImport(runOcr),
   /** Rust 侧对话框选图更换凭证图片（换图不换卡）。null = 用户取消 */
   pickAndReplaceImage: (voucherId: number) =>
-    invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId }),
+    isTauri
+      ? invoke<VoucherDetail | null>("pick_and_replace_image", { voucherId })
+      : webPickAndReplaceImage(voucherId),
   /** 附件绝对路径（打开原图用） */
   attachmentAbsPath: (id: number) => invoke<string>("attachment_abs_path", { id }),
   /** v0.12：手动裁剪/旋转（旋转→裁剪→覆盖写增强版；原图不动）。rect 为旋转后图像像素坐标 */
@@ -1001,7 +1158,8 @@ export const api = {
     rotationDeg: number,
   ) => invoke<Attachment>("crop_attachment", { attachmentId, rect, rotationDeg }),
   /** v0.13：选账单 CSV → 对账（只读匹配；报告自动落 exports/）。null = 用户取消 */
-  pickAndReconcile: () => invoke<ReconcileReport | null>("pick_and_reconcile"),
+  pickAndReconcile: () =>
+    isTauri ? invoke<ReconcileReport | null>("pick_and_reconcile") : webPickAndReconcile(),
   /**
    * 台账清单（收款/付款/计提 CSV）导入为凭证：ledger_ref 幂等，坏行记错误不中断。
    * dryRun 只统计不落库。路径由调用方给出（CLI 侧选文件）。
@@ -1013,10 +1171,12 @@ export const api = {
 
   // ---- v13 台账页（GUI 入口）：选 CSV → 预演 → 写入 → 补附件 → 已入账 ----
   /** 选一份台账清单 CSV（Rust 侧对话框）。null = 用户取消 */
-  pickLedgerCsv: () => invoke<string | null>("pick_ledger_csv"),
+  pickLedgerCsv: () => (isTauri ? invoke<string | null>("pick_ledger_csv") : webPickLedgerCsv()),
   /** 给**已有**凭证挂一张票据（台账凭证补附件）。null = 用户取消 */
   pickAndAttachImage: (voucherId: number, runOcr = true) =>
-    invoke<ImportSummary | null>("pick_and_attach_image", { voucherId, runOcr }),
+    isTauri
+      ? invoke<ImportSummary | null>("pick_and_attach_image", { voucherId, runOcr })
+      : webPickAndAttachImage(voucherId, runOcr),
   /** 台账页概览：待补附件 / 待入账 / 有效批次 */
   ledgerCounts: () => invoke<LedgerCounts>("ledger_counts"),
   /** 台账凭证列表（按阶段） */

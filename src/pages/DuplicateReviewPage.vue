@@ -12,7 +12,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "../api/asset";
 import {
   api,
   type Attachment,
@@ -139,7 +139,7 @@ function imgUrl(v: Voucher, side: "a" | "b"): string | null {
   if (!list.length) return null;
   const key = `${v.id}:${side}`;
   const abs = pickCandidate(list[0], imgStep.value[key] ?? 0);
-  return abs ? convertFileSrc(abs) : null;
+  return abs ? assetUrl(abs) : null;
 }
 
 function onImgError(v: Voucher, side: "a" | "b") {

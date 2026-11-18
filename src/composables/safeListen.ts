@@ -1,4 +1,5 @@
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
+import { isTauri } from "../api/env";
 
 /**
  * 安全的事件监听：注册失败只告警，不打断后续注册。
@@ -14,6 +15,9 @@ export async function safeListen<T>(
   event: string,
   handler: (e: Event<T>) => void,
 ): Promise<UnlistenFn | null> {
+  // 网页版（center-server）没有 Tauri 事件总线：注册必定失败，直接返回空的注销函数，
+  // 免得每个页面在控制台刷一条「transformCallback undefined」。
+  if (!isTauri) return () => {};
   try {
     return await listen<T>(event, handler);
   } catch (e) {

@@ -7,7 +7,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "../api/asset";
 import { pickCandidate } from "../composables/useAttachmentFallback";
 import {
   api,
@@ -145,13 +145,13 @@ function rowThumbUrl(v: Voucher): string | null {
   const t = thumbs.value[v.id];
   if (!t) return null;
   const abs = pickCandidate(t, 0);
-  return abs ? convertFileSrc(abs) : null;
+  return abs ? assetUrl(abs) : null;
 }
 
 function appendixThumbUrl(t: VoucherThumb): string {
   // 地址用后端拼好的绝对路径（不要在前端拼分隔符）
   const abs = t.enhancedSource === "scan" && t.enhancedAbs ? t.enhancedAbs : t.fileAbs;
-  return abs ? convertFileSrc(abs) : "";
+  return abs ? assetUrl(abs) : "";
 }
 
 async function load() {

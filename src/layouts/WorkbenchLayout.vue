@@ -6,10 +6,15 @@ import { useDupStore } from "../stores/dup";
 import { useInboxStore } from "../stores/inbox";
 import { useLedgerStore } from "../stores/ledger";
 import { toastError } from "../stores/toast";
+import { useSessionStore } from "../stores/session";
+import { isTauri } from "../api/env";
+import { useRouter } from "vue-router";
 import FluentIcon from "../components/FluentIcon.vue";
 import SidebarResizeHandle from "../components/layout/SidebarResizeHandle.vue";
 
 const route = useRoute();
+const router = useRouter();
+const session = useSessionStore();
 const configStore = useConfigStore();
 const dupStore = useDupStore();
 const inboxStore = useInboxStore();
@@ -81,6 +86,12 @@ const sidebarCollapsed = computed(() => configStore.sidebarCollapsed);
 function toggleSidebar() {
   void configStore.toggleSidebarCollapsed().catch((e) => toastError(e));
 }
+
+/** 网页版才有「退出登录」；桌面版是本地单机应用，没有会话概念 */
+async function signOut() {
+  await session.logout();
+  await router.replace({ name: "login" });
+}
 </script>
 
 <template>
@@ -130,7 +141,19 @@ function toggleSidebar() {
         <span class="nav-icon"><FluentIcon name="sidebar" :size="18" /></span>
         <span class="nav-label">{{ sidebarCollapsed ? "展开侧边栏" : "收起侧边栏" }}</span>
       </button>
-      <div class="sidebar-footer">v{{ version }} · 数据本地存储</div>
+      <button
+        v-if="!isTauri"
+        class="sidebar-toggle"
+        title="退出登录"
+        aria-label="退出登录"
+        @click="signOut"
+      >
+        <span class="nav-icon"><FluentIcon name="lock" :size="18" /></span>
+        <span class="nav-label">退出登录</span>
+      </button>
+      <div class="sidebar-footer">
+        v{{ version }} · {{ isTauri ? "数据本地存储" : "数据在本机服务器" }}
+      </div>
     </aside>
 
     <!-- 侧边栏宽度拖拽手柄：挂在 shell 上（侧栏自身滚动，放里面会被滚走） -->

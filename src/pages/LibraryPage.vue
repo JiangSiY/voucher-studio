@@ -19,7 +19,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Ref } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "../api/asset";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "../composables/safeListen";
 import {
@@ -376,7 +376,7 @@ function thumbUrl(v: Voucher): string | null {
   const t = thumbs.value[v.id];
   if (!t) return null;
   const abs = pickCandidate(t, thumbStep.value[v.id] ?? 0);
-  return abs ? convertFileSrc(abs) : null;
+  return abs ? assetUrl(abs) : null;
 }
 function onThumbError(v: Voucher) {
   const t = thumbs.value[v.id];

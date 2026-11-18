@@ -1,9 +1,17 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import WorkbenchLayout from "../layouts/WorkbenchLayout.vue";
+import { useSessionStore } from "../stores/session";
 
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    // 网页版登录页：不进工作台布局（没有侧栏/工具栏，服务端还没认人）
+    {
+      path: "/login",
+      name: "login",
+      component: () => import("../pages/LoginPage.vue"),
+      meta: { title: "登录" },
+    },
     {
       path: "/",
       component: WorkbenchLayout,
@@ -96,4 +104,25 @@ export const router = createRouter({
       ],
     },
   ],
+});
+
+/**
+ * 网页版会话守卫：桌面版（isTauri）永远放行；网页版未登录一律回 /login。
+ *
+ * `session.refresh()` 只在首次导航时 await 一次（`checking` 初值为 true），
+ * 之后每次导航只看内存状态，避免每个路由都打一次 /api/auth/status。
+ * 这里 `try` 兜底是为了单测：测试里可能没有挂 Pinia，守卫不应因此崩掉。
+ */
+router.beforeEach(async (to) => {
+  if (to.name === "login") return true;
+  let session: ReturnType<typeof useSessionStore>;
+  try {
+    session = useSessionStore();
+  } catch {
+    return true;
+  }
+  if (!session.authRequired) return true;
+  if (session.checking) await session.refresh();
+  if (session.loggedIn) return true;
+  return { name: "login", query: { next: to.fullPath } };
 });

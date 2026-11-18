@@ -6,7 +6,7 @@
  * OCR 重跑 / 换图 / 裁剪后刷新由父组件编排（裁剪落库后 emit cropSaved 交由父级刷新 + 提示）。
  */
 import { ref } from "vue";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "../../api/asset";
 import { api, type Attachment } from "../../api/client";
 import { OCR_ENGINE_SHORT, OCR_META, ocrEngineLabel } from "../../composables/format";
 import { toastError } from "../../stores/toast";
@@ -32,11 +32,6 @@ const emit = defineEmits<{
 
 // 图片地址一律用后端下发的绝对路径（`fileAbs` / `enhancedAbs`）。
 // 不要在前端拼路径：拼分隔符曾在 macOS 上拼出不存在的路径，被 asset protocol 全部拒绝。
-
-/** 把一个绝对路径转成 webview 可用的 asset URL（空值 → 占位空串） */
-function assetUrl(abs?: string | null): string {
-  return abs ? convertFileSrc(abs) : "";
-}
 
 // ---------- D-1：编辑页缩略图优先用增强版，支持「原图/增强」切换 ----------
 

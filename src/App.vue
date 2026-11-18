@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { safeListen } from "./composables/safeListen";
 import { useRouter } from "vue-router";
 import {
   api,
   errMsg,
-  isTauri,
+  uploadDroppedFiles,
   type BackupInfo,
   type ImportSummary,
   type RecoveryReport,
 } from "./api/client";
+import { isTauri } from "./api/env";
+import { useSessionStore } from "./stores/session";
 import { fmtDate } from "./composables/format";
 import { useConfigStore } from "./stores/config";
 import { useDupStore } from "./stores/dup";
@@ -49,7 +51,13 @@ function onGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => window.addEventListener("keydown", onGlobalKeydown));
-onUnmounted(() => window.removeEventListener("keydown", onGlobalKeydown));
+onUnmounted(() => {
+  window.removeEventListener("keydown", onGlobalKeydown);
+  window.removeEventListener("dragenter", onWebDragEnter);
+  window.removeEventListener("dragover", onWebDragOver);
+  window.removeEventListener("dragleave", onWebDragLeave);
+  window.removeEventListener("drop", onWebDrop);
+});
 
 // 全局事件告警（任何页面都可见）
 let unlistenDone: UnlistenFn | null = null;
@@ -68,13 +76,73 @@ const importing = ref(false);
 // 关闭前备份进行中（遮罩 + 跳过按钮）
 const closingBackup = ref(false);
 
+/**
+ * 网页版拖放导入：浏览器只给 `File` 对象（拿不到磁盘路径），所以走 `/api/upload`。
+ * 桌面版这段永不启用——Tauri 的拖放由原生层直接发 `import:*` 事件。
+ */
+let webDragDepth = 0;
+
+function onWebDragEnter(e: DragEvent) {
+  if (!e.dataTransfer?.types.includes("Files")) return;
+  e.preventDefault();
+  webDragDepth += 1;
+  draggingOver.value = true;
+}
+function onWebDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+}
+function onWebDragLeave() {
+  webDragDepth = Math.max(0, webDragDepth - 1);
+  if (webDragDepth === 0) draggingOver.value = false;
+}
+async function onWebDrop(e: DragEvent) {
+  e.preventDefault();
+  webDragDepth = 0;
+  draggingOver.value = false;
+  const files = [...(e.dataTransfer?.files ?? [])];
+  if (!files.length) return;
+  importing.value = true;
+  const task = taskStore.start("import", `导入 ${files.length} 个文件`, files.length);
+  try {
+    const s = await uploadDroppedFiles(files, true);
+    const parts: string[] = [];
+    if (s.vouchers.length) parts.push(`已导入 ${s.vouchers.length} 张，各建一张凭证`);
+    if (s.skippedDuplicates.length) parts.push(`跳过重复 ${s.skippedDuplicates.length} 张`);
+    if (s.failed.length) parts.push(`失败 ${s.failed.length} 张`);
+    void inboxStore.refresh();
+    void ledgerStore.refresh();
+    taskStore.finish(task, { detail: parts.join(" · ") || "没有新的文件" });
+    if (parts.length) toast.success(parts.join(" · "));
+  } catch (err) {
+    taskStore.fail(task, errMsg(err));
+    toast.danger(`导入失败：${errMsg(err)}`);
+  } finally {
+    importing.value = false;
+  }
+}
+
 // 崩溃恢复：上次会话异常退出时的健康报告对话框
 const recovery = ref<RecoveryReport | null>(null);
 
 onMounted(async () => {
-  // 纯浏览器打开 dev URL：跳过所有 Tauri 相关初始化，避免裸 JS 错误刷屏
+  // 网页版（center-server）：没有 Tauri 事件总线与拖放注入，监听器全部跳过；
+  // 命令改走 HTTP（api/client.ts），会话由路由守卫处理。这里只把配置拉起来，
+  // 侧栏版本号 / 主题 / 侧栏宽度才有值。
   if (!isTauri) {
-    toast.info("浏览器预览模式：仅界面可浏览，请通过桌面应用使用完整功能");
+    // 网页版：登录前不能拉配置（服务端会 401，控制台一片红）。等会话就绪再初始化，
+    // 同时把「登录后重新拉配置」这一步挂在 watcher 上——登出再登入也能拿到新配置。
+    window.addEventListener("dragenter", onWebDragEnter);
+    window.addEventListener("dragover", onWebDragOver);
+    window.addEventListener("dragleave", onWebDragLeave);
+    window.addEventListener("drop", onWebDrop);
+    const session = useSessionStore();
+    watch(
+      () => session.loggedIn,
+      (logged) => {
+        if (logged) void configStore.init().catch((e) => console.warn("加载配置失败", e));
+      },
+      { immediate: true },
+    );
     return;
   }
   configStore.init();
