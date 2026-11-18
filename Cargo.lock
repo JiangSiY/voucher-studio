@@ -6320,6 +6320,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
+ "voucher-api",
  "voucher-core",
  "window-vibrancy",
 ]

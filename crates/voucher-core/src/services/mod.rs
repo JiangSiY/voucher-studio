@@ -1,5 +1,6 @@
 //! 服务层（对应 v4.3 的 `services/` + ocr/pdf/webdav_backup/scheduler 等顶层模块）
 
+pub mod accounting;
 pub mod attachment_view;
 pub mod backup;
 pub mod biz;

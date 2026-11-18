@@ -30,7 +30,7 @@ pub const DOC_TYPES: &[&str] = &[
 ];
 
 const COLS: &str =
-    "doc_type, category, biz_domain, flow_dir, ticket_type, invoice_no, invoice_date, \
+    "doc_type, category, biz_domain, flow_dir, account, ticket_type, invoice_no, invoice_date, \
      project_key, project_name, counterparty_key, material_name, material_qty, material_unit, \
      archive_name, source_doc_ref, gl_voucher_no, gl_batch, gl_voucher_date, gl_booked_at";
 
@@ -46,21 +46,22 @@ pub fn load(conn: &Connection, voucher_id: i64) -> Result<BizFields> {
                     category: r.get(1)?,
                     biz_domain: r.get(2)?,
                     flow_dir: r.get(3)?,
-                    ticket_type: r.get(4)?,
-                    invoice_no: r.get(5)?,
-                    invoice_date: r.get(6)?,
-                    project_key: r.get(7)?,
-                    project_name: r.get(8)?,
-                    counterparty_key: r.get(9)?,
-                    material_name: r.get(10)?,
-                    material_qty: r.get(11)?,
-                    material_unit: r.get(12)?,
-                    archive_name: r.get(13)?,
-                    source_doc_ref: r.get(14)?,
-                    gl_voucher_no: r.get(15)?,
-                    gl_batch: r.get(16)?,
-                    gl_voucher_date: r.get(17)?,
-                    gl_booked_at: r.get(18)?,
+                    account: r.get(4)?,
+                    ticket_type: r.get(5)?,
+                    invoice_no: r.get(6)?,
+                    invoice_date: r.get(7)?,
+                    project_key: r.get(8)?,
+                    project_name: r.get(9)?,
+                    counterparty_key: r.get(10)?,
+                    material_name: r.get(11)?,
+                    material_qty: r.get(12)?,
+                    material_unit: r.get(13)?,
+                    archive_name: r.get(14)?,
+                    source_doc_ref: r.get(15)?,
+                    gl_voucher_no: r.get(16)?,
+                    gl_batch: r.get(17)?,
+                    gl_voucher_date: r.get(18)?,
+                    gl_booked_at: r.get(19)?,
                 })
             },
         )
@@ -80,10 +81,11 @@ pub fn save(conn: &Connection, voucher_id: i64, b: &BizFields) -> Result<()> {
     conn.execute(
         &format!(
             "INSERT INTO voucher_ext (voucher_id, {COLS}, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT(voucher_id) DO UPDATE SET
                doc_type=excluded.doc_type, category=excluded.category,
                biz_domain=excluded.biz_domain, flow_dir=excluded.flow_dir,
+               account=excluded.account,
                ticket_type=excluded.ticket_type, invoice_no=excluded.invoice_no,
                invoice_date=excluded.invoice_date, project_key=excluded.project_key,
                project_name=excluded.project_name, counterparty_key=excluded.counterparty_key,
@@ -99,6 +101,7 @@ pub fn save(conn: &Connection, voucher_id: i64, b: &BizFields) -> Result<()> {
             b.category,
             b.biz_domain,
             b.flow_dir,
+            b.account,
             b.ticket_type,
             b.invoice_no,
             b.invoice_date,
@@ -334,4 +337,169 @@ mod tests {
         };
         assert!(archive_name_for(&v, &no_ref).is_err());
     }
+}
+
+/// 一张凭证的台账字段全貌（前端编辑器一次拿全）
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BizDetail {
+    pub voucher_id: i64,
+    pub fields: BizFields,
+    /// 还缺哪些必填项（空数组 = 可复核）
+    pub missing: Vec<String>,
+    /// 按当前字段算出的归档名（算不出时为空串）
+    pub archive_name: String,
+    /// 算不出归档名的原因（成功时为空串）——直接给用户看，别让他猜
+    pub archive_error: String,
+}
+
+/// 读凭证 + 扩展字段 + 必填缺项 + 归档名预览
+pub fn detail(ctx: &crate::CoreContext, voucher_id: i64) -> Result<BizDetail> {
+    ctx.db.with_conn(|conn| {
+        let v = crate::db::repos::voucher_repo::get(conn, voucher_id)?
+            .ok_or_else(|| CoreError::NotFound(format!("凭证 {voucher_id} 不存在")))?;
+        let fields = load(conn, voucher_id)?;
+        let missing = missing_required(&v, &fields);
+        let (archive_name, archive_error) = match archive_name_for(&v, &fields) {
+            Ok(name) => (name, String::new()),
+            Err(CoreError::NotImplemented(msg)) => (String::new(), msg.to_string()),
+            Err(e) => (String::new(), e.to_string()),
+        };
+        Ok(BizDetail {
+            voucher_id,
+            fields,
+            missing,
+            archive_name,
+            archive_error,
+        })
+    })
+}
+
+/// 归档改名结果（一条附件一行）
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveApplied {
+    pub voucher_id: i64,
+    pub archive_name: String,
+    pub files: Vec<RenamedFile>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedFile {
+    pub attachment_id: i64,
+    pub old_name: String,
+    pub new_name: String,
+}
+
+/// 按台账口径给附件改名，并写回 `archive_name`。
+///
+/// 顺序刻意是「先算 → 再落盘 → 最后写库」：
+/// - 算不出来（缺单据号）就整笔拒绝，不留半成品；
+/// - 落盘失败（磁盘满/无权限）时库还没改，重试是幂等的；
+/// - 同名已存在时自动加 `-2`、`-3`，绝不覆盖别人的凭证。
+pub fn apply_archive_name(ctx: &crate::CoreContext, voucher_id: i64) -> Result<ArchiveApplied> {
+    let (voucher, fields) = ctx.db.with_conn(|conn| {
+        let v = crate::db::repos::voucher_repo::get(conn, voucher_id)?
+            .ok_or_else(|| CoreError::NotFound(format!("凭证 {voucher_id} 不存在")))?;
+        let b = load(conn, voucher_id)?;
+        Ok((v, b))
+    })?;
+    let name = archive_name_for(&voucher, &fields)?;
+    let files = rename_attachments(ctx, &voucher, &name)?;
+    ctx.db.with_conn(|conn| {
+        save(
+            conn,
+            voucher_id,
+            &BizFields {
+                archive_name: name.clone(),
+                ..fields.clone()
+            },
+        )?;
+        for f in &files {
+            conn.execute(
+                "INSERT INTO attachment_ext (attachment_id, original_file_name, archive_name, role)
+                 VALUES (?1, ?2, ?3, 'primary')
+                 ON CONFLICT(attachment_id) DO UPDATE SET archive_name=excluded.archive_name",
+                params![f.attachment_id, f.old_name, f.new_name],
+            )?;
+            let updated = conn.execute(
+                "UPDATE attachments SET file_name = ?2 WHERE id = ?1",
+                params![f.attachment_id, f.new_name],
+            )?;
+            if updated == 0 {
+                return Err(CoreError::NotFound(format!(
+                    "附件 {} 不存在",
+                    f.attachment_id
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(ArchiveApplied {
+        voucher_id,
+        archive_name: name,
+        files,
+    })
+}
+
+fn rename_attachments(
+    ctx: &crate::CoreContext,
+    voucher: &Voucher,
+    archive_name: &str,
+) -> Result<Vec<RenamedFile>> {
+    let attachments = ctx
+        .db
+        .with_conn(|conn| crate::db::repos::attachment_repo::list_by_voucher(conn, voucher.id))?;
+    if attachments.is_empty() {
+        return Err(CoreError::Invalid(
+            "这张凭证还没有附件，先补附件再改名".into(),
+        ));
+    }
+    let month_dir = &voucher.voucher_date[..7.min(voucher.voucher_date.len())];
+    let dir = ctx.paths.attachments.join(month_dir.replace('-', "/"));
+    std::fs::create_dir_all(&dir)?;
+    let mut out = Vec::new();
+    for a in attachments {
+        let src = ctx.paths.attachment_abs(&a.file_path);
+        if !src.is_file() {
+            return Err(CoreError::NotFound(format!(
+                "附件文件不在磁盘上：{}",
+                src.display()
+            )));
+        }
+        let ext = src
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
+            .unwrap_or_default();
+        let mut dest = dir.join(format!("{archive_name}{ext}"));
+        let mut n = 2;
+        while dest.exists() && dest != src {
+            dest = dir.join(format!("{archive_name}-{n}{ext}"));
+            n += 1;
+        }
+        if dest != src {
+            std::fs::rename(&src, &dest)?;
+        }
+        let rel = dest
+            .strip_prefix(&ctx.paths.base)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .map_err(|_| CoreError::Invalid("改名后的路径不在数据目录内".into()))?;
+        ctx.db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE attachments SET file_path = ?2 WHERE id = ?1",
+                params![a.id, rel],
+            )?;
+            Ok(())
+        })?;
+        out.push(RenamedFile {
+            attachment_id: a.id,
+            old_name: a.file_name.clone(),
+            new_name: dest
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        });
+    }
+    Ok(out)
 }

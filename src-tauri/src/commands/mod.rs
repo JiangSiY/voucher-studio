@@ -10,6 +10,7 @@
 //! - backup：备份与恢复（含 WebDAV）
 //! - settings：配置 / 密钥 / 增强缓存管理
 
+mod accounting;
 mod backup;
 mod enhance;
 mod export;
@@ -18,6 +19,7 @@ mod links;
 mod settings;
 mod vouchers;
 
+pub use accounting::*;
 pub use backup::*;
 pub use enhance::*;
 pub use export::*;
@@ -50,6 +52,9 @@ pub(super) type Ctx<'a> = State<'a, Arc<CoreContext>>;
 pub struct ApiError {
     pub code: &'static str,
     pub message: String,
+    /// 缺哪些必填项（`required_missing` 时给前端高亮用；其它错误不序列化）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<String>>,
 }
 
 impl ApiError {
@@ -72,9 +77,14 @@ impl ApiError {
             CoreError::RequiredMissing(_) => "required_missing",
             CoreError::LockHeld => "lock_held",
         };
+        let fields = match &e {
+            CoreError::RequiredMissing(items) => Some(items.clone()),
+            _ => None,
+        };
         Self {
             code,
             message: e.to_string(),
+            fields,
         }
     }
 
@@ -83,6 +93,7 @@ impl ApiError {
         Self {
             code,
             message: message.into(),
+            fields: None,
         }
     }
 
@@ -91,6 +102,7 @@ impl ApiError {
         Self {
             code: "internal",
             message: message.into(),
+            fields: None,
         }
     }
 }

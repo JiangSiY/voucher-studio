@@ -537,6 +537,11 @@ pub fn init(conn: &Connection) -> Result<()> {
     }
     // v14（Center 字段对齐）：台账对齐字段的 1:1 扩展表 + 附件扩展（原名/归档名/角色/校验和）。
     conn.execute_batch(SCHEMA_V14)?;
+    // v14 后续补的列：账户（结算方式）。V5 改版后「账户」装的是 银行转账/微信/支付宝/…，
+    // 会计投影按「日期+账户」分组要用到它，所以不再是标签而是实列。
+    if !has_column(conn, "voucher_ext", "account")? {
+        conn.execute_batch("ALTER TABLE voucher_ext ADD COLUMN account TEXT NOT NULL DEFAULT ''")?;
+    }
     // v15（Center 会计投影 + 服务端认证）
     conn.execute_batch(SCHEMA_V15)?;
     Ok(())

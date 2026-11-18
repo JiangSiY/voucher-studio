@@ -49,6 +49,15 @@ pub fn create_voucher(ctx: &CoreContext, new: NewVoucher) -> Result<Voucher> {
     })
 }
 
+/// 复核闸门：状态改成「已复核」之前，台账必填项必须齐全（Center v0.26）。
+///
+/// 为什么卡在状态而不是保存：草稿阶段允许边识别边补，**复核是「这张能入账了」的承诺**，
+/// 缺口在这一刻拦住，台账/分录/导出才不会带着半张凭证往下走。
+fn ensure_reviewable(tx: &Connection, v: &crate::models::Voucher) -> Result<()> {
+    let b = crate::services::biz::load(tx, v.id)?;
+    crate::services::biz::ensure_required(v, &b)
+}
+
 pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Result<Voucher> {
     let cfg = ctx.config();
     let engine = NamingEngine::new(&cfg.naming.template);
@@ -76,6 +85,14 @@ pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Resu
         )?;
         if !voucher_repo::update(tx, id, &update)? {
             return Err(CoreError::NotFound(format!("凭证 {id} 不存在")));
+        }
+        // 改了状态到「已复核」：按改后的字段再核一遍必填
+        if update.status == Some(VoucherStatus::Reviewed) {
+            let after = voucher_repo::get(tx, id)?
+                .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+            if after.status == VoucherStatus::Reviewed {
+                ensure_reviewable(tx, &after)?;
+            }
         }
         // 档号日期以凭证日期为准：日期变更时按新日期重排编号。
         // 用户显式指定编号则尊重之；已导出/已归档编号锁定（已印在 PDF 中不能变）。
@@ -266,6 +283,9 @@ pub fn set_status(ctx: &CoreContext, id: i64, status: VoucherStatus) -> Result<(
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
         // v0.11 期间锁
         crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
+        if status == VoucherStatus::Reviewed {
+            ensure_reviewable(tx, &current)?;
+        }
         snapshot_repo::insert(
             tx,
             &crate::models::snapshot::NewSnapshot {
@@ -296,6 +316,9 @@ pub fn batch_set_status(ctx: &CoreContext, ids: &[i64], status: VoucherStatus) -
             }
             // v0.11 期间锁：已封账月份的凭证不可变更状态
             crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
+            if status == VoucherStatus::Reviewed {
+                ensure_reviewable(tx, &current)?;
+            }
             snapshot_repo::insert(
                 tx,
                 &crate::models::snapshot::NewSnapshot {

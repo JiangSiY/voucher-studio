@@ -12,7 +12,9 @@
 //! - 事件推送（`ocr:progress` / `enhance:progress` / `dup:changed`）由服务端用 SSE 补，
 //!   本层只返回结果。
 
+pub mod accounting;
 pub mod backup;
+pub mod biz;
 pub mod enhance;
 pub mod export;
 pub mod ingest;
@@ -265,6 +267,41 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
             ctx,
             get(&args, "voucher_id")?,
             get(&args, "booked")?,
+        )?)?,
+
+        // ---------- 台账字段（免复核闸门 + 归档改名） ----------
+        "get_biz_fields" => to_value(biz::get_biz_fields(ctx, get(&args, "voucher_id")?)?)?,
+        "save_biz_fields" => to_value(biz::save_biz_fields(
+            ctx,
+            get(&args, "voucher_id")?,
+            get(&args, "fields")?,
+        )?)?,
+        "apply_archive_name" => to_value(biz::apply_archive_name(ctx, get(&args, "voucher_id")?)?)?,
+
+        // ---------- 会计投影（M2） ----------
+        "gl_build_period" => to_value(accounting::build_period(ctx, get(&args, "period")?)?)?,
+        "gl_post_period" => to_value(accounting::post_period(ctx, get(&args, "period")?)?)?,
+        "gl_list_entries" => to_value(accounting::list_entries(ctx, get(&args, "period")?)?)?,
+        "gl_export_kis" => to_value(accounting::export_kis(ctx, get(&args, "period")?)?)?,
+        "gl_export_copy_sheet" => {
+            to_value(accounting::export_copy_sheet(ctx, get(&args, "period")?)?)?
+        }
+        "gl_export_v5_entries" => {
+            to_value(accounting::export_v5_entries(ctx, get(&args, "period")?)?)?
+        }
+        "gl_list_category_maps" => to_value(accounting::list_category_maps(ctx)?)?,
+        "gl_upsert_category_map" => {
+            to_value(accounting::upsert_category_map(ctx, get(&args, "map")?)?)?
+        }
+        "gl_list_account_maps" => to_value(accounting::list_account_maps(ctx)?)?,
+        "gl_upsert_account_map" => {
+            to_value(accounting::upsert_account_map(ctx, get(&args, "map")?)?)?
+        }
+        "gl_list_periods" => to_value(accounting::list_periods(ctx)?)?,
+        "gl_set_period_status" => to_value(accounting::set_period_status(
+            ctx,
+            get(&args, "period")?,
+            get(&args, "status")?,
         )?)?,
 
         // ---------- 导出 ----------

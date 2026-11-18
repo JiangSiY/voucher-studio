@@ -10,6 +10,7 @@ license.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+voucher-api = { path = "../crates/voucher-api" }
 voucher-core = { path = "../crates/voucher-core" }
 serde.workspace = true
 serde_json.workspace = true

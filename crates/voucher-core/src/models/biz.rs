@@ -40,6 +40,8 @@ pub struct BizFields {
     pub biz_domain: String,
     /// 收支方向（`收` / `付`；仅资金类）
     pub flow_dir: String,
+    /// 结算方式（V5 的「账户」字段：银行转账/微信/支付宝/承兑/现金/其他）
+    pub account: String,
     /// 票据类型（增值税专票/增值税普通发票/普票/收据/无票）
     pub ticket_type: String,
     /// 发票号（专票必填）
