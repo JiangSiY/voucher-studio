@@ -55,6 +55,8 @@ const navItems = computed(() => [
     badge: ledgerStore.unattached,
     badgeLabel: "张待补附件",
   },
+  // v0.26：台账之后就是会计投影——清单补完附件，下一步就是把它们折成分录
+  { to: "/accounting", icon: "chart", label: "会计投影", badge: 0, badgeLabel: "" },
   {
     to: "/duplicates",
     icon: "duplicate",

@@ -27,6 +27,7 @@ import {
 import AttachmentPanel from "./AttachmentPanel.vue";
 import DescriptionInput from "./DescriptionInput.vue";
 import SnapshotPanel from "./SnapshotPanel.vue";
+import LedgerFieldsPanel from "./LedgerFieldsPanel.vue";
 import OcrResultCard from "../OcrResultCard.vue";
 import FluentIcon from "../FluentIcon.vue";
 import { centsToYuanInput, parseTags, parseYuanToCents } from "../../composables/money";
@@ -364,6 +365,16 @@ async function replaceImage() {
   }
 }
 
+async function onBizChanged() {
+  // 台账字段/改名只影响扩展表与文件，凭证档案层不变；只刷新详情（附件改名后缩略图路径要更新）
+  try {
+    const detail = await api.getVoucher(props.voucher.id);
+    emit("detail", detail);
+  } catch (e) {
+    toastError(e);
+  }
+}
+
 async function onCropSaved() {
   const detail = await api.getVoucher(props.voucher.id);
   mergeFrom(detail.voucher);
@@ -582,6 +593,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
             </div>
           </div>
         </div>
+        <!-- 台账字段（入账层）：与「凭证字段」分开——档案层每张都要填，入账层只在要入账时齐即可 -->
+        <LedgerFieldsPanel :voucher-id="voucher.id" :dense="dense" @changed="onBizChanged" />
         <div class="ed-ops">
           <span v-if="dirty && lockedPeriod" class="dirty-hint">● 已封账</span>
           <span v-else-if="dirty" class="dirty-hint">● 未保存</span>

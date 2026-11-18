@@ -467,6 +467,112 @@ export interface LedgerCounts {
 /** 台账页两个阶段：待补附件 / 待入账 */
 export type LedgerStage = "unattached" | "unbooked";
 
+// ---- v0.26 Center：台账字段 / 会计投影 ----
+
+export type { BizFields } from "../composables/bizFields";
+import type { BizFields } from "../composables/bizFields";
+export { ACCOUNT_KEYS, DOC_TYPES, EMPTY_BIZ_FIELDS, type DocType } from "../composables/bizFields";
+
+/** 台账字段全貌：字段 + 缺哪些必填 + 归档名预览 */
+export interface BizDetail {
+  voucherId: number;
+  fields: BizFields;
+  missing: string[];
+  archiveName: string;
+  archiveError: string;
+}
+
+export interface RenamedFile {
+  attachmentId: number;
+  oldName: string;
+  newName: string;
+}
+
+export interface ArchiveApplied {
+  voucherId: number;
+  archiveName: string;
+  files: RenamedFile[];
+}
+
+/** 一张分录凭证（预演结果） */
+export interface EntryLine {
+  entryDate: string;
+  summary: string;
+  accountCode: string;
+  accountName: string;
+  debitCents: number;
+  creditCents: number;
+  projectKey: string;
+  sourceType: string;
+  sourceRef: string;
+}
+
+export interface EntryVoucher {
+  kind: string;
+  entryDate: string;
+  summary: string;
+  lines: EntryLine[];
+  debitCents: number;
+  creditCents: number;
+}
+
+export interface PeriodPlan {
+  period: string;
+  receipts: EntryVoucher[];
+  payments: EntryVoucher[];
+  accruals: EntryVoucher[];
+  issues: string[];
+}
+
+export interface PostResult {
+  period: string;
+  vouchers: number;
+  lines: number;
+  debitCents: number;
+  creditCents: number;
+}
+
+export interface GlEntry {
+  id: number;
+  period: string;
+  entryDate: string;
+  voucherNo: string;
+  summary: string;
+  accountCode: string;
+  accountName: string;
+  debitCents: number;
+  creditCents: number;
+  projectKey: string;
+  sourceType: string;
+  sourceRef: string;
+  status: string;
+}
+
+export interface CategoryMap {
+  category: string;
+  accountCode: string;
+  accountName: string;
+  direction: string;
+  bizDomain: string;
+  note: string;
+}
+
+export interface AccountMap {
+  accountKey: string;
+  accountCode: string;
+  accountName: string;
+  note: string;
+}
+
+export interface PeriodRow {
+  period: string;
+  status: string;
+  vouchers: number;
+  debitCents: number;
+  creditCents: number;
+  note: string;
+}
+
 /** 一次台账导入的批次（撤销的单位） */
 export interface ImportBatch {
   id: number;
@@ -1178,6 +1284,28 @@ export const api = {
       ? invoke<ImportSummary | null>("pick_and_attach_image", { voucherId, runOcr })
       : webPickAndAttachImage(voucherId, runOcr),
   /** 台账页概览：待补附件 / 待入账 / 有效批次 */
+  // ---- v0.26 Center：台账字段与会计投影 ----
+  getBizFields: (voucherId: number) => invoke<BizDetail>("get_biz_fields", { voucherId }),
+  saveBizFields: (voucherId: number, fields: BizFields) =>
+    invoke<BizDetail>("save_biz_fields", { voucherId, fields }),
+  applyArchiveName: (voucherId: number) =>
+    invoke<ArchiveApplied>("apply_archive_name", { voucherId }),
+  glBuildPeriod: (period: string) => invoke<PeriodPlan>("gl_build_period", { period }),
+  glPostPeriod: (period: string) => invoke<PostResult>("gl_post_period", { period }),
+  glListEntries: (period: string) => invoke<GlEntry[]>("gl_list_entries", { period }),
+  glExportKis: (period: string) => invoke<string>("gl_export_kis", { period }),
+  glExportCopySheet: (period: string) => invoke<string>("gl_export_copy_sheet", { period }),
+  glExportV5Entries: (period: string) => invoke<string>("gl_export_v5_entries", { period }),
+  glListCategoryMaps: () => invoke<CategoryMap[]>("gl_list_category_maps"),
+  glUpsertCategoryMap: (map: CategoryMap) =>
+    invoke<{ ok: boolean }>("gl_upsert_category_map", { map }),
+  glListAccountMaps: () => invoke<AccountMap[]>("gl_list_account_maps"),
+  glUpsertAccountMap: (map: AccountMap) =>
+    invoke<{ ok: boolean }>("gl_upsert_account_map", { map }),
+  glListPeriods: () => invoke<PeriodRow[]>("gl_list_periods"),
+  glSetPeriodStatus: (period: string, status: "open" | "closed") =>
+    invoke<{ ok: boolean }>("gl_set_period_status", { period, status }),
+
   ledgerCounts: () => invoke<LedgerCounts>("ledger_counts"),
   /** 台账凭证列表（按阶段） */
   listLedgerItems: (stage: LedgerStage) => invoke<LedgerItem[]>("list_ledger_items", { stage }),

@@ -54,6 +54,13 @@ const commands: Command[] = [
     run: () => router.push("/ledger"),
   },
   {
+    key: "nav:accounting",
+    label: "前往 会计投影",
+    hint: "预演分录 / 导出 KIS / 回写台账",
+    icon: "chart",
+    run: () => router.push("/accounting"),
+  },
+  {
     key: "nav:new",
     label: "新建凭证",
     hint: "选图建卡 + OCR",

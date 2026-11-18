@@ -3,7 +3,7 @@
  * 侧栏开合（用户 2026-10-16 要求："去掉侧边栏分组功能，增加侧边栏收起功能，收起后只显示图标"）。
  *
  * 锁住的契约：
- * - 导航是**扁平一列**：分组标题按钮（`.nav-group`）不复存在，九个条目全部渲染；
+ * - 导航是**扁平一列**：分组标题按钮（`.nav-group`）不复存在，十一个条目全部渲染；
  * - 工具栏有侧栏开关，点一下收起（写根属性 `data-sidebar-collapsed="true"`，CSS 依据它只留图标）；
  * - 再点一下恢复展开（属性回 `"false"`）；
  * - 启动时尊重已保存的收起状态（`appearance.sidebarCollapsed`，跨启动保持）；
@@ -43,6 +43,7 @@ const NAV_LABELS = [
   "待处理",
   "全部凭证",
   "台账",
+  "会计投影",
   "重复核查",
   "洞察",
   "打印与导出",
@@ -96,7 +97,7 @@ afterEach(() => {
 });
 
 describe("侧栏：扁平导航 + 整栏收起", () => {
-  it("导航扁平一列：没有分组标题，九个条目全部渲染", async () => {
+  it("导航扁平一列：没有分组标题，十一个条目全部渲染", async () => {
     const w = await mountLayout();
     expect(w.findAll(".nav-group")).toHaveLength(0);
     expect(navLinks(w)).toHaveLength(NAV_LABELS.length);

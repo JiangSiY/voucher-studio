@@ -46,6 +46,13 @@ export const router = createRouter({
           component: () => import("../pages/LedgerPage.vue"),
           meta: { title: "台账", subtitle: "月度清单导入 · 补附件 · 等入账" },
         },
+        // v0.26：会计投影 = 台账凭证 → 借贷分录 → KIS 引入 / 抄单纸 / V5 分录
+        {
+          path: "accounting",
+          name: "accounting",
+          component: () => import("../pages/AccountingPage.vue"),
+          meta: { title: "会计投影", subtitle: "预演分录 · 导出 KIS · 回写台账" },
+        },
         {
           path: "vouchers/new",
           name: "voucher-new",
