@@ -32,6 +32,41 @@ bash deploy/install-macos.sh --uninstall                  # 卸载（数据保�
 2. **FileVault**：重启后要有人在本机登录一次，服务才能起来；长期断电重启后先远程确认。
 3. **数据目录**：`CENTER_DATA_DIR`（默认 `~/Library/Application Support/VoucherStudio`）。备份靠应用内的 WebDAV 上传，建议每天一次。
 
+## 忘记访问密码（重置）
+
+密码只存哈希，无法找回；重置＝删掉用户表里的那一行，下次打开变成「设置访问密码」：
+
+```bash
+launchctl bootout gui/$UID/com.center.server
+sqlite3 "$HOME/Library/Application Support/VoucherStudio/voucher.db" \
+  'DELETE FROM auth_sessions; DELETE FROM auth_users;'
+launchctl bootstrap gui/$UID "$HOME/Library/LaunchAgents/com.center.server.plist"
+```
+
+凭证与附件不受影响（只动 `auth_users` / `auth_sessions` 两张表）。
+
+## 冷备接管（M5）
+
+按顺序做，全程在**接管机**（i3 PC / 任何一台新机器）上：
+
+```bash
+# 1. 从 WebDAV 或 U 盘拿到最新全量备份 zip
+# 2. 还原到空目录（voucher-cli 与 center-server 用同一份二进制产物）
+./voucher-cli restore --zip voucher-backup-export-20261118-115916.zip --target ~/Center/data
+# 3. 用同一个二进制起服务
+CENTER_DATA_DIR=~/Center/data CENTER_ADDR=127.0.0.1:8787 ./center-server
+# 4. 浏览器打开 http://127.0.0.1:8787 ，用原密码登录；核对凭证条数与最后一笔
+```
+
+演练（在主机上跑，验证「备份 → 还原 → 起服务 → 两边一致」整条链，不碰真实账本）：
+
+```bash
+bash deploy/drill-coldstandby.sh            # 默认拿 /tmp/center-smoke 做样本
+bash deploy/drill-coldstandby.sh <数据目录>  # 指定样本目录（会先复制一份再演练）
+```
+
+脚本结束会打印「主实例 {…} / 冷备 {…}」两份统计；一致即接管链路可用。
+
 ## 安全
 
 - 只监听回环地址，公网不可达；外部访问必须经过 Tailscale（或你自己的反代 + TLS）。
