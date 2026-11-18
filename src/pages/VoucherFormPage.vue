@@ -9,8 +9,9 @@
  * 而且建卡之前列表里还没有这条记录，"选中即在右栏编辑"的模型不适用。
  */
 import { onMounted, onUnmounted, ref } from "vue";
+import { safeListen } from "../composables/safeListen";
 import { useRouter } from "vue-router";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { api, type ImportSummary } from "../api/client";
 import FluentIcon from "../components/FluentIcon.vue";
 import { toast, toastError } from "../stores/toast";
@@ -92,7 +93,7 @@ let unlistenImportDone: UnlistenFn | null = null;
 
 onMounted(async () => {
   void refreshNoPreview();
-  unlistenImportDone = await listen<ImportSummary>("import:done", (e) => {
+  unlistenImportDone = await safeListen<ImportSummary>("import:done", (e) => {
     if (e.payload.vouchers.length) openInLibrary(e.payload.vouchers[0].voucherId);
   });
 });

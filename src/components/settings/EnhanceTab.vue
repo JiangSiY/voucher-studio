@@ -6,8 +6,9 @@
  * Tab 不再接收可变 cfg prop，而是读写共享 store 状态，保存由设置页整体提交。
  */
 import { onMounted, onUnmounted, ref } from "vue";
+import { safeListen } from "../../composables/safeListen";
 import { storeToRefs } from "pinia";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   api,
   errMsg,
@@ -178,7 +179,7 @@ async function reEnhanceAll() {
   enhanceTaskId = taskStore.start("enhance", "重建全部增强版");
   try {
     if (!unlistenEnhanceProgress) {
-      unlistenEnhanceProgress = await listen<{ done: number; total: number }>(
+      unlistenEnhanceProgress = await safeListen<{ done: number; total: number }>(
         "enhance:progress",
         (e) => {
           reEnhanceDone.value = e.payload.done;
@@ -215,7 +216,7 @@ onMounted(async () => {
     .getRecoveryReport()
     .then((r) => (missingEnhanced.value = r.attachmentMissingEnhanced))
     .catch(() => (missingEnhanced.value = 0));
-  unlistenEnhanceProgress = await listen<{ done: number; total: number }>(
+  unlistenEnhanceProgress = await safeListen<{ done: number; total: number }>(
     "enhance:progress",
     (e) => {
       reEnhanceDone.value = e.payload.done;

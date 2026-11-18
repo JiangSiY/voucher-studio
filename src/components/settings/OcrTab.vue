@@ -6,8 +6,9 @@
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { storeToRefs } from "pinia";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { api, errMsg, type LocalOcrStatus, type OcrHealth } from "../../api/client";
+import { safeListen } from "../../composables/safeListen";
 import FluentIcon from "../FluentIcon.vue";
 import { toast, toastError } from "../../stores/toast";
 import { useTaskStore } from "../../stores/tasks";
@@ -76,7 +77,7 @@ onMounted(async () => {
   } catch (e) {
     toastError(e);
   }
-  unlistenOcrProgress = await listen<{ done: number; total: number }>("ocr:progress", (e) => {
+  unlistenOcrProgress = await safeListen<{ done: number; total: number }>("ocr:progress", (e) => {
     if (ocrPendingBusy.value) ocrProgress.value = e.payload;
     if (ocrTaskId !== null)
       taskStore.progress(ocrTaskId, { done: e.payload.done, total: e.payload.total });
