@@ -13,6 +13,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   api,
+  type CheckReport,
   type ImportBatch,
   type KeptVoucher,
   type LedgerCounts,
@@ -31,7 +32,7 @@ const router = useRouter();
 /** 侧栏徽标与待处理页那张卡同源；这里动作完顺带刷新它 */
 const ledger = useLedgerStore();
 
-type Tab = LedgerStage | "batches";
+type Tab = LedgerStage | "batches" | "check";
 const tab = ref<Tab>("unattached");
 
 const counts = ref<LedgerCounts | null>(null);
@@ -53,12 +54,76 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "unattached", label: "待补附件" },
   { value: "unbooked", label: "待入账" },
   { value: "batches", label: "批次" },
+  { value: "check", label: "对账" },
 ];
+
+// ---- M4 对账：台账导出 CSV ↔ 凭证库 ----
+
+const checkPath = ref("");
+const checkReport = ref<CheckReport | null>(null);
+const checking = ref(false);
+/** 容差（元）：默认 0，只允许完全相等；填 0.01 可放过一分钱尾差 */
+const checkTolerance = ref("0");
+
+const CHECK_KIND_LABEL: Record<string, string> = {
+  missing_voucher: "缺凭证",
+  missing_ref: "编号缺失",
+  duplicate_ref: "编号重复",
+  amount_mismatch: "金额不符",
+  date_mismatch: "日期不符",
+  counterparty_mismatch: "对方不符",
+  orphan_voucher: "多余凭证",
+};
+
+function checkKindLabel(kind: string): string {
+  return CHECK_KIND_LABEL[kind] ?? kind;
+}
+
+/** 容差输入（元）→ 分；空/非法按 0 处理 */
+function toleranceCents(): number {
+  const n = Number(checkTolerance.value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+}
+
+async function chooseCheckCsv() {
+  try {
+    const path = await api.pickLedgerCsv();
+    if (!path) return;
+    checkPath.value = path;
+    checkReport.value = null;
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+async function runCheck() {
+  if (!checkPath.value) return;
+  checking.value = true;
+  try {
+    checkReport.value = await api.ledgerCheck(checkPath.value, toleranceCents());
+  } catch (e) {
+    toastError(e);
+  } finally {
+    checking.value = false;
+  }
+}
+
+async function exportCheck() {
+  if (!checkPath.value) return;
+  try {
+    const path = await api.ledgerCheckExport(checkPath.value, toleranceCents());
+    toast.success("差异表已导出");
+    await api.openPath(path);
+  } catch (e) {
+    toastError(e);
+  }
+}
 
 function tabCount(t: Tab): number {
   if (!counts.value) return 0;
   if (t === "unattached") return counts.value.unattached;
   if (t === "unbooked") return counts.value.unbooked;
+  if (t === "check") return 0;
   return counts.value.activeBatches;
 }
 
@@ -71,7 +136,7 @@ async function loadCounts() {
 }
 
 async function loadItems() {
-  if (tab.value === "batches") return;
+  if (tab.value === "batches" || tab.value === "check") return;
   loading.value = true;
   try {
     items.value = await api.listLedgerItems(tab.value);
@@ -236,7 +301,7 @@ onMounted(reload);
     </div>
 
     <!-- ===== 待补附件 / 待入账 ===== -->
-    <div v-if="tab !== 'batches'" class="fluent-panel">
+    <div v-if="tab !== 'batches' && tab !== 'check'" class="fluent-panel">
       <div class="fluent-panel-body" style="padding: 0">
         <div v-if="items.length" class="dtable-wrap">
           <table class="dtable">
@@ -300,6 +365,115 @@ onMounted(reload);
         </EmptyState>
       </div>
     </div>
+
+    <!-- ===== 对账（M4） ===== -->
+    <template v-else-if="tab === 'check'">
+      <div class="fluent-panel">
+        <div class="fluent-panel-body check-bar">
+          <button class="btn" :disabled="checking" @click="chooseCheckCsv()">
+            <FluentIcon name="upload" :size="14" />
+            选择台账 CSV
+          </button>
+          <span class="check-file" :title="checkPath">
+            {{
+              checkPath
+                ? checkPath.split("/").pop()
+                : "还没选文件（台账导出脚本产出的收款/付款/计提清单）"
+            }}
+          </span>
+          <label class="check-tolerance">
+            容差
+            <input v-model="checkTolerance" class="input" inputmode="decimal" />
+            元
+          </label>
+          <button class="btn btn-primary" :disabled="checking || !checkPath" @click="runCheck()">
+            {{ checking ? "比对中…" : "开始比对" }}
+          </button>
+        </div>
+      </div>
+
+      <template v-if="checkReport">
+        <div class="check-stats">
+          <div class="check-stat">
+            <span class="sum-label">台账行数</span>
+            <strong class="sum-value">{{ checkReport.rows }}</strong>
+          </div>
+          <div class="check-stat ok">
+            <span class="sum-label">完全一致</span>
+            <strong class="sum-value">{{ checkReport.matched }}</strong>
+          </div>
+          <div class="check-stat" :class="{ bad: checkReport.missing }">
+            <span class="sum-label">缺凭证</span>
+            <strong class="sum-value">{{ checkReport.missing }}</strong>
+          </div>
+          <div class="check-stat" :class="{ bad: checkReport.mismatched }">
+            <span class="sum-label">字段不符</span>
+            <strong class="sum-value">{{ checkReport.mismatched }}</strong>
+          </div>
+          <div class="check-stat" :class="{ bad: checkReport.orphans }">
+            <span class="sum-label">多余凭证</span>
+            <strong class="sum-value">{{ checkReport.orphans }}</strong>
+          </div>
+          <div class="check-stat" :class="{ bad: checkReport.malformed }">
+            <span class="sum-label">编号异常</span>
+            <strong class="sum-value">{{ checkReport.malformed }}</strong>
+          </div>
+        </div>
+
+        <div class="fluent-panel">
+          <div class="fluent-panel-body" style="padding: 0">
+            <div v-if="checkReport.issues.length" class="dtable-wrap">
+              <table class="dtable">
+                <thead>
+                  <tr>
+                    <th>问题</th>
+                    <th>台账编号</th>
+                    <th>凭证号</th>
+                    <th>台账日期</th>
+                    <th>凭证日期</th>
+                    <th class="num">台账金额</th>
+                    <th class="num">凭证金额</th>
+                    <th>说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(i, idx) in checkReport.issues" :key="idx">
+                    <td>
+                      <span
+                        class="tag"
+                        :class="i.kind === 'orphan_voucher' ? 'tag-muted' : 'tag-danger'"
+                      >
+                        {{ checkKindLabel(i.kind) }}
+                      </span>
+                    </td>
+                    <td class="mono">{{ i.ledgerRef || "—" }}</td>
+                    <td class="mono">{{ i.voucherNo || "—" }}</td>
+                    <td>{{ i.ledgerDate ? fmtDate(i.ledgerDate) : "—" }}</td>
+                    <td>{{ i.voucherDate ? fmtDate(i.voucherDate) : "—" }}</td>
+                    <td class="num">{{ fmtAmount(i.ledgerAmountCents) }}</td>
+                    <td class="num">{{ fmtAmount(i.voucherAmountCents) }}</td>
+                    <td class="desc" :title="i.message">{{ i.message }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <EmptyState
+              v-else
+              icon="checkCircle"
+              title="两边完全对得上"
+              :desc="`${checkReport.rows} 行台账记录都有对应凭证，金额、日期、对方一致。`"
+            />
+          </div>
+        </div>
+
+        <div class="check-actions">
+          <span class="muted-hint">只读比对，不会改动凭证或台账；差异表可导出给台账那边核对。</span>
+          <button class="btn" :disabled="!checkReport.issues.length" @click="exportCheck()">
+            导出差异 CSV
+          </button>
+        </div>
+      </template>
+    </template>
 
     <!-- ===== 批次 ===== -->
     <div v-else class="fluent-panel">
@@ -480,6 +654,74 @@ onMounted(reload);
 
 .wz-bad {
   color: var(--danger);
+}
+
+.check-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+.check-file {
+  flex: 1;
+  min-width: 220px;
+  font-size: var(--fs-caption);
+  color: var(--label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check-tolerance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-caption);
+  color: var(--label-secondary);
+}
+
+.check-tolerance .input {
+  width: 72px;
+  text-align: right;
+}
+
+.check-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+.check-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+}
+
+.check-stat.ok .sum-value {
+  color: var(--success);
+}
+
+.check-stat.bad .sum-value {
+  color: var(--danger);
+}
+
+.check-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.muted-hint {
+  font-size: var(--fs-caption);
+  color: var(--label-tertiary);
 }
 
 .kept-list {

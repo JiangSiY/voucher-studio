@@ -464,6 +464,37 @@ export interface LedgerCounts {
   activeBatches: number;
 }
 
+// ---- v0.26 M4：台账对账 ----
+
+/** 一条对账差异 */
+export interface CheckIssue {
+  /** missing_voucher / missing_ref / amount_mismatch / date_mismatch /
+   *  counterparty_mismatch / orphan_voucher / duplicate_ref */
+  kind: string;
+  ledgerRef: string;
+  voucherId: number | null;
+  voucherNo: string;
+  ledgerDate: string;
+  voucherDate: string;
+  ledgerAmountCents: number | null;
+  voucherAmountCents: number | null;
+  message: string;
+}
+
+/** 台账对账结果 */
+export interface CheckReport {
+  csvPath: string;
+  checkedAt: string;
+  rows: number;
+  matched: number;
+  missing: number;
+  orphans: number;
+  mismatched: number;
+  malformed: number;
+  toleranceCents: number;
+  issues: CheckIssue[];
+}
+
 /** 台账页两个阶段：待补附件 / 待入账 */
 export type LedgerStage = "unattached" | "unbooked";
 
@@ -1318,6 +1349,12 @@ export const api = {
     invoke<{ ok: boolean }>("gl_set_period_status", { period, status }),
 
   ledgerCounts: () => invoke<LedgerCounts>("ledger_counts"),
+  /** M4：台账导出 CSV ↔ 凭证库逐条比对（只读） */
+  ledgerCheck: (csvPath: string, toleranceCents?: number) =>
+    invoke<CheckReport>("ledger_check", { csvPath, toleranceCents }),
+  /** M4：把差异表导成 CSV，返回落盘路径 */
+  ledgerCheckExport: (csvPath: string, toleranceCents?: number) =>
+    invoke<string>("ledger_check_export", { csvPath, toleranceCents }),
   /** 台账凭证列表（按阶段） */
   listLedgerItems: (stage: LedgerStage) => invoke<LedgerItem[]>("list_ledger_items", { stage }),
   /** 导入批次列表（新的在前） */
