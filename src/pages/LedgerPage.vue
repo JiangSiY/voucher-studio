@@ -62,6 +62,12 @@ const TABS: { value: Tab; label: string }[] = [
 const checkPath = ref("");
 const checkReport = ref<CheckReport | null>(null);
 const checking = ref(false);
+/** 网页端上传会把文件落到服务端临时目录并加时间戳前缀，展示时去掉 */
+const checkFileName = computed(() => {
+  const name = checkPath.value.split("/").pop() ?? "";
+  return name.replace(/^\d{8}-\d{6}-\d+-/, "");
+});
+
 /** 容差（元）：默认 0，只允许完全相等；填 0.01 可放过一分钱尾差 */
 const checkTolerance = ref("0");
 
@@ -375,11 +381,7 @@ onMounted(reload);
             选择台账 CSV
           </button>
           <span class="check-file" :title="checkPath">
-            {{
-              checkPath
-                ? checkPath.split("/").pop()
-                : "还没选文件（台账导出脚本产出的收款/付款/计提清单）"
-            }}
+            {{ checkFileName || "还没选文件（台账导出脚本产出的收款/付款/计提清单）" }}
           </span>
           <label class="check-tolerance">
             容差
@@ -630,6 +632,7 @@ onMounted(reload);
 .dtable .mono {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-caption);
+  white-space: nowrap;
 }
 
 .dtable .desc {
