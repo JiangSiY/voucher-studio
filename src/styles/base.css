@@ -2004,6 +2004,21 @@ select.input {
   cursor: pointer;
 }
 
+/* 窄屏的分段控件（设置 6 个分区、台账 4 个阶段）改为横向滚动：
+   否则最后一项被裁掉一半（"密…"），看着像布局坏了 */
+.app-shell--compact .segmented {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-shell--compact .segmented::-webkit-scrollbar {
+  display: none;
+}
+.app-shell--compact .segmented .seg-item {
+  flex: 0 0 auto;
+}
+
 /* 手机首屏三数字：只留标签 + 数字，说明文字在窄屏会把卡片撑成三行 */
 .app-shell--compact .metric-hint {
   display: none;

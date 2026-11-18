@@ -735,4 +735,21 @@ onMounted(reload);
   font-size: var(--fs-caption);
   color: var(--label-secondary);
 }
+
+/* 窄屏（<768）：概览卡改上下两行，按钮独占一行——否则「导入清单」被挤成一条蓝色细边
+   （2026-11-18 真机走查踩到） */
+@media (max-width: 767px) {
+  .ledger-summary {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .sum-stats {
+    justify-content: space-between;
+  }
+  .ledger-summary > .btn {
+    width: 100%;
+  }
+}
 </style>

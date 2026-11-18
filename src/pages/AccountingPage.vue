@@ -487,4 +487,34 @@ onMounted(() => {
   font-size: var(--fs-title);
   margin: 16px 0 8px;
 }
+
+/* 窄屏（<768）：头部改上下两段、操作按钮换行、统计卡两列、页签横向滚动
+   ——否则副标题被挤成一行一个字（2026-11-18 真机走查踩到） */
+@media (max-width: 767px) {
+  .page-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .head-ops {
+    flex-wrap: wrap;
+  }
+  .head-ops .btn-primary {
+    flex: 1;
+  }
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ops {
+    flex-wrap: wrap;
+  }
+}
 </style>
