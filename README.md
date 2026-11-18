@@ -69,7 +69,7 @@
 | 本地 OCR | ort 2.0 RC（`=2.0.0-rc.13`；上游暂无 2.x 正式版，故精确 pin，见 `crates/voucher-core/Cargo.toml` 注释）+ RapidOCR PP-OCRv5 模型 |
 | 数据库 | SQLite（rusqlite，显式事务 UoW 模式） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
-| UI | **v0.27 起工作台重构（B1 已落地）**：网页端为唯一设计基准，顶部 52px Header + 四个固定页签「工作台 / 数据 / 对账 / 会计投影」，打印导出、设置、备份、重复核查、帮助全部改为弹层；桌面端改用系统原生标题栏，不再为窗口按钮预留内边距；暖色语义令牌（Claude 系强调色 + 中文衬线显示字），正文 15px、输入 16px、字号三档可调；旧侧栏 / 页头 / 底部 tab 已退役。数据页真实数据、建条目必填凭证与 PWA 壳层按 B2–B5 推进。**自 v0.17.0 起仅支持 macOS**，v0.26 起同一内核也以网页服务形态运行（手机/平板走浏览器）。设计口径见 [`docs/开发方案.md`](docs/开发方案.md) §5.9（B5 落正本；当前取值以 `src/styles/tokens.css` 为准） |
+| UI | **v0.27 起工作台重构（B1–B2 已落地）**：网页端为唯一设计基准，顶部 52px Header + 四个固定页签「工作台 / 数据 / 对账 / 会计投影」，打印导出、设置、备份、重复核查、帮助全部改为弹层；桌面端改用系统原生标题栏，不再为窗口按钮预留内边距；暖色语义令牌（Claude 系强调色 + 中文衬线显示字），正文 15px、输入 16px、字号三档可调；旧侧栏 / 页头 / 底部 tab 已退役。数据页已接真实数据与行内编辑、新建条目强制凭证（B2a/B2b，2026-11-18）；工作台 KPI/图表/待办与 PWA 壳层按 B3–B5 推进。**自 v0.17.0 起仅支持 macOS**，v0.26 起同一内核也以网页服务形态运行（手机/平板走浏览器）。设计口径见 [`docs/开发方案.md`](docs/开发方案.md) §5.9（B5 落正本；当前取值以 `src/styles/tokens.css` 为准） |
 
 ## 环境要求
 
@@ -95,7 +95,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：194 单元 + 159 集成，共 353 用例；加 src-tauri 3 用例共 356；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：194 单元 + 166 集成，共 360 用例；加 src-tauri 3 用例共 363；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

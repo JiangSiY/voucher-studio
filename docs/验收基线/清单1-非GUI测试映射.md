@@ -5,6 +5,8 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
+> **2026-11-18 工作台重构 B2（B2a/B2b）**：`voucher-core` 测试 **360 个**（src 内联 **194** + tests 集成 **166**，新增 `record_attachment_flow` 7 例；`voucher_flow` 41、`dashboard_flow` 20 补附件夹具），加 `src-tauri` 3 例共 **363**；集成目标 `cargo test -p voucher-core --tests` 全绿。前端 vitest **54 文件 331 用例**（实测；旧页契约删 2 份，新增 `dataPageContract` 3 例）。单元全量长跑待 #58 复跑。
+>
 > **2026-11-04 Loon 化批次**：新增 `src/__tests__/loonVisualContract.test.ts` 8 例（画布/玻璃卡/纸面/
 > 工具栏副标题），并改写 `visualConsistencyContract` 的筛选栏断言与 `libraryPolishContract` 的吸顶断言；
 > 前端 vitest **实测 57 文件 / 360 用例**（原 56 / 352）。Rust 侧本批零改动，计数不变。
