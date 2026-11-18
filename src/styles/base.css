@@ -111,6 +111,13 @@ body {
   box-shadow: inset 0 0 0 1px var(--card-hairline);
 }
 
+/* 工作区 / 工具区之间的发丝线（v0.26）：只分隔、不加分组标题（用户 2026-10-16 的取舍） */
+.sidebar-nav .nav-divider {
+  height: 1px;
+  margin: var(--s-2) var(--s-2);
+  background: var(--separator);
+}
+
 .sidebar-nav .nav-icon {
   position: relative; /* 角标的定位参照 */
   width: 24px;

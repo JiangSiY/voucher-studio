@@ -141,10 +141,11 @@ function openTab(key: string) {
            deep 不会误吞点击）。用户 2026-10-16 要求去掉左上角图标（原 VS 徽标 + 字标），
            留白高度仍按 `calc(var(--toolbar-h) - var(--s-2))` 让开红绿灯带（y≈18–30）。 -->
       <div class="sidebar-header" data-tauri-drag-region="deep"></div>
-      <!-- 扁平导航（无分组，用户 2026-10-16 要求）；收起时 CSS 只留图标 -->
+      <!-- 扁平导航（无分组标题，用户 2026-10-16 要求）；收起时 CSS 只留图标。
+           v0.26：工作区 5 项与工具区 6 项之间加一条发丝线——只分隔、不加"工具"这类分组标题。 -->
       <nav class="sidebar-nav" aria-label="主导航">
         <router-link
-          v-for="item in navItems"
+          v-for="item in workItems"
           :key="item.to"
           :to="item.to"
           :title="item.badge > 0 ? `${item.label}（${item.badge} ${item.badgeLabel}）` : item.label"
@@ -153,6 +154,28 @@ function openTab(key: string) {
           "
         >
           <!-- 角标压在图标右上角：不再占行尾宽度，侧栏因此可以更窄（用户 2026-10-16 要求） -->
+          <span class="nav-icon">
+            <FluentIcon :name="item.icon" :size="18" />
+            <span
+              v-if="item.badge > 0"
+              class="nav-badge"
+              :title="`${item.badge} ${item.badgeLabel}`"
+            >
+              {{ badgeText(item.badge) }}
+            </span>
+          </span>
+          <span class="nav-label">{{ item.label }}</span>
+        </router-link>
+        <div class="nav-divider" role="presentation" aria-hidden="true"></div>
+        <router-link
+          v-for="item in toolItems"
+          :key="item.to"
+          :to="item.to"
+          :title="item.badge > 0 ? `${item.label}（${item.badge} ${item.badgeLabel}）` : item.label"
+          :aria-label="
+            item.badge > 0 ? `${item.label}，${item.badge} ${item.badgeLabel}` : undefined
+          "
+        >
           <span class="nav-icon">
             <FluentIcon :name="item.icon" :size="18" />
             <span
