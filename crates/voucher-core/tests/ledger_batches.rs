@@ -64,6 +64,19 @@ fn attach(ctx: &CoreContext, voucher_id: i64) {
         .expect("插附件");
 }
 
+/// V5 改版后的列名：流水序号（AutoNumber）+ 账户（结算方式），没有 账户性质/方式
+#[test]
+fn import_accepts_current_v5_column_names() {
+    let (dir, ctx) = test_ctx();
+    let body = "流水序号,日期,金额,账户,对方,项目,分类,摘要,方向\n\
+9001,2026-11-03,12500.00,银行转账,凯诗蓝德,凯诗蓝德-585kW,电费,收电费,收\n";
+    let csv = write_csv(dir.path(), "收款清单.csv", body);
+    let s = import_ledger_csv(&ctx, &csv, LedgerKind::Shoukuan, false).expect("导入");
+    assert_eq!(s.created, 1);
+    assert!(s.failed.is_empty());
+    assert!(!by_ref(&ctx, "9001").voucher_no.is_empty());
+}
+
 #[test]
 fn import_records_one_batch_and_binds_created_vouchers() {
     let (dir, ctx) = test_ctx();

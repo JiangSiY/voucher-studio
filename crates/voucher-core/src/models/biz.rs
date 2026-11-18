@@ -27,6 +27,10 @@ pub const DOC_TYPE_CASH_OUT: &str = "资金付";
 
 /// 票据类型：增值税专用发票（唯一强制要求发票号的类型）
 pub const TICKET_SPECIAL_VAT: &str = "增值税专票";
+/// 电费单（V5「6 电费」）：归档名走 `{日期}-{电表}-抄{月度}-{金额}` 公式
+pub const DOC_TYPE_METER: &str = "电费";
+/// 项目档案（V5「2 项目」）：归档名走 `客户-业务类型[-签约日]`
+pub const DOC_TYPE_PROJECT: &str = "项目";
 
 /// 台账对齐字段（全部可空字符串，未填写 = `""`，便于前端直接绑定输入框）
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -60,6 +64,10 @@ pub struct BizFields {
     pub material_qty: Option<f64>,
     /// 单位（仓库单）
     pub material_unit: String,
+    /// 电表编号（电费单；V5「6 电费·电表」的表号）
+    pub meter_no: String,
+    /// 电费月度（电费单；YYYY-MM，用于「抄YYMM」与幂等）
+    pub meter_month: String,
     /// 归档名（复刻 V5「附件名称」公式，重命名磁盘文件与列表展示同用）
     pub archive_name: String,
     /// 来源单据编号（V5 单据号/流水序号，回写台账时定位行）

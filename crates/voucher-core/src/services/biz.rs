@@ -11,8 +11,8 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::biz::{
-    BizFields, DOC_TYPE_CASH_IN, DOC_TYPE_CASH_OUT, DOC_TYPE_PAYABLE, DOC_TYPE_RECEIVABLE,
-    DOC_TYPE_WAREHOUSE, TICKET_SPECIAL_VAT,
+    BizFields, DOC_TYPE_CASH_IN, DOC_TYPE_CASH_OUT, DOC_TYPE_METER, DOC_TYPE_PAYABLE,
+    DOC_TYPE_PROJECT, DOC_TYPE_RECEIVABLE, DOC_TYPE_WAREHOUSE, TICKET_SPECIAL_VAT,
 };
 use crate::models::Voucher;
 use crate::services::naming::archive;
@@ -32,7 +32,8 @@ pub const DOC_TYPES: &[&str] = &[
 const COLS: &str =
     "doc_type, category, biz_domain, flow_dir, account, ticket_type, invoice_no, invoice_date, \
      project_key, project_name, counterparty_key, material_name, material_qty, material_unit, \
-     archive_name, source_doc_ref, gl_voucher_no, gl_batch, gl_voucher_date, gl_booked_at";
+     meter_no, meter_month, archive_name, source_doc_ref, gl_voucher_no, gl_batch, \
+     gl_voucher_date, gl_booked_at";
 
 /// 读取（无扩展行时返回全默认值——老凭证无需迁移，读出来就是「未填写」）
 pub fn load(conn: &Connection, voucher_id: i64) -> Result<BizFields> {
@@ -56,12 +57,14 @@ pub fn load(conn: &Connection, voucher_id: i64) -> Result<BizFields> {
                     material_name: r.get(11)?,
                     material_qty: r.get(12)?,
                     material_unit: r.get(13)?,
-                    archive_name: r.get(14)?,
-                    source_doc_ref: r.get(15)?,
-                    gl_voucher_no: r.get(16)?,
-                    gl_batch: r.get(17)?,
-                    gl_voucher_date: r.get(18)?,
-                    gl_booked_at: r.get(19)?,
+                    meter_no: r.get(14)?,
+                    meter_month: r.get(15)?,
+                    archive_name: r.get(16)?,
+                    source_doc_ref: r.get(17)?,
+                    gl_voucher_no: r.get(18)?,
+                    gl_batch: r.get(19)?,
+                    gl_voucher_date: r.get(20)?,
+                    gl_booked_at: r.get(21)?,
                 })
             },
         )
@@ -81,7 +84,7 @@ pub fn save(conn: &Connection, voucher_id: i64, b: &BizFields) -> Result<()> {
     conn.execute(
         &format!(
             "INSERT INTO voucher_ext (voucher_id, {COLS}, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
              ON CONFLICT(voucher_id) DO UPDATE SET
                doc_type=excluded.doc_type, category=excluded.category,
                biz_domain=excluded.biz_domain, flow_dir=excluded.flow_dir,
@@ -90,7 +93,8 @@ pub fn save(conn: &Connection, voucher_id: i64, b: &BizFields) -> Result<()> {
                invoice_date=excluded.invoice_date, project_key=excluded.project_key,
                project_name=excluded.project_name, counterparty_key=excluded.counterparty_key,
                material_name=excluded.material_name, material_qty=excluded.material_qty,
-               material_unit=excluded.material_unit, archive_name=excluded.archive_name,
+               material_unit=excluded.material_unit, meter_no=excluded.meter_no,
+               meter_month=excluded.meter_month, archive_name=excluded.archive_name,
                source_doc_ref=excluded.source_doc_ref, gl_voucher_no=excluded.gl_voucher_no,
                gl_batch=excluded.gl_batch, gl_voucher_date=excluded.gl_voucher_date,
                gl_booked_at=excluded.gl_booked_at, updated_at=excluded.updated_at"
@@ -111,6 +115,8 @@ pub fn save(conn: &Connection, voucher_id: i64, b: &BizFields) -> Result<()> {
             b.material_name,
             b.material_qty,
             b.material_unit,
+            b.meter_no,
+            b.meter_month,
             b.archive_name,
             b.source_doc_ref,
             b.gl_voucher_no,
@@ -149,6 +155,10 @@ pub fn missing_required(v: &Voucher, b: &BizFields) -> Vec<String> {
     }
     if b.doc_type.trim() == DOC_TYPE_WAREHOUSE && b.material_name.trim().is_empty() {
         out.push("物料名称（仓库单必填）".to_string());
+    }
+    // 电费单的归档名是 `{日期}-{电表}-抄{月度}-{金额}`，没有月度就产不出名字
+    if b.doc_type.trim() == DOC_TYPE_METER && b.meter_month.trim().is_empty() {
+        out.push("电费月度（电费单必填）".to_string());
     }
     out
 }
@@ -201,14 +211,27 @@ pub fn archive_name_for(v: &Voucher, b: &BizFields) -> Result<String> {
                 &v.counterparty,
             ))
         }
-        "项目" => Ok(archive::project(
+        DOC_TYPE_PROJECT => Ok(archive::project(
             &v.counterparty,
             &b.category,
             &v.voucher_date,
         )),
-        "电费" => Err(CoreError::NotImplemented(
-            "电费附件名要在 M3 与电费台账一起实现（表号/抄表月）",
-        )),
+        DOC_TYPE_METER => {
+            if b.meter_month.trim().is_empty() {
+                return Err(CoreError::RequiredMissing(vec![
+                    "电费月度（电费单必填）".to_string()
+                ]));
+            }
+            let amount = v
+                .amount_cents
+                .ok_or_else(|| CoreError::RequiredMissing(vec!["金额".to_string()]))?;
+            Ok(archive::meter(
+                &v.voucher_date,
+                &b.meter_no,
+                &b.meter_month,
+                amount,
+            ))
+        }
         other => Err(CoreError::Invalid(format!(
             "单据类型「{other}」没有对应的归档名公式"
         ))),
@@ -336,6 +359,34 @@ mod tests {
             ..Default::default()
         };
         assert!(archive_name_for(&v, &no_ref).is_err());
+    }
+
+    #[test]
+    fn meter_archive_name_uses_month_and_amount() {
+        let mut v = voucher(1);
+        v.amount_cents = Some(123_456);
+        let meter = BizFields {
+            doc_type: DOC_TYPE_METER.into(),
+            category: "电费".into(),
+            meter_no: "表A-01".into(),
+            meter_month: "2026-10".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            archive_name_for(&v, &meter).unwrap(),
+            "260716-表A-01-抄2610-1234.56"
+        );
+        // 月度缺失：不进归档名，而是明确告诉用户缺什么
+        let no_month = BizFields {
+            doc_type: DOC_TYPE_METER.into(),
+            category: "电费".into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            archive_name_for(&v, &no_month),
+            Err(CoreError::RequiredMissing(_))
+        ));
+        assert!(missing_required(&v, &no_month).contains(&"电费月度（电费单必填）".to_string()));
     }
 }
 

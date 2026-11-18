@@ -200,6 +200,47 @@ pub mod archive {
         s
     }
 
+    /// 「6 电费」附件名：`{yyMMdd}-{电表}-抄{电费月度 yyMM}-{负?}{金额}`
+    ///
+    /// 逐字复刻 V5 公式：日期空则省前缀；电表空则不写表号；电费为负加「负」；
+    /// 金额按整数 / 一位小数 / 两位小数三档格式化（`TEXT(x,"0"/"0.0"/"0.00")`）。
+    pub fn meter(date: &str, meter_no: &str, meter_month: &str, amount_cents: i64) -> String {
+        let mut s = String::new();
+        s.push_str(&date_prefix(date));
+        s.push_str(meter_no.trim());
+        s.push_str("-抄");
+        s.push_str(&compact_month(meter_month));
+        s.push('-');
+        if amount_cents < 0 {
+            s.push('负');
+        }
+        s.push_str(&money_abs(amount_cents));
+        s
+    }
+
+    /// `2026-11` / `2026年11月` / `2026/11` → `2611`；解析不出返回空串
+    pub fn compact_month(month: &str) -> String {
+        let digits: String = month.chars().filter(|c| c.is_ascii_digit()).collect();
+        if digits.len() < 6 {
+            return String::new();
+        }
+        format!("{}{}", &digits[2..4], &digits[4..6])
+    }
+
+    /// 金额绝对值按 V5 的三档格式：整数不带小数、10 的倍数一位小数、其余两位
+    pub fn money_abs(amount_cents: i64) -> String {
+        let abs = amount_cents.unsigned_abs();
+        let yuan = abs / 100;
+        let cent = abs % 100;
+        if cent == 0 {
+            format!("{yuan}")
+        } else if cent.is_multiple_of(10) {
+            format!("{yuan}.{}", cent / 10)
+        } else {
+            format!("{yuan}.{cent:02}")
+        }
+    }
+
     /// 「2 项目」附件名：`{客户}-{业务类型}[-{签约日期 yyMMdd}]`
     pub fn project(customer: &str, biz_type: &str, sign_date: &str) -> String {
         let mut s = format!("{}-{}", customer.trim(), biz_type.trim());
@@ -260,6 +301,28 @@ mod tests {
             cash("2025-11-09", "", "付", 2, ""),
             "251109-公司费用-付0002"
         );
+    }
+
+    #[test]
+    fn archive_meter_name_matches_v5_formula() {
+        use archive::*;
+        // 整数金额：不带小数
+        assert_eq!(
+            meter("2026-09-03", "表A-01", "2026-10", 123_400),
+            "260903-表A-01-抄2610-1234"
+        );
+        // 一位小数（10 的倍数）
+        assert_eq!(
+            meter("2026-09-03", "表A-01", "2026-10", 123_450),
+            "260903-表A-01-抄2610-1234.5"
+        );
+        // 两位小数
+        assert_eq!(
+            meter("2026-09-03", "表A-01", "2026-10", 123_456),
+            "260903-表A-01-抄2610-1234.56"
+        );
+        // 负数加「负」；无日期、无表号也不能留悬挂的「-」
+        assert_eq!(meter("", "", "2026-01", -5_000), "-抄2601-负50");
     }
 
     #[test]

@@ -542,6 +542,16 @@ pub fn init(conn: &Connection) -> Result<()> {
     if !has_column(conn, "voucher_ext", "account")? {
         conn.execute_batch("ALTER TABLE voucher_ext ADD COLUMN account TEXT NOT NULL DEFAULT ''")?;
     }
+    // v14 后续补的列：电表编号 / 电费月度。V5「6 电费」的附件名是
+    // `{日期yyMMdd}-{电表}-抄{电费月度yyMM}-{金额}`，两者都是公式输入，故单独成列。
+    if !has_column(conn, "voucher_ext", "meter_no")? {
+        conn.execute_batch("ALTER TABLE voucher_ext ADD COLUMN meter_no TEXT NOT NULL DEFAULT ''")?;
+    }
+    if !has_column(conn, "voucher_ext", "meter_month")? {
+        conn.execute_batch(
+            "ALTER TABLE voucher_ext ADD COLUMN meter_month TEXT NOT NULL DEFAULT ''",
+        )?;
+    }
     // v15（Center 会计投影 + 服务端认证）
     conn.execute_batch(SCHEMA_V15)?;
     Ok(())

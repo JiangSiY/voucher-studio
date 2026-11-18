@@ -397,7 +397,9 @@ pub fn import_files(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LedgerRow {
-    #[serde(alias = "流水号")]
+    // V5 改版后「4 资金流水」的主键是 AutoNumber 的「流水序号」，
+    // 旧导出脚本写的是「流水号」——两个名字都认，避免历史 CSV 报废。
+    #[serde(alias = "流水号", alias = "流水序号")]
     flow_no: String,
     #[serde(alias = "单据号")]
     doc_no: String,
@@ -413,7 +415,7 @@ pub struct LedgerRow {
     project: String,
     #[serde(alias = "分类")]
     category: String,
-    #[serde(alias = "摘要")]
+    #[serde(alias = "摘要", alias = "备注")]
     summary: String,
     #[serde(alias = "票据类型")]
     invoice_type: String,
@@ -447,16 +449,32 @@ pub fn import_ledger_csv(
     let header = parse_csv_line(lines.remove(0));
     let idx = |name: &str| header.iter().position(|h| h.trim() == name);
 
-    let required: Vec<&str> = match kind {
-        LedgerKind::Shoukuan | LedgerKind::Fukuan => {
-            vec!["流水号", "日期", "金额", "账户", "对方", "项目"]
-        }
-        LedgerKind::Jiti => vec!["单据号", "日期", "金额", "类型", "分类", "对方", "项目"],
+    // 每项是一组可接受的列名（V5 改版后「流水号」变成 AutoNumber「流水序号」，
+    // 两种导出并存，任认其一即可）。
+    let required: Vec<&[&str]> = match kind {
+        LedgerKind::Shoukuan | LedgerKind::Fukuan => vec![
+            &["流水号", "流水序号"][..],
+            &["日期"],
+            &["金额"],
+            &["账户"],
+            &["对方"],
+            &["项目"],
+        ],
+        LedgerKind::Jiti => vec![
+            &["单据号"],
+            &["日期"],
+            &["金额"],
+            &["类型"],
+            &["分类"],
+            &["对方"],
+            &["项目"],
+        ],
     };
-    for col in &required {
-        if idx(col).is_none() {
+    for group in &required {
+        if !group.iter().any(|col| idx(col).is_some()) {
             return Err(CoreError::Invalid(format!(
-                "CSV 缺必需列：{col}（表头：{}）",
+                "CSV 缺必需列：{}（表头：{}）",
+                group.join("/"),
                 header.join(",")
             )));
         }
@@ -483,7 +501,14 @@ pub fn import_ledger_csv(
         rows_total += 1;
         let cells = parse_csv_line(raw);
         let row = LedgerRow {
-            flow_no: get(&cells, "流水号"),
+            flow_no: {
+                let v = get(&cells, "流水序号");
+                if v.is_empty() {
+                    get(&cells, "流水号")
+                } else {
+                    v
+                }
+            },
             doc_no: get(&cells, "单据号"),
             date: get(&cells, "日期"),
             amount: get(&cells, "金额"),
