@@ -535,6 +535,19 @@ pub fn init(conn: &Connection) -> Result<()> {
     if !has_column(conn, "vouchers", "ledger_booked_at")? {
         conn.execute_batch("ALTER TABLE vouchers ADD COLUMN ledger_booked_at TEXT")?;
     }
+    // v0.27 工作台重构：条目是否必须有凭证图片。
+    // 新条目一律 1（建条目/导入都要求凭证）；迁移把**已有无图条目**回填 0，
+    // 保留说明 / 备忘 / 分割单，不因「凭证必填」一刀切被全面阻断。
+    if !has_column(conn, "vouchers", "attachment_required")? {
+        conn.execute_batch(
+            "ALTER TABLE vouchers ADD COLUMN attachment_required INTEGER NOT NULL DEFAULT 0",
+        )?;
+        conn.execute_batch(
+            "UPDATE vouchers SET attachment_required = CASE
+                WHEN EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id) THEN 1
+                ELSE 0 END",
+        )?;
+    }
     // v14（Center 字段对齐）：台账对齐字段的 1:1 扩展表 + 附件扩展（原名/归档名/角色/校验和）。
     conn.execute_batch(SCHEMA_V14)?;
     // v14 后续补的列：账户（结算方式）。V5 改版后「账户」装的是 银行转账/微信/支付宝/…，

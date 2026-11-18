@@ -100,6 +100,7 @@ beforeEach(() => {
       },
     ],
     snapshots: [],
+    rowMeta: { booked: false, batchId: null, attachmentRequired: true },
   });
   mockApi.resolveDuplicatePair.mockResolvedValue(1);
   mockApi.removeDuplicateVoucher.mockResolvedValue(1);

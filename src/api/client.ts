@@ -247,10 +247,18 @@ export interface VoucherSnapshot {
   createdAt: string;
 }
 
+/** v0.27：列表/详情旁挂的行级元数据（不污染 Voucher 模型） */
+export interface VoucherRowMeta {
+  booked: boolean;
+  batchId: number | null;
+  attachmentRequired: boolean;
+}
+
 export interface VoucherDetail {
   voucher: Voucher;
   attachments: Attachment[];
   snapshots: VoucherSnapshot[];
+  rowMeta: VoucherRowMeta;
 }
 
 export interface VoucherQuery {
@@ -283,6 +291,12 @@ export interface VoucherQuery {
   directionNone?: boolean | null;
   /** v0.22.3：只筛**无图凭证**（没有附件）——洞察「数据健康」卡「无图凭证」下钻 */
   noImage?: boolean;
+  /** v0.27：入账标记（ledger_booked_at 非空） */
+  booked?: boolean | null;
+  /** v0.27：导入批次 */
+  batchId?: number | null;
+  /** v0.27：凭证必填口径；false 只筛迁移豁免的历史无图条目 */
+  attachmentRequired?: boolean | null;
   /** v0.18：排序 date_desc（默认）| date_asc | updated_desc | amount_desc | amount_asc */
   sort?: string | null;
   /** 关键词同时匹配附件 OCR 文本（搜索页进入编辑页后翻张与搜索结果同口径） */
@@ -296,6 +310,8 @@ export interface VoucherListResult {
   total: number;
   /** D-1：当前页每张凭证的首附件缩略图信息（key = voucher.id）。无附件时不在 map 中 */
   thumbs: Record<number, VoucherThumb>;
+  /** v0.27：行级元数据（key = voucher.id） */
+  meta: Record<number, VoucherRowMeta>;
 }
 
 /** v0.9 编辑动线：同筛选/同排序下的相邻凭证与位置（导航条 + 保存并下一张） */
@@ -784,6 +800,10 @@ export interface DataHealth {
   total: number;
   /** 无图凭证（没有附件）→ 资料库 `noImage=true` */
   noImage: number;
+  /** v0.27：凭证必填的新条目里缺图的条数 */
+  noImageRequired: number;
+  /** v0.27：迁移豁免的历史无图条目数 */
+  noImageOptional: number;
   /** 待识别附件（pending + failed）→ 资料库 `ocrStatus=pending,failed` */
   ocrPending: number;
   /** 未被佐证（无关联且不在事项组）→ 资料库 `unlinked=true` */
@@ -1425,6 +1445,21 @@ export const api = {
    */
   createMemoVoucher: (newVoucher: NewVoucherInput) =>
     invoke<Voucher>("create_memo_voucher", { newVoucher }),
+
+  /**
+   * v0.27：建条目 + 必填凭证。网页端先 `uploadStage` 拿服务端路径，桌面端先
+   * `pickImagePaths` 复制到 temp/uploads，两侧共用这一条写路径。
+   */
+  createRecordWithAttachment: (newVoucher: NewVoucherInput, paths: string[], runOcr = true) =>
+    invoke<VoucherDetail>("create_record_with_attachment", { newVoucher, paths, runOcr }),
+  /** v0.27：桌面端选凭证图并复制到 temp/uploads；网页端返回 null（走 uploadStage） */
+  pickImagePaths: () =>
+    isTauri ? invoke<string[] | null>("pick_image_paths") : Promise.resolve(null),
+  /** v0.27：网页端 stage 上传，返回服务端临时路径 */
+  uploadStage: async (files: File[]): Promise<string[]> => {
+    const out = (await uploadFiles(files, { mode: "stage" })) as { paths?: string[] };
+    return out.paths ?? [];
+  },
 
   // ---- v0.22 凭证关联 / 事项组（都不改金额合计口径）----
   linkVouchers: (aId: number, bId: number, kind: VoucherLinkKind, note?: string) =>

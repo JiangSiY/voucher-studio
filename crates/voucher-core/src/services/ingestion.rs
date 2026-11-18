@@ -850,6 +850,8 @@ fn import_one(
                 page_count,
             },
         )?;
+        // v0.27：挂上凭证后，该条目即进入「凭证必填」口径（迁移豁免的历史条目也在此补正）。
+        crate::db::repos::voucher_repo::set_attachment_required(tx, voucher_id, true)?;
         // PDF 字段在事务外更新（attachment_repo 需扩展支持 is_pdf/page_count）
         Ok(Some((
             voucher_id,
@@ -950,6 +952,7 @@ pub fn replace_attachment(
             },
         )?;
         attachment_repo::delete(tx, old.id)?;
+        crate::db::repos::voucher_repo::set_attachment_required(tx, voucher_id, true)?;
         attachment_repo::insert(
             tx,
             &NewAttachment {

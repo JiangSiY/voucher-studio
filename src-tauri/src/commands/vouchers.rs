@@ -28,6 +28,23 @@ pub fn create_memo_voucher(
     err_api(voucher_mgr::create_voucher(&ctx, new_voucher))
 }
 
+/// v0.27：建条目 + 必填凭证（桌面对话框选图后走同一条写路径）。
+#[tauri::command]
+pub fn create_record_with_attachment(
+    ctx: Ctx,
+    new_voucher: voucher_core::models::NewVoucher,
+    paths: Vec<String>,
+    run_ocr: Option<bool>,
+) -> std::result::Result<voucher_mgr::VoucherDetail, ApiError> {
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    err_api(voucher_mgr::create_with_attachment(
+        &ctx,
+        new_voucher,
+        &paths,
+        run_ocr.unwrap_or(true),
+    ))
+}
+
 #[tauri::command]
 pub fn list_vouchers(
     ctx: Ctx,
@@ -41,10 +58,17 @@ pub fn list_vouchers(
         let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
         err_api(qsvc::voucher_thumbs(&ctx, &ids))?
     };
+    let meta = if items.is_empty() {
+        HashMap::new()
+    } else {
+        let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
+        err_api(voucher_mgr::row_meta(&ctx, &ids))?
+    };
     Ok(VoucherListResult {
         items,
         total,
         thumbs,
+        meta,
     })
 }
 
@@ -55,6 +79,8 @@ pub struct VoucherListResult {
     pub total: u64,
     /// D-1：当前页所有凭证的缩略图信息，key = voucher.id
     pub thumbs: HashMap<i64, qsvc::VoucherThumb>,
+    /// v0.27：行级元数据（booked / batchId / attachmentRequired）
+    pub meta: HashMap<i64, voucher_core::db::repos::voucher_repo::RowMeta>,
 }
 
 #[tauri::command]

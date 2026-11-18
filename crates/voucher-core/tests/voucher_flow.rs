@@ -8,12 +8,34 @@ use chrono::Datelike;
 use common::*;
 use voucher_core::db::repos::attachment_repo;
 use voucher_core::db::repos::voucher_repo::VoucherQuery;
+use voucher_core::models::attachment::NewAttachment;
 use voucher_core::models::{ExportFormat, NewVoucher, OcrStatus, VoucherStatus, VoucherUpdate};
 use voucher_core::services::{export, ingestion, reports, search, voucher_mgr};
 use voucher_core::utils::config::{
     AppConfig, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
 };
 use voucher_core::{CoreContext, CoreError, Result};
+/// v0.27：给凭证挂一条附件行（只造数据，不落物理文件）——状态闸门只查 attachments 表。
+fn attach(ctx: &CoreContext, voucher_id: i64) {
+    ctx.db
+        .with_conn(|conn| {
+            attachment_repo::insert(
+                conn,
+                &NewAttachment {
+                    voucher_id,
+                    file_name: "scan.png".into(),
+                    file_path: "2026-11/a.png".into(),
+                    file_hash: "hash-a".into(),
+                    file_size: 10,
+                    mime_type: "image/png".into(),
+                    is_pdf: Some(false),
+                    page_count: None,
+                },
+            )
+        })
+        .expect("插附件");
+}
+
 #[test]
 fn schema_creates_eight_tables() -> Result<()> {
     let (_dir, ctx) = test_ctx();
@@ -111,6 +133,7 @@ fn voucher_crud_roundtrip() -> Result<()> {
     let v2 = voucher_mgr::create_voucher(&ctx, NewVoucher::default())?;
     assert!(v2.voucher_no.ends_with("-02"));
 
+    attach(&ctx, v.id);
     // 更新（金额清空）
     let updated = voucher_mgr::update_voucher(
         &ctx,
@@ -392,6 +415,8 @@ fn batch_set_status_snapshots_and_skips() -> Result<()> {
             ..Default::default()
         },
     )?;
+    attach(&ctx, v1.id);
+    attach(&ctx, v2.id);
     // v2 先单独复核，批量时已是目标状态 → 应跳过
     voucher_mgr::set_status(&ctx, v2.id, VoucherStatus::Reviewed)?;
 
@@ -852,6 +877,7 @@ fn voucher_no_renumbers_on_date_change() -> Result<()> {
     );
 
     // 已导出的凭证改日期 → 编号锁定不重排
+    attach(&ctx, v.id);
     let locked = voucher_mgr::update_voucher(
         &ctx,
         v.id,

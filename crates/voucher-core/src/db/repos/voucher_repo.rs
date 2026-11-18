@@ -62,6 +62,12 @@ pub struct VoucherQuery {
     /// 「一张图片就是一张凭证」是主线，但说明条目 / 备忘 / 分割单本来没有图片；
     /// 该维度既能找出"忘了补图"的，也是说明条目的自然视图。
     pub no_image: bool,
+    /// v0.27：台账入账标记（`ledger_booked_at` 非空）。
+    pub booked: Option<bool>,
+    /// v0.27：导入批次筛选。
+    pub batch_id: Option<i64>,
+    /// v0.27：是否属于「凭证必填」的新条目；`false` 只筛迁移豁免的历史无图条目。
+    pub attachment_required: Option<bool>,
     /// 排序：`date_desc`（默认，与历史一致）| `date_asc` | `updated_desc` | `amount_desc` | `amount_asc`
     pub sort: Option<String>,
 }
@@ -96,6 +102,44 @@ impl VoucherQuery {
             self.page
         }
     }
+}
+
+/// 列表/详情旁挂的行级元数据（v0.27）。
+///
+/// 为什么不塞进 `Voucher`：`ledger_booked_at` 与 `import_batch_id` 是台账流程状态，
+/// 不属于凭证本体；加字段会波及全仓大量 `Voucher {` 字面量与夹具，故旁挂。
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RowMeta {
+    pub booked: bool,
+    pub batch_id: Option<i64>,
+    pub attachment_required: bool,
+}
+
+/// 批量取行级元数据；ids 为空时返回空 map。
+pub fn row_meta(conn: &Connection, ids: &[i64]) -> Result<HashMap<i64, RowMeta>> {
+    let mut out = HashMap::new();
+    for chunk in ids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+        let sql = format!(
+            "SELECT id, ledger_booked_at IS NOT NULL, import_batch_id, attachment_required
+             FROM vouchers WHERE id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(chunk.iter()))?;
+        while let Some(r) = rows.next()? {
+            let booked: i64 = r.get(1)?;
+            out.insert(
+                r.get(0)?,
+                RowMeta {
+                    booked: booked != 0,
+                    batch_id: r.get(2)?,
+                    attachment_required: r.get::<_, i64>(3)? != 0,
+                },
+            );
+        }
+    }
+    Ok(out)
 }
 
 /// 统计（仪表盘用）
@@ -278,6 +322,15 @@ pub fn set_status(conn: &Connection, id: i64, status: VoucherStatus) -> Result<(
     conn.execute(
         "UPDATE vouchers SET status=?1, updated_at=?2 WHERE id=?3",
         params![status.as_str(), now_iso(), id],
+    )?;
+    Ok(())
+}
+
+/// 标记某条目是否必须有凭证图片（补图后置 1；迁移豁免的历史条目为 0）。
+pub fn set_attachment_required(conn: &Connection, id: i64, required: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE vouchers SET attachment_required=?1, updated_at=?2 WHERE id=?3",
+        params![i64::from(required), now_iso(), id],
     )?;
     Ok(())
 }
@@ -482,6 +535,22 @@ fn build_filter_where(q: &VoucherQuery) -> (String, Vec<String>) {
                              WHERE je.value IN ('收入','支出')))"
                 .to_string(),
         );
+    }
+
+    // v0.27：入账 / 批次 / 凭证必填三个维度。
+    match q.booked {
+        Some(true) => where_clauses.push("ledger_booked_at IS NOT NULL".to_string()),
+        Some(false) => where_clauses.push("ledger_booked_at IS NULL".to_string()),
+        None => {}
+    }
+    if let Some(batch) = q.batch_id {
+        where_clauses.push(format!("import_batch_id = ?{}", bind.len() + 1));
+        bind.push(batch.to_string());
+    }
+    match q.attachment_required {
+        Some(true) => where_clauses.push("attachment_required = 1".to_string()),
+        Some(false) => where_clauses.push("attachment_required = 0".to_string()),
+        None => {}
     }
 
     // v0.22.3：无图凭证——没有任何附件。`attachments.voucher_id` 唯一索引保证每张最多一图，

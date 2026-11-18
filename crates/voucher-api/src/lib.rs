@@ -142,6 +142,12 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
             ctx,
             get(&args, "new_voucher")?,
         )?)?,
+        "create_record_with_attachment" => to_value(vouchers::create_record_with_attachment(
+            ctx,
+            get(&args, "new_voucher")?,
+            get(&args, "paths")?,
+            get::<Option<bool>>(&args, "run_ocr")?,
+        )?)?,
         "list_vouchers" => to_value(vouchers::list_vouchers(ctx, get(&args, "query")?)?)?,
         "get_voucher" => to_value(vouchers::get_voucher(ctx, get(&args, "id")?)?)?,
         "get_voucher_neighbor" => to_value(vouchers::get_voucher_neighbor(
@@ -441,6 +447,7 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
         | "pick_and_replace_image"
         | "pick_and_reconcile"
         | "pick_and_attach_image"
+        | "pick_image_paths"
         | "pick_ledger_csv" => {
             return Err(ApiError::plain(
                 "unsupported",

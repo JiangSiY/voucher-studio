@@ -113,7 +113,12 @@ beforeEach(() => {
     total: 2,
     thumbs: { 1: thumb, 2: thumb },
   } as never);
-  mockApi.getVoucher.mockResolvedValue({ voucher: v(), attachments: [], snapshots: [] });
+  mockApi.getVoucher.mockResolvedValue({
+    voucher: v(),
+    attachments: [],
+    snapshots: [],
+    rowMeta: { booked: false, batchId: null, attachmentRequired: true },
+  });
   mockApi.updateVoucher.mockImplementation(async (id, u) =>
     v({
       id,

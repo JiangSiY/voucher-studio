@@ -76,6 +76,10 @@ pub struct DataHealth {
     pub total: u64,
     /// 无图凭证（没有任何附件）——与列表 `noImage=true` 同口径
     pub no_image: u64,
+    /// v0.27：**凭证必填**的无图条目（新条目 / 迁移时已有附件的条目）
+    pub no_image_required: u64,
+    /// v0.27：迁移豁免的历史无图条目（说明 / 备忘 / 分割单）
+    pub no_image_optional: u64,
     /// 待识别附件（`ocr_status IN ('pending','failed')`）——与列表 `ocrStatus=pending,failed` 同口径
     pub ocr_pending: u64,
     /// 未被佐证（无任何关联且不在事项组）——与列表 `unlinked=true` 同口径
@@ -93,6 +97,16 @@ pub fn data_health(ctx: &CoreContext) -> Result<DataHealth> {
             no_image: one(
                 "SELECT COUNT(*) FROM vouchers v
                  WHERE NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)",
+            )?,
+            no_image_required: one(
+                "SELECT COUNT(*) FROM vouchers v
+                 WHERE v.attachment_required = 1
+                   AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)",
+            )?,
+            no_image_optional: one(
+                "SELECT COUNT(*) FROM vouchers v
+                 WHERE v.attachment_required = 0
+                   AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = v.id)",
             )?,
             ocr_pending: one(
                 "SELECT COUNT(*) FROM attachments WHERE ocr_status IN ('pending','failed')",

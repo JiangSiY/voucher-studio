@@ -150,6 +150,7 @@ fn overview_status_filter_matches_list_total() -> Result<()> {
     let (_dir, ctx) = test_ctx();
     let a = mk(&ctx, "记-001", "2026-08-05", Some(10_000), "甲", "租金")?;
     mk(&ctx, "记-002", "2026-08-06", Some(20_000), "乙", "水电")?;
+    attach(&ctx, a, "h-overview")?;
     voucher_mgr::update_voucher(
         &ctx,
         a,
@@ -236,6 +237,7 @@ fn todos_stale_draft_threshold() -> Result<()> {
     assert_eq!(dashboard::todos(&ctx)?.stale_drafts, 1);
 
     // 已复核的凭证不算"陈旧草稿"（口径只针对 draft）
+    attach(&ctx, id, "h-stale")?;
     voucher_mgr::update_voucher(
         &ctx,
         id,

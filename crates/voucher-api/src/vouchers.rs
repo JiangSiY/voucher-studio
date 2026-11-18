@@ -17,12 +17,30 @@ pub fn create_memo_voucher(ctx: &CoreContext, new_voucher: NewVoucher) -> ApiRes
     core(voucher_mgr::create_voucher(ctx, new_voucher))
 }
 
+/// v0.27：建条目 + 必填凭证（网页端 stage 上传后的路径；仅 temp/uploads 可信）。
+pub fn create_record_with_attachment(
+    ctx: &CoreContext,
+    new_voucher: NewVoucher,
+    paths: Vec<String>,
+    run_ocr: Option<bool>,
+) -> ApiResult<voucher_mgr::VoucherDetail> {
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    core(voucher_mgr::create_with_attachment(
+        ctx,
+        new_voucher,
+        &paths,
+        run_ocr.unwrap_or(true),
+    ))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoucherListResult {
     pub items: Vec<Voucher>,
     pub total: u64,
     pub thumbs: HashMap<i64, qsvc::VoucherThumb>,
+    /// v0.27：行级元数据（booked / batchId / attachmentRequired），key = voucher.id
+    pub meta: HashMap<i64, voucher_core::db::repos::voucher_repo::RowMeta>,
 }
 
 pub fn list_vouchers(ctx: &CoreContext, query: VoucherQuery) -> ApiResult<VoucherListResult> {
@@ -33,10 +51,17 @@ pub fn list_vouchers(ctx: &CoreContext, query: VoucherQuery) -> ApiResult<Vouche
         let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
         core(qsvc::voucher_thumbs(ctx, &ids))?
     };
+    let meta = if items.is_empty() {
+        HashMap::new()
+    } else {
+        let ids: Vec<i64> = items.iter().map(|v| v.id).collect();
+        core(voucher_mgr::row_meta(ctx, &ids))?
+    };
     Ok(VoucherListResult {
         items,
         total,
         thumbs,
+        meta,
     })
 }
 

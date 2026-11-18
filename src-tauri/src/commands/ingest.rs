@@ -395,6 +395,55 @@ pub async fn pick_ledger_csv(app: AppHandle) -> std::result::Result<Option<Strin
     Ok(path)
 }
 
+/// v0.27：新建条目时选凭证图片——只复制到 `temp/uploads`，由
+/// `create_record_with_attachment` 校验后再挂；与网页端 `stage` 上传同一目录口径。
+#[tauri::command]
+pub async fn pick_image_paths(
+    app: AppHandle,
+    ctx: Ctx<'_>,
+) -> std::result::Result<Option<Vec<String>>, ApiError> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("图片和 PDF", SUPPORTED_EXTS)
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    let files: Vec<PathBuf> = picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .collect();
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let core = ctx.inner().clone();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let dir = core.paths.temp.join("uploads");
+        std::fs::create_dir_all(&dir).map_err(|e| ApiError::internal(e.to_string()))?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mut out = Vec::new();
+        for (i, src) in files.iter().enumerate() {
+            let name = src
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("voucher");
+            let dest = dir.join(format!("{stamp}-{i}-{name}"));
+            std::fs::copy(src, &dest).map_err(|e| ApiError::internal(e.to_string()))?;
+            out.push(dest.to_string_lossy().to_string());
+        }
+        Ok::<Vec<String>, ApiError>(out)
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))??;
+    Ok(Some(out))
+}
+
 /// 给**已存在**的凭证挂一张票据（台账凭证补附件用）：选图/PDF → 直接落库。
 ///
 /// 与 `pick_and_import` 的区别只有一个：`attach_to = Some(voucher_id)`，

@@ -2,6 +2,8 @@
 //!
 //! 所有写操作都走显式事务，并在修改/删除前落快照——数据是生命线。
 
+use std::path::PathBuf;
+
 use rusqlite::Connection;
 
 use crate::db::repos::voucher_repo::{VoucherNeighbor, VoucherQuery, VoucherStats};
@@ -19,6 +21,8 @@ pub struct VoucherDetail {
     pub voucher: Voucher,
     pub attachments: Vec<Attachment>,
     pub snapshots: Vec<VoucherSnapshot>,
+    /// v0.27：入账 / 批次 / 凭证必填（旁挂，不污染 `Voucher` 模型）。
+    pub row_meta: voucher_repo::RowMeta,
 }
 
 pub fn create_voucher(ctx: &CoreContext, new: NewVoucher) -> Result<Voucher> {
@@ -45,8 +49,84 @@ pub fn create_voucher(ctx: &CoreContext, new: NewVoucher) -> Result<Voucher> {
         let mut v = new.clone();
         v.voucher_no = voucher_no;
         v.voucher_date = date;
-        voucher_repo::insert(tx, &v)
+        let created = voucher_repo::insert(tx, &v)?;
+        // v0.27：凡经本入口新建的条目都要求凭证图片（导入 / 建条目一致）；
+        // 历史无图条目在迁移时已被回填为 0。
+        voucher_repo::set_attachment_required(tx, created.id, true)?;
+        voucher_repo::get(tx, created.id)?
+            .ok_or_else(|| CoreError::Invalid("新建条目后读取失败".into()))
     })
+}
+
+/// v0.27：建条目并挂凭证（网页/桌面同一条写路径）。
+///
+/// 安全约束：只接受 `temp/uploads` 下的文件——网页端由 `/api/upload?mode=stage`
+/// 落盘，桌面端由 `pick_image_paths` 先复制到同一目录；杜绝任意路径读文件。
+/// 失败时删除刚建的条目并清理临时文件；成功时清理临时文件（已复制进 attachments）。
+pub fn create_with_attachment(
+    ctx: &CoreContext,
+    new: NewVoucher,
+    paths: &[PathBuf],
+    run_ocr: bool,
+) -> Result<VoucherDetail> {
+    if paths.is_empty() {
+        return Err(CoreError::Invalid("请选择凭证图片".into()));
+    }
+    if paths.len() > 1 {
+        return Err(CoreError::Invalid(
+            "一条记录只挂一张凭证；请选择一张图片".into(),
+        ));
+    }
+    let upload_dir = ctx.paths.temp.join("uploads");
+    std::fs::create_dir_all(&upload_dir)?;
+    let upload_dir = upload_dir
+        .canonicalize()
+        .map_err(|e| CoreError::Invalid(format!("临时上传目录不可用：{e}")))?;
+    let path = paths[0]
+        .canonicalize()
+        .map_err(|e| CoreError::Invalid(format!("凭证文件不可读：{e}")))?;
+    if !path.starts_with(&upload_dir) {
+        return Err(CoreError::Invalid(
+            "只接受本次刚上传的临时文件；请重新选择".into(),
+        ));
+    }
+    let date = if new.voucher_date.trim().is_empty() {
+        crate::utils::paths::today()
+    } else {
+        new.voucher_date.clone()
+    };
+    ctx.db
+        .with_conn(|c| crate::services::period::ensure_dates_open(c, &[date.as_str()]))?;
+
+    let created = create_voucher(ctx, new)?;
+    let cleanup = || {
+        let _ = std::fs::remove_file(&path);
+    };
+    let imported = crate::services::ingestion::import_files(
+        ctx,
+        std::slice::from_ref(&path),
+        Some(created.id),
+        run_ocr,
+    );
+    match imported {
+        Ok(_) => {
+            let detail = get_detail(ctx, created.id)?;
+            if detail.attachments.is_empty() {
+                let _ = delete_vouchers(ctx, &[created.id]);
+                cleanup();
+                return Err(CoreError::Invalid(
+                    "凭证图片未能挂上（可能与其他条目重复），条目未创建".into(),
+                ));
+            }
+            cleanup();
+            Ok(detail)
+        }
+        Err(e) => {
+            let _ = delete_vouchers(ctx, &[created.id]);
+            cleanup();
+            Err(e)
+        }
+    }
 }
 
 /// 复核闸门：状态改成「已复核」之前，台账必填项必须齐全（Center v0.26）。
@@ -64,6 +144,38 @@ fn ensure_reviewable(tx: &Connection, v: &crate::models::Voucher) -> Result<()> 
         return Ok(());
     }
     crate::services::biz::ensure_required(v, &b)
+}
+
+/// v0.27 凭证必填闸门：
+/// - 入账 / 已导出 / 已归档：一律要求有附件（财务动作，无凭证不可发生）；
+/// - 已复核：只对新条目（`attachment_required=1`）要求，迁移豁免的历史无图条目仍可复核。
+fn ensure_attachment_gate(
+    tx: &Connection,
+    v: &crate::models::Voucher,
+    target: VoucherStatus,
+) -> Result<()> {
+    if !attachment_repo::list_by_voucher(tx, v.id)?.is_empty() {
+        return Ok(());
+    }
+    match target {
+        VoucherStatus::Exported | VoucherStatus::Archived => Err(CoreError::Invalid(
+            "这张条目还没有凭证图片，不能导出/归档；请先补凭证".into(),
+        )),
+        VoucherStatus::Reviewed => {
+            let required = voucher_repo::row_meta(tx, &[v.id])?
+                .remove(&v.id)
+                .map(|m| m.attachment_required)
+                .unwrap_or(false);
+            if required {
+                Err(CoreError::Invalid(
+                    "这张条目还没有凭证图片，不能复核；请先补凭证".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        VoucherStatus::Draft => Ok(()),
+    }
 }
 
 pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Result<Voucher> {
@@ -94,10 +206,11 @@ pub fn update_voucher(ctx: &CoreContext, id: i64, update: VoucherUpdate) -> Resu
         if !voucher_repo::update(tx, id, &update)? {
             return Err(CoreError::NotFound(format!("凭证 {id} 不存在")));
         }
-        // 改了状态到「已复核」：按改后的字段再核一遍必填
-        if update.status == Some(VoucherStatus::Reviewed) {
+        // 状态变更闸门：先过「凭证必填」，到「已复核」再过台账必填
+        if let Some(target) = update.status {
             let after = voucher_repo::get(tx, id)?
                 .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
+            ensure_attachment_gate(tx, &after, target)?;
             if after.status == VoucherStatus::Reviewed {
                 ensure_reviewable(tx, &after)?;
             }
@@ -248,10 +361,14 @@ pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
             .ok_or_else(|| CoreError::NotFound(format!("凭证 {id} 不存在")))?;
         let attachments = attachment_repo::list_by_voucher(conn, id)?;
         let snapshots = snapshot_repo::list_by_voucher(conn, id, 20)?;
+        let row_meta = voucher_repo::row_meta(conn, &[id])?
+            .remove(&id)
+            .unwrap_or_default();
         Ok(VoucherDetail {
             voucher,
             attachments,
             snapshots,
+            row_meta,
         })
     })?;
     // 增强版是"可重建缓存"、不入备份：恢复/清理后可能已不在磁盘上。
@@ -272,6 +389,17 @@ pub fn get_detail(ctx: &CoreContext, id: i64) -> Result<VoucherDetail> {
 
 pub fn list(ctx: &CoreContext, query: &VoucherQuery) -> Result<(Vec<Voucher>, u64)> {
     ctx.db.with_conn(|conn| voucher_repo::list(conn, query))
+}
+
+/// 批量取行级元数据（列表旁挂；空列表不发 SQL）。
+pub fn row_meta(
+    ctx: &CoreContext,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, voucher_repo::RowMeta>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    ctx.db.with_conn(|conn| voucher_repo::row_meta(conn, ids))
 }
 
 /// 编辑页上下文导航：同筛选/同排序下的相邻凭证与位置（「保存并下一张」用）
@@ -324,6 +452,7 @@ pub fn batch_set_status(ctx: &CoreContext, ids: &[i64], status: VoucherStatus) -
             }
             // v0.11 期间锁：已封账月份的凭证不可变更状态
             crate::services::period::ensure_dates_open(tx, &[current.voucher_date.as_str()])?;
+            ensure_attachment_gate(tx, &current, status)?;
             if status == VoucherStatus::Reviewed {
                 ensure_reviewable(tx, &current)?;
             }

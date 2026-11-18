@@ -72,7 +72,7 @@ beforeEach(() => {
     attachments: 194,
     thisMonth: 81,
   });
-  mockApi.listVouchers.mockResolvedValue({ items: [], total: 0, thumbs: {} });
+  mockApi.listVouchers.mockResolvedValue({ items: [], total: 0, thumbs: {}, meta: {} });
   mockApi.listExportBatches.mockResolvedValue([]);
   // 「待打印/导出」的计数来自"从未导出"（审计 P1-3 修的口径），不是 stats.reviewed
   mockApi.exportCoverage.mockResolvedValue({

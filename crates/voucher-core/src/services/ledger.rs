@@ -163,6 +163,13 @@ pub fn set_booked(ctx: &CoreContext, voucher_id: i64, booked: bool) -> Result<()
         if voucher_repo::get(tx, voucher_id)?.is_none() {
             return Err(CoreError::NotFound(format!("凭证 {voucher_id} 不存在")));
         }
+        // v0.27：入账是财务动作，无凭证图片不可发生（取消入账不受限）。
+        if booked && crate::db::repos::attachment_repo::list_by_voucher(tx, voucher_id)?.is_empty()
+        {
+            return Err(CoreError::Invalid(
+                "这张条目还没有凭证图片，不能标记入账；请先补凭证".into(),
+            ));
+        }
         let stamp = if booked {
             Some(crate::utils::paths::now_iso())
         } else {
