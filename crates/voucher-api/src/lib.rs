@@ -397,6 +397,12 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
 
         // ---------- 增强缓存 ----------
         "enhance_status" => to_value(enhance::enhance_status(ctx))?,
+        "enhance_status_v2" => to_value(enhance::enhance_status_v2(ctx)?)?,
+        "clear_enhance_cache_v2" => to_value(enhance::clear_enhance_cache_v2(
+            ctx,
+            get(&args, "strategy")?,
+            get(&args, "threshold")?,
+        )?)?,
         "clear_enhance_cache" => to_value(enhance::clear_enhance_cache(ctx)?)?,
         "enhance_hit_trend" => to_value(enhance::enhance_hit_trend(ctx, get(&args, "days")?)?)?,
         "recent_enhanced" => to_value(enhance::recent_enhanced(ctx, get(&args, "limit")?)?)?,
@@ -422,6 +428,26 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
             ctx,
             get(&args, "file_name")?,
         )?)?,
+        // 恢复要重启进程才生效：服务端只落 restore.pending，由启动时执行
+        "restore_backup" => to_value(backup::restore_backup(ctx, get(&args, "path")?)?)?,
+
+        // ---------- 仅桌面端有意义的命令 ----------
+        // 网页端由前端换实现（上传 / 浏览器下载），这些名字只在桌面壳里被调用；
+        // 真被调到（例如旧前端缓存）时给一句人话，而不是「未知命令」。
+        "open_path"
+        | "restart_app"
+        | "get_recovery_report"
+        | "skip_closing_backup"
+        | "pick_and_import"
+        | "pick_and_replace_image"
+        | "pick_and_reconcile"
+        | "pick_and_attach_image"
+        | "pick_ledger_csv" => {
+            return Err(ApiError::plain(
+                "unsupported",
+                "该操作只在桌面版可用；网页版请用页面上传或浏览器下载",
+            ));
+        }
 
         // ---------- 服务端元信息 ----------
         "get_app_info" => to_value(vouchers::app_info(ctx))?,

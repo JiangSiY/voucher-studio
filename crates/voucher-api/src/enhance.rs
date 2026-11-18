@@ -1,7 +1,8 @@
 //! 增强缓存管理命令（与 `src-tauri/src/commands/enhance.rs` 对应）。
 
 use voucher_core::services::enhance_cache::{
-    self as cache, EnhanceStatusV1, HitTrend, RecentEnhancedRow,
+    self as cache, ClearStrategy, ClearSummary, EnhanceStatusV1, EnhanceStatusV2, HitTrend,
+    RecentEnhancedRow,
 };
 use voucher_core::services::query as qsvc;
 
@@ -29,6 +30,20 @@ pub fn record_viewer_hit(ctx: &CoreContext, attachment_id: i64) -> ApiResult<()>
         attachment_id,
         qsvc::HitSource::Viewer,
     ))
+}
+
+pub fn enhance_status_v2(ctx: &CoreContext) -> ApiResult<EnhanceStatusV2> {
+    core(cache::status_v2(ctx))
+}
+
+pub fn clear_enhance_cache_v2(
+    ctx: &CoreContext,
+    strategy: String,
+    threshold: u32,
+) -> ApiResult<ClearSummary> {
+    let s = ClearStrategy::parse(&strategy)
+        .ok_or_else(|| crate::ApiError::plain("invalid", format!("未知释放策略: {strategy}")))?;
+    core(cache::clear_v2(ctx, s, threshold))
 }
 
 pub fn enhance_hit_trend(ctx: &CoreContext, days: u32) -> ApiResult<HitTrend> {
