@@ -12,6 +12,7 @@ pub mod export;
 pub mod imaging;
 pub mod ingestion;
 pub mod ledger;
+pub mod ledger_check;
 pub mod links;
 pub mod naming;
 pub mod ocr;

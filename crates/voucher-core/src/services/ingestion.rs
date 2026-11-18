@@ -579,7 +579,7 @@ pub fn import_ledger_csv(
 }
 
 /// 读 CSV 文本：优先 UTF-8（去 BOM）；失败按 GB18030 解码（微信/网银导出常见）。
-fn decode_csv_text(bytes: &[u8]) -> String {
+pub(crate) fn decode_csv_text(bytes: &[u8]) -> String {
     let trimmed = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     match std::str::from_utf8(trimmed) {
         Ok(s) => s.to_string(),
@@ -591,7 +591,7 @@ fn decode_csv_text(bytes: &[u8]) -> String {
 }
 
 /// 极简 RFC4180 单行解析：支持双引号包裹与 "" 转义。
-fn parse_csv_line(line: &str) -> Vec<String> {
+pub(crate) fn parse_csv_line(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_quotes = false;
@@ -621,7 +621,7 @@ fn parse_csv_line(line: &str) -> Vec<String> {
 ///
 /// 空值或无法识别 → 行级错误。**不要**用字符串切片取年月：空日期会让 `[..7]` panic，
 /// 整批导入随之中断，而不是记一条错误继续下一行（2026-11-14 实测复现）。
-fn parse_ledger_date(raw: &str) -> Result<(String, String)> {
+pub(crate) fn parse_ledger_date(raw: &str) -> Result<(String, String)> {
     let invalid = || {
         let shown = raw.trim();
         CoreError::Invalid(if shown.is_empty() {
@@ -731,7 +731,7 @@ fn update_voucher_ledger_tags(ctx: &CoreContext, voucher_id: i64, kind: LedgerKi
     })
 }
 
-fn parse_amount_cents(s: &str) -> Result<i64> {
+pub(crate) fn parse_amount_cents(s: &str) -> Result<i64> {
     let cleaned: String = s
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')

@@ -21,10 +21,12 @@ fn usage() -> &'static str {
 用法：
   voucher-cli import-ledger --csv <清单.csv> --kind <shoukuan|fukuan|jiti> [--dry-run] [--data-dir <目录>]
   voucher-cli list-pending [--json] [--data-dir <目录>]
+  voucher-cli restore --zip <备份.zip> --target <空目录>
 
 说明：
   import-ledger  台账导出的收款/付款/计提清单 → voucher 凭证（幂等键=流水号/单据号）
   list-pending   列出已导入但还没配图的凭证
+  restore        把全量备份还原到一个空目录（冷备接管用：i3 PC 上跑完指向该目录即可）
   --data-dir     指定数据目录（默认 ~/Library/Application Support/VoucherStudio）
 "
 }
@@ -39,6 +41,48 @@ fn arg_value(args: &[String], key: &str) -> Option<String> {
 fn fail(code: u8, msg: impl std::fmt::Display) -> ExitCode {
     eprintln!("错误：{msg}");
     ExitCode::from(code)
+}
+
+/// 把全量备份还原到目标目录（冷备接管）。
+///
+/// 为什么要单独一个命令：网页版没有「重启应用」按钮，恢复走的是
+/// 「写 restore.pending → 重启落位」；冷备接管时没有旧进程可重启，
+/// 直接把备份摊到空目录、再让 center-server 指向它最省事。
+fn restore_into(zip: &std::path::Path, target: &std::path::Path) -> voucher_core::Result<()> {
+    use voucher_core::services::backup;
+    std::fs::create_dir_all(target)?;
+    // 先建一个干净的 ctx（只为了拿到临时目录），恢复结果落在 target/temp 里
+    let ctx = CoreContext::init(Some(target.to_path_buf()))?;
+    let staging = ctx.paths.temp.join("restore-staging");
+    let _ = std::fs::remove_dir_all(&staging);
+    let summary = backup::restore_backup(&ctx, zip, &staging)?;
+
+    // 关掉刚建的空库，再落位（否则拷过去的 db 会被占用中的连接写回）
+    drop(ctx);
+
+    let staged_db = staging.join("data").join("voucher.db");
+    if staged_db.exists() {
+        std::fs::copy(&staged_db, target.join("voucher.db"))?;
+    }
+    let staged_att = staging.join("attachments");
+    if staged_att.is_dir() {
+        let dest = target.join("attachments");
+        let _ = std::fs::remove_dir_all(&dest);
+        std::fs::rename(&staged_att, &dest)?;
+    }
+    let staged_cfg = staging.join("config").join("app.json");
+    if staged_cfg.exists() {
+        let cfg_dir = target.join("config");
+        std::fs::create_dir_all(&cfg_dir)?;
+        std::fs::copy(&staged_cfg, cfg_dir.join("app.json"))?;
+    }
+    println!(
+        "已还原：{}（附件 {} 个，校验={}）",
+        target.display(),
+        summary.attachment_count,
+        summary.checksums_verified
+    );
+    Ok(())
 }
 
 fn main() -> ExitCode {
@@ -79,6 +123,28 @@ fn main() -> ExitCode {
             match ingestion::import_ledger_csv(&ctx, &csv, kind, dry_run) {
                 Ok(sum) => {
                     println!("{}", serde_json::to_string_pretty(&sum).unwrap_or_default());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(1, e),
+            }
+        }
+        "restore" => {
+            let (Some(zip), Some(target)) =
+                (arg_value(&args, "--zip"), arg_value(&args, "--target"))
+            else {
+                return fail(2, "restore 需要 --zip 与 --target");
+            };
+            let zip = PathBuf::from(zip);
+            if !zip.exists() {
+                return fail(1, format!("备份不存在：{}", zip.display()));
+            }
+            let target = PathBuf::from(target);
+            match restore_into(&zip, &target) {
+                Ok(summary) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&summary).unwrap_or_default()
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => fail(1, e),

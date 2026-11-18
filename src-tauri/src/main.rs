@@ -306,6 +306,8 @@ fn main() {
             commands::local_ocr_status,
             commands::ocr_health,
             commands::cli_import_ledger,
+            commands::ledger_check,
+            commands::ledger_check_export,
             commands::cli_list_pending,
             commands::pick_ledger_csv,
             commands::pick_and_attach_image,

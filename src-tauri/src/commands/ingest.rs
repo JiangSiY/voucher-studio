@@ -321,6 +321,49 @@ pub async fn cli_import_ledger(
     .map_err(|e| ApiError::internal(e.to_string()))?
 }
 
+/// 台账对账（M4）：台账导出 CSV ↔ 凭证库逐条比对
+#[tauri::command]
+pub async fn ledger_check(
+    ctx: Ctx<'_>,
+    csv_path: String,
+    tolerance_cents: Option<i64>,
+) -> std::result::Result<voucher_core::services::ledger_check::CheckReport, ApiError> {
+    let core = ctx.inner().clone();
+    let path = std::path::PathBuf::from(&csv_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        err_api(voucher_core::services::ledger_check::check(
+            &core,
+            &path,
+            tolerance_cents.unwrap_or(0),
+        ))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+}
+
+/// 台账对账差异导出（CSV）
+#[tauri::command]
+pub async fn ledger_check_export(
+    ctx: Ctx<'_>,
+    csv_path: String,
+    tolerance_cents: Option<i64>,
+) -> std::result::Result<String, ApiError> {
+    let core = ctx.inner().clone();
+    let path = std::path::PathBuf::from(&csv_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = voucher_core::services::ledger_check::check(
+            &core,
+            &path,
+            tolerance_cents.unwrap_or(0),
+        )?;
+        err_api(voucher_core::services::ledger_check::export_issues(
+            &core, &report,
+        ))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+}
+
 /// CLI 待归档清单
 #[tauri::command]
 pub fn cli_list_pending(ctx: Ctx) -> std::result::Result<Vec<qsvc::PendingLedgerItem>, ApiError> {

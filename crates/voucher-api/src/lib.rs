@@ -18,6 +18,7 @@ pub mod biz;
 pub mod enhance;
 pub mod export;
 pub mod ingest;
+pub mod ledger_check;
 pub mod links;
 pub mod pack;
 pub mod settings;
@@ -269,6 +270,10 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
             get(&args, "voucher_id")?,
             get(&args, "booked")?,
         )?)?,
+
+        // ---------- 台账对账（M4） ----------
+        "ledger_check" => ledger_check::ledger_check(ctx, args)?,
+        "ledger_check_export" => ledger_check::ledger_check_export(ctx, args)?,
 
         // ---------- 台账字段（免复核闸门 + 归档改名） ----------
         "get_biz_fields" => to_value(biz::get_biz_fields(ctx, get(&args, "voucher_id")?)?)?,
