@@ -69,6 +69,7 @@ impl ApiError {
             CoreError::Cv(_) => "cv",
             CoreError::NotFound(_) => "not_found",
             CoreError::Invalid(_) => "invalid",
+            CoreError::RequiredMissing(_) => "required_missing",
             CoreError::LockHeld => "lock_held",
         };
         Self {

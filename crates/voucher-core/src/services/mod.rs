@@ -2,6 +2,7 @@
 
 pub mod attachment_view;
 pub mod backup;
+pub mod biz;
 pub mod crop;
 pub mod dashboard;
 pub mod dedup;

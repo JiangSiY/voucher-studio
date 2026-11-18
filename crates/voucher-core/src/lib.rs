@@ -49,6 +49,10 @@ pub enum CoreError {
     NotFound(String),
     #[error("无效操作: {0}")]
     Invalid(String),
+    /// 复核前必填项缺失（Center v0.26）：携带**全部**缺项的人话名称，
+    /// 前端一次性列在表单上方，而不是遇到第一个就报错让用户来回试。
+    #[error("还缺必填项：{}", .0.join("、"))]
+    RequiredMissing(Vec<String>),
     #[error("数据目录已被其他实例锁定")]
     LockHeld,
 }

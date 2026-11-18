@@ -100,9 +100,177 @@ impl NamingEngine {
     }
 }
 
+/// V5「附件名称」公式的复刻（Center v0.26）。
+///
+/// 台账里每条单据/流水/电费/项目都有一个由公式算出的附件名，人工把图片拖进 WPS 时
+/// 就按这个名字保存。凭证库要在「重命名」这一步产出一模一样的名字，回写台账、日后
+/// 人工核对才不用二次翻译。公式原文见 `docs/开发方案.md`「附件命名」一节。
+///
+/// 三个约定，全部来自公式而不是我们的发明：
+/// - 日期前缀是 `yyMMdd`（不是凭证号那种 YYYYMMDD）；
+/// - 项目取「第一个 `-` 之前」的段（`张帅-585kW-自投电站` → `张帅`），空则 `公司费用`；
+/// - 序号一律补零到 4 位（单据号/流水序号都是 AutoNumber，可能上千）。
+pub mod archive {
+    /// `2026-07-16` / `2026/07/16` → `260716`；无法解析时返回空串（公式里 ISBLANK 分支）
+    pub fn compact_date(date: &str) -> String {
+        let digits: String = date.chars().filter(|c| c.is_ascii_digit()).collect();
+        if digits.len() >= 8 {
+            let (y, m, d) = (&digits[0..4], &digits[4..6], &digits[6..8]);
+            format!("{}{}{}", &y[2..], m, d)
+        } else {
+            String::new()
+        }
+    }
+
+    /// 日期前缀：有日期则 `260716-`，否则空串
+    pub fn date_prefix(date: &str) -> String {
+        let c = compact_date(date);
+        if c.is_empty() {
+            String::new()
+        } else {
+            format!("{c}-")
+        }
+    }
+
+    /// 项目简称：第一个 `-` 之前的段；空项目 → `公司费用`
+    pub fn project_short(project: &str) -> String {
+        let p = project.trim();
+        if p.is_empty() {
+            return "公司费用".to_string();
+        }
+        match p.find('-') {
+            Some(i) => p[..i].to_string(),
+            None => p.to_string(),
+        }
+    }
+
+    /// 「3 单据」附件名：`{yyMMdd}-{项目简称}-{应收|应付|仓}{单据号:0000}[-{对方|物料}]`
+    ///
+    /// 尾段规则与公式一致：应付看对方，其余（应收/仓库）看物料——应收单的对方已经
+    /// 隐含在项目简称里，再拼一次反而重名。
+    pub fn doc(
+        date: &str,
+        project: &str,
+        doc_type: &str,
+        doc_no: i64,
+        counterparty: &str,
+        material: &str,
+    ) -> String {
+        let kind = match doc_type {
+            "应付" => "应付",
+            "应收" => "应收",
+            _ => "仓",
+        };
+        let tail = if doc_type == "应付" {
+            counterparty.trim()
+        } else {
+            material.trim()
+        };
+        let mut s = format!(
+            "{}{}-{}{:04}",
+            date_prefix(date),
+            project_short(project),
+            kind,
+            doc_no
+        );
+        if !tail.is_empty() {
+            s.push('-');
+            s.push_str(tail);
+        }
+        s
+    }
+
+    /// 「4 资金流水」附件名：`{yyMMdd}-{项目简称}-{收|付}{流水序号:0000}[-{对方}]`
+    ///
+    /// 只有付款拼对方（收款单的对方在台账里就是客户，项目简称已能定位）。
+    pub fn cash(date: &str, project: &str, flow_dir: &str, seq: i64, counterparty: &str) -> String {
+        let kind = if flow_dir == "付" { "付" } else { "收" };
+        let mut s = format!(
+            "{}{}-{}{:04}",
+            date_prefix(date),
+            project_short(project),
+            kind,
+            seq
+        );
+        let tail = counterparty.trim();
+        if kind == "付" && !tail.is_empty() {
+            s.push('-');
+            s.push_str(tail);
+        }
+        s
+    }
+
+    /// 「2 项目」附件名：`{客户}-{业务类型}[-{签约日期 yyMMdd}]`
+    pub fn project(customer: &str, biz_type: &str, sign_date: &str) -> String {
+        let mut s = format!("{}-{}", customer.trim(), biz_type.trim());
+        let c = compact_date(sign_date);
+        if !c.is_empty() {
+            s.push('-');
+            s.push_str(&c);
+        }
+        s
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_doc_name_matches_v5_formula() {
+        use archive::*;
+        // V5 例子：260716-张帅-应付0001-某供应商
+        assert_eq!(
+            doc(
+                "2026-07-16",
+                "张帅-585kW-自投电站",
+                "应付",
+                1,
+                "某供应商",
+                ""
+            ),
+            "260716-张帅-应付0001-某供应商"
+        );
+        // 应收：尾段取物料（这里为空，故只有两段）
+        assert_eq!(
+            doc("2026/09/02", "张帅", "应收", 4, "张帅", ""),
+            "260902-张帅-应收0004"
+        );
+        // 仓库：kind=仓，尾段取物料
+        assert_eq!(
+            doc("2026-09-02", "", "仓库", 12, "", "电缆"),
+            "260902-公司费用-仓0012-电缆"
+        );
+        // 无日期：公式的 ISBLANK 分支 → 无前缀
+        assert_eq!(doc("", "张帅", "应收", 4, "", ""), "张帅-应收0004");
+    }
+
+    #[test]
+    fn archive_cash_name_matches_v5_formula() {
+        use archive::*;
+        assert_eq!(
+            cash("2025-11-09", "凯诗蓝德-1MW", "收", 1, "谁都不拼"),
+            "251109-凯诗蓝德-收0001"
+        );
+        assert_eq!(
+            cash("2025-11-09", "凯诗蓝德", "付", 43, "某供应商"),
+            "251109-凯诗蓝德-付0043-某供应商"
+        );
+        assert_eq!(
+            cash("2025-11-09", "", "付", 2, ""),
+            "251109-公司费用-付0002"
+        );
+    }
+
+    #[test]
+    fn archive_project_name_matches_v5_formula() {
+        use archive::*;
+        assert_eq!(
+            project("张帅", "工商业光伏", "2026-07-16"),
+            "张帅-工商业光伏-260716"
+        );
+        assert_eq!(project("张帅", "运维", ""), "张帅-运维");
+    }
 
     #[test]
     fn validate_accepts_known_tokens() {

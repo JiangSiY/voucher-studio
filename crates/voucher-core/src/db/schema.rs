@@ -308,6 +308,161 @@ CREATE INDEX IF NOT EXISTS idx_import_batches_created
     ON import_batches(created_at DESC);
 "#;
 
+/// v14 附加表（Center 字段对齐，v0.26）：把「原始凭证档案」扩成能与 WPS「项目管理台账 V5」
+/// 对上的业务对象——单据类型/分类/业务域/收支方向/票据信息/项目与对方主数据键/归档名/金蝶回写位。
+///
+/// 为什么是 1:1 扩展表而不是给 `vouchers` 加 20 列：`vouchers` 的行映射（`voucher_repo::COLS`
+/// 与 `row_to_voucher`）被列表/搜索/重复核查/报表十几处共用，加列要同步改全部构造点与用例；
+/// 扩展表把「台账对齐字段」集中一处，老库零风险，读取时按需 LEFT JOIN。
+/// 删凭证/删附件由 `ON DELETE CASCADE` 带走扩展行，不留孤儿。
+/// 纪律照旧：**幂等只增、不动 `SCHEMA_VERSION`**（bump 会触发 v<4 的清库分支）。
+pub const SCHEMA_V14: &str = r#"
+CREATE TABLE IF NOT EXISTS voucher_ext (
+    voucher_id       INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    doc_type         TEXT    NOT NULL DEFAULT '',
+    category         TEXT    NOT NULL DEFAULT '',
+    biz_domain       TEXT    NOT NULL DEFAULT '',
+    flow_dir         TEXT    NOT NULL DEFAULT '',
+    ticket_type      TEXT    NOT NULL DEFAULT '',
+    invoice_no       TEXT    NOT NULL DEFAULT '',
+    invoice_date     TEXT,
+    project_key      TEXT    NOT NULL DEFAULT '',
+    project_name     TEXT    NOT NULL DEFAULT '',
+    counterparty_key TEXT    NOT NULL DEFAULT '',
+    material_name    TEXT    NOT NULL DEFAULT '',
+    material_qty     REAL,
+    material_unit    TEXT    NOT NULL DEFAULT '',
+    archive_name     TEXT    NOT NULL DEFAULT '',
+    source_doc_ref   TEXT    NOT NULL DEFAULT '',
+    gl_voucher_no    TEXT    NOT NULL DEFAULT '',
+    gl_batch         TEXT    NOT NULL DEFAULT '',
+    gl_voucher_date  TEXT,
+    gl_booked_at     TEXT,
+    deleted_at       TEXT,
+    updated_at       TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_voucher_ext_doc_type ON voucher_ext(doc_type);
+CREATE INDEX IF NOT EXISTS idx_voucher_ext_category ON voucher_ext(category);
+CREATE INDEX IF NOT EXISTS idx_voucher_ext_project ON voucher_ext(project_key);
+CREATE INDEX IF NOT EXISTS idx_voucher_ext_counterparty ON voucher_ext(counterparty_key);
+CREATE INDEX IF NOT EXISTS idx_voucher_ext_source ON voucher_ext(source_doc_ref);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_ext_archive
+    ON voucher_ext(archive_name) WHERE archive_name <> '';
+
+CREATE TABLE IF NOT EXISTS attachment_ext (
+    attachment_id      INTEGER PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+    original_file_name TEXT    NOT NULL DEFAULT '',
+    archive_name       TEXT    NOT NULL DEFAULT '',
+    role               TEXT    NOT NULL DEFAULT 'primary'
+                       CHECK (role IN ('primary','contract','invoice','receipt')),
+    sha256             TEXT    NOT NULL DEFAULT '',
+    deleted_at         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_attachment_ext_role ON attachment_ext(role);
+"#;
+
+/// v15 附加表（Center 会计投影 + 服务端认证，v0.26）：
+/// 科目映射、账户映射、会计期间、分录、V5 回写记录、单用户认证、后台任务。
+///
+/// 为什么放同一段：它们同属「服务端接手桌面版之后」的新域——分录是台账与金蝶之间的桥，
+/// 认证与任务队列是 Web 服务能跑起来的前提。幂等只增，不动 `SCHEMA_VERSION`。
+pub const SCHEMA_V15: &str = r#"
+CREATE TABLE IF NOT EXISTS acct_category_maps (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    category     TEXT    NOT NULL UNIQUE,
+    account_code TEXT    NOT NULL,
+    account_name TEXT    NOT NULL,
+    direction    TEXT    NOT NULL CHECK (direction IN ('借','贷')),
+    biz_domain   TEXT    NOT NULL DEFAULT '',
+    note         TEXT    NOT NULL DEFAULT '',
+    updated_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS acct_account_maps (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_key  TEXT    NOT NULL UNIQUE,
+    account_code TEXT    NOT NULL,
+    account_name TEXT    NOT NULL,
+    note         TEXT    NOT NULL DEFAULT '',
+    updated_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gl_periods (
+    period     TEXT    PRIMARY KEY,
+    start_date TEXT    NOT NULL,
+    end_date   TEXT    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+    note       TEXT    NOT NULL DEFAULT '',
+    updated_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gl_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    period       TEXT    NOT NULL,
+    entry_date   TEXT    NOT NULL,
+    voucher_no   TEXT    NOT NULL DEFAULT '',
+    summary      TEXT    NOT NULL DEFAULT '',
+    account_code TEXT    NOT NULL,
+    account_name TEXT    NOT NULL DEFAULT '',
+    debit_cents  INTEGER NOT NULL DEFAULT 0,
+    credit_cents INTEGER NOT NULL DEFAULT 0,
+    project_key  TEXT    NOT NULL DEFAULT '',
+    source_type  TEXT    NOT NULL DEFAULT '',
+    source_ref   TEXT    NOT NULL DEFAULT '',
+    status       TEXT    NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft','exported','booked')),
+    note         TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gl_entries_period ON gl_entries(period);
+CREATE INDEX IF NOT EXISTS idx_gl_entries_source ON gl_entries(source_type, source_ref);
+
+CREATE TABLE IF NOT EXISTS v5_pushes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind         TEXT    NOT NULL,
+    target       TEXT    NOT NULL DEFAULT '',
+    payload_json TEXT    NOT NULL DEFAULT '{}',
+    status       TEXT    NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending','done','failed')),
+    error        TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL,
+    pushed_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_v5_pushes_kind ON v5_pushes(kind, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS auth_users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE,
+    password_hash TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash  TEXT    NOT NULL UNIQUE,
+    user_id     INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    created_at  TEXT    NOT NULL,
+    expires_at  TEXT    NOT NULL,
+    last_seen_at TEXT   NOT NULL,
+    user_agent  TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued','running','done','failed')),
+    progress    INTEGER NOT NULL DEFAULT 0,
+    message     TEXT    NOT NULL DEFAULT '',
+    result_json TEXT    NOT NULL DEFAULT '{}',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id DESC);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -380,6 +535,10 @@ pub fn init(conn: &Connection) -> Result<()> {
     if !has_column(conn, "vouchers", "ledger_booked_at")? {
         conn.execute_batch("ALTER TABLE vouchers ADD COLUMN ledger_booked_at TEXT")?;
     }
+    // v14（Center 字段对齐）：台账对齐字段的 1:1 扩展表 + 附件扩展（原名/归档名/角色/校验和）。
+    conn.execute_batch(SCHEMA_V14)?;
+    // v15（Center 会计投影 + 服务端认证）
+    conn.execute_batch(SCHEMA_V15)?;
     Ok(())
 }
 

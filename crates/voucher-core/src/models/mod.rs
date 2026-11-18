@@ -1,6 +1,7 @@
 //! 业务模型（对应 v4.3 的 `voucher/models/`）
 
 pub mod attachment;
+pub mod biz;
 pub mod dup_decision;
 pub mod enums;
 pub mod export_batch;
@@ -12,6 +13,7 @@ pub mod voucher;
 pub mod voucher_link;
 
 pub use attachment::{Attachment, EnhanceSource, NewAttachment};
+pub use biz::BizFields;
 pub use dup_decision::{DupDecision, NewDupDecision};
 pub use enums::{
     DupDecisionKind, ExportStatus, OcrStatus, VoucherGroupAction, VoucherLinkAction,
