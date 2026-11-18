@@ -1961,3 +1961,163 @@ select.input {
   justify-content: flex-end;
   margin-top: var(--s-2);
 }
+
+/* ===== 移动壳（2026-11-18 UI 重设计 P0）=====
+   断点唯一真源：`src/composables/useBreakpoint.ts`（compact <768 / medium 768–1099 / wide ≥1100）。
+   组件在 compact 档给 `.app-shell` 加 `.app-shell--compact`，这里只写"手机壳长什么样"：
+   侧栏隐藏、工具栏降为 52px 顶栏（带返回键）、底部 5 项 tab bar、「更多」底部浮层。
+   **不用媒体查询重复判断**：否则组件状态与 CSS 可能各说各话（折叠侧栏 + 手机 tab bar 同屏）。 */
+.app-shell--compact .sidebar,
+.app-shell--compact .sidebar-resize-handle {
+  display: none;
+}
+
+.app-shell--compact .unified-toolbar {
+  height: var(--appbar-h);
+  padding: 0 var(--s-3);
+  gap: var(--s-1);
+  border-bottom: 1px solid var(--card-hairline);
+  background: var(--bg-sidebar-solid);
+}
+
+.app-shell--compact .unified-toolbar .toolbar-title {
+  font: var(--type-title);
+}
+
+/* 手机上副标题会把标题挤成两行；路由里的 subtitle 仍保留给桌面 */
+.app-shell--compact .unified-toolbar .toolbar-subtitle {
+  display: none;
+}
+
+/* 返回键：44px 点击区（iOS HIG），桌面不渲染 */
+.mobile-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  margin-left: calc(-1 * var(--s-2));
+  border: 0;
+  background: transparent;
+  color: var(--label-primary);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.app-shell--compact .main-scroll {
+  padding: var(--s-3) var(--s-4) var(--s-4);
+  -webkit-overflow-scrolling: touch;
+  /* 表单页聚焦时给键盘留位（iOS 上键盘不缩 100vh，只顶内容） */
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--s-8));
+}
+
+/* 底部 tab bar：固定 5 列，不等宽内容把它撑开 */
+.mobile-tabbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* 用 --bg-popover（0.92–0.94）而不是 --bg-card-strong：后者在深色下只有 10% 白，
+     底部浮层会透出 tab bar 的图标（2026-11-18 走查真踩到）。 */
+  background: var(--bg-popover);
+  border-top: 1px solid var(--card-hairline);
+  z-index: 60;
+}
+
+.mobile-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--tap-min);
+  border: 0;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+  position: relative;
+}
+
+.mobile-tab.is-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mobile-tab .tab-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 角标沿用侧栏的柔和底 + 同色字（实心橙底在深色下会糊） */
+.mobile-tab .tab-badge {
+  position: absolute;
+  top: -6px;
+  left: 12px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.mobile-tab .tab-label {
+  line-height: 1.2;
+}
+
+/* 「更多」浮层：底部弹出，点遮罩关闭 */
+.mobile-more-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.mobile-more-sheet {
+  width: 100%;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-popover);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  padding: var(--s-2) var(--s-3) calc(var(--s-4) + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow-popover);
+}
+
+.mobile-more-grip {
+  width: 36px;
+  height: 4px;
+  margin: var(--s-2) auto var(--s-3);
+  border-radius: var(--radius-pill);
+  background: var(--separator-strong);
+}
+
+.mobile-more-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-body);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.mobile-more-item:hover {
+  background: var(--bg-selection);
+}

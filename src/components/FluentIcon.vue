@@ -81,6 +81,7 @@ const ICONS: Record<string, string> = {
   zoomIn: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M10.5 8.25v4.5M8.25 10.5h4.5"/>',
   zoomOut: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8.25 10.5h4.5"/>',
   chevronLeft: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
+  arrowLeft: '<path d="M19 12H5"/><path d="M11 5.5L4.5 12l6.5 6.5"/>',
   chevronRight: '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
   chevronDown: '<path d="M5.5 9.5L12 16l6.5-6.5"/>',
   // 侧栏开关（2026-10-16）：面板形图标，一眼看出"这是侧边栏"。

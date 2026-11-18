@@ -18,43 +18,38 @@
 :root,
 html[data-theme="light"] {
   /* ===== 新语义层：表面 ===== */
-  --bg-window: #dfe9e2;
+  --bg-window: #f5f6f8;
   /* 画布：Loon 式的鼠尾草绿灰渐变；两处径向高光负责"窗口后方有光"。
      `--canvas-solid` 是 reduced-transparency 与不支持 backdrop-filter 时的回退底色。
      （原 macOS 27 为纯色 #ececec，自 2026-11-04 Loon 化起改为渐变。） */
-  --canvas-solid: #d9e4dc;
-  --canvas-gradient:
-    radial-gradient(900px 520px at 8% -14%, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0) 62%),
-    radial-gradient(760px 460px at 96% 108%, rgba(160, 188, 170, 0.5), rgba(160, 188, 170, 0) 64%),
-    linear-gradient(
-      155deg,
-      rgba(212, 226, 215, 0.96) 0%,
-      rgba(195, 214, 201, 0.96) 52%,
-      rgba(205, 221, 209, 0.96) 100%
-    );
+  --canvas-solid: #f5f6f8;
+  /* 2026-11-18 UI 重设计：**退役渐变画布**，改为纯色中性底（现代 Web 简洁风）。
+     保留令牌名是为了不动 `.app-shell` 与其余消费方；取值恒等于实色。 */
+  --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
   /* 侧栏/工具栏：叠在**原生材质**上的着色。浅色保留低 alpha（用户明确要"看得到玻璃"），
      但带绿调才能和画布成一体；alpha 上限受 `a11yContract.test.ts:55` 约束（浅色 ≤0.35）。
      `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
-  --bg-sidebar: rgba(158, 182, 167, 0.3);
-  --bg-sidebar-solid: #dfe8e1;
+  --bg-sidebar: rgba(238, 241, 245, 0.32);
+  --bg-sidebar-solid: #f7f8fa;
   /* 内容区实色：只留给对话框、吸顶表头、打印纸张等**必须不透明**的载体；
      内容卡片改用 `--bg-card*`，主画布不再消费它。 */
   --bg-content: #ffffff;
   --bg-control: #ffffff;
-  --bg-popover: rgba(247, 247, 250, 0.92);
-  --bg-popover-solid: #f7f7fa;
-  --bg-selection: rgba(10, 132, 255, 0.12);
+  --bg-popover: rgba(255, 255, 255, 0.92);
+  --bg-popover-solid: #ffffff;
+  --bg-selection: rgba(37, 99, 235, 0.1);
 
   /* 玻璃卡片三层：regular（主卡）/ strong（浮条、检视器）/ sunken（卡内嵌板）。
      solid 版本供 reduced-transparency 与 backdrop-filter 缺失时回退。 */
-  --bg-card: rgba(255, 255, 255, 0.6);
-  --bg-card-strong: rgba(255, 255, 255, 0.74);
-  --bg-card-sunken: rgba(31, 54, 41, 0.055);
-  --bg-card-solid: #f4f8f5;
-  --bg-card-sunken-solid: #e9f1eb;
-  --bg-field: rgba(255, 255, 255, 0.55);
-  --card-hairline: rgba(255, 255, 255, 0.6);
-  --blur-card: blur(22px) saturate(1.15);
+  --bg-card: rgba(255, 255, 255, 0.88);
+  --bg-card-strong: #ffffff;
+  --bg-card-sunken: rgba(15, 23, 42, 0.045);
+  --bg-card-solid: #ffffff;
+  --bg-card-sunken-solid: #f1f3f5;
+  --bg-field: #ffffff;
+  --card-hairline: #e5e7eb;
+  /* 玻璃退役（2026-11-18）：卡片改纯色 + 发丝线，不再依赖 backdrop-filter。 */
+  --blur-card: none;
   /* 纸面：打印预览与最终 PDF 的纸永远是白的，不随主题变。
      深色下 `.print-area` 必须把 `--label-*` 局部覆盖成 `--paper-*`，
      否则会复现 2026-11-04 审计发现的「白底白字」缺陷。 */
@@ -64,31 +59,31 @@ html[data-theme="light"] {
   --paper-line: rgba(0, 0, 0, 0.12);
 
   /* ===== 新语义层：文字 ===== */
-  --label-primary: rgba(0, 0, 0, 0.85);
-  --label-secondary: rgba(0, 0, 0, 0.55);
-  --label-tertiary: rgba(0, 0, 0, 0.35);
-  --label-quaternary: rgba(0, 0, 0, 0.2);
+  --label-primary: rgba(17, 24, 39, 0.92);
+  --label-secondary: rgba(17, 24, 39, 0.62);
+  --label-tertiary: rgba(17, 24, 39, 0.44);
+  --label-quaternary: rgba(17, 24, 39, 0.26);
   --label-on-accent: #ffffff;
 
   /* ===== 新语义层：分隔线 ===== */
-  --separator: rgba(0, 0, 0, 0.1);
-  --separator-strong: rgba(0, 0, 0, 0.18);
+  --separator: rgba(17, 24, 39, 0.1);
+  --separator-strong: rgba(17, 24, 39, 0.18);
 
   /* ===== 新语义层：强调色（macOS 默认蓝；系统强调色不可读，见规范 §1.6）===== */
-  --accent: #0a84ff;
-  --accent-hover: #0077ed;
-  --accent-active: #0069d9;
-  --accent-soft: rgba(10, 132, 255, 0.12);
-  --accent-soft-2: rgba(10, 132, 255, 0.22);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-soft-2: rgba(37, 99, 235, 0.18);
 
   /* ===== 状态色（沿用既有取值：可读性已验证，仅强调色改 macOS 蓝）===== */
-  --success: #107c10;
-  --success-soft: #dff6dd;
-  --warning: #ff8c00;
-  --warning-soft: #fff4ce;
-  --danger: #d13438;
-  --danger-soft: #fde7e9;
-  --info-soft: #eaf4fc;
+  --success: #15803d;
+  --success-soft: rgba(21, 128, 61, 0.1);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.12);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --info-soft: rgba(37, 99, 235, 0.08);
 
   /* ===== 新语义层：圆角（同心：子圆角 = 父圆角 − 内边距，clamp ≥4）===== */
   --radius-window: 10px;
@@ -98,8 +93,8 @@ html[data-theme="light"] {
      是 macOS 通知的观感；不塞进上面三档是有意的（改三档不该顺带动 toast）。 */
   --radius-toast: 10px;
   /* 内容卡：Loon 的大圆角；控件与小组件依次缩小，保持同心。 */
-  --radius-card: 20px;
-  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-control: 8px;
   --radius-small: 8px;
   --radius-pill: 999px;
 
@@ -136,8 +131,8 @@ html[data-theme="light"] {
   --fs-display: calc(20px * var(--font-scale));
 
   /* ===== 新语义层：阴影（Loon 化后内容卡允许一层**软**托起；浮层仍用更重的投影）===== */
-  --shadow-card: 0 18px 40px -26px rgba(31, 54, 41, 0.55), 0 2px 6px rgba(31, 54, 41, 0.06);
-  --shadow-card-hover: 0 22px 46px -26px rgba(31, 54, 41, 0.62), 0 3px 8px rgba(31, 54, 41, 0.08);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -22px rgba(16, 24, 40, 0.28);
+  --shadow-card-hover: 0 1px 2px rgba(16, 24, 40, 0.06), 0 16px 32px -22px rgba(16, 24, 40, 0.34);
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
 
@@ -170,6 +165,12 @@ html[data-theme="light"] {
      `[data-sidebar-collapsed="true"]` 规则切回 `--toolbar-inset-start`。 */
   --toolbar-h: 56px;
   --toolbar-inset-start: 84px;
+  /* ===== 移动端（2026-11-18）=====
+     44px 是 iOS HIG 的最小点击区；只在 `compact` 档生效（由组件按 useBreakpoint 加类），
+     桌面仍用 32/36px 的控件高度，不跟着变胖。 */
+  --tap-min: 44px;
+  --appbar-h: 52px;
+  --tabbar-h: 56px;
 
   /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6，2026-10-18 U1 已完成字号收编）===== */
   --bg: var(--bg-window);
@@ -204,39 +205,33 @@ html[data-theme="light"] {
 }
 
 html[data-theme="dark"] {
-  --bg-window: #121715;
+  --bg-window: #0e1116;
   /* 侧栏材质：深色下必须保持"深色 + 高不透明度"——若改成白色低 alpha，
      `a11yContract.test.ts` 会把它算进浅色条目并判红，且侧栏会随桌面壁纸发灰。
      0.9 的深绿灰叠在深色画布上，比内容卡略亮一层，仍是"侧栏面板"。
      浅色侧保持低 alpha（用户明确要"看得到玻璃"，alpha 上限 0.35）。
      `prefers-reduced-transparency: reduce` 时回退实色。
      **必须是深色 rgba（r<128）且 alpha ≥0.85**（a11yContract 硬约束）。 */
-  --bg-sidebar: rgba(42, 54, 47, 0.9);
-  --bg-sidebar-solid: #1b211e;
-  --bg-content: #1c1c1e;
-  --bg-control: #2c2c2e;
-  --bg-popover: rgba(42, 42, 45, 0.94);
-  --bg-popover-solid: #2a2a2d;
-  --bg-selection: rgba(10, 132, 255, 0.2);
+  --bg-sidebar: rgba(43, 51, 62, 0.9);
+  --bg-sidebar-solid: #1a1f27;
+  --bg-content: #161a21;
+  --bg-control: #1e242d;
+  --bg-popover: rgba(28, 33, 41, 0.94);
+  --bg-popover-solid: #1c2129;
+  --bg-selection: rgba(96, 165, 250, 0.18);
 
-  --canvas-solid: #121715;
-  --canvas-gradient:
-    radial-gradient(800px 480px at 10% -14%, rgba(120, 150, 134, 0.28), rgba(120, 150, 134, 0) 60%),
-    radial-gradient(700px 420px at 92% 108%, rgba(70, 96, 82, 0.45), rgba(70, 96, 82, 0) 62%),
-    linear-gradient(
-      155deg,
-      rgba(18, 23, 21, 0.94) 0%,
-      rgba(23, 30, 26, 0.94) 55%,
-      rgba(17, 22, 20, 0.94) 100%
-    );
-  --bg-card: rgba(255, 255, 255, 0.065);
+  --canvas-solid: #0e1116;
+  --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
+  --bg-card: rgba(255, 255, 255, 0.06);
   --bg-card-strong: rgba(255, 255, 255, 0.1);
   --bg-card-sunken: rgba(255, 255, 255, 0.04);
-  --bg-card-solid: #232925;
-  --bg-card-sunken-solid: #1d2320;
-  --bg-field: rgba(255, 255, 255, 0.08);
+  --bg-card-solid: #1a1f27;
+  --bg-card-sunken-solid: #151a21;
+  --bg-field: rgba(255, 255, 255, 0.06);
   --card-hairline: rgba(255, 255, 255, 0.1);
 
+  /* 深色强调色是浅蓝，白字对比度不足 → 文字改用近黑 */
+  --label-on-accent: #0b1220;
   --label-primary: rgba(255, 255, 255, 0.92);
   --label-secondary: rgba(255, 255, 255, 0.62);
   --label-tertiary: rgba(255, 255, 255, 0.42);
@@ -245,22 +240,22 @@ html[data-theme="dark"] {
   --separator: rgba(255, 255, 255, 0.12);
   --separator-strong: rgba(255, 255, 255, 0.2);
 
-  --accent: #0a84ff;
-  --accent-hover: #3d9bff;
-  --accent-active: #0069d9;
-  --accent-soft: rgba(10, 132, 255, 0.16);
-  --accent-soft-2: rgba(10, 132, 255, 0.28);
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-active: #3b82f6;
+  --accent-soft: rgba(96, 165, 250, 0.14);
+  --accent-soft-2: rgba(96, 165, 250, 0.26);
 
-  --success: #6ccb5f;
-  --success-soft: rgba(108, 203, 95, 0.16);
-  --warning: #ffd264;
-  --warning-soft: rgba(255, 210, 100, 0.14);
-  --danger: #ff99a4;
-  --danger-soft: rgba(255, 99, 105, 0.16);
-  --info-soft: rgba(10, 132, 255, 0.12);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.16);
+  --info-soft: rgba(96, 165, 250, 0.12);
 
-  --shadow-card: 0 18px 40px -26px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
-  --shadow-card-hover: 0 22px 46px -26px rgba(0, 0, 0, 0.78), 0 3px 8px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 28px -22px rgba(0, 0, 0, 0.7);
+  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px -22px rgba(0, 0, 0, 0.78);
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
   --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 
@@ -288,34 +283,22 @@ html[data-theme="dark"] {
    两者数值保持一致，改一处请同步另一处）。 */
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
-    --bg-window: #121715;
-    --bg-sidebar: rgba(42, 54, 47, 0.9);
-    --bg-sidebar-solid: #1b211e;
-    --bg-content: #1c1c1e;
-    --bg-control: #2c2c2e;
-    --bg-popover: rgba(42, 42, 45, 0.94);
-    --bg-popover-solid: #2a2a2d;
-    --bg-selection: rgba(10, 132, 255, 0.2);
-    --canvas-solid: #121715;
-    --canvas-gradient:
-      radial-gradient(
-        800px 480px at 10% -14%,
-        rgba(120, 150, 134, 0.28),
-        rgba(120, 150, 134, 0) 60%
-      ),
-      radial-gradient(700px 420px at 92% 108%, rgba(70, 96, 82, 0.45), rgba(70, 96, 82, 0) 62%),
-      linear-gradient(
-        155deg,
-        rgba(18, 23, 21, 0.94) 0%,
-        rgba(23, 30, 26, 0.94) 55%,
-        rgba(17, 22, 20, 0.94) 100%
-      );
-    --bg-card: rgba(255, 255, 255, 0.065);
+    --bg-window: #0e1116;
+    --bg-sidebar: rgba(43, 51, 62, 0.9);
+    --bg-sidebar-solid: #1a1f27;
+    --bg-content: #161a21;
+    --bg-control: #1e242d;
+    --bg-popover: rgba(28, 33, 41, 0.94);
+    --bg-popover-solid: #1c2129;
+    --bg-selection: rgba(96, 165, 250, 0.18);
+    --canvas-solid: #0e1116;
+    --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
+    --bg-card: rgba(255, 255, 255, 0.06);
     --bg-card-strong: rgba(255, 255, 255, 0.1);
     --bg-card-sunken: rgba(255, 255, 255, 0.04);
-    --bg-card-solid: #232925;
-    --bg-card-sunken-solid: #1d2320;
-    --bg-field: rgba(255, 255, 255, 0.08);
+    --bg-card-solid: #1a1f27;
+    --bg-card-sunken-solid: #151a21;
+    --bg-field: rgba(255, 255, 255, 0.06);
     --card-hairline: rgba(255, 255, 255, 0.1);
     --shadow-card: 0 18px 40px -26px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
     --label-primary: rgba(255, 255, 255, 0.92);

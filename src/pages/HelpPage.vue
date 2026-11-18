@@ -50,6 +50,10 @@ const navMap: { name: string; what: string }[] = [
   { name: "设置", what: "通用 / 命名 / OCR / 增强 / 备份与同步 / 密钥 六个分区" },
   { name: "备份与恢复", what: "本地 zip 备份、WebDAV 云备份、加密；恢复写入待恢复文件后重启生效" },
   { name: "帮助", what: "本页" },
+  {
+    name: "更多",
+    what: "手机端底部导航的最后一项：收起上面这些工具入口（洞察 / 打印 / 导出历史 / 设置 / 备份 / 帮助）与退出登录",
+  },
 ];
 </script>
 

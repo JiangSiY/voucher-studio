@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
+import { useBreakpoint } from "../composables/useBreakpoint";
 import { useConfigStore } from "../stores/config";
 import { useDupStore } from "../stores/dup";
 import { useInboxStore } from "../stores/inbox";
@@ -94,10 +95,47 @@ async function signOut() {
   await session.logout();
   await router.replace({ name: "login" });
 }
+
+// ===== 移动壳（<768px）=====
+// 三档断点的唯一真源在 composables/useBreakpoint.ts；CSS 侧对应 base.css 末尾的
+// `.app-shell--compact` 一节。手机上侧栏整体隐藏，导航改底部 5 项 tab bar，
+// 「更多」用底部浮层装工具区入口（避免再加一个真实路由与页面）。
+const { isCompact } = useBreakpoint();
+const moreOpen = ref(false);
+
+const workItems = computed(() => navItems.value.slice(0, 5));
+const toolItems = computed(() => navItems.value.slice(5));
+
+/** 底部 tab：工作区前 4 项 + 「更多」 */
+const tabItems = computed(() => [
+  ...workItems.value.slice(0, 4).map((item) => ({ ...item, key: item.to })),
+  { to: "__more__", key: "__more__", icon: "settings", label: "更多", badge: 0, badgeLabel: "" },
+]);
+
+const tabActive = (key: string): boolean => {
+  if (key === "__more__") return toolItems.value.some((item) => route.path.startsWith(item.to));
+  return route.path.startsWith(key);
+};
+
+/** 手机详情页需要返回；工作区首页没有可返回的层级 */
+const canGoBack = computed(() => route.path !== "/inbox");
+
+function goBack() {
+  if (window.history.length > 1) router.back();
+  else void router.push("/inbox");
+}
+
+function openTab(key: string) {
+  if (key === "__more__") {
+    moreOpen.value = true;
+    return;
+  }
+  void router.push(key);
+}
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--compact': isCompact }">
     <aside id="app-sidebar" class="sidebar">
       <!-- 侧栏顶部：**只留一段可拖窗口的留白**（交通灯就在这条上，里面没有可点元素，
            deep 不会误吞点击）。用户 2026-10-16 要求去掉左上角图标（原 VS 徽标 + 字标），
@@ -178,14 +216,66 @@ async function signOut() {
              （整行按钮，见 `<aside>` 内 `.sidebar-toggle`）。 -->
         <!-- 工具栏里不再放按钮：命令面板按钮 2026-10-16 按用户要求去掉
              （"基本没用过，没有价值"）；⌘K 仍可用（`App.vue` 全局快捷键 → `stores/ui.ts`）。 -->
+        <!-- 手机档（<768px）：左侧给返回键，标题降一级，副标题隐藏（见 base.css `.app-shell--compact`） -->
+        <button
+          v-if="isCompact && canGoBack"
+          class="mobile-back"
+          type="button"
+          aria-label="返回"
+          title="返回"
+          @click="goBack"
+        >
+          <FluentIcon name="arrowLeft" :size="18" />
+        </button>
         <div class="toolbar-heading">
           <h1 class="toolbar-title">{{ pageTitle }}</h1>
           <p v-if="pageSubtitle" class="toolbar-subtitle">{{ pageSubtitle }}</p>
         </div>
       </header>
-      <div class="main-scroll">
+      <div class="main-scroll" @click="moreOpen = false">
         <div class="page" :class="{ 'page--reading': isReading }">
           <router-view />
+        </div>
+      </div>
+
+      <!-- 底部 5 项 tab bar（仅手机档）：工作区前 4 项 + 更多；点当前项不重复跳转 -->
+      <nav v-if="isCompact && !moreOpen" class="mobile-tabbar" aria-label="主导航">
+        <button
+          v-for="item in tabItems"
+          :key="item.key"
+          type="button"
+          class="mobile-tab"
+          :class="{ 'is-active': tabActive(item.key) }"
+          :aria-current="tabActive(item.key) ? 'page' : undefined"
+          :title="item.badge > 0 ? `${item.label}（${item.badge} ${item.badgeLabel}）` : item.label"
+          @click="openTab(item.key)"
+        >
+          <span class="tab-icon">
+            <FluentIcon :name="item.icon" :size="18" />
+            <span v-if="item.badge > 0" class="tab-badge">{{ badgeText(item.badge) }}</span>
+          </span>
+          <span class="tab-label">{{ item.label }}</span>
+        </button>
+      </nav>
+
+      <!-- 「更多」浮层：工具区 6 项 + 退出登录（网页版才有会话） -->
+      <div v-if="moreOpen && isCompact" class="mobile-more-scrim" @click.self="moreOpen = false">
+        <div class="mobile-more-sheet" role="dialog" aria-label="更多">
+          <div class="mobile-more-grip" aria-hidden="true"></div>
+          <router-link
+            v-for="item in toolItems"
+            :key="item.to"
+            :to="item.to"
+            class="mobile-more-item"
+            @click="moreOpen = false"
+          >
+            <FluentIcon :name="item.icon" :size="18" />
+            <span>{{ item.label }}</span>
+          </router-link>
+          <button v-if="!isTauri" type="button" class="mobile-more-item" @click="signOut">
+            <FluentIcon name="lock" :size="18" />
+            <span>退出登录</span>
+          </button>
         </div>
       </div>
     </div>
