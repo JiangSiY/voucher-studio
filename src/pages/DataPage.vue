@@ -43,7 +43,10 @@ const statusLabel: Record<VoucherStatus, string> = {
   archived: "已归档",
 };
 
-const activeView = ref<View>("all");
+const route = useRoute();
+const validView = (v: unknown): v is View =>
+  typeof v === "string" && views.some((x) => x.key === v);
+const activeView = ref<View>(validView(route.query.view) ? route.query.view : "all");
 const page = ref(1);
 const pageSize = 50;
 const total = ref(0);
@@ -58,7 +61,6 @@ const expanded = ref<number | null>(null);
 const details = reactive<Record<number, VoucherDetail>>({});
 const detailBusy = ref(0);
 const { open } = useModalRoute();
-const route = useRoute();
 const router = useRouter();
 const newOpen = ref(route.query.new === "1");
 
@@ -75,6 +77,11 @@ function monthRange(): { from: string; to: string } {
 
 const query = computed<VoucherQuery>(() => {
   const base: VoucherQuery = { page: page.value, pageSize, sort: "date_desc" };
+  const q = route.query;
+  if (typeof q.ocr === "string" && q.ocr) base.ocrStatus = q.ocr;
+  if (q.amountEmpty === "1") base.amountEmpty = true;
+  if (typeof q.stale === "string" && q.stale) base.staleDays = Number(q.stale);
+  if (q.exported === "any") base.exported = "any";
   switch (activeView.value) {
     case "missing":
       return { ...base, noImage: true, attachmentRequired: true };
@@ -253,6 +260,14 @@ watch(
   () => route.query.new,
   (v) => {
     newOpen.value = v === "1";
+  },
+);
+
+watch(
+  () => route.query.view,
+  (v) => {
+    activeView.value = validView(v) ? v : "all";
+    page.value = 1;
   },
 );
 

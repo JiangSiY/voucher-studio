@@ -20,6 +20,10 @@ describe("数据页真实化", () => {
     expect(dataSrc).toContain("VoucherEditor");
     expect(dataSrc).toContain("data-cards");
     expect(dataSrc).not.toContain("const rows: Row[] = [");
+    expect(dataSrc).toContain("route.query.view");
+    expect(dataSrc).toContain("q.ocr");
+    expect(dataSrc).toContain("q.amountEmpty");
+    expect(dataSrc).toContain("q.stale");
   });
 
   it("新建/导入/打印导出各只有一个入口", () => {
