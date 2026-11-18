@@ -50,6 +50,7 @@ const archivePreview = computed(() => {
   return detail.value.archiveName || detail.value.archiveError;
 });
 const isWarehouse = computed(() => form.value.docType === "仓库");
+const isMeter = computed(() => form.value.docType === "电费");
 const needsInvoice = computed(() => form.value.ticketType === "增值税专票");
 
 /** 后端按「日期/金额/对方」判定必填，这里的对方可能写在凭证档案层，不在本面板 */
@@ -202,6 +203,21 @@ watch(
               <span class="lf-req">仓库单必填</span>
             </span>
             <input v-model="form.materialName" class="input" />
+          </label>
+          <label v-if="isMeter" class="lf-field">
+            <span class="lf-label">电表编号</span>
+            <input
+              v-model="form.meterNo"
+              class="input"
+              placeholder="如：表A-01（V5「5 电表」表号）"
+            />
+          </label>
+          <label v-if="isMeter" class="lf-field">
+            <span class="lf-label">
+              电费月度
+              <span class="lf-req">电费单必填</span>
+            </span>
+            <input v-model="form.meterMonth" class="input" type="month" placeholder="2026-10" />
           </label>
         </div>
 

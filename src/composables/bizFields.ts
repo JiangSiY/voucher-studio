@@ -30,6 +30,10 @@ export interface BizFields {
   materialName: string;
   materialQty: number | null;
   materialUnit: string;
+  /** 电表编号（电费单；V5「6 电费」的表号） */
+  meterNo: string;
+  /** 电费月度 YYYY-MM（电费单；归档名里的「抄YYMM」） */
+  meterMonth: string;
   /** 归档名（按 V5 公式算出，落盘用） */
   archiveName: string;
   /** 来源单据号 / 流水序号（台账 AutoNumber 的镜像） */
@@ -55,6 +59,8 @@ export const EMPTY_BIZ_FIELDS: BizFields = {
   materialName: "",
   materialQty: null,
   materialUnit: "",
+  meterNo: "",
+  meterMonth: "",
   archiveName: "",
   sourceDocRef: "",
   glVoucherNo: "",
