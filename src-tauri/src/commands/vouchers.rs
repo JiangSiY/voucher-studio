@@ -80,7 +80,7 @@ pub struct VoucherListResult {
     /// D-1：当前页所有凭证的缩略图信息，key = voucher.id
     pub thumbs: HashMap<i64, qsvc::VoucherThumb>,
     /// v0.27：行级元数据（booked / batchId / attachmentRequired）
-    pub meta: HashMap<i64, voucher_core::db::repos::voucher_repo::RowMeta>,
+    pub meta: HashMap<i64, voucher_mgr::RowMeta>,
 }
 
 #[tauri::command]

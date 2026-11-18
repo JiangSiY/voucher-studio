@@ -40,7 +40,7 @@ pub struct VoucherListResult {
     pub total: u64,
     pub thumbs: HashMap<i64, qsvc::VoucherThumb>,
     /// v0.27：行级元数据（booked / batchId / attachmentRequired），key = voucher.id
-    pub meta: HashMap<i64, voucher_core::db::repos::voucher_repo::RowMeta>,
+    pub meta: HashMap<i64, voucher_mgr::RowMeta>,
 }
 
 pub fn list_vouchers(ctx: &CoreContext, query: VoucherQuery) -> ApiResult<VoucherListResult> {

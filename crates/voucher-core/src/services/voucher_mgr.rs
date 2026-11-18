@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
+pub use crate::db::repos::voucher_repo::RowMeta;
 use crate::db::repos::voucher_repo::{VoucherNeighbor, VoucherQuery, VoucherStats};
 use crate::db::repos::{attachment_repo, snapshot_repo, voucher_repo};
 use crate::models::{
