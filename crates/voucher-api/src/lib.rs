@@ -436,7 +436,6 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
         // 真被调到（例如旧前端缓存）时给一句人话，而不是「未知命令」。
         "open_path"
         | "restart_app"
-        | "get_recovery_report"
         | "skip_closing_backup"
         | "pick_and_import"
         | "pick_and_replace_image"
@@ -451,6 +450,7 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
 
         // ---------- 服务端元信息 ----------
         "get_app_info" => to_value(vouchers::app_info(ctx))?,
+        "get_recovery_report" => to_value(vouchers::recovery_report(ctx)?)?,
         "capabilities" => json!({
             "platform": "web",
             "localOcr": cfg!(target_os = "macos"),

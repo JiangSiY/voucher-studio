@@ -6,6 +6,7 @@ use serde::Serialize;
 use voucher_core::models::{NewVoucher, Voucher, VoucherStatus, VoucherUpdate};
 use voucher_core::services::query as qsvc;
 use voucher_core::services::query::VoucherQuery;
+use voucher_core::services::recovery::{self, RecoveryReport};
 use voucher_core::services::search;
 use voucher_core::services::search::SearchHit;
 use voucher_core::services::{dup_review, period, reports, voucher_mgr};
@@ -278,6 +279,12 @@ pub struct AppInfo {
     pub backups_dir: String,
     pub exports_dir: String,
     pub logs_dir: String,
+}
+
+/// 数据健康报告（网页版现算；桌面壳在启动时缓存同一结构）
+/// 只读：`check_health` 不写启动标记，避免网页端访问一次就「伪装成一次启动」。
+pub fn recovery_report(ctx: &CoreContext) -> ApiResult<RecoveryReport> {
+    core(recovery::check_health(ctx))
 }
 
 pub fn app_info(ctx: &CoreContext) -> AppInfo {
