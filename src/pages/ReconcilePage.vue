@@ -1,58 +1,99 @@
 <script setup lang="ts">
 /**
- * 对账页（v0.27）：台账 CSV 与条目库比对。
+ * 对账页（v0.27）：项目台账 CSV 与条目库比对。
  *
- * B1 为静态原型；B4 接 `ledger_check` / `ledger_check_export` 与网页上传。
- * 本页是对账的唯一入口；工作台不再放「台账比对」行。
+ * 只读：`ledger_check` 产出六类差异，`ledger_check_export` 落盘差异表；
+ * 两边数据都不改。本页是对账的唯一入口，工作台不再放「台账比对」行。
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import FluentIcon from "../components/FluentIcon.vue";
-import { toast } from "../stores/toast";
+import type { CheckReport } from "../api/client";
+import { api } from "../api/client";
+import { toast, toastError } from "../stores/toast";
 
-interface Diff {
-  kind: string;
-  ref: string;
-  detail: string;
-  amount: string;
+const KIND_LABEL: Record<string, string> = {
+  missing_voucher: "缺凭证",
+  missing_ref: "编号缺失",
+  duplicate_ref: "编号重复",
+  amount_mismatch: "金额不符",
+  date_mismatch: "日期不符",
+  counterparty_mismatch: "对方不符",
+  orphan_voucher: "多余凭证",
+};
+
+const csvPath = ref("");
+const report = ref<CheckReport | null>(null);
+const checking = ref(false);
+const exporting = ref(false);
+const tolerance = ref("0");
+
+const fileName = computed(() => csvPath.value.split("/").pop() ?? "");
+
+function toleranceCents(): number {
+  const n = Number(tolerance.value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
 }
 
-const fileName = ref("");
-const compared = ref(true);
-
-const diffs: Diff[] = [
-  {
-    kind: "金额不一致",
-    ref: "L-2026-0912",
-    detail: "台账 ¥12,860.00 / 条目 ¥12,680.00",
-    amount: "−¥180.00",
-  },
-  {
-    kind: "条目缺失",
-    ref: "L-2026-0931",
-    detail: "台账有行，条目库没有对应记录",
-    amount: "¥8,400.00",
-  },
-  {
-    kind: "台账多余",
-    ref: "2026-11-17-03",
-    detail: "条目有金额，台账 CSV 没有这一行",
-    amount: "¥3,200.00",
-  },
-];
-
-function pick() {
-  fileName.value = "项目台账_2026-11.csv";
-  toast.info("CSV 选择将在 B4 接入");
+function fmtMoney(cents: number | null): string {
+  if (cents == null) return "—";
+  return `¥${(cents / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
-function run() {
-  compared.value = true;
-  toast.info("重新比对将在 B4 接入");
+async function pick() {
+  try {
+    const path = await api.pickLedgerCsv();
+    if (!path) return;
+    csvPath.value = path;
+    report.value = null;
+  } catch (e) {
+    toastError(e);
+  }
 }
 
-function exportDiff() {
-  toast.info("导出差异将在 B4 接入");
+async function run() {
+  if (!csvPath.value) return;
+  checking.value = true;
+  try {
+    report.value = await api.ledgerCheck(csvPath.value, toleranceCents());
+    const r = report.value;
+    if (r.issues.length) toast.info(`比对完成：${r.issues.length} 条差异。`);
+    else toast.success("两边完全对得上。");
+  } catch (e) {
+    toastError(e);
+  } finally {
+    checking.value = false;
+  }
 }
+
+async function exportDiff() {
+  if (!csvPath.value) return;
+  exporting.value = true;
+  try {
+    const path = await api.ledgerCheckExport(csvPath.value, toleranceCents());
+    await api.openPath(path);
+    toast.success("差异表已导出");
+  } catch (e) {
+    toastError(e);
+  } finally {
+    exporting.value = false;
+  }
+}
+
+const stats = computed(() => {
+  const r = report.value;
+  if (!r) return [];
+  return [
+    { label: "台账行", value: r.rows, tone: "" },
+    { label: "完全一致", value: r.matched, tone: "ok" },
+    { label: "缺凭证", value: r.missing, tone: r.missing ? "bad" : "" },
+    { label: "字段不符", value: r.mismatched, tone: r.mismatched ? "bad" : "" },
+    { label: "多余凭证", value: r.orphans, tone: r.orphans ? "bad" : "" },
+    { label: "编号异常", value: r.malformed, tone: r.malformed ? "bad" : "" },
+  ];
+});
 </script>
 
 <template>
@@ -63,86 +104,200 @@ function exportDiff() {
         <p class="page-sub">把项目台账 CSV 与条目库对齐，只列差异，不改任何一边的数据。</p>
       </div>
       <div class="page-actions">
-        <button class="btn" type="button" @click="pick">
+        <button class="btn" type="button" :disabled="checking" @click="pick">
           <FluentIcon name="folder" :size="14" />
-          <span>{{ fileName || "选择台账 CSV" }}</span>
+          <span class="rec-file">{{ fileName || "选择台账 CSV" }}</span>
         </button>
-        <button class="btn btn-primary" type="button" @click="run">
+        <button class="btn btn-primary" type="button" :disabled="checking || !csvPath" @click="run">
           <FluentIcon name="compare" :size="14" />
-          <span>重新比对</span>
+          <span>{{ checking ? "比对中…" : "重新比对" }}</span>
         </button>
       </div>
     </div>
 
-    <section v-if="compared" class="wb-kpis" aria-label="比对摘要">
-      <div class="wb-kpi">
-        <span class="wb-kpi-label">台账行</span>
-        <span class="wb-kpi-value">128</span>
-        <span class="wb-kpi-delta">2026-11 月</span>
-      </div>
-      <div class="wb-kpi">
-        <span class="wb-kpi-label">条目库</span>
-        <span class="wb-kpi-value">126</span>
-        <span class="wb-kpi-delta">含 2 条未挂台账</span>
-      </div>
-      <div class="wb-kpi">
-        <span class="wb-kpi-label">差异</span>
-        <span class="wb-kpi-value">3</span>
-        <span class="wb-kpi-delta">金额 / 缺失 / 多余</span>
-      </div>
-      <div class="wb-kpi">
-        <span class="wb-kpi-label">上次比对</span>
-        <span class="wb-kpi-value wb-kpi-value--text">今天 09:41</span>
-        <span class="wb-kpi-delta">{{ fileName || "项目台账_2026-11.csv" }}</span>
-      </div>
-    </section>
+    <div class="rec-bar">
+      <span class="rec-path" :title="csvPath">
+        {{ fileName || "还没选文件（台账导出脚本产出的收款 / 付款 / 计提清单）" }}
+      </span>
+      <label class="rec-tolerance">
+        容差
+        <input v-model="tolerance" class="input" inputmode="decimal" aria-label="金额容差（元）" />
+        元
+      </label>
+    </div>
 
-    <section v-if="compared" class="data-panel">
-      <div class="data-toolbar">
-        <div class="data-chips">
-          <span class="chip is-active">全部差异 3</span>
-          <span class="chip">金额 1</span>
-          <span class="chip">缺失 1</span>
-          <span class="chip">多余 1</span>
+    <template v-if="report">
+      <section class="rec-stats" aria-label="比对摘要">
+        <div v-for="s in stats" :key="s.label" class="rec-stat" :class="s.tone">
+          <span class="rec-stat-label">{{ s.label }}</span>
+          <strong class="rec-stat-value">{{ s.value }}</strong>
         </div>
-        <div class="data-actions">
-          <button class="btn" type="button" @click="exportDiff">
-            <FluentIcon name="download" :size="14" />
-            <span>导出差异</span>
-          </button>
+      </section>
+
+      <section class="data-panel">
+        <div class="data-toolbar">
+          <div class="data-chips">
+            <span class="chip is-active">差异 {{ report.issues.length }}</span>
+            <span class="chip">容差 {{ (report.toleranceCents / 100).toFixed(2) }} 元</span>
+            <span class="chip">{{ report.checkedAt.replace("T", " ").slice(0, 16) }}</span>
+          </div>
+          <div class="data-actions">
+            <button class="btn" type="button" :disabled="exporting" @click="exportDiff">
+              <FluentIcon name="download" :size="14" />
+              <span>{{ exporting ? "导出中…" : "导出差异" }}</span>
+            </button>
+          </div>
         </div>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th scope="col">差异类型</th>
-            <th scope="col">台账行 / 条目</th>
-            <th scope="col">说明</th>
-            <th class="data-amount" scope="col">差额</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="d in diffs" :key="d.ref" class="data-row">
-            <td>
-              <span class="data-status" data-status="draft">{{ d.kind }}</span>
-            </td>
-            <td class="data-no">{{ d.ref }}</td>
-            <td>{{ d.detail }}</td>
-            <td class="data-amount">{{ d.amount }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+        <div v-if="report.issues.length" class="rec-table-wrap">
+          <table class="data-table rec-table">
+            <thead>
+              <tr>
+                <th scope="col">差异类型</th>
+                <th scope="col">台账编号</th>
+                <th scope="col">凭证号</th>
+                <th scope="col">台账日期</th>
+                <th scope="col">凭证日期</th>
+                <th scope="col" class="data-amount">台账金额</th>
+                <th scope="col" class="data-amount">凭证金额</th>
+                <th scope="col">说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(i, idx) in report.issues" :key="idx" class="data-row">
+                <td>
+                  <span
+                    class="data-status"
+                    :data-status="i.kind === 'orphan_voucher' ? 'archived' : 'draft'"
+                  >
+                    {{ KIND_LABEL[i.kind] ?? i.kind }}
+                  </span>
+                </td>
+                <td class="rec-mono">{{ i.ledgerRef || "—" }}</td>
+                <td class="rec-mono">{{ i.voucherNo || "—" }}</td>
+                <td>{{ i.ledgerDate || "—" }}</td>
+                <td>{{ i.voucherDate || "—" }}</td>
+                <td class="data-amount">{{ fmtMoney(i.ledgerAmountCents) }}</td>
+                <td class="data-amount">{{ fmtMoney(i.voucherAmountCents) }}</td>
+                <td class="rec-message">{{ i.message }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="wb-empty rec-empty">
+          两边完全对得上：{{ report.rows }} 行台账记录都有对应条目，金额、日期、对方一致。
+        </p>
+      </section>
+    </template>
 
     <section v-else class="wb-card">
-      <p class="wb-empty">还没有比对。先选择一份台账 CSV，再点「重新比对」。</p>
+      <p class="wb-empty">
+        {{ checking ? "正在比对…" : "还没有比对。先选择一份台账 CSV，再点「重新比对」。" }}
+      </p>
     </section>
   </div>
 </template>
 
 <style scoped>
-.wb-kpi-value--text {
-  font-size: var(--fs-title);
-  font-weight: 600;
+.rec-file {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+.rec-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-tolerance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-caption);
+}
+
+.rec-tolerance .input {
+  width: 80px;
+}
+
+.rec-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+.rec-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--bg-card);
+}
+
+.rec-stat-label {
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+}
+
+.rec-stat-value {
+  font-family: var(--font-display);
+  font-size: var(--fs-metric);
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-stat.ok .rec-stat-value {
+  color: var(--success);
+}
+
+.rec-stat.bad .rec-stat-value {
+  color: var(--danger);
+}
+
+.rec-table-wrap {
+  overflow-x: auto;
+}
+
+.rec-mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-caption);
+}
+
+.rec-message {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-empty {
+  padding: var(--s-6);
+}
+
+@media (max-width: 767px) {
+  .rec-table-wrap {
+    overflow-x: auto;
+  }
+
+  .rec-table {
+    min-width: 720px;
+  }
 }
 </style>

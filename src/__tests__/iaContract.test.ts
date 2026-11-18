@@ -82,11 +82,11 @@ describe("主骨架：工作台 + 四页签", () => {
   });
 
   it("辅助功能走 URL 弹层，重复核查只在工作台", () => {
-    expect(modalHostSrc).toContain('case "duplicates"');
-    expect(modalHostSrc).toContain('case "settings"');
-    expect(modalHostSrc).toContain('case "backup"');
-    expect(modalHostSrc).toContain('case "export"');
-    expect(modalHostSrc).toContain('case "help"');
+    expect(modalHostSrc).toContain("DuplicatesDialog");
+    expect(modalHostSrc).toContain("SettingsDialog");
+    expect(modalHostSrc).toContain("BackupDialog");
+    expect(modalHostSrc).toContain("ExportDialog");
+    expect(modalHostSrc).toContain("HelpDialog");
     expect(workbenchSrc).toContain('modal: "duplicates"');
     expect(workbenchSrc).not.toContain('to: "/duplicates"');
     expect(workbenchSrc).not.toContain("/duplicates");
