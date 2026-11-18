@@ -1,6 +1,6 @@
 // 离线壳：只缓存「应用骨架」（index.html + 构建产物），业务数据一律走网络。
 // 这里刻意不做数据缓存——凭证与台账必须看到最新值，缓存的旧数据比白屏更危险。
-const CACHE = "vs-shell-v1";
+const CACHE = "vs-shell-v2";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

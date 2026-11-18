@@ -26,15 +26,6 @@ function templateText(rel: string): string {
   return m ? m[1] : "";
 }
 
-/** 样式块里 `selector { ... }` 的声明体（首个匹配，够用：本仓库未嵌套） */
-function cssBlock(css: string, selector: string): string {
-  const at = css.indexOf(`${selector} {`);
-  if (at < 0) return "";
-  const start = css.indexOf("{", at);
-  const end = css.indexOf("}", start);
-  return css.slice(start + 1, end);
-}
-
 const SETTINGS_FILES = [
   "pages/SettingsPage.vue",
   ...srcSourceFiles([".vue"]).filter((f) => f.startsWith("components/settings/")),
@@ -106,44 +97,5 @@ describe("加载三态有骨架（U4）", () => {
     expect(base).toMatch(/\.skeleton\s*\{/);
     expect(base).toMatch(/@keyframes skeleton-pulse/);
     expect(base).toMatch(/\.skeleton\s*\{\s*animation:\s*none/);
-  });
-
-  it("凭证列表与洞察面板首次加载显示骨架而不是一行「加载中…」", () => {
-    expect(templateText("pages/LibraryPage.vue")).toContain("sk-row");
-    const insights = templateText("pages/InsightsPage.vue");
-    expect(insights).toContain("<SkeletonLines");
-    expect(insights).not.toContain(">加载中…</p>");
-  });
-});
-
-describe("列表与细节一致性（U5）", () => {
-  it("列表行圆角走 --radius-control（行级，不是面板级 12px）", () => {
-    const css = styleText("pages/LibraryPage.vue");
-    const row = cssBlock(css, ".row");
-    expect(row).toContain("border-radius: var(--radius-control)");
-  });
-
-  it("列表缩略图用 contain（长截图不裁中段）", () => {
-    const css = styleText("pages/LibraryPage.vue");
-    expect(cssBlock(css, ".row-thumb img")).toContain("object-fit: contain");
-  });
-
-  it("筛选栏是吸顶玻璃浮条（Loon 风，2026-11-04 起不再用 border-bottom 硬切）", () => {
-    const bar = cssBlock(styleText("pages/LibraryPage.vue"), ".filter-bar");
-    expect(bar).toContain("position: sticky");
-    expect(bar).toContain("top: var(--s-3)");
-    expect(bar).toContain("background: var(--bg-card-strong)");
-    expect(bar).toContain("border-radius: var(--radius-card)");
-    expect(bar).toContain("box-shadow: var(--shadow-card)");
-    expect(bar).toContain("backdrop-filter: var(--blur-card)");
-    expect(bar).not.toContain("border-bottom");
-  });
-
-  it("A/B 对比标签两侧共用同一材质（底色 + 模糊只在基类）", () => {
-    const base = repoFile("src/styles/base.css");
-    const tag = cssBlock(base, ".att-card .att-compare-tag");
-    expect(tag).toContain("backdrop-filter: blur(4px)");
-    expect(cssBlock(base, ".att-card .att-compare-tag-left")).not.toContain("background");
-    expect(cssBlock(base, ".att-card .att-compare-tag-right")).not.toContain("background");
   });
 });

@@ -14,12 +14,12 @@ import { chromium } from "playwright";
 import { mkdir, copyFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { MOCK, SHOT_NOW, installTauriMock } from "./fixtures.mjs";
+import { MOCK, installTauriMock } from "./fixtures.mjs";
 import { ensureServer, DEFAULT_BASE_URL } from "./server.mjs";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const BASELINE_DIR = path.join(REPO_ROOT, "docs/验收基线/视觉基线");
-export const EVIDENCE_DIR = path.join(REPO_ROOT, "docs/验收基线/证据/2026-10-18-G3-v0.22.3");
+export const EVIDENCE_DIR = path.join(REPO_ROOT, "docs/验收基线/证据/2026-11-18-B5-v0.27");
 
 /** 截图视口与像素密度（验收要求：1440×900、DPR 2、深色、默认字号） */
 export const VIEWPORT = { width: 1440, height: 900 };
@@ -28,19 +28,22 @@ export const DEVICE_SCALE_FACTOR = 2;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForStableImages(page) {
-  await page.evaluate(async () => {
-    const pending = Array.from(document.images).filter((img) => !img.complete);
-    await Promise.all(
-      pending.map(
-        (img) =>
-          new Promise((resolve) => {
-            img.addEventListener("load", resolve, { once: true });
-            img.addEventListener("error", resolve, { once: true });
-          }),
-      ),
-    );
-    if (document.fonts?.ready) await document.fonts.ready;
-  });
+  await Promise.race([
+    page.evaluate(async () => {
+      const pending = Array.from(document.images).filter((img) => !img.complete);
+      await Promise.all(
+        pending.map(
+          (img) =>
+            new Promise((resolve) => {
+              img.addEventListener("load", resolve, { once: true });
+              img.addEventListener("error", resolve, { once: true });
+            }),
+        ),
+      );
+      if (document.fonts?.ready) await document.fonts.ready;
+    }),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
 }
 
 /** 截图前抹掉两类不确定性：动画/过渡未收敛、输入框光标闪烁。 */
@@ -63,68 +66,64 @@ async function prepareForShot(page) {
  */
 const SHOTS = [
   {
-    name: "vouchers-list",
-    hash: "#/vouchers",
-    label: "资料库 · 列表 + 右栏编辑器",
+    name: "workbench",
+    hash: "#/workbench",
+    label: "工作台 · KPI / 趋势 / 待办",
     ready: async (page) => {
-      await page.waitForSelector(".rows .row[data-row-id]");
-      await page.waitForSelector(".inspector .ins-head");
-      await page.waitForFunction(() => document.body.innerText.includes("凭证字段"));
+      await page.waitForSelector(".wb-kpis .wb-kpi");
+      await page.waitForSelector(".wb-grid .wb-card");
     },
   },
   {
-    name: "vouchers-editor",
-    hash: "#/vouchers",
-    label: "资料库 · 选中草稿凭证（编辑器态）",
+    name: "data",
+    hash: "#/data",
+    label: "数据 · 视图 chips + 表格",
+    ready: async (page) => {
+      await page.waitForSelector(".data-table .data-row");
+      await page.waitForSelector(".data-chips .chip");
+    },
+  },
+  {
+    name: "data-expanded",
+    hash: "#/data",
+    label: "数据 · 行内展开编辑",
     prepare: async (page) => {
-      await page.waitForSelector(".rows .row[data-row-id]");
-      // 105 = 设计外包尾款（草稿状态），比默认第一张更能体现字段区与“未保存”语义
-      await page.locator('.rows .row[data-row-id="105"]').click();
-      await page.waitForFunction(() =>
-        document.querySelector(".ins-head .mono")?.textContent?.includes("2026-10-11-01"),
-      );
-      await page.waitForFunction(() => document.body.innerText.includes("凭证字段"));
+      await page.locator(".data-table .data-row").first().click({ force: true });
+      await page.waitForSelector(".data-expand");
+      await page.waitForTimeout(1500);
     },
   },
   {
-    name: "insights",
-    hash: "#/insights",
-    label: "洞察 · 时间窗 / 覆盖度 / 存储 / 月度透视",
+    name: "reconcile",
+    hash: "#/reconcile",
+    label: "对账 · 台账比对",
     ready: async (page) => {
-      await page.waitForSelector(".insights");
-      await page.waitForSelector(".ledgers .panel");
-      await page.waitForFunction(() => document.body.innerText.includes("导出覆盖度"));
-      await page.waitForFunction(() => document.querySelectorAll(".bd-month").length > 0);
+      await page.waitForSelector(".page-head");
+      await page.waitForSelector(".page-head");
     },
   },
   {
-    name: "print-center",
-    hash: "#/print",
-    label: "打印中心 · 选中 4 张 + PDF 附录预览",
-    prepare: async (page) => {
-      await page.waitForSelector(".pick-rows .pick-row");
-      const rows = page.locator(".pick-rows .pick-row");
-      const n = Math.min(4, await rows.count());
-      for (let i = 0; i < n; i++) await rows.nth(i).click();
-      await page.waitForFunction(() => document.body.innerText.includes("已选 4 张"));
-      await page.waitForSelector(".appendix-grid img");
-    },
-  },
-  {
-    name: "settings",
-    hash: "#/settings",
-    label: "设置 · 通用（默认 tab）",
+    name: "accounting",
+    hash: "#/accounting",
+    label: "会计投影 · 期间/分录/映射",
     ready: async (page) => {
-      await page.waitForSelector(".settings-actions");
-      await page.waitForFunction(() => document.body.innerText.includes("保存设置"));
+      await page.waitForSelector(".page-head");
     },
   },
   {
-    name: "help",
-    hash: "#/help",
-    label: "帮助 · 三步上手 / 界面在哪 / 快捷键 / 常见问题",
+    name: "modal-settings",
+    hash: "#/data?modal=settings",
+    label: "弹层 · 设置",
     ready: async (page) => {
-      await page.waitForFunction(() => document.body.innerText.includes("三步上手"));
+      await page.waitForSelector(".modal-card .settings-actions, .modal-card .settings-body");
+    },
+  },
+  {
+    name: "modal-export",
+    hash: "#/data?modal=export",
+    label: "弹层 · 打印与导出",
+    ready: async (page) => {
+      await page.waitForSelector(".modal-card .pick-row");
     },
   },
 ];
@@ -157,8 +156,6 @@ export async function captureAll(opts = {}) {
   const shots = [];
   try {
     const page = await context.newPage();
-    // 冻结“现在”到验收日，保证洞察时间窗等文案与基线可复现
-    await page.clock.install({ time: new Date(SHOT_NOW) });
     page.on("pageerror", (err) => console.error(`  [pageerror] ${err.message}`));
     page.on("console", (msg) => {
       if (msg.type() === "error") console.error(`  [console] ${msg.text()}`);
@@ -169,7 +166,7 @@ export async function captureAll(opts = {}) {
       if (!quiet) console.log(`→ ${shot.label}  ${url}`);
       await page.goto(url, { waitUntil: "domcontentloaded" });
       // 让 App.vue 的 config/recovery/事件注册与各页 onMounted 的 invoke 全部落地
-      await page.waitForFunction(() => document.body.innerText.includes("数据本地存储"));
+      await page.waitForSelector(".topbar");
       if (shot.ready) await shot.ready(page);
       if (shot.prepare) await shot.prepare(page);
       await prepareForShot(page);
