@@ -221,7 +221,7 @@ EXPECTED_GUARDS=(
   "src/__tests__/drilldownContract.test.ts:下钻参数必须被列表读取"
   "src/__tests__/controlSizeContract.test.ts:控件尺寸统一走令牌"
   "src/__tests__/iaContract.test.ts:信息架构与拖动区"
-  "src/__tests__/duplicateReviewContract.test.ts:重复核查三处登记"
+  "src/pages/__tests__/dataPageContract.test.ts:数据页真实化与新建条目"
   "src/__tests__/registrationContract.test.ts:全量路由登记（router↔侧栏↔面板）"
   "scripts/guards.sh:两道 grep 门禁的单一真源（layering/platform/--selftest）"
 )
