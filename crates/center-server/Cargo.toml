@@ -1,0 +1,32 @@
+[package]
+name = "center-server"
+description = "Center 网页版服务端：把 voucher-core 跑成单用户 HTTP 服务（Tailscale 内网访问）"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "center-server"
+path = "src/main.rs"
+
+# 说明（2026-11-18）：本机沙箱禁止往 ~/.cargo/registry/src 解包新 crate，
+# 因此这里**只用已经解包好的依赖**。HTTP 层直接用 hyper 1.x（axum 未缓存），
+# 密码哈希用 pbkdf2（argon2 未缓存），日志用自带 stderr logger（env_logger 未缓存）。
+# 这样做的代价是路由要手写（见 http.rs），换来的是「离线可编译」。
+[dependencies]
+voucher-core = { path = "../voucher-core" }
+voucher-api = { path = "../voucher-api" }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["server", "http1", "tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "fs", "io-util", "time"] }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+log.workspace = true
+sha2 = "0.10"
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+rand = "0.8"

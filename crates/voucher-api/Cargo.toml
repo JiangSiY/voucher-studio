@@ -1,0 +1,12 @@
+[package]
+name = "voucher-api"
+description = "Center 命令层：桌面版 Tauri 命令的运行时无关实现，供 center-server 复用"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+voucher-core = { path = "../voucher-core" }
+serde.workspace = true
+serde_json.workspace = true
