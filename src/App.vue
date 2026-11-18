@@ -208,7 +208,7 @@ onMounted(async () => {
     if (s.failed.length) parts.push(`失败 ${s.failed.length} 张`);
     const goReview = () => {
       if (s.vouchers.length)
-        router.push({ path: "/vouchers", query: { focus: String(s.vouchers[0].voucherId) } });
+        router.push({ path: "/data", query: { focus: String(s.vouchers[0].voucherId) } });
     };
     if (importTaskId !== null) {
       taskStore.finish(importTaskId, {

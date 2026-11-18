@@ -1,62 +1,49 @@
 // @vitest-environment node
 /**
- * 帮助页的两条底线（2026-10-16 界面细节审查）：
- *
- * 1. **只列已实装的快捷键**。规范 §2.3 的两个规划项（⌥←/→ 上一张/下一张、⌘⇧Enter 复核通过并下一张）
- *    均已于 2026-10-16 实装，故反过来断言「必须有」——之前它们缺实装时，帮助页写了按下去没反应，比不写更伤。
- * 2. **入口名与侧栏一致**（旧称「凭证列表」「打印中心」已随 v0.16–v0.20 改名），
- *    且平台说明不再出现 Windows 残留（自 v0.17.0 起仅 macOS）。
+ * 帮助弹层底线（v0.27）：只列已实装快捷键；页签名与四页签一致；不再提侧栏。
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { flat } from "../../__tests__/helpers/designGuard";
 
-const page = readFileSync(new URL("../HelpPage.vue", import.meta.url), "utf8");
-const layout = readFileSync(new URL("../../layouts/WorkbenchLayout.vue", import.meta.url), "utf8");
+const dialog = readFileSync(
+  new URL("../../components/dialogs/HelpDialog.vue", import.meta.url),
+  "utf8",
+);
+const topBar = readFileSync(new URL("../../components/shell/TopBar.vue", import.meta.url), "utf8");
 
-/** 只看 `shortcuts` 数组本体：脚本里的说明性注释允许提到未实装项 */
-const shortcutList = page.slice(
-  page.indexOf("const shortcuts"),
-  page.indexOf("];", page.indexOf("const shortcuts")),
+const shortcutList = dialog.slice(
+  dialog.indexOf("const shortcuts"),
+  dialog.indexOf("];", dialog.indexOf("const shortcuts")),
 );
 
-describe("帮助页：快捷键只列已实装", () => {
+describe("帮助弹层：快捷键只列已实装", () => {
   it("列出实际存在的快捷键", () => {
     for (const keys of ["⌘K", "⌘S", "⌘Enter", "⌘⇧E", "Esc"]) {
       expect(shortcutList).toContain(keys);
     }
   });
 
-  it("⌥←/→ 已实装故必须列出（2026-10-16 实装）", () => {
+  it("⌥←/→ 与 ⌘⇧Enter 已实装故必须列出", () => {
     expect(shortcutList).toContain("⌥← ⌥→");
-  });
-
-  it("⌘⇧Enter 已于 2026-10-16 实装，故必须列出", () => {
     expect(shortcutList).toContain("⌘⇧Enter");
   });
 });
 
-describe("帮助页：入口名与侧栏一致", () => {
-  it("用当前入口名，不用旧称", () => {
-    for (const name of ["全部凭证", "打印与导出", "备份与恢复", "重复核查", "导出历史"]) {
-      expect(page).toContain(name);
+describe("帮助弹层：与四页签一致", () => {
+  it("四个页签都能在帮助里找到说明", () => {
+    for (const name of ["工作台", "数据", "对账", "会计投影"]) {
+      expect(dialog).toContain(name);
+      expect(topBar).toContain(name);
     }
-    expect(page).not.toContain("凭证列表");
-    expect(page).not.toContain("打印中心");
+    expect(dialog).not.toContain("凭证列表");
+    expect(dialog).not.toContain("打印中心");
   });
 
-  it("入口清单与侧栏文案同源（每个 label 都能在帮助页找到）", () => {
-    const labels = [...layout.matchAll(/label:\s*"([^"]+)"/g)].map((m) => m[1]);
-    expect(labels.length).toBeGreaterThan(0);
-    for (const label of labels) {
-      expect(page, `帮助页缺少入口「${label}」的说明`).toContain(label);
-    }
-  });
-
-  it("平台说明为 macOS（无 Windows 残留），并记录侧栏收起与搜索上限", () => {
-    expect(page).not.toContain("Windows 凭据管理器");
-    expect(flat(page)).toContain("macOS 钥匙串");
-    expect(flat(page)).toContain("收起侧边栏");
-    expect(flat(page)).toContain("100 条");
+  it("平台说明为 macOS，保留搜索上限，且不再提侧栏", () => {
+    expect(dialog).not.toContain("Windows 凭据管理器");
+    expect(flat(dialog)).toContain("macOS 钥匙串");
+    expect(flat(dialog)).toContain("100 条");
+    expect(dialog).not.toContain("收起侧边栏");
   });
 });

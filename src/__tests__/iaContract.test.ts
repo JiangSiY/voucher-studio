@@ -1,160 +1,142 @@
 // @vitest-environment node
 /**
- * 信息架构守卫（v0.18 收件箱驱动重构）。
+ * 信息架构守卫（v0.27 工作台重构）。
  *
- * 背景：用户要求的是**结构重做**（"不是在旧布局上增删改"）——主骨架从
- * 「仪表盘 / 凭证管理 / 数据与设置」三组 + 以统计为中心，改为
- * 「收件箱 / 资料库 / 设置」三组 + 以**流程**为中心（收件箱即首页）。
- *
- * 这类改动最容易在后续迭代里被悄悄改回去（比如有人把仪表盘加回导航），
- * 故把不变量固化成断言：首页是收件箱、侧栏是一列**扁平入口**（2026-10-16 用户要求去掉分组标题，
- * 开合语义改由"整栏收起"承担）、命令面板入口与侧栏一致、旧的 /dashboard 只保留重定向。
+ * 不变量：
+ * - 首页是工作台，四个固定页签（工作台/数据/对账/会计投影）；
+ * - 无侧栏、无每页标题栏、无系统窗口拖拽区（网页端为唯一基准）；
+ * - 辅助功能走 URL 弹层；重复核查只在工作台；
+ * - 数据页是全站唯一的新建/导入/打印导出入口；
+ * - 旧路由全部重定向，书签不断。
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { flat } from "./helpers/designGuard";
 import { repoFile } from "./helpers/designGuard";
 
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const routerSrc = repoFile("src/router/index.ts");
-const layoutSrc = repoFile("src/layouts/WorkbenchLayout.vue");
+const shellSrc = repoFile("src/layouts/AppShell.vue");
+const topBarSrc = repoFile("src/components/shell/TopBar.vue");
+const modalHostSrc = repoFile("src/components/shell/ModalHost.vue");
+const workbenchSrc = repoFile("src/pages/WorkbenchPage.vue");
+const dataSrc = repoFile("src/pages/DataPage.vue");
 const paletteSrc = repoFile("src/components/CommandPalette.vue");
 const appSrc = repoFile("src/App.vue");
+const baseCss = repoFile("src/styles/base.css");
+const tokenCss = repoFile("src/styles/tokens.css");
 
-describe("主骨架：收件箱驱动", () => {
-  it("首页是收件箱；/dashboard 只作重定向保留（旧链接不 404，但页面已不存在）", () => {
-    expect(routerSrc).toMatch(/\{\s*path:\s*"",\s*redirect:\s*"\/inbox"\s*\}/);
+describe("主骨架：工作台 + 四页签", () => {
+  it("首页是工作台，旧 /inbox、/dashboard 只作重定向", () => {
+    expect(routerSrc).toMatch(/\{\s*path:\s*"",\s*redirect:\s*"\/workbench"\s*\}/);
+    expect(routerSrc).toMatch(/path:\s*"workbench",\s*name:\s*"workbench"/);
+    expect(routerSrc).toMatch(/\{\s*path:\s*"inbox",\s*redirect:\s*"\/workbench"\s*\}/);
+    expect(routerSrc).toMatch(/\{\s*path:\s*"dashboard",\s*redirect:\s*"\/workbench"\s*\}/);
+    expect(routerSrc).toMatch(/\{\s*path:\s*"ledger",\s*redirect:\s*"\/reconcile"\s*\}/);
+    expect(routerSrc).toMatch(/\{\s*path:\s*"vouchers",\s*redirect:\s*"\/data"\s*\}/);
     expect(routerSrc).toMatch(
-      /path:\s*"inbox",\s*name:\s*"inbox",\s*component:\s*\(\)\s*=>\s*import\("\.\.\/pages\/InboxPage\.vue"\)/,
+      /\{\s*path:\s*"settings",\s*redirect:\s*"\/workbench\?modal=settings"\s*\}/,
     );
-    expect(routerSrc).toMatch(/\{\s*path:\s*"dashboard",\s*redirect:\s*"\/inbox"\s*\}/);
-    // 旧仪表盘页面文件必须已删除（不留无人引用的死页面）
-    const root = fileURLToPath(new URL("../../", import.meta.url));
-    expect(existsSync(`${root}src/pages/DashboardPage.vue`)).toBe(false);
-  });
-
-  it("侧栏为扁平一列：分组标题已删除，十一个入口按流程顺序排列", () => {
-    // 曾经的「收件箱 / 资料库 / 设置」三组标题按钮按用户要求删除（2026-10-16），别再加回来
-    expect(layoutSrc).not.toMatch(/group:\s*"/);
-    const routes = [...layoutSrc.matchAll(/to:\s*"(\/[^"]*)"/g)].map((m) => m[1]);
-    expect(routes).toEqual([
-      "/inbox",
-      "/vouchers",
-      "/ledger",
-      "/accounting",
-      "/duplicates",
-      "/insights",
-      "/print",
-      "/exports",
-      "/settings",
-      "/restore",
-      "/help",
-    ]);
-  });
-
-  it("整栏收起：侧栏底部的整行开关 + 根属性 data-sidebar-collapsed（与主题/宽度同一通道）", () => {
-    expect(layoutSrc).toMatch(/class="sidebar-toggle"/);
-    expect(layoutSrc).toMatch(/aria-controls="app-sidebar"/);
-    expect(layoutSrc).toMatch(/:aria-expanded="!sidebarCollapsed"/);
-    // 开关图标必须是面板形（语义化）：真机走查里 chevron 版被读成"返回"（用户 2026-10-16 实报），别改回去
-    expect(layoutSrc).toMatch(/<FluentIcon name="sidebar"/);
-    expect(layoutSrc).not.toMatch(/chevron(Left|Right)/);
-    const icons = repoFile("src/components/FluentIcon.vue");
-    expect(icons).toContain("sidebar:");
-    // 位置契约（用户 2026-10-16 明确要求）：在导航之后、版本行**上方**那一行；不再放工具栏
-    expect(layoutSrc).toMatch(/<\/nav>[\s\S]*class="sidebar-toggle"[\s\S]*class="sidebar-footer"/);
-    expect(layoutSrc).not.toMatch(/toolbar-btn sidebar-toggle/);
-    // 观感是纯 CSS：收起后隐藏文字，条目标签留在 DOM 里
-    const collapse = repoFile("src/composables/sidebarCollapse.ts");
-    expect(collapse).toContain("dataset.sidebarCollapsed");
-    const css = repoFile("src/styles/base.css");
-    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar');
-    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar-nav .nav-label');
-    expect(css).toContain(".sidebar-toggle {");
-    expect(css).toContain(':root[data-sidebar-collapsed="true"] .sidebar-toggle .nav-label');
-  });
-
-  it("侧栏入口与「待处理」徽标同源（inbox store），重复核查徽标沿用 dup store", () => {
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/inbox"[^}]*badge:\s*inboxStore\.pendingCount/);
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/duplicates"[^}]*badge:\s*dupStore\.pending\.groups/);
-    expect(layoutSrc).toContain("useInboxStore");
-  });
-
-  it("徽标是压在图标上的角标（用户 2026-10-16：不占行宽，好把侧栏收窄）", () => {
-    // 角标必须在 .nav-icon 内（行尾文字位已取消），且 CSS 用绝对定位
-    expect(layoutSrc).toMatch(/<span class="nav-icon">[\s\S]{0,220}class="nav-badge"/);
-    expect(layoutSrc).not.toMatch(/<\/span>\s*<span v-if="item\.badge > 0" class="nav-badge"/);
-    const css = repoFile("src/styles/base.css");
-    expect(css).toMatch(/\.sidebar-nav \.nav-icon \{[\s\S]{0,80}position: relative/);
-    expect(css).toMatch(/\.sidebar-nav \.nav-badge \{[\s\S]{0,120}position: absolute/);
-    expect(css).toMatch(/\.sidebar-nav \.nav-badge \{[\s\S]{0,400}pointer-events: none/);
-    // 三位数会糊：模板要有 99+ 截断
-    expect(layoutSrc).toContain('n > 99 ? "99+"');
-    // 无障碍：有角标时给出数字本身，而不是让读屏只念"待处理"
-    expect(flat(layoutSrc)).toMatch(/:aria-label="\s*item\.badge > 0 \?/);
-  });
-
-  it("左上角图标（VS 徽标 + 字标）已去掉：侧栏顶部只留可拖留白", () => {
-    expect(layoutSrc).not.toContain("sidebar-logo");
-    expect(layoutSrc).not.toContain("Voucher Studio");
-    expect(layoutSrc).toContain('class="sidebar-header" data-tauri-drag-region="deep"');
-    const css = repoFile("src/styles/base.css");
-    expect(css).not.toMatch(/^\.sidebar-logo/m);
-    expect(css).toMatch(
-      /\.sidebar-header \{[\s\S]{0,400}padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/,
+    expect(routerSrc).toMatch(
+      /\{\s*path:\s*"restore",\s*redirect:\s*"\/workbench\?modal=backup"\s*\}/,
     );
+    expect(routerSrc).toMatch(/path:\s*"vouchers\/:id"/);
+    expect(routerSrc).not.toMatch(
+      /component:\s*\(\)\s*=>\s*import\("\.\.\/pages\/InboxPage\.vue"\)/,
+    );
+    expect(routerSrc).not.toMatch(/DuplicateReviewPage\.vue/);
   });
 
-  it("窗口拖动区用 deep（bare 只在直点元素本身时生效，点标题会拖不动）", () => {
-    // 依据：tauri/src/window/scripts/drag.js —— 无值只认 composedPath[0]，"deep" 才认整棵子树
-    const dragRegions = [...layoutSrc.matchAll(/data-tauri-drag-region(="([^"]*)")?/g)];
-    expect(dragRegions.length, "至少要有工具栏这一处拖动区").toBeGreaterThan(0);
-    for (const m of dragRegions) {
-      expect(m[2], "拖动区必须写 deep（写无值/true 会因点在子元素上而失效）").toBe("deep");
+  it("旧的侧栏/标题栏/移动 tabbar 已删除（不留可回退的第二套壳）", () => {
+    for (const p of [
+      "src/layouts/WorkbenchLayout.vue",
+      "src/components/layout/SidebarResizeHandle.vue",
+      "src/composables/sidebarCollapse.ts",
+      "src/composables/useSidebarResize.ts",
+    ]) {
+      expect(existsSync(`${root}${p}`), `${p} 应已删除`).toBe(false);
     }
-    // 工具栏与侧栏顶部都应可拖（macOS 惯例：交通灯那条也能拖）
-    expect(layoutSrc).toMatch(/class="unified-toolbar" data-tauri-drag-region="deep"/);
-    expect(layoutSrc).toMatch(/class="sidebar-header" data-tauri-drag-region="deep"/);
+    expect(shellSrc).not.toContain("sidebar");
+    expect(shellSrc).not.toContain("unified-toolbar");
+    expect(shellSrc).not.toContain("mobile-tabbar");
+    expect(shellSrc).toContain('id="main-content"');
+    expect(shellSrc).toContain("<TopBar");
+    expect(shellSrc).toContain("<ModalHost");
   });
 
-  it("工具栏不再放命令面板按钮（用户 2026-10-16：「基本没用过，没有价值」）", () => {
-    // 工具栏只剩标题；按钮去掉后 ⌘K 快捷键与命令面板本身必须仍在
-    expect(layoutSrc).not.toContain("toolbar-actions");
-    expect(layoutSrc).not.toContain("toolbar-btn");
-    expect(layoutSrc).not.toContain("命令面板（⌘K）");
-    expect(appSrc).toContain("togglePalette");
-    // 对应样式随之删除（留着就是死代码）
-    expect(repoFile("src/styles/base.css")).not.toMatch(
-      /\.unified-toolbar \.toolbar-(btn|actions|hint)\b/,
+  it("页签固定四项、靠左；备份在设置左侧；无窗口拖拽区", () => {
+    for (const to of ["/workbench", "/data", "/reconcile", "/accounting"]) {
+      expect(topBarSrc).toContain(`to: "${to}"`);
+    }
+    const order = ["/workbench", "/data", "/reconcile", "/accounting"].map((x) =>
+      topBarSrc.indexOf(`to: "${x}"`),
     );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(topBarSrc.indexOf("open('backup')")).toBeGreaterThan(0);
+    expect(topBarSrc.indexOf("open('backup')")).toBeLessThan(topBarSrc.indexOf("open('settings')"));
+    expect(topBarSrc).not.toContain("data-tauri-drag-region");
+    expect(shellSrc).not.toContain("data-tauri-drag-region");
+    // 不以“标题栏 + 页面标题”双层骨架出现
+    expect(topBarSrc).not.toContain("toolbar-title");
+    expect(topBarSrc).not.toContain("toolbar-subtitle");
   });
 
-  it("侧栏顶部让开交通灯带：上留白随 --toolbar-h 走（用户 2026-10-16 反馈「上方不协调」）", () => {
-    const css = repoFile("src/styles/base.css");
-    // 侧栏顶部只留留白：必须让开红绿灯（y≈18–30），不能只给 20px
-    expect(css).toMatch(
-      /\.sidebar-header \{[\s\S]{0,400}?padding-top: calc\(var\(--toolbar-h\) - var\(--s-2\)\)/,
-    );
+  it("辅助功能走 URL 弹层，重复核查只在工作台", () => {
+    expect(modalHostSrc).toContain('case "duplicates"');
+    expect(modalHostSrc).toContain('case "settings"');
+    expect(modalHostSrc).toContain('case "backup"');
+    expect(modalHostSrc).toContain('case "export"');
+    expect(modalHostSrc).toContain('case "help"');
+    expect(workbenchSrc).toContain('modal: "duplicates"');
+    expect(workbenchSrc).not.toContain('to: "/duplicates"');
+    expect(workbenchSrc).not.toContain("/duplicates");
   });
 
-  it("命令面板与侧栏一致：收件箱/凭证/打印的入口都在，且没有残留的「仪表盘」入口", () => {
-    expect(paletteSrc).toMatch(/router\.push\("\/inbox"\)/);
-    expect(paletteSrc).toContain("全部凭证");
-    expect(paletteSrc).toContain("打印与导出");
+  it("工作台不设新建/导入/台账比对入口；数据页是唯一新建/导入/导出入口", () => {
+    expect(workbenchSrc).not.toContain("新建条目");
+    expect(workbenchSrc).not.toContain("台账比对");
+    expect(workbenchSrc).not.toMatch(/<button[^>]*>[^<]*导入/);
+    expect(dataSrc).toContain("新建条目");
+    expect(dataSrc).toContain("打印导出");
+    expect(dataSrc).toContain("open('export')");
+    expect(dataSrc).toContain("later('导入凭证')");
+  });
+
+  it("命令面板只登记四页 + 新建 + 记录搜索，无旧词与旧路由", () => {
+    expect(paletteSrc).toMatch(/router\.push\("\/workbench"\)/);
+    expect(paletteSrc).toMatch(/router\.push\("\/data"\)/);
+    expect(paletteSrc).toMatch(/router\.push\("\/reconcile"\)/);
+    expect(paletteSrc).toMatch(/router\.push\("\/accounting"\)/);
     expect(paletteSrc).not.toContain("仪表盘");
+    expect(paletteSrc).not.toContain("/inbox");
+    expect(paletteSrc).not.toContain("/duplicates");
+    expect(paletteSrc).not.toContain("/print");
   });
 
-  it("资料库组的「洞察」三处登记一致（趋势/排行/对账有了归属页）", () => {
-    expect(routerSrc).toMatch(/path:\s*"insights",\s*name:\s*"insights"/);
-    expect(layoutSrc).toMatch(/\{\s*to:\s*"\/insights"[^}]*label:\s*"洞察"/);
-    expect(paletteSrc).toMatch(/router\.push\("\/insights"\)/);
+  it("App.vue 保留 ⌘K 与全局任务中心；旧页面组件不再被路由懒加载", () => {
+    expect(appSrc).toContain("togglePalette");
+    expect(appSrc).toContain("TaskCenter");
+    for (const page of [
+      "InboxPage",
+      "LibraryPage",
+      "InsightsPage",
+      "VoucherFormPage",
+      "PrintCenterPage",
+      "ExportHistoryPage",
+      "SettingsPage",
+      "RestorePage",
+      "HelpPage",
+      "DuplicateReviewPage",
+      "LedgerPage",
+    ]) {
+      expect(routerSrc).not.toContain(page);
+    }
   });
 
-  it("收件箱页消费的数据源是待办聚合（不是旧的全量扫描）", () => {
-    const inbox = repoFile("src/pages/InboxPage.vue");
-    expect(inbox).toContain("useInboxStore");
-    expect(inbox).toContain("api.voucherStats");
-    expect(inbox).not.toContain("api.scanDuplicates");
-    expect(inbox).not.toContain("api.scanDuplicateReview");
+  it("新壳层样式存在，且以网页端为基准（顶栏 52px、页签、内容区）", () => {
+    expect(baseCss).toMatch(/^\.topbar\s*\{/m);
+    expect(baseCss).toMatch(/^\.tabstrip\s*\{/m);
+    expect(baseCss).toMatch(/^\.content\s*\{/m);
+    expect(tokenCss).toMatch(/--topbar-h:\s*52px/);
   });
 });

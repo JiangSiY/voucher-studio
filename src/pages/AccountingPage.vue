@@ -360,10 +360,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page {
-  padding: 24px 32px 48px;
-  max-width: 1180px;
-}
 .page-head {
   display: flex;
   align-items: center;

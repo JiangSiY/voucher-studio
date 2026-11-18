@@ -179,6 +179,7 @@ describe("排版与视觉语言契约（U1/U2 收编）", () => {
     expect(css).toMatch(/--fs-title:\s*calc\(17px \* var\(--font-scale\)\)/);
     expect(css).toMatch(/--fs-body:\s*calc\(15px \* var\(--font-scale\)\)/);
     expect(css).toMatch(/--fs-caption:\s*calc\(13px \* var\(--font-scale\)\)/);
-    expect(css).toMatch(/--fs-display:\s*calc\(20px \* var\(--font-scale\)\)/);
+    expect(css).toMatch(/--fs-display:\s*calc\(26px \* var\(--font-scale\)\)/);
+    expect(css).toMatch(/--fs-input:\s*calc\(16px \* var\(--font-scale\)\)/);
   });
 });

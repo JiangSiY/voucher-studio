@@ -1,149 +1,144 @@
 /**
- * 设计令牌（v0.18 起为 macOS 27 语义层；2026-11-04 起转为 **Loon 玻璃卡片层**）
+ * 设计令牌（v0.27 起为「工作台」暖色语义层）
  *
- * 正本：`docs/UI-设计规范-Loon.md`；历史正本 `docs/UI-设计规范-macOS27.md` 保留 v0.18–v0.23 记录。
+ * 正本：`docs/UI-设计规范-工作台.md`。历史正本 `UI-设计规范-Loon.md` 与
+ * `UI-设计规范-macOS27.md` 保留为演进记录，不再作为实现依据。
+ *
  * 要点：
- * - 新语义令牌（`--bg-*` / `--label-*` / `--separator*` / `--radius-*` / `--control-h-*` /
- *   `--type-*` / `--motion-*`）是**唯一真源**；
- * - 旧 Fluent 令牌（`--surface*` / `--text*` / `--stroke*` / `--r-*` / `--shadow-*` /
- *   `--mica-tint`）**全部保留为别名**，指向新令牌——既有 300+ 处引用与
- *   `tokenContract.test.ts` 的 5 个锚点名（`--surface`/`--text`/`--stroke`/`--accent`/
- *   `--sidebar-w`）因此不需要一次性改动（引用迁移（批次 6）已于 2026-10-18 的 U1 收编完成）。
- * - 浅色为默认；深色由 `html[data-theme="dark"]` 提供，并在文件末尾用一条
- *   `@media (prefers-color-scheme: dark)` 给**首帧兜底**（主题属性由 JS 写入，
- *   写入前的极短窗口内需要跟随系统；CSP 是 `default-src 'self'`，**不能用内联脚本**）。
- * 主题切换：`html[data-theme="light" | "dark"]`。
+ * - 这是**唯一真源**：组件不写 hex、不写字号字面量，颜色/圆角/间距/动效一律走令牌。
+ * - 旧名（`--surface*` / `--text*` / `--stroke*` / `--r-*` / `--shadow-*` / `--mica-tint`）
+ *   保留为单向别名，避免一次性改动几百处引用；新代码只用语义令牌。
+ * - 浅色为默认；深色由 `html[data-theme="dark"]` 提供，文件末尾用
+ *   `@media (prefers-color-scheme: dark)` 给首帧兜底（CSP 禁内联脚本）。
+ * - 侧栏已从信息架构中移除；`--sidebar-w` / `--toolbar-h` / `--tabbar-h` 仅作为
+ *   过渡别名保留，B5 清场时删除，新代码不得引用。
  */
 
 :root,
 html[data-theme="light"] {
-  /* ===== 新语义层：表面 ===== */
-  --bg-window: #f5f6f8;
-  /* 画布：Loon 式的鼠尾草绿灰渐变；两处径向高光负责"窗口后方有光"。
-     `--canvas-solid` 是 reduced-transparency 与不支持 backdrop-filter 时的回退底色。
-     （原 macOS 27 为纯色 #ececec，自 2026-11-04 Loon 化起改为渐变。） */
-  --canvas-solid: #f5f6f8;
-  /* 2026-11-18 UI 重设计：**退役渐变画布**，改为纯色中性底（现代 Web 简洁风）。
-     保留令牌名是为了不动 `.app-shell` 与其余消费方；取值恒等于实色。 */
-  --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
-  /* 侧栏/工具栏：叠在**原生材质**上的着色。浅色保留低 alpha（用户明确要"看得到玻璃"），
-     但带绿调才能和画布成一体；alpha 上限受 `a11yContract.test.ts:55` 约束（浅色 ≤0.35）。
-     `prefers-reduced-transparency: reduce` 时改实色（见文件末尾媒体查询）。 */
-  --bg-sidebar: rgba(238, 241, 245, 0.32);
-  --bg-sidebar-solid: #f7f8fa;
-  /* 内容区实色：只留给对话框、吸顶表头、打印纸张等**必须不透明**的载体；
-     内容卡片改用 `--bg-card*`，主画布不再消费它。 */
-  --bg-content: #ffffff;
-  --bg-control: #ffffff;
-  --bg-popover: rgba(255, 255, 255, 0.92);
-  --bg-popover-solid: #ffffff;
-  --bg-selection: rgba(37, 99, 235, 0.1);
+  /* ===== 画布与表面（Claude 暖色 + Notion 中性）===== */
+  --canvas: #f7f4ee;
+  --canvas-top: #fbf9f4;
+  --canvas-solid: #f7f4ee;
+  --canvas-gradient: linear-gradient(180deg, var(--canvas-top), var(--canvas) 46%, #f3efe6);
+  --canvas-wash: var(--canvas-gradient);
 
-  /* 玻璃卡片三层：regular（主卡）/ strong（浮条、检视器）/ sunken（卡内嵌板）。
-     solid 版本供 reduced-transparency 与 backdrop-filter 缺失时回退。 */
-  --bg-card: rgba(255, 255, 255, 0.88);
+  --surface: #ffffff;
+  --surface-2: #fbf9f4;
+  --surface-3: #f1ece1;
+  --surface-hover: #f4efe6;
+  --surface-active: #ece5d8;
+
+  --bg-window: var(--canvas);
+  --bg-content: var(--surface);
+  --bg-control: #ffffff;
+  --bg-popover: #ffffff;
+  --bg-popover-solid: #ffffff;
+  --bg-selection: rgba(192, 96, 60, 0.1);
+
+  --bg-card: #ffffff;
   --bg-card-strong: #ffffff;
-  --bg-card-sunken: rgba(15, 23, 42, 0.045);
+  --bg-card-sunken: #f7f4ee;
   --bg-card-solid: #ffffff;
-  --bg-card-sunken-solid: #f1f3f5;
+  --bg-card-sunken-solid: #f1ece1;
   --bg-field: #ffffff;
-  --card-hairline: #e5e7eb;
-  /* 玻璃退役（2026-11-18）：卡片改纯色 + 发丝线，不再依赖 backdrop-filter。 */
+  --card-hairline: #e7e1d4;
+  /* 玻璃退役：保留令牌名给旧组件，值恒为 none。 */
   --blur-card: none;
-  /* 纸面：打印预览与最终 PDF 的纸永远是白的，不随主题变。
-     深色下 `.print-area` 必须把 `--label-*` 局部覆盖成 `--paper-*`，
-     否则会复现 2026-11-04 审计发现的「白底白字」缺陷。 */
+
   --bg-paper: #ffffff;
   --paper-ink: rgba(0, 0, 0, 0.86);
   --paper-ink-2: rgba(0, 0, 0, 0.6);
   --paper-line: rgba(0, 0, 0, 0.12);
 
-  /* ===== 新语义层：文字 ===== */
-  --label-primary: rgba(17, 24, 39, 0.92);
-  --label-secondary: rgba(17, 24, 39, 0.62);
-  --label-tertiary: rgba(17, 24, 39, 0.44);
-  --label-quaternary: rgba(17, 24, 39, 0.26);
+  /* ===== 文字 ===== */
+  --label-primary: #23211c;
+  --label-secondary: #55524a;
+  --label-tertiary: #79746a;
+  --label-quaternary: #a8a294;
   --label-on-accent: #ffffff;
 
-  /* ===== 新语义层：分隔线 ===== */
-  --separator: rgba(17, 24, 39, 0.1);
-  --separator-strong: rgba(17, 24, 39, 0.18);
+  /* ===== 分隔线 ===== */
+  --separator: #e7e1d4;
+  --separator-strong: #d5ccba;
 
-  /* ===== 新语义层：强调色（macOS 默认蓝；系统强调色不可读，见规范 §1.6）===== */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-active: #1e40af;
-  --accent-soft: rgba(37, 99, 235, 0.1);
-  --accent-soft-2: rgba(37, 99, 235, 0.18);
+  /* ===== 强调色（陶土橙；只用于主按钮/当前页签/焦点/选中/图表主系列）===== */
+  --accent: #c0603c;
+  --accent-strong: #a84a2b;
+  --accent-hover: #b04f2e;
+  --accent-active: #8f3f25;
+  --accent-soft: rgba(192, 96, 60, 0.12);
+  --accent-soft-2: rgba(192, 96, 60, 0.22);
+  --accent-fill: linear-gradient(135deg, #b85636, #a04a2b);
+  --on-accent: #ffffff;
 
-  /* ===== 状态色（沿用既有取值：可读性已验证，仅强调色改 macOS 蓝）===== */
-  --success: #15803d;
-  --success-soft: rgba(21, 128, 61, 0.1);
-  --warning: #b45309;
-  --warning-soft: rgba(180, 83, 9, 0.12);
-  --danger: #dc2626;
-  --danger-soft: rgba(220, 38, 38, 0.1);
-  --info-soft: rgba(37, 99, 235, 0.08);
+  /* ===== 状态色 ===== */
+  --success: #3e6b4f;
+  --success-soft: rgba(62, 107, 79, 0.12);
+  --warning: #8a6420;
+  --warning-soft: rgba(138, 100, 32, 0.14);
+  --danger: #a33a2a;
+  --danger-soft: rgba(163, 58, 42, 0.12);
+  --info: #4d6a8a;
+  --info-soft: rgba(77, 106, 138, 0.1);
+  --chart-1: #c0603c;
+  --chart-2: #7c8b5e;
+  --chart-3: #d6b183;
+  --chart-4: #9a6b52;
+  --chart-5: #6e7b8b;
 
-  /* ===== 新语义层：圆角（同心：子圆角 = 父圆角 − 内边距，clamp ≥4）===== */
+  /* ===== 圆角 ===== */
   --radius-window: 10px;
-  /* 对话框/浮层仍用 12：它们不跟着内容卡一起放大，避免弹窗"变胖"。 */
   --radius-panel: 12px;
-  /* 通知条（toast）圆角：规范 §1.5 点名 10px——比面板小一档、比控件大一档，
-     是 macOS 通知的观感；不塞进上面三档是有意的（改三档不该顺带动 toast）。 */
+  --radius-dialog: 16px;
   --radius-toast: 10px;
-  /* 内容卡：Loon 的大圆角；控件与小组件依次缩小，保持同心。 */
-  --radius-card: 14px;
+  --radius-card: 12px;
   --radius-control: 8px;
-  --radius-small: 8px;
+  --radius-small: 6px;
   --radius-pill: 999px;
+  --radius-none: 0px;
 
-  /* ===== 新语义层：控件高度（大字号基线：行内 26 / 常规 32 / 主操作 36）===== */
+  /* ===== 控件高度（44px 触控目标只在窄屏生效）===== */
   --control-h-xs: calc(20px * var(--font-scale));
-  --control-h-sm: calc(26px * var(--font-scale));
+  --control-h-sm: calc(28px * var(--font-scale));
   --control-h-md: calc(32px * var(--font-scale));
   --control-h-lg: calc(36px * var(--font-scale));
 
-  /* ===== 新语义层：字体与排版 ===== */
+  /* ===== 排版 ===== */
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  /* 字号**基线偏大**（用户视力需要，见规范 §1.3）：正文 15、辅助 13、标题 17。
-     任何"为了多塞信息而缩小字号"的做法都不成立——宁可减少首屏信息量。
-     `--font-scale` 由设置里的"界面字号"写入（1 = 标准，另有 1.15 / 1.3），
-     只作用于本文件定义的 `--type-*` / `--fs-*` 与 `--control-h-*`；旧组件里写死的字号
-     已于 2026-10-18（U1）全部收编为 `--fs-*`。 */
   --font-scale: 1;
   --type-title: 600 calc(17px * var(--font-scale)) / 1.35 var(--font);
   --type-page-title: 600 calc(22px * var(--font-scale)) / 1.25 var(--font);
+  --type-display: 600 calc(26px * var(--font-scale)) / 1.25 var(--font);
   --type-metric: 600 calc(24px * var(--font-scale)) / 1.15 var(--font);
-  --type-body: 400 calc(15px * var(--font-scale)) / 1.5 var(--font);
-  --type-caption: 400 calc(13px * var(--font-scale)) / 1.4 var(--font);
+  --type-body: 400 calc(15px * var(--font-scale)) / 1.65 var(--font);
+  --type-caption: 400 calc(13px * var(--font-scale)) / 1.45 var(--font);
+  --type-input: 400 calc(16px * var(--font-scale)) / 1.4 var(--font);
   --type-mono-sm: 400 calc(14px * var(--font-scale)) / 1.45 var(--font-mono);
 
-  /* 字号**尺寸**令牌（批次 U1，2026-10-18）：只改字号、需保留原字重/行高的场景用它们；
-     与 `--type-*` 同源同比例（标题 17 / 正文 15 / 辅助 13 × --font-scale）。
-     历史：旧组件里 159 处 `font-size: Npx` 字面量与令牌双轨，导致「界面字号」档位只改约 1/3 界面。 */
   --fs-title: calc(17px * var(--font-scale));
   --fs-page-title: calc(22px * var(--font-scale));
+  --fs-display: calc(26px * var(--font-scale));
   --fs-metric: calc(24px * var(--font-scale));
   --fs-body: calc(15px * var(--font-scale));
   --fs-caption: calc(13px * var(--font-scale));
-  --fs-display: calc(20px * var(--font-scale));
+  --fs-input: calc(16px * var(--font-scale));
 
-  /* ===== 新语义层：阴影（Loon 化后内容卡允许一层**软**托起；浮层仍用更重的投影）===== */
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -22px rgba(16, 24, 40, 0.28);
-  --shadow-card-hover: 0 1px 2px rgba(16, 24, 40, 0.06), 0 16px 32px -22px rgba(16, 24, 40, 0.34);
-  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
-  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  /* ===== 阴影 ===== */
+  --shadow-card: 0 1px 2px rgba(35, 33, 28, 0.05);
+  --shadow-card-hover: 0 2px 6px rgba(35, 33, 28, 0.08);
+  --shadow-popover: 0 12px 40px rgba(35, 33, 28, 0.14);
+  --shadow-menu: 0 6px 18px rgba(35, 33, 28, 0.12);
 
-  /* ===== 新语义层：动效（Apple 常用曲线）===== */
+  /* ===== 动效 ===== */
   --motion-fast: 120ms;
-  --motion-normal: 200ms;
-  /* 慢速：仅用于循环脉冲（加载骨架、等待指示）；不用于交互反馈 */
-  --motion-slow: 1200ms;
-  --motion-curve: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-normal: 180ms;
+  --motion-slow: 240ms;
+  --motion-curve: cubic-bezier(0.2, 0.7, 0.2, 1);
 
-  /* ===== 间距（沿用既有 4px 基数）===== */
+  /* ===== 间距 ===== */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -156,182 +151,171 @@ html[data-theme="light"] {
   --s-16: 64px;
 
   /* ===== 布局 ===== */
-  /* 默认宽度与 `SIDEBAR_WIDTH_DEFAULT`（前端 config-defaults / Rust AppearanceConfig）同值：
-     2026-10-16 随"去掉侧栏左上角图标 + 徽标改角标"一起收窄 260 → 220。 */
-  --sidebar-w: 220px;
-  /* 统一工具栏高度（自绘工具栏，Loon 大标题需要 56px）。
-     左侧内边距分两态：侧栏展开时 24（标题与内容左缘对齐）；侧栏收起时 84，
-     给 56px 宽侧栏里的交通灯（x=14–80）让位——由 base.css 的
-     `[data-sidebar-collapsed="true"]` 规则切回 `--toolbar-inset-start`。 */
-  --toolbar-h: 56px;
-  --toolbar-inset-start: 84px;
-  /* ===== 移动端（2026-11-18）=====
-     44px 是 iOS HIG 的最小点击区；只在 `compact` 档生效（由组件按 useBreakpoint 加类），
-     桌面仍用 32/36px 的控件高度，不跟着变胖。 */
+  --topbar-h: 52px;
+  --content-max: 1180px;
   --tap-min: 44px;
-  --appbar-h: 52px;
-  --tabbar-h: 56px;
 
-  /* ===== 旧名别名（单向指向新令牌；迁移见规范 §6 批次 6，2026-10-18 U1 已完成字号收编）===== */
+  /* ===== 过渡别名（B5 清场；新代码禁止引用）===== */
+  --sidebar-w: 0px;
+  --toolbar-h: var(--topbar-h);
+  --toolbar-inset-start: var(--s-5);
+  --tabbar-h: 0px;
+  --appbar-h: var(--topbar-h);
+
+  /* ===== 旧名别名（单向指向新令牌）===== */
   --bg: var(--bg-window);
-  --surface: var(--bg-content);
-  --surface-2: #fafafa;
-  --surface-3: #f5f5f5;
-  --surface-hover: #f0f0f0;
-  --surface-active: #e8e8e8;
-
   --text: var(--label-primary);
-  --text-2: rgba(0, 0, 0, 0.72);
+  --text-2: var(--label-secondary);
   --text-3: var(--label-secondary);
   --text-4: var(--label-tertiary);
   --text-disabled: var(--label-quaternary);
-
   --stroke: var(--separator);
   --stroke-2: var(--separator-strong);
-  --stroke-3: rgba(0, 0, 0, 0.24);
-
-  --mica-tint: var(--bg-sidebar);
-
+  --stroke-3: var(--separator-strong);
+  --mica-tint: var(--bg-window);
   --r-2: 2px;
   --r-4: var(--radius-small);
   --r-6: var(--radius-control);
   --r-8: var(--radius-panel);
-
-  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 1px 2px rgba(35, 33, 28, 0.08);
+  --shadow-4: 0 2px 4px rgba(35, 33, 28, 0.08);
   --shadow-8: var(--shadow-menu);
   --shadow-16: var(--shadow-popover);
-  --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-28: 0 14px 28px rgba(35, 33, 28, 0.12);
+
+  /* 过渡别名：旧侧栏 CSS 仍引用，B5 随死代码一起删除。 */
+  --bg-sidebar: rgba(238, 241, 245, 0.32);
+  --bg-sidebar-solid: #eef1f5;
 }
 
 html[data-theme="dark"] {
-  --bg-window: #0e1116;
-  /* 侧栏材质：深色下必须保持"深色 + 高不透明度"——若改成白色低 alpha，
-     `a11yContract.test.ts` 会把它算进浅色条目并判红，且侧栏会随桌面壁纸发灰。
-     0.9 的深绿灰叠在深色画布上，比内容卡略亮一层，仍是"侧栏面板"。
-     浅色侧保持低 alpha（用户明确要"看得到玻璃"，alpha 上限 0.35）。
-     `prefers-reduced-transparency: reduce` 时回退实色。
-     **必须是深色 rgba（r<128）且 alpha ≥0.85**（a11yContract 硬约束）。 */
-  --bg-sidebar: rgba(43, 51, 62, 0.9);
-  --bg-sidebar-solid: #1a1f27;
-  --bg-content: #161a21;
-  --bg-control: #1e242d;
-  --bg-popover: rgba(28, 33, 41, 0.94);
-  --bg-popover-solid: #1c2129;
-  --bg-selection: rgba(96, 165, 250, 0.18);
+  --canvas: #1c1b18;
+  --canvas-top: #211f1b;
+  --canvas-solid: #1c1b18;
+  --canvas-gradient: linear-gradient(180deg, var(--canvas-top), var(--canvas) 46%, #191815);
+  --canvas-wash: var(--canvas-gradient);
 
-  --canvas-solid: #0e1116;
-  --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
-  --bg-card: rgba(255, 255, 255, 0.06);
-  --bg-card-strong: rgba(255, 255, 255, 0.1);
-  --bg-card-sunken: rgba(255, 255, 255, 0.04);
-  --bg-card-solid: #1a1f27;
-  --bg-card-sunken-solid: #151a21;
-  --bg-field: rgba(255, 255, 255, 0.06);
-  --card-hairline: rgba(255, 255, 255, 0.1);
+  /* 过渡别名（深色）：旧侧栏 CSS 仍引用，B5 删除。 */
+  --bg-sidebar: rgba(22, 26, 33, 0.72);
+  --bg-sidebar-solid: #161a21;
 
-  /* 深色强调色是浅蓝，白字对比度不足 → 文字改用近黑 */
-  --label-on-accent: #0b1220;
-  --label-primary: rgba(255, 255, 255, 0.92);
-  --label-secondary: rgba(255, 255, 255, 0.62);
-  --label-tertiary: rgba(255, 255, 255, 0.42);
-  --label-quaternary: rgba(255, 255, 255, 0.28);
+  --surface: #252420;
+  --surface-2: #2b2a25;
+  --surface-3: #33312b;
+  --surface-hover: #302e28;
+  --surface-active: #3a3831;
 
-  --separator: rgba(255, 255, 255, 0.12);
-  --separator-strong: rgba(255, 255, 255, 0.2);
+  --bg-window: var(--canvas);
+  --bg-content: var(--surface);
+  --bg-control: #2b2a25;
+  --bg-popover: #2b2a25;
+  --bg-popover-solid: #2b2a25;
+  --bg-selection: rgba(224, 138, 103, 0.18);
 
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --accent-active: #3b82f6;
-  --accent-soft: rgba(96, 165, 250, 0.14);
-  --accent-soft-2: rgba(96, 165, 250, 0.26);
+  --bg-card: #252420;
+  --bg-card-strong: #2b2a25;
+  --bg-card-sunken: #211f1b;
+  --bg-card-solid: #252420;
+  --bg-card-sunken-solid: #211f1b;
+  --bg-field: #2b2a25;
+  --card-hairline: #3a3831;
+  --blur-card: none;
 
-  --success: #4ade80;
-  --success-soft: rgba(74, 222, 128, 0.14);
-  --warning: #fbbf24;
-  --warning-soft: rgba(251, 191, 36, 0.14);
-  --danger: #f87171;
-  --danger-soft: rgba(248, 113, 113, 0.16);
-  --info-soft: rgba(96, 165, 250, 0.12);
+  --bg-paper: #ffffff;
+  --paper-ink: rgba(0, 0, 0, 0.86);
+  --paper-ink-2: rgba(0, 0, 0, 0.6);
+  --paper-line: rgba(0, 0, 0, 0.12);
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 28px -22px rgba(0, 0, 0, 0.7);
-  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px -22px rgba(0, 0, 0, 0.78);
-  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --label-primary: #f1ede4;
+  --label-secondary: #c9c3b6;
+  --label-tertiary: #9c9688;
+  --label-quaternary: #6f6a5f;
+  --label-on-accent: #211f1b;
 
-  --surface-2: #272727;
-  --surface-3: #232323;
-  --surface-hover: #333333;
-  --surface-active: #3a3a3a;
-  --text-2: rgba(255, 255, 255, 0.82);
-  --stroke-3: rgba(255, 255, 255, 0.26);
-  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
-  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.3);
-  --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
+  --separator: #3a3831;
+  --separator-strong: #4b483f;
+
+  --accent: #e08a67;
+  --accent-strong: #ee9c7c;
+  --accent-hover: #e99a79;
+  --accent-active: #f0a98b;
+  --accent-soft: rgba(224, 138, 103, 0.14);
+  --accent-soft-2: rgba(224, 138, 103, 0.26);
+  --accent-fill: linear-gradient(135deg, #e08a67, #c97655);
+  --on-accent: #211f1b;
+
+  --success: #86b896;
+  --success-soft: rgba(134, 184, 150, 0.14);
+  --warning: #d9b56e;
+  --warning-soft: rgba(217, 181, 110, 0.14);
+  --danger: #e58d7d;
+  --danger-soft: rgba(229, 141, 125, 0.16);
+  --info: #8fa3b3;
+  --info-soft: rgba(143, 163, 179, 0.12);
+  --chart-1: #e08a67;
+  --chart-2: #a5b585;
+  --chart-3: #d9b98f;
+  --chart-4: #b98a70;
+  --chart-5: #8fa3b3;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-popover: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --shadow-menu: 0 6px 18px rgba(0, 0, 0, 0.45);
+
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-4: 0 2px 4px rgba(0, 0, 0, 0.35);
+  --shadow-28: 0 14px 28px rgba(0, 0, 0, 0.45);
 }
 
-/* 早期命名的兼容别名块已于 2026-09-27（审计剩余项批次 7）**删除**：
-   `--bg-1` / `--bg-2` / `--bg-3` / `--surface-1` / `--text-1` / `--border` 曾在这里做单向别名
-   （2026-09-23 审计 A6 引入），24 处引用已全部按别名目标等价替换为语义令牌
-   （`--bg-1`/`--surface-1` → `--surface`，`--bg-3` → `--surface-3`，`--text-1` → `--text`，
-   `--border` → `--stroke`），故别名不再需要。**禁止再引入这批旧名**——
-   `tokenContract.test.ts` 有禁名断言（新增引用会直接让测试变红）。 */
-
-/* 首帧兜底：主题属性由 JS 写入（`stores/config.ts`），写入前若系统是深色，
-   基础令牌的浅色值会闪一下。CSP 禁内联脚本，故用纯 CSS 跟随系统——
-   只覆盖最显眼的数个令牌（完整深色值仍以 `html[data-theme="dark"]` 为准，
-   两者数值保持一致，改一处请同步另一处）。 */
+/* 首帧兜底：主题属性由 JS 写入，写入前跟随系统。 */
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
-    --bg-window: #0e1116;
-    --bg-sidebar: rgba(43, 51, 62, 0.9);
-    --bg-sidebar-solid: #1a1f27;
-    --bg-content: #161a21;
-    --bg-control: #1e242d;
-    --bg-popover: rgba(28, 33, 41, 0.94);
-    --bg-popover-solid: #1c2129;
-    --bg-selection: rgba(96, 165, 250, 0.18);
-    --canvas-solid: #0e1116;
-    --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
-    --bg-card: rgba(255, 255, 255, 0.06);
-    --bg-card-strong: rgba(255, 255, 255, 0.1);
-    --bg-card-sunken: rgba(255, 255, 255, 0.04);
-    --bg-card-solid: #1a1f27;
-    --bg-card-sunken-solid: #151a21;
-    --bg-field: rgba(255, 255, 255, 0.06);
-    --card-hairline: rgba(255, 255, 255, 0.1);
-    --shadow-card: 0 18px 40px -26px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
-    --label-primary: rgba(255, 255, 255, 0.92);
-    --label-secondary: rgba(255, 255, 255, 0.62);
-    --label-tertiary: rgba(255, 255, 255, 0.42);
-    --label-quaternary: rgba(255, 255, 255, 0.28);
-    --separator: rgba(255, 255, 255, 0.12);
-    --separator-strong: rgba(255, 255, 255, 0.2);
+    --canvas: #1c1b18;
+    --canvas-top: #211f1b;
+    --canvas-solid: #1c1b18;
+    --canvas-gradient: linear-gradient(180deg, var(--canvas-top), var(--canvas) 46%, #191815);
+    --surface: #252420;
+    --surface-2: #2b2a25;
+    --surface-3: #33312b;
+    --bg-window: var(--canvas);
+    --bg-content: var(--surface);
+    --bg-control: #2b2a25;
+    --bg-popover: #2b2a25;
+    --bg-card: #252420;
+    --bg-card-strong: #2b2a25;
+    --bg-card-sunken: #211f1b;
+    --bg-card-solid: #252420;
+    --bg-field: #2b2a25;
+    --card-hairline: #3a3831;
+    --label-primary: #f1ede4;
+    --label-secondary: #c9c3b6;
+    --label-tertiary: #9c9688;
+    --label-quaternary: #6f6a5f;
+    --separator: #3a3831;
+    --separator-strong: #4b483f;
+    --accent: #e08a67;
+    --accent-strong: #ee9c7c;
+    --accent-soft: rgba(224, 138, 103, 0.14);
   }
 }
 
-/* 无障碍回退（规范 §4）：系统开启「减少透明度」时，材质不可依赖 → 全部改实色。
-   Spike M 已验证该媒体查询在 WKWebView 可读。 */
+/* 减少透明度：材质全部改实色（旧组件仍可能消费）。 */
 @media (prefers-reduced-transparency: reduce) {
   :root,
   html[data-theme="light"],
   html[data-theme="dark"] {
-    --bg-sidebar: var(--bg-sidebar-solid);
     --bg-popover: var(--bg-popover-solid);
     --bg-card: var(--bg-card-solid);
     --bg-card-strong: var(--bg-card-solid);
     --bg-card-sunken: var(--bg-card-sunken-solid);
     --bg-field: var(--bg-control);
     --blur-card: none;
-    --canvas-gradient: linear-gradient(var(--canvas-solid), var(--canvas-solid));
     --card-hairline: var(--separator);
   }
 }
 
-/* 无障碍回退：系统要求减少动效 → 过渡与动画全部关闭。
-   只把两个令牌置 0 并不足够：样式表里仍有**硬编码时长**（如 `transition: all .15s`、
-   `clip-path .06s`、`animation: toast-in .2s`），令牌管不到它们，
-   因此再加一条通配兜底（这不是"取消动效"，而是把时长压到不可见）。 */
+/* 减少动效：令牌归零 + 通配兜底（样式表里仍有硬编码时长）。 */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
@@ -349,8 +333,7 @@ html[data-theme="dark"] {
   }
 }
 
-/* 无障碍回退（规范 §4）：系统要求「提高对比度」时，描边加重、次要文字升到主级。
-   只改这三组语义令牌，不改组件——所有文字/分隔线都经它们取色。 */
+/* 提高对比度：描边加重、次要文字升到主级。 */
 @media (prefers-contrast: more) {
   :root,
   html[data-theme="light"],

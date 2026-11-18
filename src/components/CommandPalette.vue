@@ -23,35 +23,28 @@ type Command = {
   run: () => void;
 };
 
-/** 快速动作（异步动作用 toast 反馈，面板即关） */
+/** 页面跳转 + 新建；辅助功能不在这里重复登记（弹层各有唯一入口） */
 const commands: Command[] = [
   {
-    key: "nav:inbox",
-    label: "前往 待处理",
-    hint: "今天要办的事（流程）",
-    icon: "inbox",
-    run: () => router.push("/inbox"),
+    key: "nav:workbench",
+    label: "前往 工作台",
+    hint: "关键数据 / 图表 / 待办",
+    icon: "dashboard",
+    run: () => router.push("/workbench"),
   },
   {
-    key: "nav:list",
-    label: "前往 全部凭证",
-    hint: "筛选 / 批量操作",
+    key: "nav:data",
+    label: "前往 数据",
+    hint: "条目库：筛选 / 展开编辑 / 导出",
     icon: "list",
-    run: () => router.push("/vouchers"),
+    run: () => router.push("/data"),
   },
   {
-    key: "nav:duplicates",
-    label: "前往 重复核查",
-    hint: "疑似重复的比对与处置",
-    icon: "duplicate",
-    run: () => router.push("/duplicates"),
-  },
-  {
-    key: "nav:ledger",
-    label: "前往 台账",
-    hint: "导入清单 / 补附件 / 等入账",
-    icon: "file",
-    run: () => router.push("/ledger"),
+    key: "nav:reconcile",
+    label: "前往 对账",
+    hint: "台账 CSV 比对",
+    icon: "compare",
+    run: () => router.push("/reconcile"),
   },
   {
     key: "nav:accounting",
@@ -62,59 +55,10 @@ const commands: Command[] = [
   },
   {
     key: "nav:new",
-    label: "新建凭证",
-    hint: "选图建卡 + OCR",
+    label: "新建条目",
+    hint: "字段 + 必填凭证",
     icon: "plus",
-    run: () => router.push("/vouchers/new"),
-  },
-  {
-    key: "nav:search",
-    label: "前往 全文搜索",
-    hint: "编号 / 摘要 / OCR 文本",
-    icon: "search",
-    run: () => router.push("/search"),
-  },
-  {
-    key: "nav:insights",
-    label: "前往 洞察",
-    hint: "趋势 / 排行 / 对账",
-    icon: "chart",
-    run: () => router.push("/insights"),
-  },
-  {
-    key: "nav:print",
-    label: "前往 打印与导出",
-    hint: "PDF / Excel / CSV",
-    icon: "print",
-    run: () => router.push("/print"),
-  },
-  {
-    key: "nav:exports",
-    label: "前往 导出历史",
-    hint: "批次反查",
-    icon: "file",
-    run: () => router.push("/exports"),
-  },
-  {
-    key: "nav:restore",
-    label: "前往 备份与恢复",
-    hint: "备份列表 / 演练",
-    icon: "save",
-    run: () => router.push("/restore"),
-  },
-  {
-    key: "nav:settings",
-    label: "前往 设置",
-    hint: "参数 / 密钥 / 期间管理",
-    icon: "settings",
-    run: () => router.push("/settings"),
-  },
-  {
-    key: "nav:help",
-    label: "前往 帮助",
-    hint: "使用说明",
-    icon: "help",
-    run: () => router.push("/help"),
+    run: () => router.push({ path: "/data", query: { new: "1" } }),
   },
 ];
 
@@ -167,7 +111,7 @@ const items = computed(() => {
     kind: "voucher" as const,
     key: `v-${h.voucher.id}`,
     hit: h,
-    run: () => router.push({ path: "/vouchers", query: { focus: String(h.voucher.id) } }),
+    run: () => router.push({ path: "/data", query: { focus: String(h.voucher.id) } }),
   }));
   return [...cmds, ...vols];
 });
@@ -240,7 +184,7 @@ watch(
             ref="inputEl"
             v-model="query"
             class="cp-input"
-            placeholder="输入页面 / 动作名，或直接搜凭证（编号、摘要、OCR 文本）…"
+            placeholder="输入页面 / 动作名，或直接搜条目（编号、摘要、OCR 文本）…"
           />
           <span class="cp-esc">Esc 关闭</span>
         </div>
@@ -326,7 +270,7 @@ watch(
   flex: 1;
   border: none;
   outline: none;
-  font-size: var(--fs-body);
+  font-size: var(--fs-input);
   background: transparent;
   color: var(--text);
 }

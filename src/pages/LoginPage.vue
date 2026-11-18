@@ -26,7 +26,7 @@ const title = computed(() => (isSetup.value ? "设置访问密码" : "登录 Cen
 const hint = computed(() =>
   isSetup.value
     ? "这是你自己的账务中枢，先设一个至少 8 位的密码。密码只保存在这台服务器上，不经过任何第三方。"
-    : "输入访问密码。登录后 30 天内不用重复输入，可在侧栏「退出登录」随时结束会话。",
+    : "输入访问密码。登录后 30 天内不用重复输入，可在右上角头像菜单「退出登录」随时结束会话。",
 );
 const canSubmit = computed(
   () =>

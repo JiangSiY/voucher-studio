@@ -45,17 +45,14 @@ describe("任务中心", () => {
     expect(center).toContain("is-indeterminate");
   });
 
-  it("不跟 toast 抢角落：toast 在右上角，任务中心在内容区左下并跟随侧栏宽度", () => {
+  it("不跟 toast 抢角落：toast 在右上角，任务中心在内容区左下（无侧栏偏移）", () => {
     // 规范 §1.5：通知条在右上角（2026-10-16 按规范改正，见 toastSpecContract）
     expect(baseCss).toMatch(
       /\.toast-host \{[\s\S]{0,400}?top: var\(--s-5\);[\s\S]{0,80}right: var\(--s-5\)/,
     );
     const css = center.slice(center.indexOf("<style scoped>"));
-    expect(css).toMatch(
-      /\.task-center \{[\s\S]{0,160}left: calc\(var\(--sidebar-w\) \+ var\(--s-5\)\)/,
-    );
-    // 收起态/窄窗是 56px 图标栏，靠 --sidebar-w 跟不动，必须单独纠
-    expect(css).toContain(':root[data-sidebar-collapsed="true"] .task-center');
+    expect(css).toMatch(/\.task-center \{[\s\S]{0,160}left: var\(--s-5\)/);
+    expect(css).not.toContain("--sidebar-w");
     expect(css).toMatch(/@media \(max-width: 760px\)/);
     // z-index 必须低于 toast（1000），结果提示永远压在上面
     expect(css).toMatch(/z-index: 900/);

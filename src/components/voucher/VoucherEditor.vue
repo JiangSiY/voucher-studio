@@ -820,7 +820,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+    bottom: env(safe-area-inset-bottom, 0px);
     z-index: 55;
     padding: var(--s-2) var(--s-4);
     background: var(--bg-card-solid);

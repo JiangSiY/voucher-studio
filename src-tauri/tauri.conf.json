@@ -10,7 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Voucher Studio",
@@ -18,18 +17,7 @@
         "height": 820,
         "minWidth": 720,
         "minHeight": 640,
-        "center": true,
-        "transparent": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "trafficLightPosition": {
-          "x": 14,
-          "y": 18
-        },
-        "windowEffects": {
-          "effects": ["underWindowBackground"],
-          "state": "active"
-        }
+        "center": true
       }
     ],
     "security": {

@@ -105,25 +105,20 @@ function stateIcon(t: TaskItem): string {
 <style scoped>
 .task-center {
   position: fixed;
-  left: calc(var(--sidebar-w) + var(--s-5));
+  left: var(--s-5);
   bottom: var(--s-5);
   z-index: 900; /* 低于 toast（1000）：结果提示永远压在上面 */
-  width: min(420px, calc(100vw - var(--sidebar-w) - 2 * var(--s-5)));
+  width: min(420px, calc(100vw - 2 * var(--s-5)));
   background: var(--bg-popover);
   border: 1px solid var(--separator);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-popover);
   overflow: hidden;
 }
-/* 收起态与窄窗图标栏都是 56px —— 固定定位靠 `--sidebar-w` 跟不动，得单独纠一次 */
-:root[data-sidebar-collapsed="true"] .task-center {
-  left: calc(56px + var(--s-5));
-  width: min(420px, calc(100vw - 56px - 2 * var(--s-5)));
-}
 @media (max-width: 760px) {
   .task-center {
-    left: calc(56px + var(--s-4));
-    width: calc(100vw - 56px - 2 * var(--s-4));
+    left: var(--s-4);
+    width: calc(100vw - 2 * var(--s-4));
   }
 }
 
