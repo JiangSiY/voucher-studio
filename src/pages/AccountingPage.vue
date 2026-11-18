@@ -67,7 +67,7 @@ async function preview() {
   try {
     plan.value = await api.glBuildPeriod(period.value);
     lastPost.value = null;
-    if (!plan.value.issues.length) {
+    if (!plan.value || !plan.value.issues.length) {
       toast.success(
         `已预演：${totals.value.vouchers} 张凭证，借贷各 ${fmtAmount(totals.value.debit)}`,
       );
@@ -171,7 +171,10 @@ onMounted(() => {
   <div class="page">
     <!-- 标题由工作台头部提供（route meta），这里只放本期选择与主操作，避免同一标题出现两次 -->
     <header class="page-head">
-      <p class="page-sub">本期收付款按科目映射折成借贷分录，导出后金蝶可直接抄</p>
+      <div>
+        <h1 class="page-title">会计投影</h1>
+        <p class="page-sub">本期收付款按科目映射折成借贷分录，导出后金蝶可直接抄</p>
+      </div>
       <div class="head-ops">
         <input v-model="period" type="month" class="input" :disabled="busy" />
         <button class="btn" :disabled="busy" @click="preview()">预演</button>
