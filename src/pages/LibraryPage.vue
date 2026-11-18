@@ -40,6 +40,7 @@ import RelatedVouchers from "../components/voucher/RelatedVouchers.vue";
 import VoucherGroups from "../components/voucher/VoucherGroups.vue";
 import MultiSelect from "../components/MultiSelect.vue";
 import { useNeighborNav } from "../composables/neighborNav";
+import { useBreakpoint } from "../composables/useBreakpoint";
 import { STATUS_META, fmtAmount, fmtDate } from "../composables/format";
 import {
   candidatePaths,
@@ -50,6 +51,8 @@ import { toast, toastError } from "../stores/toast";
 
 const route = useRoute();
 const router = useRouter();
+/** 窄屏：点行进整页详情（双栏在手机上只能上下堆叠，编辑器会掉到列表下面） */
+const { isCompact } = useBreakpoint();
 
 // ---------- 筛选（沿用既有 query 参数通道：仪表盘/收件箱下钻都用它） ----------
 
@@ -582,6 +585,11 @@ async function doSelect(v: Voucher) {
 
 async function select(v: Voucher) {
   if (!guardSwitch(v)) return;
+  // 手机：整页详情（路由），不走右栏；回到列表时筛选还在（query 通道）
+  if (isCompact.value) {
+    router.push({ name: "voucher-detail", params: { id: v.id } });
+    return;
+  }
   await doSelect(v);
 }
 

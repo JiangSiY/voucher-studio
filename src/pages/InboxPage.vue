@@ -181,6 +181,38 @@ const todoItems = computed(() => {
   return all.filter((i) => i.count > 0);
 });
 
+/**
+ * 首屏三数字（P1 动线）：待识别 → 待核对 → 待入账。
+ * 只回答"现在积压多少"，点一下就进对应工作区；不做趋势，趋势在「洞察」里。
+ */
+const metrics = computed(() => {
+  const t = inbox.todos;
+  const s = stats.value;
+  return [
+    {
+      key: "ocr",
+      label: "待识别",
+      value: t?.ocrPending ?? 0,
+      hint: "拖入或拍照即可开始",
+      to: { path: "/vouchers", query: { ocrStatus: "pending,failed" } },
+    },
+    {
+      key: "review",
+      label: "待核对",
+      value: s?.draft ?? 0,
+      hint: "草稿补齐必填项才能复核",
+      to: { path: "/vouchers", query: { status: "draft" } },
+    },
+    {
+      key: "ledger",
+      label: "待入账",
+      value: ledger.counts?.unbooked ?? 0,
+      hint: "已补附件，勾已入账即可",
+      to: "/ledger",
+    },
+  ];
+});
+
 async function runOcr() {
   busy.value = "ocr";
   try {
@@ -256,6 +288,21 @@ onUnmounted(() => {
         <FluentIcon name="plus" :size="14" /> 新建凭证
       </button>
     </header>
+
+    <!-- 首屏三数字：积压量一眼可见，点进对应工作区 -->
+    <section class="metrics" aria-label="待处理概览">
+      <button
+        v-for="m in metrics"
+        :key="m.key"
+        class="metric"
+        :class="{ 'is-zero': m.value === 0 }"
+        @click="router.push(m.to)"
+      >
+        <span class="metric-label">{{ m.label }}</span>
+        <span class="metric-value">{{ m.value }}</span>
+        <span class="metric-hint">{{ m.hint }}</span>
+      </button>
+    </section>
 
     <!-- 待办清单：count 为 0 的项不渲染；全部清零时整块消失（空间让给资料） -->
     <section v-if="todoItems.length" class="todos">
@@ -341,6 +388,46 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--s-5);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--s-3) var(--s-4);
+  min-height: var(--tap-min);
+  background: var(--bg-card);
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+}
+.metric:hover {
+  border-color: var(--accent);
+}
+.metric-label {
+  font: var(--type-caption);
+  color: var(--label-secondary);
+}
+.metric-value {
+  font-size: var(--fs-metric);
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.metric.is-zero .metric-value {
+  color: var(--label-tertiary);
+}
+.metric-hint {
+  font: var(--type-caption);
+  color: var(--label-tertiary);
 }
 
 .inbox-head {

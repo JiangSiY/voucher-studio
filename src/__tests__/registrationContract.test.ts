@@ -86,10 +86,15 @@ describe("页面登记：router ↔ 侧栏 ↔ 命令面板", () => {
     ).toEqual([...SIDEBAR_OPTIONAL].sort());
   });
 
-  it("动态路由已全部收编：`/vouchers/:id` 编辑页并入右栏后不再有 :id 路由", () => {
+  it("动态路由已全部收编：只允许登记在案的 `/vouchers/:id`（手机整页详情）", () => {
+    // v0.26 P1：`/vouchers/:id` 从重定向升级为**真路由**——手机端列表点行进整页详情，
+    // 宽屏由页面自己 replace 回 `/vouchers?focus=`（编辑器仍只有 VoucherEditor 一处实现）。
+    // 再新增动态路由时，先在这里登记并说明入口，否则视为"跳过去没有落点"。
+    const ALLOWED = ["/vouchers/:id"];
+    const unexpected = dynamicRoutes.filter((r) => !ALLOWED.includes(r));
     expect(
-      dynamicRoutes,
-      "新增动态路由须一并设计入口，并在此处登记（v0.19 起编辑页已并入资料库右栏）",
+      unexpected,
+      "新增动态路由须一并设计入口，并在此处登记（已登记的只有 /vouchers/:id）",
     ).toEqual([]);
   });
 

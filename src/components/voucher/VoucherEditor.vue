@@ -811,4 +811,21 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 .desc-no-label :deep(label) {
   display: none;
 }
+/* 手机：操作条改为**固定底栏**（tab bar 之上）。
+   sticky 只解决"滚到底能看见"，解决不了"它夹在字段中间"（编辑器字段是分列的，
+   操作条在 DOM 里排在台账面板之前）——固定底栏位置确定，也符合手机手势习惯。 */
+@media (max-width: 767px) {
+  .editor > .ed-ops,
+  .editor-fields > .ed-ops {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+    z-index: 55;
+    padding: var(--s-2) var(--s-4);
+    background: var(--bg-card-solid);
+    box-shadow: var(--shadow-menu);
+    border-top: 1px solid var(--card-hairline);
+  }
+}
 </style>

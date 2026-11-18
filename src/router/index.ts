@@ -60,11 +60,14 @@ export const router = createRouter({
           meta: { title: "新建凭证", subtitle: "多步录入 · 自动存档", reading: true },
         },
         // v0.19（2026-09-28）：编辑页已并入资料库右栏（components/voucher/VoucherEditor.vue）。
-        // 旧链接/书签 `/vouchers/:id` 保留为**重定向**：跳到资料库并聚焦该张（不 404）。
+        // v0.26 P1：`/vouchers/:id` 从重定向改为**真路由**（手机整页详情）。
+        // 宽屏由页面自己 `replace` 回 `/vouchers?focus=`（双栏上下文不变），旧书签也仍然可用。
         // 注意路径顺序：静态段 `vouchers/new` 必须排在本条之前，否则会被动态段吃掉。
         {
           path: "vouchers/:id",
-          redirect: (to) => ({ path: "/vouchers", query: { focus: String(to.params.id) } }),
+          name: "voucher-detail",
+          component: () => import("../pages/VoucherDetailPage.vue"),
+          meta: { title: "凭证详情", subtitle: "字段 · 台账 · 附件 · 关联" },
         },
         {
           path: "search",

@@ -2004,8 +2004,18 @@ select.input {
   cursor: pointer;
 }
 
+/* 手机首屏三数字：只留标签 + 数字，说明文字在窄屏会把卡片撑成三行 */
+.app-shell--compact .metric-hint {
+  display: none;
+}
+.app-shell--compact .metric {
+  padding: var(--s-3);
+}
+
 .app-shell--compact .main-scroll {
-  padding: var(--s-3) var(--s-4) var(--s-4);
+  /* 底部留出 tab bar 高度：否则最后一张卡与吸底操作条会被遮住 */
+  padding: var(--s-3) var(--s-4)
+    calc(var(--tabbar-h) + var(--s-4) + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
   /* 表单页聚焦时给键盘留位（iOS 上键盘不缩 100vh，只顶内容） */
   scroll-padding-bottom: calc(var(--tabbar-h) + var(--s-8));
