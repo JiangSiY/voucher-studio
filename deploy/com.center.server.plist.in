@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.center.server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__BIN__</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CENTER_DATA_DIR</key>
+    <string>__DATA_DIR__</string>
+    <key>CENTER_ADDR</key>
+    <string>127.0.0.1:8787</string>
+    <key>CENTER_WEB_DIR</key>
+    <string>__WEB_DIR__</string>
+    <key>CENTER_LOG</key>
+    <string>info</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>__DATA_DIR__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/center-server.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/center-server.err.log</string>
+</dict>
+</plist>
