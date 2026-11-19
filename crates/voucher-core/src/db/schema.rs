@@ -14,7 +14,10 @@
 //! v4 变化（v0.6.5 增强缓存管理）：
 //! - 新表 enhance_hits：记录「增强版被实际使用」（OCR / 导出 / 查看器），用于设置页命中率统计
 
-use rusqlite::Connection;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use rusqlite::{params, Connection};
 
 use crate::Result;
 
@@ -463,6 +466,156 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id DESC);
 "#;
 
+/// WPS 台账双向同步（v0.28）：独立表，幂等只增，**不 bump `SCHEMA_VERSION`**。
+///
+/// 背景：本仓库的版本策略是「v4 之后只做幂等 DDL」；`init()` 对
+/// `version < SCHEMA_VERSION` 走清库重建，bump 到 5 会清空用户库。
+/// 因此这批表用 `CREATE TABLE IF NOT EXISTS` 追加，`user_version` 保持 4。
+/// 迁移前快照见 `snapshot_before_wps`。
+pub const SCHEMA_WPS: &str = r#"
+CREATE TABLE IF NOT EXISTS wps_links (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id         INTEGER REFERENCES vouchers(id) ON DELETE CASCADE,
+    sheet_id           INTEGER NOT NULL,
+    record_id          TEXT    NOT NULL,
+    doc_type           TEXT    NOT NULL,
+    origin             TEXT    NOT NULL DEFAULT 'wps',
+    fields_json        TEXT    NOT NULL DEFAULT '{}',
+    base_json          TEXT    NOT NULL DEFAULT '{}',
+    remote_json        TEXT    NOT NULL DEFAULT '{}',
+    targets_json       TEXT    NOT NULL DEFAULT '{}',
+    idempotency_key    TEXT    NOT NULL,
+    state              TEXT    NOT NULL DEFAULT 'unclaimed',
+    dirty              INTEGER NOT NULL DEFAULT 0,
+    attempts           INTEGER NOT NULL DEFAULT 0,
+    next_retry_at      TEXT,
+    last_error         TEXT,
+    remote_modified_at TEXT,
+    synced_at          TEXT,
+    created_at         TEXT    NOT NULL,
+    updated_at         TEXT    NOT NULL,
+    UNIQUE(sheet_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wps_links_key
+    ON wps_links(sheet_id, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wps_links_voucher
+    ON wps_links(voucher_id) WHERE voucher_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS wps_tombstones (
+    sheet_id    INTEGER NOT NULL,
+    record_id   TEXT    NOT NULL,
+    voucher_no  TEXT    NOT NULL DEFAULT '',
+    reason      TEXT    NOT NULL CHECK (reason IN ('ignored','local_deleted')),
+    created_at  TEXT    NOT NULL,
+    expires_at  TEXT,
+    restored_at TEXT,
+    PRIMARY KEY(sheet_id, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS wps_scans (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sheet_id    INTEGER NOT NULL,
+    view_id     TEXT,
+    started_at  TEXT    NOT NULL,
+    finished_at TEXT,
+    pages       INTEGER NOT NULL DEFAULT 0,
+    complete    INTEGER NOT NULL DEFAULT 0,
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wps_scans_sheet
+    ON wps_scans(sheet_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS wps_conflicts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_id     INTEGER NOT NULL REFERENCES wps_links(id) ON DELETE CASCADE,
+    field_id    TEXT    NOT NULL,
+    field_name  TEXT    NOT NULL DEFAULT '',
+    base_value  TEXT,
+    local_value TEXT,
+    remote_value TEXT,
+    created_at  TEXT    NOT NULL,
+    resolved_at TEXT,
+    resolution  TEXT,
+    UNIQUE(link_id, field_id)
+);
+
+CREATE TABLE IF NOT EXISTS wps_schema (
+    sheet_id   INTEGER PRIMARY KEY,
+    name       TEXT    NOT NULL DEFAULT '',
+    fields_json TEXT   NOT NULL DEFAULT '[]',
+    views_json TEXT    NOT NULL DEFAULT '[]',
+    fetched_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wps_master (
+    sheet_id     INTEGER NOT NULL,
+    record_id    TEXT    NOT NULL,
+    name         TEXT    NOT NULL DEFAULT '',
+    business_key TEXT    NOT NULL DEFAULT '',
+    fields_json  TEXT    NOT NULL DEFAULT '{}',
+    updated_at   TEXT    NOT NULL,
+    PRIMARY KEY(sheet_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wps_master_key
+    ON wps_master(sheet_id, business_key);
+
+CREATE TABLE IF NOT EXISTS wps_sync_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  TEXT    NOT NULL,
+    finished_at TEXT,
+    mode        TEXT    NOT NULL DEFAULT 'manual',
+    role        TEXT    NOT NULL DEFAULT 'desktop',
+    status      TEXT    NOT NULL DEFAULT 'running',
+    scanned     INTEGER NOT NULL DEFAULT 0,
+    created     INTEGER NOT NULL DEFAULT 0,
+    updated     INTEGER NOT NULL DEFAULT 0,
+    skipped     INTEGER NOT NULL DEFAULT 0,
+    conflicts   INTEGER NOT NULL DEFAULT 0,
+    errors      INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wps_sync_runs_started
+    ON wps_sync_runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS wps_run_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL,
+    link_id     INTEGER NOT NULL,
+    field_id    TEXT    NOT NULL,
+    before_json TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL,
+    reverted_at TEXT,
+    UNIQUE(run_id, link_id, field_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wps_run_changes_run
+    ON wps_run_changes(run_id, id);
+
+CREATE TABLE IF NOT EXISTS wps_run_created (
+    run_id     INTEGER NOT NULL,
+    link_id    INTEGER NOT NULL,
+    record_id  TEXT    NOT NULL,
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY(run_id, link_id)
+);
+
+CREATE TABLE IF NOT EXISTS wps_idempotency_keys (
+    idempotency_key  TEXT PRIMARY KEY,
+    run_id           INTEGER NOT NULL,
+    record_type      TEXT    NOT NULL,
+    local_status     TEXT    NOT NULL CHECK (local_status IN ('pending','succeeded','unknown')),
+    remote_record_id TEXT,
+    created_at       TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wps_idempotency_run
+    ON wps_idempotency_keys(run_id);
+
+CREATE TABLE IF NOT EXISTS wps_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"#;
+
 /// 初始化/升级 schema。
 ///
 /// v1（多图凭证）→ v2（一图一凭证）：不做数据迁移，v1 表整体删除重建
@@ -567,7 +720,92 @@ pub fn init(conn: &Connection) -> Result<()> {
     }
     // v15（Center 会计投影 + 服务端认证）
     conn.execute_batch(SCHEMA_V15)?;
+    // v0.28 WPS 台账同步：独立表，幂等只增，不 bump SCHEMA_VERSION。
+    apply_wps_schema(conn)?;
     Ok(())
+}
+
+/// 建 WPS 同步表（事务内；失败回滚，库仍保持 v4）。
+fn apply_wps_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| -> Result<()> {
+        conn.execute_batch(SCHEMA_WPS)?;
+        conn.execute(
+            "INSERT INTO wps_state(key, value) VALUES('schema_version', 'wps-1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+/// 表是否存在（迁移前快照判断用；`sqlite_master` 对临时表也可见，本函数只用于普通表）。
+fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        [table],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// 是否需要在建 WPS 表前做一次库快照：已有库、有凭证、且还没有 `wps_links`。
+pub fn needs_wps_snapshot(conn: &Connection) -> Result<bool> {
+    if !table_exists(conn, "vouchers")? || table_exists(conn, "wps_links")? {
+        return Ok(false);
+    }
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))?;
+    Ok(n > 0)
+}
+
+/// 建 WPS 表前把当前库 `VACUUM INTO` 到 `backups/pre-wps-*.db`，保留最近 3 份。
+/// 失败返回错误，调用方应中止启动，不允许无备份改库。
+pub fn snapshot_before_wps(conn: &Connection, backups: &Path) -> Result<Option<PathBuf>> {
+    if !needs_wps_snapshot(conn)? {
+        return Ok(None);
+    }
+    fs::create_dir_all(backups)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%3f");
+    let mut path = backups.join(format!("pre-wps-{stamp}.db"));
+    let mut n = 0u32;
+    while path.exists() {
+        n += 1;
+        path = backups.join(format!("pre-wps-{stamp}-{n}.db"));
+    }
+    conn.execute("VACUUM INTO ?1", params![path.to_string_lossy().as_ref()])?;
+    prune_pre_wps_snapshots(backups, 3);
+    Ok(Some(path))
+}
+
+/// 只保留最近 `keep` 份 `pre-wps-*.db`；删除失败不阻断启动。
+fn prune_pre_wps_snapshots(backups: &Path, keep: usize) {
+    let Ok(rd) = fs::read_dir(backups) else {
+        return;
+    };
+    let mut files: Vec<PathBuf> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("pre-wps-") && n.ends_with(".db"))
+        })
+        .collect();
+    files.sort();
+    while files.len() > keep {
+        let old = files.remove(0);
+        let _ = fs::remove_file(old);
+    }
 }
 
 /// 列是否存在（`ALTER TABLE ... ADD COLUMN` 不幂等，加列前先查 `PRAGMA table_info`）
@@ -580,4 +818,81 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn insert_voucher(conn: &Connection, no: &str) {
+        conn.execute(
+            "INSERT INTO vouchers (voucher_no, voucher_date, description, counterparty,
+                amount_cents, status, tags, note, created_at, updated_at)
+             VALUES (?1, '2026-11-19', 'WPS 迁移测试', '测试客户', 100, 'draft',
+                '[]', '', '2026-11-19T00:00:00Z', '2026-11-19T00:00:00Z')",
+            [no],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn wps_schema_is_idempotent_and_preserves_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        init(&conn).unwrap();
+        insert_voucher(&conn, "MIG-1");
+
+        init(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 4, "不得 bump SCHEMA_VERSION");
+        let schema_version: String = conn
+            .query_row(
+                "SELECT value FROM wps_state WHERE key='schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(schema_version, "wps-1");
+        assert!(table_exists(&conn, "wps_links").unwrap());
+        assert!(table_exists(&conn, "wps_run_changes").unwrap());
+        assert!(!needs_wps_snapshot(&conn).unwrap());
+    }
+
+    #[test]
+    fn snapshot_created_for_existing_db_without_wps_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("voucher.db");
+        let backups = dir.path().join("backups");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(SCHEMA_V4).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+        insert_voucher(&conn, "MIG-2");
+
+        assert!(needs_wps_snapshot(&conn).unwrap());
+        let snap = snapshot_before_wps(&conn, &backups).unwrap().unwrap();
+        assert!(snap.exists());
+
+        let restored = Connection::open(&snap).unwrap();
+        let count: i64 = restored
+            .query_row("SELECT COUNT(*) FROM vouchers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(!table_exists(&restored, "wps_links").unwrap());
+    }
+
+    #[test]
+    fn snapshot_skipped_for_new_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("voucher.db");
+        let backups = dir.path().join("backups");
+        let conn = Connection::open(&db_path).unwrap();
+        init(&conn).unwrap();
+        assert!(snapshot_before_wps(&conn, &backups).unwrap().is_none());
+    }
 }

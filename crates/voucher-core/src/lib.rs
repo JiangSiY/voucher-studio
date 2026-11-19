@@ -80,6 +80,8 @@ impl CoreContext {
         paths.ensure_all()?;
 
         let conn = db::connection::open(&paths.db_file())?;
+        // 首次建 WPS 同步表前，对已有库做一次快照；失败则中止，不允许无备份改库。
+        db::schema::snapshot_before_wps(&conn, &paths.backups)?;
         db::schema::init(&conn)?;
 
         let config = AppConfig::load(&paths.config_file())?;
