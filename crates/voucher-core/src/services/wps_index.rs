@@ -3,18 +3,11 @@
 //! 只负责把 WPS 原始记录落到 `wps_record_index`，供预检与 09 刷新型查询使用；
 //! 不解析业务字段、不写 `wps_links`、不进入写入路径。
 //!
-//! B1 阶段这些方法尚未被生产代码调用（W2/W3 接入），因此模块内暂时允许
-//! `dead_code`；B2 接入 `wps_pull` 后改为具体项 allow，并逐步移除。
-// TODO(B2): 接入 wps_pull 后把模块级 allow 降为具体项 allow。
-#![allow(dead_code)]
-
 use rusqlite::{params, OptionalExtension, Row};
 use serde_json::Value;
 
 use crate::services::wps::WpsStore;
 use crate::{CoreError, Result};
-
-pub const TABLE: &str = "wps_record_index";
 
 pub const KIND_DOC_NO: &str = "doc_no";
 pub const KIND_METER_PERIOD: &str = "meter_period";
@@ -135,6 +128,7 @@ impl<'a> WpsStore<'a> {
     }
 
     /// 同一业务键允许重复（WPS 允许重复单号/同表同期），返回全部命中。
+    #[allow(dead_code)] // W2 预检接入；B2 仅写索引
     pub(crate) fn find_index_by_business_key(
         &self,
         sheet_id: i64,
@@ -155,6 +149,7 @@ impl<'a> WpsStore<'a> {
         })
     }
 
+    #[allow(dead_code)] // W2 预检接入；B2 仅写索引
     pub(crate) fn find_index_by_record_id(
         &self,
         sheet_id: i64,
@@ -175,6 +170,7 @@ impl<'a> WpsStore<'a> {
         })
     }
 
+    #[allow(dead_code)] // W2 预检接入；B2 仅写索引
     pub(crate) fn count_index(&self, sheet_id: i64) -> Result<usize> {
         self.database().with_conn(|conn| {
             let n: i64 = conn.query_row(
