@@ -5,6 +5,8 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
+> **2026-11-19 W1-B1**：`voucher-core` 测试 **393 个**（227 单元 + 166 集成，新增 `wps_index` 7 例），加壳 3 共 **396**；前端不变 **44 文件 228 用例**。`services::wps` 过滤口径 23→30，旧 23 例不变。
+>
 > **2026-11-18 工作台重构 B5**：前端 vitest **44 文件 228 用例**（旧页契约与旧页测试随页面删除；新增 `workbenchContract`/`reconcileContract`/`modalContract`）。Rust 口径不变（360/363）。
 >
 > **2026-11-18 工作台重构 B3/B4**：前端 vitest **57 文件 340 用例**（新增 `workbenchContract` 3、`reconcileContract` 3、`modalContract` 3；`dataPageContract` 增深链断言）。Rust 口径不变（360/363）。

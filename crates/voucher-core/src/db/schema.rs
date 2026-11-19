@@ -610,6 +610,23 @@ CREATE TABLE IF NOT EXISTS wps_idempotency_keys (
 CREATE INDEX IF NOT EXISTS idx_wps_idempotency_run
     ON wps_idempotency_keys(run_id);
 
+CREATE TABLE IF NOT EXISTS wps_record_index (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    sheet_id           INTEGER NOT NULL,
+    record_id          TEXT    NOT NULL,
+    record_type        TEXT    NOT NULL,
+    business_key       TEXT    NOT NULL,
+    business_key_kind  TEXT    NOT NULL,
+    remote_modified_at TEXT,
+    fields_json        TEXT    NOT NULL,
+    pulled_at          TEXT    NOT NULL,
+    UNIQUE(sheet_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wps_index_key
+    ON wps_record_index(sheet_id, business_key);
+CREATE INDEX IF NOT EXISTS idx_wps_index_type
+    ON wps_record_index(sheet_id, record_type);
+
 CREATE TABLE IF NOT EXISTS wps_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

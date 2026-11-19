@@ -23,7 +23,7 @@ use crate::db::Database;
 use crate::{CoreContext, CoreError, Result};
 
 /// 同步表集合；与 `db::schema::SCHEMA_WPS` 保持一致。
-pub const WPS_TABLES: [&str; 11] = [
+pub const WPS_TABLES: [&str; 12] = [
     "wps_links",
     "wps_tombstones",
     "wps_scans",
@@ -34,6 +34,7 @@ pub const WPS_TABLES: [&str; 11] = [
     "wps_run_changes",
     "wps_run_created",
     "wps_idempotency_keys",
+    "wps_record_index",
     "wps_state",
 ];
 
@@ -710,9 +711,14 @@ impl<'a> WpsStore<'a> {
         Self { db }
     }
 
-    /// 运行期自检：11 张表齐全且 `wps_state.schema_version='wps-1'`。
+    /// 供 `wps_index` 等跨模块方法复用底层连接池；字段 `db` 保持私有。
+    pub(crate) fn database(&self) -> &Database {
+        self.db
+    }
+
+    /// 运行期自检：12 张表齐全且 `wps_state.schema_version='wps-1'`。
     pub fn ensure_schema(&self) -> Result<()> {
-        self.db.with_conn(|conn| {
+        self.database().with_conn(|conn| {
             let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")?;
             let existing: HashSet<String> = stmt
                 .query_map([], |row| row.get::<_, String>(0))?
