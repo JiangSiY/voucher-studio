@@ -3,7 +3,7 @@
 //! 只负责把 WPS `list_records` 的原始 JSON 解析成索引行，并维护
 //! `wps_scans` 生命周期；不含 09 创建门、不含写入、不含真实 HTTP。
 //!
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, FixedOffset, SecondsFormat, TimeZone, Utc};
 use serde_json::Value;
 
 use crate::services::wps::{WpsClient, WpsError, WpsStore, WpsTransport};
@@ -35,6 +35,9 @@ pub struct PullReport {
     pub indexed: usize,
     pub skipped: usize,
     pub complete: bool,
+    /// WPS `list_records` 没有快照 token；当前实现只能标记“未验证”。
+    /// 真实写入路径必须拒绝 `snapshot_verified=false` 的扫描轮次。
+    pub snapshot_verified: bool,
     pub error: Option<String>,
     pub error_code: Option<String>,
 }
@@ -146,6 +149,7 @@ fn pull_sheet_with_limit<T: WpsTransport>(
         indexed: 0,
         skipped: 0,
         complete: false,
+        snapshot_verified: false,
         error: None,
         error_code: None,
     };
@@ -159,6 +163,7 @@ fn pull_sheet_with_limit<T: WpsTransport>(
         }
     }
 
+    let scan_started = Utc::now();
     let mut staged: Vec<WpsIndexRow> = Vec::new();
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut expected_total: Option<usize> = None;
@@ -209,6 +214,24 @@ fn pull_sheet_with_limit<T: WpsTransport>(
             }
         }
         for row in &page.rows {
+            if let Some(modified) = row
+                .remote_modified_at
+                .as_deref()
+                .and_then(parse_remote_modified_at)
+            {
+                // 接口没有快照 token；只能在记录自报的修改时间晚于本轮扫描起点时，
+                // 判定“扫描期间记录发生变化”，拒绝发布本轮索引。缺失/不可解析的
+                // 修改时间无法证明快照一致，需在 S0/C5 材料中记录限制。
+                if modified > scan_started + chrono::Duration::seconds(120) {
+                    report.error = Some(format!(
+                        "WPS_E_PULL_CHANGED: 扫描期间记录 {} 的修改时间晚于本轮起点，拒绝发布索引",
+                        row.record_id
+                    ));
+                    report.error_code = Some("WPS_E_PULL_CHANGED".to_string());
+                    store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
+                    return Ok(report);
+                }
+            }
             if !seen_ids.insert(row.record_id.clone()) {
                 report.error = Some(format!(
                     "WPS_E_PULL_INCONSISTENT: 扫描中记录 {} 重复出现，拒绝发布本轮索引",
@@ -272,6 +295,22 @@ fn pull_sheet_with_limit<T: WpsTransport>(
     }
     report.complete = true;
     Ok(report)
+}
+
+fn parse_remote_modified_at(text: &str) -> Option<DateTime<Utc>> {
+    let text = text.trim();
+    if let Ok(value) = DateTime::parse_from_rfc3339(text) {
+        return Some(value.with_timezone(&Utc));
+    }
+    for format in ["%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"] {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(text, format) {
+            let offset = FixedOffset::east_opt(8 * 3600)?;
+            if let Some(value) = offset.from_local_datetime(&naive).single() {
+                return Some(value.with_timezone(&Utc));
+            }
+        }
+    }
+    None
 }
 
 fn records_array(payload: &Value) -> Option<&Vec<Value>> {
@@ -683,6 +722,101 @@ mod tests {
             .find_index_by_business_key(3, "AR-NEW")
             .expect("new not published")
             .is_empty());
+    }
+
+    #[test]
+    fn pull_sheet_rejects_record_modified_after_scan_start() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new(
+            "session-1",
+            vec![
+                Ok(json!({
+                    "records": [
+                        {"id": "r1", "lastModifiedTime": "2026/11/19 10:00:00", "fields": {"应收单号": "AR-1"}}
+                    ],
+                    "total": 2,
+                    "has_more": true,
+                    "next_offset": 1
+                })),
+                Ok(json!({
+                    "records": [
+                        {"id": "r2", "lastModifiedTime": "2099-01-01T00:00:00Z", "fields": {"应收单号": "AR-2"}}
+                    ],
+                    "total": 2,
+                    "has_more": false,
+                    "next_offset": 2
+                })),
+            ],
+        );
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet(&client, &store, 3, "03", None, 1).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(report.error_code.as_deref(), Some("WPS_E_PULL_CHANGED"));
+        let count: i64 = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM wps_record_index WHERE sheet_id = 3",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(Into::into)
+            })
+            .expect("count");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn c5_field_change_with_unique_ids_is_not_snapshot_verified() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let first = MockTransport::new(
+            "session-1",
+            vec![Ok(json!({
+                "records": [
+                    {"id": "r1", "fields": {"应收单号": "AR-1", "金额": 100}},
+                    {"id": "r2", "fields": {"应收单号": "AR-2", "金额": 200}}
+                ],
+                "total": 2,
+                "has_more": false
+            }))],
+        );
+        pull_sheet(&WpsClient::new(first, "file-1"), &store, 3, "03", None, 500)
+            .expect("first pull");
+
+        let second = MockTransport::new(
+            "session-1",
+            vec![Ok(json!({
+                "records": [
+                    {"id": "r1", "fields": {"应收单号": "AR-1", "金额": 999}},
+                    {"id": "r2", "fields": {"应收单号": "AR-2", "金额": 200}}
+                ],
+                "total": 2,
+                "has_more": false
+            }))],
+        );
+        let report = pull_sheet(
+            &WpsClient::new(second, "file-1"),
+            &store,
+            3,
+            "03",
+            None,
+            500,
+        )
+        .expect("second pull");
+        assert!(report.complete);
+        assert!(!report.snapshot_verified);
+        let fields: String = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT fields_json FROM wps_record_index WHERE sheet_id = 3 AND record_id = 'r1'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(Into::into)
+            })
+            .expect("indexed fields");
+        assert!(fields.contains("999"), "{fields}");
     }
 
     #[test]

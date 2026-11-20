@@ -4,5 +4,6 @@ pub mod config;
 pub mod crypto;
 pub mod file_lock;
 pub mod jsonio;
+pub mod log_retention;
 pub mod paths;
 pub mod timing;

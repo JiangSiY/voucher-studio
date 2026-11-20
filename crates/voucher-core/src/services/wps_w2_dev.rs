@@ -8,7 +8,9 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
-use crate::services::wps::{WpsClient, WpsError, WpsStore, WpsTransport};
+use std::sync::Arc;
+
+use crate::services::wps::{WpsClient, WpsCredentialProvider, WpsError, WpsStore, WpsTransport};
 use crate::services::wps_w2::{
     run_mock_batch, W2BatchReport, W2Config, W2CreateRequest, W2PullReport, W2Sync,
 };
@@ -40,6 +42,15 @@ impl DevW2Scenario {
             Self::TimeoutSecond => "timeout_second",
             Self::MissingReference => "missing_reference",
         }
+    }
+}
+
+/// 开发 Mock 专用合成凭据：只用于本地伪传输，不读取真实钥匙串。
+pub struct DevW2Credentials;
+
+impl WpsCredentialProvider for DevW2Credentials {
+    fn access_token(&self) -> std::result::Result<String, WpsError> {
+        Ok("synthetic-w2-dev-token".into())
     }
 }
 
@@ -79,7 +90,7 @@ impl DevW2Transport {
 }
 
 impl WpsTransport for DevW2Transport {
-    fn initialize(&self) -> std::result::Result<String, WpsError> {
+    fn initialize(&self, _auth: Option<&str>) -> std::result::Result<String, WpsError> {
         Ok("dev-w2-session".into())
     }
 
@@ -88,6 +99,7 @@ impl WpsTransport for DevW2Transport {
         _session_id: &str,
         action: &str,
         args: &Value,
+        _auth: Option<&str>,
     ) -> std::result::Result<Value, WpsError> {
         match action {
             "dbsheet.list_records" => {
@@ -189,14 +201,16 @@ fn request(
 
 /// 只拉取：结果与 `write` 前同样走一遍 11 表全历史链，不初始化写会话。
 pub fn dev_pull(store: &WpsStore<'_>) -> Result<W2PullReport> {
-    let client = WpsClient::new(DevW2Transport::new(DevW2Scenario::Normal), "mock://w2-dev");
+    let client = WpsClient::new(DevW2Transport::new(DevW2Scenario::Normal), "mock://w2-dev")
+        .with_credentials(Arc::new(DevW2Credentials));
     let sync = W2Sync::new(&client, store);
     sync.pull_all_history()
 }
 
 /// 显式测试写：固定 Mock 配置，先全历史拉取，再整批预检/逐条创建。
 pub fn dev_write(store: &WpsStore<'_>, scenario: DevW2Scenario) -> Result<DevW2Run> {
-    let client = WpsClient::new(DevW2Transport::new(scenario), "mock://w2-dev");
+    let client = WpsClient::new(DevW2Transport::new(scenario), "mock://w2-dev")
+        .with_credentials(Arc::new(DevW2Credentials));
     let sync = W2Sync::new(&client, store);
     let pull = sync.pull_all_history()?;
     if pull.writes_blocked {

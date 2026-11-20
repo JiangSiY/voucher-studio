@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 #[cfg(test)]
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, OptionalExtension};
@@ -38,6 +38,9 @@ pub const WPS_TABLES: [&str; 13] = [
     "wps_write_intents",
     "wps_state",
 ];
+
+/// 运行记录保留条数（S0-11）；超出后按 id 删除最旧记录。
+pub const WPS_SYNC_RUN_KEEP: i64 = 500;
 
 /// `wps_state` 的运行期版本标记；不参与 SQLite `user_version`。
 pub const WPS_SCHEMA_VERSION: &str = "wps-1";
@@ -232,6 +235,8 @@ pub enum WpsError {
     Schema(String),
     /// WPS 400006：授权失效/需要重新授权。
     AuthExpired,
+    /// 凭据不可用/缺失/过期；请求前本地拒绝，不回退文件后端。
+    Credentials(String),
     /// WPS 429：限流，调用方退避后重试。
     RateLimited,
     /// 请求超时；与 429 一样属于可重试。
@@ -255,6 +260,7 @@ impl WpsError {
         match self {
             Self::Schema(_) => "WPS_E_SCHEMA",
             Self::AuthExpired => "WPS_E_AUTH",
+            Self::Credentials(_) => "WPS_E_CREDENTIALS",
             Self::RateLimited => "WPS_E_RATE",
             Self::Timeout => "WPS_E_TIMEOUT",
             Self::Remote(_) => "WPS_E_REMOTE",
@@ -323,6 +329,7 @@ impl std::fmt::Display for WpsError {
         match self {
             Self::Schema(msg) => write!(f, "{}: {msg}", self.code()),
             Self::AuthExpired => write!(f, "{}: WPS 授权已失效，请重新授权", self.code()),
+            Self::Credentials(msg) => write!(f, "{}: {msg}", self.code()),
             Self::RateLimited => write!(f, "{}: WPS 限流，请稍后重试", self.code()),
             Self::Timeout => write!(f, "{}: WPS 请求超时", self.code()),
             Self::Remote(msg) => write!(f, "{}: {msg}", self.code()),
@@ -343,19 +350,27 @@ impl std::fmt::Display for WpsError {
 
 impl std::error::Error for WpsError {}
 
+/// 凭据提供方：请求前由 `WpsClient` 取 token，token 只进入传输层认证参数，
+/// 不进入 `tools/call` 的 arguments、URL、日志或备份。
+pub trait WpsCredentialProvider: Send + Sync {
+    fn access_token(&self) -> std::result::Result<String, WpsError>;
+}
+
 /// 传输层边界：负责 MCP 会话初始化与一次 `tools/call`，不解释台账字段。
 ///
-/// 真实实现用 HTTP 拿到 `mcp-session-id`；mock 用字符串模拟。
+/// `auth` 是 `Authorization: Bearer` 的 token 值；真实 HTTP 实现用它设置请求头，
+/// 本仓库当前只有 Mock/开发伪传输。token 不得拼进 `args` 或 URL。
 pub trait WpsTransport: Send + Sync {
     /// 初始化 MCP 会话并返回 session id（对应 `initialize` + 响应头）。
-    fn initialize(&self) -> std::result::Result<String, WpsError>;
+    fn initialize(&self, auth: Option<&str>) -> std::result::Result<String, WpsError>;
 
-    /// 带 session id 执行一次 `tools/call`。
+    /// 带 session id 执行一次 `tools/call`；`auth` 只用于请求认证。
     fn call(
         &self,
         session_id: &str,
         action: &str,
         args: &Value,
+        auth: Option<&str>,
     ) -> std::result::Result<Value, WpsError>;
 }
 
@@ -369,6 +384,7 @@ pub struct WpsClient<T: WpsTransport> {
     session: Mutex<Option<String>>,
     retry: WpsRetryPolicy,
     allowed_files: Option<HashSet<String>>,
+    credential: Option<Arc<dyn WpsCredentialProvider>>,
 }
 
 impl<T: WpsTransport> WpsClient<T> {
@@ -384,7 +400,33 @@ impl<T: WpsTransport> WpsClient<T> {
             session: Mutex::new(None),
             retry,
             allowed_files: None,
+            credential: None,
         }
+    }
+
+    /// 注入凭据提供方；生产 HTTP 应使用 WPS 专用钥匙串提供方。
+    pub fn with_credentials(mut self, provider: Arc<dyn WpsCredentialProvider>) -> Self {
+        self.credential = Some(provider);
+        self
+    }
+
+    /// 使用 WPS 专用 keyring-only 入口；本地 Mock/伪服务使用合成 provider，
+    /// 不在测试/开发路径读取真实 token。
+    pub fn with_wps_credentials(self) -> Self {
+        self.with_credentials(Arc::new(
+            crate::services::wps_credentials::WpsCredentialStore::new(),
+        ))
+    }
+
+    fn auth_token(&self) -> std::result::Result<Option<String>, WpsError> {
+        let Some(provider) = &self.credential else {
+            return Ok(None);
+        };
+        let token = provider.access_token()?;
+        if token.trim().is_empty() {
+            return Err(WpsError::Credentials("WPS token 为空，拒绝请求".into()));
+        }
+        Ok(Some(token))
     }
 
     /// 绑定目标 file_id 白名单；S0-06 使用，未列入的 file_id 在发请求前拒绝。
@@ -425,7 +467,8 @@ impl<T: WpsTransport> WpsClient<T> {
     /// 初始化会话；重复调用会覆盖旧 session（真实实现应先释放旧会话）。
     pub fn initialize(&self) -> std::result::Result<String, WpsError> {
         self.ensure_file_allowed()?;
-        let session_id = self.transport.initialize()?;
+        let auth = self.auth_token()?;
+        let session_id = self.transport.initialize(auth.as_deref())?;
         *self
             .session
             .lock()
@@ -453,7 +496,9 @@ impl<T: WpsTransport> WpsClient<T> {
         let session_id = guard
             .as_deref()
             .ok_or_else(|| WpsError::Protocol("MCP 会话未初始化，请先 initialize()".into()))?;
-        self.transport.call(session_id, action, args)
+        let auth = self.auth_token()?;
+        self.transport
+            .call(session_id, action, args, auth.as_deref())
     }
 
     /// 只读请求：429/5xx/超时按 `WpsRetryPolicy` 重试；400006 不重试；
@@ -520,8 +565,8 @@ impl<T: WpsTransport> WpsClient<T> {
     /// use serde_json::Value;
     /// struct T;
     /// impl WpsTransport for T {
-    ///     fn initialize(&self) -> Result<String, WpsError> { Ok("s".into()) }
-    ///     fn call(&self, _: &str, _: &str, _: &Value) -> Result<Value, WpsError> {
+    ///     fn initialize(&self, _: Option<&str>) -> Result<String, WpsError> { Ok("s".into()) }
+    ///     fn call(&self, _: &str, _: &str, _: &Value, _: Option<&str>) -> Result<Value, WpsError> {
     ///         Ok(Value::Null)
     ///     }
     /// }
@@ -669,6 +714,7 @@ pub(crate) struct MockTransport {
     responses: Mutex<VecDeque<std::result::Result<Value, WpsError>>>,
     calls: Mutex<Vec<MockCall>>,
     initialize_calls: Mutex<usize>,
+    initialize_auths: Mutex<Vec<Option<String>>>,
 }
 
 #[cfg(test)]
@@ -677,6 +723,7 @@ pub(crate) struct MockCall {
     pub(crate) session_id: String,
     pub(crate) action: String,
     pub(crate) args: Value,
+    pub(crate) auth: Option<String>,
 }
 
 #[cfg(test)]
@@ -690,6 +737,7 @@ impl MockTransport {
             responses: Mutex::new(responses.into()),
             calls: Mutex::new(Vec::new()),
             initialize_calls: Mutex::new(0),
+            initialize_auths: Mutex::new(Vec::new()),
         }
     }
 
@@ -698,6 +746,13 @@ impl MockTransport {
             .initialize_calls
             .lock()
             .expect("mock transport mutex poisoned")
+    }
+
+    pub(crate) fn initialize_auths(&self) -> Vec<Option<String>> {
+        self.initialize_auths
+            .lock()
+            .expect("mock transport mutex poisoned")
+            .clone()
     }
 
     pub(crate) fn calls(&self) -> Vec<MockCall> {
@@ -710,11 +765,15 @@ impl MockTransport {
 
 #[cfg(test)]
 impl WpsTransport for MockTransport {
-    fn initialize(&self) -> std::result::Result<String, WpsError> {
+    fn initialize(&self, auth: Option<&str>) -> std::result::Result<String, WpsError> {
         *self
             .initialize_calls
             .lock()
             .expect("mock transport mutex poisoned") += 1;
+        self.initialize_auths
+            .lock()
+            .expect("mock transport mutex poisoned")
+            .push(auth.map(str::to_string));
         Ok(self.session_id.clone())
     }
 
@@ -723,6 +782,7 @@ impl WpsTransport for MockTransport {
         session_id: &str,
         action: &str,
         args: &Value,
+        auth: Option<&str>,
     ) -> std::result::Result<Value, WpsError> {
         self.calls
             .lock()
@@ -731,6 +791,7 @@ impl WpsTransport for MockTransport {
                 session_id: session_id.to_string(),
                 action: action.to_string(),
                 args: args.clone(),
+                auth: auth.map(str::to_string),
             });
         self.responses
             .lock()
@@ -877,6 +938,13 @@ impl<'a> WpsStore<'a> {
                     duration_ms,
                     error
                 ],
+            )?;
+            conn.execute(
+                "DELETE FROM wps_sync_runs
+                  WHERE id NOT IN (
+                      SELECT id FROM wps_sync_runs ORDER BY id DESC LIMIT ?1
+                  )",
+                params![WPS_SYNC_RUN_KEEP],
             )?;
             Ok(())
         })
@@ -1713,6 +1781,70 @@ mod tests {
         assert!(!text.contains("13800000000"));
         assert!(!text.contains("128600"));
         assert!(!text.contains("某客户"));
+    }
+
+    struct StaticProvider(&'static str);
+
+    impl WpsCredentialProvider for StaticProvider {
+        fn access_token(&self) -> std::result::Result<String, WpsError> {
+            Ok(self.0.into())
+        }
+    }
+
+    struct FailingProvider;
+
+    impl WpsCredentialProvider for FailingProvider {
+        fn access_token(&self) -> std::result::Result<String, WpsError> {
+            Err(WpsError::AuthExpired)
+        }
+    }
+
+    #[test]
+    fn credential_token_reaches_transport_auth_and_not_arguments() {
+        let transport = MockTransport::new("sess-auth", vec![Ok(json!({"ok": true}))]);
+        let client = WpsClient::new(transport, "file-1")
+            .with_credentials(Arc::new(StaticProvider("synthetic-token")));
+        client.initialize().expect("initialize with token");
+        client
+            .call("dbsheet.list_records", &json!({"sheet_id": 3}))
+            .expect("call");
+        assert_eq!(
+            client.transport().initialize_auths(),
+            vec![Some("synthetic-token".to_string())]
+        );
+        let calls = client.transport().calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].auth.as_deref(), Some("synthetic-token"));
+        assert!(!calls[0].args.to_string().contains("synthetic-token"));
+    }
+
+    #[test]
+    fn credential_failure_stops_before_any_transport_call() {
+        let mock = MockTransport::new("sess-auth", vec![]);
+        let client = WpsClient::new(mock, "file-1").with_credentials(Arc::new(FailingProvider));
+        let err = client.initialize().expect_err("expired token must stop");
+        assert_eq!(err.code(), "WPS_E_AUTH");
+        assert_eq!(client.transport().initialize_calls(), 0);
+        assert!(client.transport().calls().is_empty());
+    }
+
+    #[test]
+    fn sync_runs_are_trimmed_to_latest_500() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        for _ in 0..505 {
+            let run_id = store.start_run("manual", "test").expect("start");
+            store
+                .finish_run(run_id, "ok", 0, 0, 0, 0, 0, 0, 0, None)
+                .expect("finish");
+        }
+        let count: i64 = db
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM wps_sync_runs", [], |row| row.get(0))
+                    .map_err(Into::into)
+            })
+            .expect("count");
+        assert_eq!(count, WPS_SYNC_RUN_KEEP);
     }
 
     #[test]

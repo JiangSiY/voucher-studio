@@ -10,11 +10,11 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use chrono::{DateTime, FixedOffset, NaiveDate};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate, SecondsFormat, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
-use crate::services::wps::{extract_remote_record_id, WpsClient, WpsStore, WpsTransport};
+use crate::services::wps::{extract_remote_record_id, WpsClient, WpsError, WpsStore, WpsTransport};
 use crate::services::wps_09::Wps09CreateGuard;
 use crate::services::wps_doc_guard::{doc_spec_for_sheet, WpsDocNoCreateGuard};
 use crate::services::wps_index::business_key_for;
@@ -318,8 +318,11 @@ pub struct W2PullSheetReport {
 pub struct W2PullReport {
     pub sheets: Vec<W2PullSheetReport>,
     pub complete: bool,
+    /// WPS 无快照 token；当前实现恒为 false，严格写入路径必须拒绝。
+    pub snapshot_verified: bool,
     /// 任一张表不完整/有坏页时阻断依赖本轮索引的写入。
     pub writes_blocked: bool,
+    pub blocked_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,10 +333,28 @@ pub enum W2SyncStatus {
     Missing,
 }
 
+/// 429 后的本地冷却时长（S0-08）。
+pub const RATE_LIMIT_COOLDOWN_SECS: i64 = 30 * 60;
+const RATE_LIMIT_COOLDOWN_KEY: &str = "wps.rate_limit_until";
+
+/// 可注入时钟；生产用系统时间，测试用固定时间验证 30 分钟冷却。
+pub trait W2Clock: Send + Sync {
+    fn now(&self) -> DateTime<Utc>;
+}
+
+pub struct SystemW2Clock;
+
+impl W2Clock for SystemW2Clock {
+    fn now(&self) -> DateTime<Utc> {
+        Utc::now()
+    }
+}
+
 /// W2 业务链路；只在 Mock 下使用。
 pub struct W2Sync<'a, T: WpsTransport> {
     client: &'a WpsClient<T>,
     store: &'a WpsStore<'a>,
+    clock: Box<dyn W2Clock>,
 }
 
 /// 应用层 Mock 入口：固定 `W2Config::mock_write()`，不读配置、不接 UI、不发起真实 HTTP。
@@ -358,7 +379,35 @@ pub fn run_mock_batch<T: WpsTransport>(
 
 impl<'a, T: WpsTransport> W2Sync<'a, T> {
     pub fn new(client: &'a WpsClient<T>, store: &'a WpsStore<'a>) -> Self {
-        Self { client, store }
+        Self {
+            client,
+            store,
+            clock: Box::new(SystemW2Clock),
+        }
+    }
+
+    /// 测试/受控场景注入时钟；不改变生产默认。
+    pub fn with_clock(mut self, clock: Box<dyn W2Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    fn cooldown_until(&self) -> Result<Option<DateTime<Utc>>> {
+        let Some(raw) = self.store.get_state(RATE_LIMIT_COOLDOWN_KEY)? else {
+            return Ok(None);
+        };
+        Ok(DateTime::parse_from_rfc3339(&raw)
+            .ok()
+            .map(|value| value.with_timezone(&Utc)))
+    }
+
+    fn set_rate_limit_cooldown(&self) -> Result<DateTime<Utc>> {
+        let until = self.clock.now() + Duration::seconds(RATE_LIMIT_COOLDOWN_SECS);
+        self.store.set_state(
+            RATE_LIMIT_COOLDOWN_KEY,
+            &until.to_rfc3339_opts(SecondsFormat::Secs, true),
+        )?;
+        Ok(until)
     }
 
     /// 首批 11 张表各跑一条全历史分页链；不传 view_id、不按日期切分。
@@ -385,8 +434,24 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
         Ok(W2PullReport {
             sheets,
             complete,
+            snapshot_verified: false,
             writes_blocked: !complete,
+            blocked_reason: (!complete).then(|| "WPS_E_PULL_BLOCKED: 全历史拉取不完整".into()),
         })
+    }
+
+    /// 严格写入前置：无快照证据时同样阻断；真实服务必须走这里，开发 Mock 走
+    /// `pull_all_history` 仅用于本地走查。
+    pub fn pull_all_history_strict(&self) -> Result<W2PullReport> {
+        let mut report = self.pull_all_history()?;
+        if !report.snapshot_verified {
+            report.writes_blocked = true;
+            report.blocked_reason = Some(
+                "WPS_E_PULL_SNAPSHOT_UNVERIFIED: WPS list_records 无快照 token，字段级并发变更不可证明；本轮不得作为写入依据"
+                    .into(),
+            );
+        }
+        Ok(report)
     }
 
     /// 整批预检；任何一项不通过即整批拒绝，调用方不得进入写入。
@@ -398,6 +463,25 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
         config.validate_write()?;
         if requests.is_empty() {
             return Err(W2Reject::new("WPS_E_BATCH_EMPTY", "创建批次为空", None));
+        }
+        let cooldown = match self.cooldown_until() {
+            Ok(value) => value,
+            Err(err) => {
+                return Err(W2Reject::new(
+                    "WPS_E_LOCAL",
+                    format!("读取限流冷却状态失败: {err}"),
+                    None,
+                ));
+            }
+        };
+        if let Some(until) = cooldown {
+            if self.clock.now() < until {
+                return Err(W2Reject::new(
+                    "WPS_E_RATE_COOLDOWN",
+                    format!("WPS 限流冷却中，至 {}", until.to_rfc3339()),
+                    None,
+                ));
+            }
         }
         let mut batch_keys: HashSet<(i64, String)> = HashSet::new();
         let mut business_keys = Vec::with_capacity(requests.len());
@@ -642,6 +726,9 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
 
         if self.client.session_id().is_none() {
             if let Err(err) = self.client.initialize() {
+                if matches!(err, WpsError::RateLimited) {
+                    let _ = self.set_rate_limit_cooldown();
+                }
                 return Ok(W2BatchReport {
                     run_id: None,
                     outcomes: requests
@@ -651,7 +738,7 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                             status: W2WriteStatus::Rejected,
                             remote_record_id: None,
                             link_id: None,
-                            error: Some(format!("WPS_E_SESSION: {err}")),
+                            error: Some(format!("{}: {err}", err.code())),
                         })
                         .collect(),
                     stopped: true,
@@ -785,23 +872,44 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                     }
                 }
                 Err(err) => {
+                    let rate_until = if matches!(err, WpsError::RateLimited) {
+                        Some(self.set_rate_limit_cooldown()?)
+                    } else {
+                        None
+                    };
+                    let pending_attention =
+                        matches!(err, WpsError::AuthExpired | WpsError::RateLimited);
                     self.store.mark_idempotency_key(
                         request.idempotency_key.trim(),
-                        "unknown",
+                        if pending_attention {
+                            "pending"
+                        } else {
+                            "unknown"
+                        },
                         None,
                     )?;
+                    let message = match (&err, rate_until) {
+                        (WpsError::AuthExpired, _) => {
+                            "WPS_E_AUTH: 授权失效，已停止批量写入；该条保留待处理".to_string()
+                        }
+                        (WpsError::RateLimited, Some(until)) => format!(
+                            "WPS_E_RATE: 限流，已停止批量写入并冷却至 {}",
+                            until.to_rfc3339()
+                        ),
+                        _ => err.to_string(),
+                    };
                     self.update_intent_state(
                         request.idempotency_key.trim(),
                         "unknown",
                         None,
-                        Some(&err.to_string()),
+                        Some(&message),
                     )?;
                     outcomes.push(W2Outcome {
                         idempotency_key: request.idempotency_key.clone(),
                         status: W2WriteStatus::Unknown,
                         remote_record_id: None,
                         link_id: None,
-                        error: Some(err.to_string()),
+                        error: Some(message),
                     });
                     stopped = true;
                 }
@@ -1107,6 +1215,27 @@ mod tests {
         let err = sync
             .preflight(&W2Config::default(), &[request("AR-1", "2026-11-01")])
             .expect_err("default pull-only");
+        assert_eq!(err.code, "WPS_E_ENTRY_PERMISSION");
+    }
+
+    #[test]
+    fn preflight_requires_exclusive_software_entry_owner() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let client = WpsClient::new(MockTransport::new("s", vec![]), "file-1");
+        let sync = W2Sync::new(&client, &store);
+        let mut wps_owned = W2Config::mock_write();
+        wps_owned.entry_owner = EntryOwner::Wps;
+        let err = sync
+            .preflight(&wps_owned, &[request("AR-1", "2026-11-01")])
+            .expect_err("WPS-owned entry must not be written by software");
+        assert_eq!(err.code, "WPS_E_ENTRY_PERMISSION");
+
+        let mut not_exclusive = W2Config::mock_write();
+        not_exclusive.entry_exclusive = false;
+        let err = sync
+            .preflight(&not_exclusive, &[request("AR-1", "2026-11-01")])
+            .expect_err("non-exclusive entry must be rejected");
         assert_eq!(err.code, "WPS_E_ENTRY_PERMISSION");
     }
 
@@ -1437,6 +1566,104 @@ mod tests {
             sync.intent_state("idem-AR-NEW").expect("intent"),
             Some("pending_backfill".into())
         );
+    }
+
+    struct FixedClock(DateTime<Utc>);
+
+    impl W2Clock for FixedClock {
+        fn now(&self) -> DateTime<Utc> {
+            self.0
+        }
+    }
+
+    fn fixed_clock(minutes_from_base: i64) -> Box<dyn W2Clock> {
+        let base = DateTime::parse_from_rfc3339("2026-11-20T00:00:00Z")
+            .expect("parse base")
+            .with_timezone(&Utc);
+        Box::new(FixedClock(base + Duration::minutes(minutes_from_base)))
+    }
+
+    #[test]
+    fn strict_pull_blocks_when_snapshot_cannot_be_verified() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let responses = (0..W2_SHEETS.len())
+            .map(|_| Ok(json!({"records": [], "total": 0, "has_more": false})))
+            .collect();
+        let client = WpsClient::new(MockTransport::new("session-1", responses), "file-1");
+        let sync = W2Sync::new(&client, &store);
+        let report = sync.pull_all_history_strict().expect("strict pull");
+        assert!(report.complete);
+        assert!(!report.snapshot_verified);
+        assert!(report.writes_blocked);
+        assert!(report
+            .blocked_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("WPS_E_PULL_SNAPSHOT_UNVERIFIED"));
+    }
+
+    #[test]
+    fn auth_expired_stops_and_keeps_pending_item_without_replay() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new("session-1", vec![Err(WpsError::AuthExpired)]);
+        let client = WpsClient::new(transport, "file-1");
+        let sync = W2Sync::new(&client, &store);
+        let report = sync
+            .execute(
+                &W2Config::mock_write(),
+                &[request("AR-A", "2026-11-01"), request("AR-B", "2026-11-01")],
+            )
+            .expect("execute");
+        assert!(report.stopped);
+        assert_eq!(report.outcomes[0].status, W2WriteStatus::Unknown);
+        assert_eq!(report.outcomes[1].status, W2WriteStatus::NotAttempted);
+        assert_eq!(
+            store
+                .idempotency_key("idem-AR-A")
+                .expect("idempotency")
+                .expect("row")
+                .local_status,
+            "pending"
+        );
+        assert_eq!(
+            sync.intent_state("idem-AR-A").expect("intent"),
+            Some("unknown".into())
+        );
+        assert_eq!(client.transport().calls().len(), 1);
+    }
+
+    #[test]
+    fn rate_limit_sets_thirty_minute_cooldown_and_blocks_until_expiry() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new("session-1", vec![Err(WpsError::RateLimited)]);
+        let client = WpsClient::new(transport, "file-1");
+        let sync = W2Sync::new(&client, &store).with_clock(fixed_clock(0));
+        let report = sync
+            .execute(&W2Config::mock_write(), &[request("AR-A", "2026-11-01")])
+            .expect("execute");
+        assert!(report.stopped);
+        assert_eq!(report.outcomes[0].status, W2WriteStatus::Unknown);
+        let state = store
+            .get_state(RATE_LIMIT_COOLDOWN_KEY)
+            .expect("state")
+            .expect("cooldown");
+        assert!(state.starts_with("2026-11-20T00:30:00"), "{state}");
+
+        let client_29 = WpsClient::new(MockTransport::new("s", vec![]), "file-1");
+        let sync_29 = W2Sync::new(&client_29, &store).with_clock(fixed_clock(29));
+        let err = sync_29
+            .preflight(&W2Config::mock_write(), &[request("AR-B", "2026-11-01")])
+            .expect_err("cooldown must block");
+        assert_eq!(err.code, "WPS_E_RATE_COOLDOWN");
+
+        let client_31 = WpsClient::new(MockTransport::new("s", vec![]), "file-1");
+        let sync_31 = W2Sync::new(&client_31, &store).with_clock(fixed_clock(31));
+        sync_31
+            .preflight(&W2Config::mock_write(), &[request("AR-B", "2026-11-01")])
+            .expect("cooldown expired");
     }
 
     #[test]

@@ -98,6 +98,15 @@ fn main() {
             paths.ensure_all()?;
             platform::apply_pending_restore(&paths);
 
+            // 1.5 日志保留：删除 30 天前的应用日志文件（S0-11）；失败只告警，不影响启动。
+            if let Ok(log_dir) = app.path().app_log_dir() {
+                match voucher_core::utils::log_retention::cleanup_older_than(&log_dir, 30) {
+                    Ok(0) => {}
+                    Ok(count) => log::info!("已清理 {count} 个超过 30 天的日志文件"),
+                    Err(err) => log::warn!("日志保留清理失败: {err}"),
+                }
+            }
+
             // 2. 数据目录文件锁：同一目录同一时刻只允许一个实例写入
             let guard = FileLockGuard::try_acquire(&paths.lock_file()).map_err(|e| {
                 Box::<dyn std::error::Error>::from(format!(

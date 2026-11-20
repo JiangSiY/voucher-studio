@@ -10,6 +10,7 @@ use std::sync::Arc;
 use keyring::Entry;
 use serde::Serialize;
 
+use crate::services::wps::{WpsCredentialProvider, WpsError};
 use crate::{CoreError, Result};
 
 pub const WPS_KEYRING_SERVICE: &str = "voucher-studio-wps";
@@ -86,6 +87,35 @@ pub struct WpsCredentialStore {
 impl Default for WpsCredentialStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl WpsCredentialProvider for WpsCredentialStore {
+    /// 请求时取 token；只做认证，不把 token 暴露给命令层。
+    ///
+    /// 过期时间不可解析或已过期时拒绝请求；钥匙串不可用同样拒绝，
+    /// 绝不回落到 `CENTER_SECRETS_FILE` 或文件后端。
+    fn access_token(&self) -> std::result::Result<String, WpsError> {
+        let token = self
+            .backend
+            .get(TOKEN_ACCOUNT)
+            .map_err(|e| WpsError::Credentials(e.to_string()))?
+            .ok_or_else(|| WpsError::Credentials("WPS token 未设置，拒绝请求".into()))?;
+        if let Some(raw) = self
+            .backend
+            .get(EXPIRES_ACCOUNT)
+            .map_err(|e| WpsError::Credentials(e.to_string()))?
+        {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let expires = chrono::DateTime::parse_from_rfc3339(trimmed)
+                    .map_err(|_| WpsError::Credentials("WPS token 过期时间格式非法".into()))?;
+                if expires <= chrono::Utc::now() {
+                    return Err(WpsError::AuthExpired);
+                }
+            }
+        }
+        Ok(token)
     }
 }
 
@@ -277,6 +307,39 @@ mod tests {
         let store = memory_store();
         assert!(store.set_token("  ", None).is_err());
         assert!(!store.status().unwrap().token_set);
+    }
+
+    #[test]
+    fn access_token_is_available_only_for_unexpired_synthetic_token() {
+        let store = memory_store();
+        assert!(matches!(
+            store.access_token(),
+            Err(WpsError::Credentials(_))
+        ));
+        store
+            .set_token("synthetic-token", Some("2099-12-31T23:59:59+08:00"))
+            .unwrap();
+        assert_eq!(store.access_token().unwrap(), "synthetic-token");
+        store
+            .set_token("expired-token", Some("2020-01-01T00:00:00+08:00"))
+            .unwrap();
+        assert!(matches!(store.access_token(), Err(WpsError::AuthExpired)));
+        store
+            .set_token("bad-expiry-token", Some("not-a-date"))
+            .unwrap();
+        assert!(matches!(
+            store.access_token(),
+            Err(WpsError::Credentials(_))
+        ));
+    }
+
+    #[test]
+    fn unavailable_keychain_cannot_yield_a_token() {
+        let store = WpsCredentialStore::with_backend(Arc::new(FailingBackend));
+        assert!(matches!(
+            store.access_token(),
+            Err(WpsError::Credentials(_))
+        ));
     }
 
     #[test]
