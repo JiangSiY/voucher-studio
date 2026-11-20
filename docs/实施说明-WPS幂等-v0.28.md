@@ -131,7 +131,7 @@ pull_sheet(
 
 ### 9.3 UPSERT 写库失败
 
-`pull_sheet` 在 `upsert_index_rows` 失败时先 `finish_scan(false, error)`，然后返回 **`Err`**（不是 `Ok(complete=false)`）；`Wps09CreateGuard` 把任何 `pull_sheet` 错误（含本地 DB 错误）统一映射为 **`WPS_E_09_STALE`**，文本带「09 刷新本地失败」，不会漏成裸 DB error。用例 `db_upsert_failure_maps_to_stale_not_bare_db_error` 通过删除 `wps_record_index` 表注入该路径。
+`pull_sheet` 在索引发布/本地 DB 失败时先 `finish_scan(false, error)`，然后返回 **`Err`**（不是 `Ok(complete=false)`）；`Wps09CreateGuard` 把任何 `pull_sheet` 错误（含本地 DB 错误）统一映射为 **`WPS_E_09_STALE`**，文本带「09 刷新本地失败」，不会漏成裸 DB error。用例 `db_upsert_failure_maps_to_stale_not_bare_db_error` 通过删除 `wps_record_index` 表注入该路径。
 
 ### 9.4 剩余 `dead_code` allow
 
@@ -220,3 +220,41 @@ impl WpsDocNoCreateGuard {
 
 - 01（往来对象）/08（电表）/10（物料）的主数据：**不**在应用内新建；创建前预检只覆盖单号表（doc guard），主数据引用缺失时阻塞并提示去 WPS 建，或由增加新建（备选）处理；
 - 具体选「阻塞并提示」还是「增加新建」**待产品负责人确认**，已列入 `docs/评审修订清单-2026-11-20.md` 修订点；doc guard 本期只做单号重复检查，不扩展主数据创建。
+
+## 11. W2 Mock 应用层链路（2026-11-20，本地）
+
+`services/wps_w2.rs` 是 W1 只读组件的业务编排层，只在 `transport=Mock` 下运行；不接真实 HTTP、不操作生产文件。入口：
+
+```rust
+pub fn run_mock_batch<T: WpsTransport>(
+    store: &WpsStore<'_>,
+    transport: T,
+    requests: &[W2CreateRequest],
+) -> Result<W2BatchReport>;
+```
+
+固定 `W2Config::mock_write()`（显式测试配置，不读生产配置）；内部仍可拆成 `W2Sync::pull_all_history`、`preflight`、`execute`、`status`、`recover_link`。
+
+### 11.1 顺序
+
+1. `pull_all_history`：11 张表各一条 `pull_sheet(..., view_id=None, 500)` 全历史分页链；任一表 `complete=false` 或 `skipped>0` → `writes_blocked=true`。
+2. `preflight`：入口权限（默认 PullOnly 拒绝写）、空批、01/08/10 只读、05/07 只查重、02/03/04/06/09/11 才可建、日期/期间分界、业务键非空、批内 `(sheet_id,key)` 重复、历史索引重复、幂等键已存在、必填引用和目标凭证存在。单号/09 的历史重复判定复用 `WpsDocNoCreateGuard::ensure_index_unique` / `Wps09CreateGuard::ensure_index_unique`，只查已发布索引，不重复刷新整表。
+3. `execute`：预检失败整批 Rejected、0 请求；逐条先写 `wps_write_intents`（payload hash）再写 `wps_idempotency_keys`，然后 `create_record`；成功回填 `wps_links`；链接失败→`pending_backfill`；远端超时→`unknown`；停止后后续 `not_attempted`，不重试、不回滚。
+4. `recover_link`：必须有远端记录 id + 归属证据；只补本地链，不再发创建请求。
+
+### 11.2 日期与表范围
+
+- 分界 `2026-11-01`（含）；旧记录仅历史查重/引用，不进入新建。
+- 01/08/10 只引用 WPS 原记录；05/07 只读查重；02/03/04/06/09/11 才可进入写入候选。
+- 日期支持 `YYYY-MM-DD`、`YYYY/MM/DD`、RFC3339（Asia/Shanghai）；09 仅 `YYYY-MM`；缺失/非法/歧义 → `NeedsReview`。
+- 03 约定收款日、04 约定付款日、06 收款取实际到账日/付款取实际扣款日（字段映射待真实副本核验）。
+
+### 11.3 索引发布
+
+`wps_pull` 不再逐页写索引：页结果先 `staged` 累积；只有 `complete` 且无坏页、游标连续、结束信号一致时才调用 `wps_index::publish_scan`，在同一事务内 upsert 本轮索引并把 `wps_scans.complete=1`。失败/坏页/游标异常/空页假 `has_more`/达页上限均不发布，保留上一轮有效索引并阻断写入。
+
+### 11.4 已知边界
+
+- 只有服务层入口，**未接 Tauri 命令/UI**；MockTransport 仅在测试构建可用。
+- `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
+- S0-01/02/03/05/09/10/11/12 仍依赖实现/目标环境/授权；本文件不替代 S0/G1 签字。
