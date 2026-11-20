@@ -217,8 +217,10 @@ pub struct W2CreateRequest {
     pub business_date: Option<String>,
     /// 09 期间（YYYY-MM）；其他表可为空。
     pub period: Option<String>,
-    /// 必填引用：(sheet_id, 业务键)。
+    /// 必填引用：(sheet_id, 业务键)；用于确认基础资料记录存在。
     pub required_refs: Vec<(i64, String)>,
+    /// 必填引用原记录 ID：(sheet_id, record_id)；#63 B 方案要求引用 WPS 维护的 01/08/10 原 ID。
+    pub required_ref_ids: Vec<(i64, String)>,
     /// 本地目标凭证；为空时链接保持 `unclaimed`。
     pub target_voucher_id: Option<i64>,
     pub idempotency_key: String,
@@ -238,6 +240,7 @@ impl W2CreateRequest {
             business_date: None,
             period: None,
             required_refs: Vec::new(),
+            required_ref_ids: Vec::new(),
             target_voucher_id: None,
             idempotency_key: idempotency_key.into(),
         }
@@ -512,6 +515,39 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                     "幂等键已存在，拒绝自动重试",
                     Some(index),
                 ));
+            }
+            for (sheet_id, record_id) in &request.required_ref_ids {
+                if !SHEET_REFERENCE_ONLY.contains(sheet_id) {
+                    return Err(W2Reject::new(
+                        "WPS_E_REF_INVALID",
+                        format!("表 {sheet_id} 不是 01/08/10 基础资料引用表"),
+                        Some(index),
+                    ));
+                }
+                if record_id.trim().is_empty() {
+                    return Err(W2Reject::new(
+                        "WPS_E_REF_MISSING",
+                        "必填引用原记录 ID 为空",
+                        Some(index),
+                    ));
+                }
+                let found = self
+                    .store
+                    .find_index_by_record_id(*sheet_id, record_id)
+                    .map_err(|err| {
+                        W2Reject::new(
+                            "WPS_E_INDEX_READ",
+                            format!("读取索引失败: {err}"),
+                            Some(index),
+                        )
+                    })?;
+                if found.is_none() {
+                    return Err(W2Reject::new(
+                        "WPS_E_REF_STALE",
+                        format!("引用原记录不存在或已失效: 表 {sheet_id} / {record_id}"),
+                        Some(index),
+                    ));
+                }
             }
             for (sheet_id, key) in &request.required_refs {
                 if key.trim().is_empty() {
@@ -980,6 +1016,7 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
             business_date: None,
             period: None,
             required_refs: Vec::new(),
+            required_ref_ids: Vec::new(),
             target_voucher_id,
             idempotency_key: idempotency_key.clone(),
         };
@@ -1116,6 +1153,37 @@ mod tests {
     }
 
     #[test]
+    fn preflight_b_policy_requires_existing_original_reference_id() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        store
+            .upsert_index_rows(&[WpsIndexRow::new(
+                1,
+                "dev-01-A",
+                "01",
+                "客户A",
+                "doc_no",
+                None,
+                "{}",
+                "2026-11-20T00:00:00Z",
+            )])
+            .expect("seed ref");
+        let client = WpsClient::new(MockTransport::new("s", vec![]), "file-1");
+        let sync = W2Sync::new(&client, &store);
+
+        let mut stale = request("AR-REF", "2026-11-01");
+        stale.required_ref_ids = vec![(1, "dev-01-MISSING".into())];
+        let err = sync
+            .preflight(&W2Config::mock_write(), &[stale])
+            .expect_err("stale ref");
+        assert_eq!(err.code, "WPS_E_REF_STALE");
+
+        let mut valid = request("AR-REF", "2026-11-01");
+        valid.required_ref_ids = vec![(1, "dev-01-A".into())];
+        assert!(sync.preflight(&W2Config::mock_write(), &[valid]).is_ok());
+    }
+
+    #[test]
     fn preflight_rejects_history_duplicate() {
         let db = db_with_schema();
         let store = WpsStore::from_db(&db);
@@ -1197,6 +1265,30 @@ mod tests {
     }
 
     #[test]
+    fn application_mock_entry_blocks_on_inconsistent_scan() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let empty = || Ok(json!({"records": []}));
+        let mut responses = vec![
+            Ok(json!({
+                "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                "total": 2,
+                "has_more": true
+            })),
+            Ok(json!({
+                "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                "total": 2,
+                "has_more": false
+            })),
+        ];
+        responses.extend((0..10).map(|_| empty()));
+        let transport = MockTransport::new("session-1", responses);
+        let err = run_mock_batch(&store, transport, &[request("AR-1", "2026-11-01")])
+            .expect_err("inconsistent scan must block writes");
+        assert!(err.to_string().contains("WPS_E_PULL_BLOCKED"));
+    }
+
+    #[test]
     fn execute_creates_once_and_links_without_batch_api() {
         let db = db_with_schema();
         let store = WpsStore::from_db(&db);
@@ -1226,6 +1318,77 @@ mod tests {
             sync.intent_state("idem-AR-NEW").expect("intent"),
             Some("linked".into())
         );
+    }
+
+    #[test]
+    fn preflight_history_duplicate_on_second_page_blocks_before_create() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let empty = || Ok(json!({"records": []}));
+        let mut responses = vec![
+            empty(),
+            empty(),
+            Ok(json!({
+                "records": [{"id": "r0", "fields": {"应收单号": "AR-0"}}],
+                "total": 2,
+                "has_more": true
+            })),
+            Ok(json!({
+                "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                "total": 2,
+                "has_more": false
+            })),
+        ];
+        responses.extend((0..8).map(|_| empty()));
+        let transport = MockTransport::new("session-1", responses);
+        let report =
+            run_mock_batch(&store, transport, &[request("AR-1", "2026-11-01")]).expect("run");
+        assert!(report.stopped);
+        assert_eq!(report.outcomes[0].status, W2WriteStatus::Rejected);
+        assert!(report.outcomes[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("WPS_E_HISTORY_DUPLICATE")));
+    }
+
+    #[test]
+    fn restart_after_lost_response_does_not_replay_and_recovery_needs_evidence() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new("session-1", vec![Err(WpsError::Timeout)]);
+        let client = WpsClient::new(transport, "file-1");
+        let sync = W2Sync::new(&client, &store);
+        let original = request("AR-LOST", "2026-11-01");
+        sync.execute(&W2Config::mock_write(), std::slice::from_ref(&original))
+            .expect("first execute");
+        let intent_id: i64 = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT id FROM wps_write_intents WHERE idempotency_key = ?1",
+                    params!["idem-AR-LOST"],
+                    |row| row.get(0),
+                )
+                .map_err(Into::into)
+            })
+            .expect("intent");
+
+        let transport2 = MockTransport::new("session-2", vec![]);
+        let client2 = WpsClient::new(transport2, "file-1");
+        let sync2 = W2Sync::new(&client2, &store);
+        let err = sync2
+            .preflight(&W2Config::mock_write(), std::slice::from_ref(&original))
+            .expect_err("must reject replay");
+        assert_eq!(err.code, "WPS_E_IDEMPOTENCY_STATE");
+        assert!(client2.transport().calls().is_empty());
+
+        assert!(sync2
+            .recover_link(intent_id, "R-REMOTE", "remote id + 归属证据")
+            .is_ok());
+        assert_eq!(
+            sync2.status(3, "R-REMOTE").expect("status"),
+            W2SyncStatus::Displayed
+        );
+        assert!(client2.transport().calls().is_empty());
     }
 
     #[test]

@@ -21,6 +21,24 @@ struct ClosingState {
 struct DataLock(FileLockGuard);
 
 fn main() {
+    // W2 Mock 启动隔离必须在 Tauri 建窗前完成：失败时干净退出（不建目录、不恢复、不打开库）。
+    if std::env::var("VOUCHER_W2_MOCK")
+        .map(|v| v.trim() == "1")
+        .unwrap_or(false)
+    {
+        let base = std::env::var("VOUCHER_DATA_DIR")
+            .ok()
+            .filter(|p| !p.trim().is_empty())
+            .map(std::path::PathBuf::from);
+        if let Err(e) = voucher_api::dev_w2::validate_existing_temp_data_dir(
+            base.as_deref(),
+            &std::env::temp_dir(),
+        ) {
+            eprintln!("W2 Mock 启动隔离校验失败：{e}");
+            std::process::exit(2);
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -53,13 +71,29 @@ fn main() {
             // 1. 落位待恢复备份（restore 命令重启生效机制）
             // 数据目录覆盖：`VOUCHER_DATA_DIR`（开发/真机验证用）——便于在隔离目录里
             // 跑恢复等破坏性流程而不碰真实数据；未设置时按平台约定（ProjectDirs）。
-            let base = match std::env::var("VOUCHER_DATA_DIR") {
+            let mut base = match std::env::var("VOUCHER_DATA_DIR") {
                 Ok(p) if !p.trim().is_empty() => {
                     log::warn!("VOUCHER_DATA_DIR 覆盖生效，使用非默认数据目录：{p}");
                     Some(std::path::PathBuf::from(p))
                 }
                 _ => None,
             };
+            // Mock 启动前校验：必须显式、已存在、规范化后仍在临时根内且不等于临时根；
+            // 必须在 ensure_all / 待恢复 / 打开数据库之前完成，失败直接退出，禁止回落默认目录。
+            let mock_on = std::env::var("VOUCHER_W2_MOCK")
+                .map(|v| v.trim() == "1")
+                .unwrap_or(false);
+            if mock_on {
+                let validated = voucher_api::dev_w2::validate_existing_temp_data_dir(
+                    base.as_deref(),
+                    &std::env::temp_dir(),
+                )
+                .map_err(|e| {
+                    Box::<dyn std::error::Error>::from(format!("W2 Mock 启动隔离校验失败：{e}"))
+                })?;
+                log::warn!("W2 Mock 启动隔离校验通过：{}", validated.display());
+                base = Some(validated);
+            }
             let paths = AppPaths::resolve(base.clone())?;
             paths.ensure_all()?;
             platform::apply_pending_restore(&paths);
@@ -238,6 +272,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::dev_w2_mock_sync,
+            commands::wps_credentials_status,
             commands::pack_build,
             commands::get_biz_fields,
             commands::save_biz_fields,

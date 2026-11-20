@@ -3,7 +3,7 @@
 //! 守卫是三重显式条件：debug 构建、`VOUCHER_W2_MOCK=1`、数据目录位于临时目录。
 //! 命令本身不接受 file_id / 数据目录参数，因此界面无法把目标改成真实文件或生产库。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -71,6 +71,44 @@ pub fn dev_allowed(debug: bool, flag: bool, data_dir: &Path, temp_root: &Path) -
     debug && flag && data_dir.starts_with(temp_root)
 }
 
+/// 启动前校验：Mock 必须显式传入一个已存在、规范化后仍位于临时根内、且不等于
+/// 临时根本身的独立目录。失败即返回错误，调用方不得回落到默认数据目录。
+pub fn validate_existing_temp_data_dir(
+    base: Option<&Path>,
+    temp_root: &Path,
+) -> std::result::Result<PathBuf, String> {
+    let raw = base.ok_or_else(|| {
+        "VOUCHER_W2_MOCK=1 时必须显式设置 VOUCHER_DATA_DIR（已存在的独立临时目录），不能回落默认数据目录"
+            .to_string()
+    })?;
+    if raw.as_os_str().is_empty() {
+        return Err("VOUCHER_DATA_DIR 为空；请用 mktemp 创建独立临时目录".into());
+    }
+    let raw = raw
+        .canonicalize()
+        .map_err(|e| format!("VOUCHER_DATA_DIR 不可解析（{}）：{e}", raw.display()))?;
+    let root = temp_root
+        .canonicalize()
+        .map_err(|e| format!("系统临时根不可解析（{}）：{e}", temp_root.display()))?;
+    if raw == root {
+        return Err("VOUCHER_DATA_DIR 不能是系统临时根本身；请用 mktemp 建独立子目录".into());
+    }
+    if !raw.starts_with(&root) {
+        return Err(format!(
+            "VOUCHER_DATA_DIR 规范化后不在系统临时根内：{}（临时根 {}）",
+            raw.display(),
+            root.display()
+        ));
+    }
+    if !raw.is_dir() {
+        return Err(format!(
+            "VOUCHER_DATA_DIR 不是已存在的目录：{}",
+            raw.display()
+        ));
+    }
+    Ok(raw)
+}
+
 fn ensure_dev(ctx: &CoreContext) -> ApiResult<()> {
     let flag = std::env::var("VOUCHER_W2_MOCK")
         .map(|v| v.trim() == "1")
@@ -84,17 +122,14 @@ fn ensure_dev(ctx: &CoreContext) -> ApiResult<()> {
             "开发 Mock 需要显式 VOUCHER_DATA_DIR（临时库），当前未设置",
         ));
     }
-    if !dev_allowed(
-        cfg!(debug_assertions),
-        flag,
-        &ctx.paths.base,
-        &std::env::temp_dir(),
-    ) {
+    if !cfg!(debug_assertions) || !flag {
         return Err(ApiError::plain(
             "dev_only",
             "开发 Mock 仅限 debug 构建 + VOUCHER_W2_MOCK=1 + 临时数据目录",
         ));
     }
+    validate_existing_temp_data_dir(Some(&ctx.paths.base), &std::env::temp_dir())
+        .map_err(|e| ApiError::plain("dev_only", e))?;
     Ok(())
 }
 
@@ -215,6 +250,49 @@ mod tests {
             &PathBuf::from("/Users/apple/Library/Application Support/VoucherStudio"),
             &std::env::temp_dir()
         ));
+    }
+
+    fn unique_temp(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "voucher-w2-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn validator_requires_explicit_existing_isolated_temp_dir() {
+        let root = unique_temp("root");
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        assert!(validate_existing_temp_data_dir(Some(&data), &root).is_ok());
+
+        assert!(validate_existing_temp_data_dir(None, &root).is_err());
+        assert!(validate_existing_temp_data_dir(Some(Path::new("")), &root).is_err());
+        assert!(validate_existing_temp_data_dir(Some(&root), &root).is_err());
+        assert!(validate_existing_temp_data_dir(Some(&data.join("missing")), &root).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validator_rejects_symlink_escaping_temp_root() {
+        let base = unique_temp("symlink-base");
+        let root = base.join("root");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let link = root.join("escape");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let err = validate_existing_temp_data_dir(Some(&link), &root).unwrap_err();
+        assert!(err.contains("不在系统临时根内"), "{err}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

@@ -122,35 +122,60 @@ impl WpsTransport for DevW2Transport {
 /// 两笔正常创建；第三笔为超时场景预留，第四种为缺引用。
 pub fn dev_requests(scenario: DevW2Scenario) -> Vec<W2CreateRequest> {
     let refs = vec![(1, "客户A".to_string()), (8, "METER-1".to_string())];
+    let ref_ids = vec![(1, "dev-01-客户A".to_string()), (8, "dev-08-1".to_string())];
     let mut requests = match scenario {
         DevW2Scenario::Normal => vec![
-            request("AR-DEV-001", "开发模拟应收-1", refs.clone()),
-            request("AR-DEV-002", "开发模拟应收-2", refs),
+            request(
+                "AR-DEV-001",
+                "开发模拟应收-1",
+                refs.clone(),
+                ref_ids.clone(),
+            ),
+            request("AR-DEV-002", "开发模拟应收-2", refs, ref_ids),
         ],
         DevW2Scenario::TimeoutSecond => vec![
-            request("AR-DEV-T1", "开发模拟应收-超时1", refs.clone()),
-            request("AR-DEV-T2", "开发模拟应收-超时2", refs.clone()),
-            request("AR-DEV-T3", "开发模拟应收-超时3", refs),
+            request(
+                "AR-DEV-T1",
+                "开发模拟应收-超时1",
+                refs.clone(),
+                ref_ids.clone(),
+            ),
+            request(
+                "AR-DEV-T2",
+                "开发模拟应收-超时2",
+                refs.clone(),
+                ref_ids.clone(),
+            ),
+            request("AR-DEV-T3", "开发模拟应收-超时3", refs, ref_ids),
         ],
         DevW2Scenario::MissingReference => vec![request(
             "AR-DEV-MISS",
             "开发模拟应收-缺引用",
             vec![(1, "不存在的客户".to_string()), (8, "METER-1".to_string())],
+            vec![(1, "dev-01-客户A".to_string()), (8, "dev-08-1".to_string())],
         )],
     };
     if scenario == DevW2Scenario::MissingReference {
         requests[0].required_refs.push((10, "SKU-1".into()));
+        requests[0]
+            .required_ref_ids
+            .push((10, "dev-10-missing".into()));
     }
     requests
 }
 
-fn request(doc_no: &str, summary: &str, refs: Vec<(i64, String)>) -> W2CreateRequest {
+fn request(
+    doc_no: &str,
+    summary: &str,
+    refs: Vec<(i64, String)>,
+    ref_ids: Vec<(i64, String)>,
+) -> W2CreateRequest {
     let mut request = W2CreateRequest::new(
         3,
         "03",
         json!({
             "应收单号": doc_no,
-            "客户": ["客户A"],
+            "客户": ["dev-01-客户A"],
             "摘要": summary,
             "金额": 100.00,
         }),
@@ -158,6 +183,7 @@ fn request(doc_no: &str, summary: &str, refs: Vec<(i64, String)>) -> W2CreateReq
     );
     request.business_date = Some("2026-11-20".into());
     request.required_refs = refs;
+    request.required_ref_ids = ref_ids;
     request
 }
 
@@ -252,7 +278,7 @@ mod tests {
         assert!(run.report.outcomes[0]
             .error
             .as_deref()
-            .is_some_and(|e| e.contains("WPS_E_REF_MISSING")));
+            .is_some_and(|e| e.contains("WPS_E_REF_STALE") || e.contains("WPS_E_REF_MISSING")));
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub mod links;
 pub mod pack;
 pub mod settings;
 pub mod vouchers;
+pub mod wps_credentials;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -48,6 +49,7 @@ impl ApiError {
             CoreError::Db(_) => "db",
             CoreError::Json(_) => "json",
             CoreError::Keyring(_) => "keyring",
+            CoreError::KeyringUnavailable(_) => "keyring_unavailable",
             CoreError::Http(_) => "http",
             CoreError::Pdf(_) => "pdf",
             CoreError::Zip(_) => "zip",
@@ -455,6 +457,9 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
                 "该操作只在桌面版可用；网页版请用页面上传或浏览器下载",
             ));
         }
+
+        // ---------- WPS 凭据状态（只回 token_set/token_expires_at）----------
+        "wps_credentials_status" => to_value(wps_credentials::status()?)?,
 
         // ---------- 开发态 W2 Mock（守卫在 dev_w2::run；普通/生产运行返回 dev_only）----------
         "dev_w2_mock_sync" => {

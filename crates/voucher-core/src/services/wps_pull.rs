@@ -160,6 +160,8 @@ fn pull_sheet_with_limit<T: WpsTransport>(
     }
 
     let mut staged: Vec<WpsIndexRow> = Vec::new();
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut expected_total: Option<usize> = None;
     let mut offset = 0usize;
     loop {
         if report.pages >= max_pages {
@@ -192,6 +194,31 @@ fn pull_sheet_with_limit<T: WpsTransport>(
         report.raw_records += page.raw_records;
         report.indexed += page.rows.len();
         report.skipped += page.skipped;
+        if let Some(total) = page.total {
+            match expected_total {
+                Some(previous) if previous != total => {
+                    report.error = Some(format!(
+                        "WPS_E_PULL_INCONSISTENT: 扫描中 total 变化（{previous} → {total}），拒绝发布本轮索引"
+                    ));
+                    report.error_code = Some("WPS_E_PULL_INCONSISTENT".to_string());
+                    store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
+                    return Ok(report);
+                }
+                None => expected_total = Some(total),
+                _ => {}
+            }
+        }
+        for row in &page.rows {
+            if !seen_ids.insert(row.record_id.clone()) {
+                report.error = Some(format!(
+                    "WPS_E_PULL_INCONSISTENT: 扫描中记录 {} 重复出现，拒绝发布本轮索引",
+                    row.record_id
+                ));
+                report.error_code = Some("WPS_E_PULL_INCONSISTENT".to_string());
+                store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
+                return Ok(report);
+            }
+        }
         staged.extend(page.rows);
 
         if page.raw_records == 0 {
@@ -439,16 +466,16 @@ mod tests {
     fn pull_sheet_marks_complete_false_when_max_pages_reached() {
         let db = db_with_schema();
         let store = WpsStore::from_db(&db);
-        let page = || {
+        let page = |n: usize| {
             Ok(json!({
                 "records": [
-                    {"id": "r1", "fields": {"应收单号": "AR-1"}},
-                    {"id": "r2", "fields": {"应收单号": "AR-2"}}
+                    {"id": format!("r{n}a"), "fields": {"应收单号": format!("AR-{n}a")}},
+                    {"id": format!("r{n}b"), "fields": {"应收单号": format!("AR-{n}b")}}
                 ],
                 "has_more": true
             }))
         };
-        let transport = MockTransport::new("session-1", vec![page(), page(), page()]);
+        let transport = MockTransport::new("session-1", vec![page(1), page(2), page(3)]);
         let client = WpsClient::new(transport, "file-1");
         let report = pull_sheet_with_limit(&client, &store, 3, "03", None, 2, 2).expect("pull");
         assert!(!report.complete);
@@ -470,6 +497,75 @@ mod tests {
         assert!(error
             .as_deref()
             .is_some_and(|error| error.contains("WPS_E_PULL_MAX_PAGES")));
+    }
+
+    #[test]
+    fn pull_sheet_rejects_duplicate_record_across_pages_and_keeps_index_empty() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new(
+            "session-1",
+            vec![
+                Ok(json!({
+                    "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                    "total": 2,
+                    "has_more": true
+                })),
+                Ok(json!({
+                    "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                    "total": 2,
+                    "has_more": false
+                })),
+            ],
+        );
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet(&client, &store, 3, "03", None, 1).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(
+            report.error_code.as_deref(),
+            Some("WPS_E_PULL_INCONSISTENT")
+        );
+        assert_eq!(store.count_index(3).expect("count"), 0);
+        let scan_id: i64 = db
+            .with_conn(|conn| {
+                conn.query_row("SELECT MAX(id) FROM wps_scans", [], |row| row.get(0))
+                    .map_err(Into::into)
+            })
+            .expect("scan id");
+        let (complete, error, _) = scan_row(&db, scan_id);
+        assert_eq!(complete, 0);
+        assert!(error
+            .as_deref()
+            .is_some_and(|error| error.contains("WPS_E_PULL_INCONSISTENT")));
+    }
+
+    #[test]
+    fn pull_sheet_rejects_total_change_across_pages() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new(
+            "session-1",
+            vec![
+                Ok(json!({
+                    "records": [{"id": "r1", "fields": {"应收单号": "AR-1"}}],
+                    "total": 2,
+                    "has_more": true
+                })),
+                Ok(json!({
+                    "records": [{"id": "r2", "fields": {"应收单号": "AR-2"}}],
+                    "total": 3,
+                    "has_more": false
+                })),
+            ],
+        );
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet(&client, &store, 3, "03", None, 1).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(
+            report.error_code.as_deref(),
+            Some("WPS_E_PULL_INCONSISTENT")
+        );
+        assert_eq!(store.count_index(3).expect("count"), 0);
     }
 
     #[test]

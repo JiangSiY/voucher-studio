@@ -29,6 +29,8 @@ pub enum CoreError {
     Json(#[from] serde_json::Error),
     #[error("凭据库错误: {0}")]
     Keyring(#[from] keyring::Error),
+    #[error("凭据库不可用: {0}")]
+    KeyringUnavailable(String),
     #[error("网络错误: {0}")]
     Http(#[from] reqwest::Error),
     // printpdf 0.12 不再提供统一的 `Error` 类型（0.7 → 0.12.8 迁移时改为字符串载荷，

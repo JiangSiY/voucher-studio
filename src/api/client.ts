@@ -1235,8 +1235,14 @@ export interface DevW2Result {
   batch?: DevW2Batch;
 }
 
+export interface WpsTokenStatus {
+  tokenSet: boolean;
+  tokenExpiresAt?: string | null;
+}
+
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
+  wpsCredentialsStatus: () => invoke<WpsTokenStatus>("wps_credentials_status"),
   devW2MockSync: (action: "pull" | "write", scenario?: string) =>
     invoke<DevW2Result>("dev_w2_mock_sync", { action, scenario }),
   openPath: (path: string) => (isTauri ? invoke<void>("open_path", { path }) : openInBrowser(path)),

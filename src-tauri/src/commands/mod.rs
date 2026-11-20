@@ -20,6 +20,7 @@ mod links;
 mod pack;
 mod settings;
 mod vouchers;
+mod wps_credentials;
 
 pub use accounting::*;
 pub use backup::*;
@@ -31,6 +32,7 @@ pub use links::*;
 pub use pack::*;
 pub use settings::*;
 pub use vouchers::*;
+pub use wps_credentials::*;
 
 pub(super) use std::collections::HashMap;
 pub(super) use std::path::{Path, PathBuf};
@@ -69,6 +71,7 @@ impl ApiError {
             CoreError::Db(_) => "db",
             CoreError::Json(_) => "json",
             CoreError::Keyring(_) => "keyring",
+            CoreError::KeyringUnavailable(_) => "keyring_unavailable",
             CoreError::Http(_) => "http",
             CoreError::Pdf(_) => "pdf",
             CoreError::Zip(_) => "zip",
