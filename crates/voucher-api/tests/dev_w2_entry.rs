@@ -30,8 +30,13 @@ fn temp_ctx() -> (TempDir, CoreContext) {
 fn desktop_entry_runs_pull_write_and_stop_scenarios() {
     let (dir, ctx) = temp_ctx();
     std::env::set_var("VOUCHER_DATA_DIR", &dir.0);
-    std::env::set_var("VOUCHER_W2_MOCK", "1");
+    std::env::remove_var("VOUCHER_W2_MOCK");
 
+    // 普通运行（未开启显式 Mock 开关）必须被守卫拒绝，且不触碰任何 WPS 数据。
+    let denied = dev_w2::run(&ctx, Some("pull"), None).expect_err("must reject");
+    assert_eq!(denied.code, "dev_only");
+
+    std::env::set_var("VOUCHER_W2_MOCK", "1");
     let pull = dev_w2::run(&ctx, Some("pull"), None).expect("pull");
     assert_eq!(pull.mode, "pull");
     assert!(pull.pull.complete);
