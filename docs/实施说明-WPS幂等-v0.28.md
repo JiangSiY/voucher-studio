@@ -92,11 +92,18 @@
 命令：`cargo test -p voucher-core --lib services::wps` → **23 passed**；`cargo test -p voucher-core --doc` → **1 passed（compile_fail）**。
 ## 八、分页与 09 门错误码（B2/B3 统一）
 
-- 分页响应缺 records 数组统一返回 **`WPS_E_PULL_MALFORMED`**（`WpsError::PullMalformed`）；`WPS_E_PULL_PAYLOAD` 已停用，代码/测试/证据不再出现。
-- 达到页上限不是自然结束：`PullReport.complete=false`、`error_code=WPS_E_PULL_MAX_PAGES`；只有空页/`has_more=false`/`total` 到达/短页且非 `has_more=true` 才 `complete=true`。
+- 分页响应缺 records 数组统一返回 **`WPS_E_PULL_MALFORMED`**（`WpsError::PullMalformed`）；`WPS_E_PULL_PAYLOAD` 已停用且**无残留**，代码/测试/证据不再出现。
+- 达到页上限不是自然结束：`PullReport.complete=false`、`error_code=WPS_E_PULL_MAX_PAGES`；只有空页/`has_more=false`/`total` 到达/短页且非 `has_more=true` 才 `complete=true`。页上限错误码 **`WPS_E_PULL_MAX_PAGES`**。
 - `WpsPullReport`（`PullReport` 别名）公开 `complete`、`skipped`、`error`、`error_code`；`complete=true` 时后两者为空。
 - 09 创建前门 `Wps09CreateGuard::ensure_create_allowed` 固定顺序：key 校验（0 请求）→ `pull_sheet(9, "09", None)` → `complete=false` 或 `skipped>0` → `WPS_E_09_STALE`（文本带 `error`/`error_code`）→ 查索引 → `WPS_E_09_DUPLICATE` → `Ok`。全程不调用写入。
-- 09 拒绝码：`WPS_E_09_KEY`、`WPS_E_09_STALE`、`WPS_E_09_DUPLICATE`。
+- 09 拒绝码：`WPS_E_09_KEY`、`WPS_E_09_STALE`、`WPS_E_09_DUPLICATE`（**09 三码**）。
+- **WPS_E_DOC_\***（doc guard 新增，见 §十）：单号去重门错误码，`WPS_E_DOC_KEY` / `WPS_E_DOC_STALE` / `WPS_E_DOC_DUPLICATE`。错误码总口径：**已统一为 `WPS_E_PULL_MALFORMED`，无残留；页上限 `WPS_E_PULL_MAX_PAGES`；09 三码；新增 `WPS_E_DOC_*`**。
+
+### 9.6 视图条款（2026-11-20 评审修正）
+
+- doc guard / 09 门**不做视图依赖**：预检一律走「分页全表 + 本地索引」（A 路径），`view_id` 传 `None`。
+- `view_id` 缩窄（固定范围如「11/1 后」）在 **S0/G1 未验证前降级为未验证优化项**，不作为 G0/G1 门禁依赖；**A 是唯一预检路径**。
+- 不在应用内新建/修改任何视图（MCP 白名单无建/改视图工具，W0-12）；需要验证固定视图时只用**已存在的视图**做只读拉取。
 
 
 ## 九、B4 四点核对（2026-11-20）
@@ -154,3 +161,62 @@ cargo test -p voucher-core --doc   # 1 passed（compile_fail）
 ```
 
 说明：`wps_09` 由 7 增至 11（B4 补 4 例）；`wps_index` 为 8（B3 字段依据 1 例已包含，B4 未增删）；`services::wps` 相应由 47 增至 51。Rust 静态计数：voucher-core **414**（248 单元 + 166 集成），加壳 3 = **417**；前端仍 44 文件 228 用例。
+
+## 十、doc guard（单号去重创建前门，2026-11-20 评审后实现）
+
+### 10.1 职责与边界
+
+- `WpsDocNoCreateGuard::ensure_create_allowed` 是 **02/03/04/06/05/07/08/10/11 等单号表**的创建前只读去重门：先 `pull_sheet(sheet, record_type, None)` 整表刷新，再查本地索引 `find_index_by_business_key`，命中同单号即拒绝。
+- 判定顺序（与 09 门对称）：key 校验（0 请求）→ 整表刷新 → `complete=false` 或 `skipped>0` → `WPS_E_DOC_STALE` → 查索引 → `WPS_E_DOC_DUPLICATE` → `Ok`。全程不调用写入。
+- **边界声明（评审修正）**：doc guard **仅检查单号重复**，**不检查主数据引用是否存在**（如 02 的客户 Link、03/04 的项目 Link）。主数据路径的处理（01/08/10 是否在应用内新建、阻塞并提示去 WPS 建、或增加新建）由审批问题 5 的修订单独处理，与 doc guard 解耦。
+- **sheet_id 来源（评审修正）**：现有代码**没有** 02/03/04/06 的 sheet_id 常量或配置（09 门与 `wps_index` 均为硬编码 `9`/表号）。定来源为 `WpsDocNoSpec` 常量（见 10.2）+ `wps_pull`/`wps_index` 的参数贯穿；**不在 guard 内硬编码**，`WpsDocNoSpec` 即常量/配置承载点。
+
+### 10.2 接口
+
+```rust
+pub struct WpsDocNoSpec { pub sheet_id: i64, pub record_type: &'static str }
+pub const DOC_SPEC_02: WpsDocNoSpec = WpsDocNoSpec { sheet_id: 2, record_type: "02" };
+pub const DOC_SPEC_03: WpsDocNoSpec = WpsDocNoSpec { sheet_id: 3, record_type: "03" };
+pub const DOC_SPEC_04: WpsDocNoSpec = WpsDocNoSpec { sheet_id: 4, record_type: "04" };
+pub const DOC_SPEC_06: WpsDocNoSpec = WpsDocNoSpec { sheet_id: 6, record_type: "06" };
+// 05/07/08/10/11 同理（表号按业务键字段依据）
+
+pub enum WpsDocNoError {
+    Key(String),       // WPS_E_DOC_KEY
+    Stale(String),     // WPS_E_DOC_STALE
+    Duplicate(String), // WPS_E_DOC_DUPLICATE
+}
+
+pub struct WpsDocNoCreateGuard;
+impl WpsDocNoCreateGuard {
+    pub fn ensure_create_allowed<T: WpsTransport>(
+        client: &WpsClient<T>,
+        store: &WpsStore<'_>,
+        spec: &WpsDocNoSpec,
+        doc_no: &str,
+    ) -> Result<(), WpsDocNoError>;
+}
+```
+
+### 10.3 测试（与 09 门对称）
+
+| 用例 | 覆盖 |
+|---|---|
+| `empty_doc_no_rejects_without_any_request` | 空单号 → `WPS_E_DOC_KEY`，initialize 0、calls 空 |
+| `complete_empty_pull_allows_create_and_never_writes` | 空表 → Ok，只有 `dbsheet.list_records` |
+| `incomplete_refresh_rejects_stale_with_readable_error` | 429 重试耗尽 → `WPS_E_DOC_STALE`，文本含 error_code |
+| `skipped_record_in_complete_pull_rejects_stale` | complete=true + skipped=1 → STALE（**评审补**，与 09 对称） |
+| `duplicate_same_doc_no_rejects_duplicate` | 同单号 → `WPS_E_DOC_DUPLICATE`，无写请求 |
+| `different_doc_no_is_not_duplicate` | 不同单号 → 放行 |
+| `guard_never_writes` | 全程 action 仅 `dbsheet.list_records` |
+
+### 10.4 错误码口径（评审修正汇总）
+
+- **已统一为 `WPS_E_PULL_MALFORMED`，无残留**（`WPS_E_PULL_PAYLOAD` 不再出现）；
+- 页上限 **`WPS_E_PULL_MAX_PAGES`**；09 三码（`WPS_E_09_KEY` / `WPS_E_09_STALE` / `WPS_E_09_DUPLICATE`）；
+- 新增 **`WPS_E_DOC_*`**（`WPS_E_DOC_KEY` / `WPS_E_DOC_STALE` / `WPS_E_DOC_DUPLICATE`）。
+
+### 10.5 主数据路径（审批问题 5，待产品负责人确认）
+
+- 01（往来对象）/08（电表）/10（物料）的主数据：**不**在应用内新建；创建前预检只覆盖单号表（doc guard），主数据引用缺失时阻塞并提示去 WPS 建，或由增加新建（备选）处理；
+- 具体选「阻塞并提示」还是「增加新建」**待产品负责人确认**，已列入 `docs/评审修订清单-2026-11-20.md` 修订点；doc guard 本期只做单号重复检查，不扩展主数据创建。
