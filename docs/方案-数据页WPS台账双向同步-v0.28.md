@@ -2,7 +2,7 @@
 
 > **重建说明（2026-11-20）**：原方案正文未在仓库/Obsidian 落盘；上一版按 [`docs/方案-销账64-65-66.md`](./方案-销账64-65-66.md) 的「#66 每章重建依据映射表」从已落盘证据重建。本复审稿加入用户已确认的业务口径及拟实施的约束；未证实的字段、能力与职责不作为既定事实。
 >
-> **状态（2026-11-20）**：四项整改结论及可复跑证据见 §15.1；本地 WPS 服务回归实测 76 项通过，W2 服务层 Mock 接线见 §15.2。**用户已确认 G0 设计复审通过**（2026-11-20），作为本轮开发依据；S0/G1 仍未通过，真实 HTTP/生产写关闭，六组真实副本未执行，`transport` 保持 Mock。
+> **状态（2026-11-20）**：四项整改结论及可复跑证据见 §15.1；本地 WPS 服务回归实测 84 项通过，W2 桌面开发入口（Mock）见 §15.2。**用户已确认 G0 设计复审通过**（2026-11-20），作为本轮开发依据；S0/G1 仍未通过，真实 HTTP/生产写关闭，六组真实副本未执行，`transport` 保持 Mock。
 >
 > **附录**：[`docs/评审修订清单-2026-11-20.md`](./评审修订清单-2026-11-20.md)（原评审修订清单，现降为本文附录，保留 9 项修正记录与 view_id 定稿）。
 
@@ -232,7 +232,7 @@
 | 分页拉取 | `W1/pull.md` 9 例；W2 增“失败保留旧索引/空页假 has_more”至 11 例 |
 | 09 门 | `W1/wps09.md` 7 例（B4 后 11 例） |
 | 单号门 | `W1/wps-client.md`/doc guard 7 例（见开发日志第九十三笔） |
-| W2 Mock 业务链路 | `services/wps_w2` 13 例：默认只拉拒绝写、日期/期间分界、批内/历史重复、引用缺失、01/08/10 只读、05/07 只查重、单条创建、超时未尝试、回填失败待补链、恢复需证据；预检复用 doc/09 门的索引判定 |
+| W2 Mock 业务链路 | `services/wps_w2` 13 例 + `wps_w2_dev` 8 例：默认只拉拒绝写、日期/期间分界、批内/历史重复、引用缺失、01/08/10 只读、05/07 只查重、单条创建、超时未尝试、回填失败待补链、恢复需证据；预检复用 doc/09 门的索引判定；桌面入口另见 `voucher-api/tests/dev_w2_entry.rs` |
 | 幂等/写入 | `W1/wps-client.md` 23 例；字节/compile_fail 见实施说明 §7 |
 | 前端 | 数据页契约 `src/pages/__tests__/dataPageContract.test.ts` |
 
@@ -277,7 +277,7 @@
 
 ### 15.1 四项阻塞结论与验收证据
 
-2026-11-20 在 `main@2716c75`、OpenCV `4.10.0`、Mock/本地 SQLite 下执行 `cargo test -p voucher-core --lib --offline services::wps -- --include-ignored`：退出码 0，**58 通过、0 失败、0 忽略、197 过滤**（当时基线）。本轮 W2 后同一过滤口径为 **76 通过**，见 §15.2；仍不是全量测试、六组真实副本验收或 S0/G1 结论。
+2026-11-20 在 `main@2716c75`、OpenCV `4.10.0`、Mock/本地 SQLite 下执行 `cargo test -p voucher-core --lib --offline services::wps -- --include-ignored`：退出码 0，**58 通过、0 失败、0 忽略、197 过滤**（当时基线）。本轮 W2 桌面入口后同一过滤口径为 **84 通过**，见 §15.2；仍不是全量测试、六组真实副本验收或 S0/G1 结论。
 
 | G0 阻塞 | 本稿处理结论 | 已有或本轮实测证据 / 仍缺的验收 |
 |---|---|---|
@@ -294,7 +294,7 @@
 
 **业务日期已确认（2026-11-20）**：03 应收按约定收款日，04 应付按约定付款日，06 付款按实际扣款日；新流程分界仍为 2026-11-01（含）。规则已确认不代表存量字段值已核实；日期缺失、无效或语义不明的记录仍进入待核对。副本具体范围待门禁满足并列出目标及用例数据后再走专项授权。
 
-### 15.2 2026-11-20 W2 Mock 本地接线证据（未提交、未验收）
+### 15.2 2026-11-20 W2 Mock 本地接线证据（已接桌面开发入口，未验收）
 
 本轮按用户确认的 G0 设计复审稿，在 `transport=Mock`、临时 SQLite、合成数据下完成 W2 服务层 Mock 链路；未调用真实 WPS/HTTP，未操作生产文件，未执行真实副本。
 
@@ -307,11 +307,11 @@
 | 整批预检 | `W2Sync::preflight` | 入口权限（默认 PullOnly 拒绝写）、空批、历史重复、批内 `(sheet,key)` 重复、幂等键已存在、必填引用/目标凭证存在 |
 | 逐条写入与意图 | `W2Sync::execute`、`wps_write_intents` | 预检失败整批 0 请求；每条先落 intent（含 payload hash）再带独立 idempotency key 逐条 `create_record`，不使用原生批量 |
 | 回填与停止 | `W2Sync::execute`/`recover_link`/`status` | 成功回填 `wps_links`；链接失败→`pending_backfill`；远端超时→`unknown`；停止后后续 `not_attempted`；恢复需证据、只补本地链、不重发 |
-| 应用层边界 | `W2Config` 默认 PullOnly；`W2Config::mock_write()` 仅显式测试配置 | 未接 UI/Tauri 命令、未改真实写入路径；MockTransport 仅测试构建，符合本轮“可从服务层触发、不接真实 HTTP”的边界 |
+| 桌面开发入口 | `voucher-api::dev_w2`、`src-tauri/src/commands/dev_w2.rs`、`src/pages/DataPage.vue` | 仅 debug + `VOUCHER_W2_MOCK=1` + 临时 `VOUCHER_DATA_DIR` 可用；命令不接受 file_id/数据目录参数；普通运行、生产目录、网页端返回 `dev_only`；界面展示拉取完整性、逐条状态、保存关联/正式入账 |
 
-本轮定向测试：`services::wps` **76 passed / 0 failed / 0 ignored**（wps 26 + pull 11 + 09 11 + index 8 + doc guard 7 + wps_w2 13）；`utils::crypto::tests` 1 passed。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)；S0-01/02/03/05/09/10/11/12 仍依赖实现/目标环境/授权，S0 未签、G1 未开放。
+本轮定向测试：`services::wps` **84 passed / 0 failed / 0 ignored**（wps 26 + pull 11 + 09 11 + index 8 + doc guard 7 + wps_w2 13 + wps_w2_dev 8）；`utils::crypto::tests` 1 passed；桌面入口集成 1 例（`voucher-api/tests/dev_w2_entry.rs`）通过。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)；S0-01/02/03/05/09/10/11/12 仍依赖实现/目标环境/授权，S0 未签、G1 未开放。
 
-**仍缺**：Tauri 命令/UI 入口、真实 HTTP transport、token 钥匙串、重授权/冷却、500 条审计清理、备份不含 token 的实测、六组真实副本 C1–C6。
+**仍缺**：真实 HTTP transport、token 钥匙串、重授权/冷却、500 条审计清理、真实备份不含 token 的实测、六组真实副本 C1–C6。桌面入口只走 Mock，不是生产接线。
 
 **G0 重审材料清单**：
 

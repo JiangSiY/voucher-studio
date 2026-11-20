@@ -5,7 +5,7 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> **2026-11-20 W2 Mock + S0 补证**：`voucher-core` 测试 **440 个**（274 单元 + 166 集成；本轮新增 19 例：`wps_w2` 13、`wps_pull` 2、`wps::tests` 3、`utils::crypto` 1），加壳 3 共 **443**；全量实跑 **445 passed / 0 failed / 0 ignored**（含 voucher-api 1 + doctest 1；静态 443 ≠ 实跑 445）。前端不变 **44 文件 230 用例**。`services::wps` 过滤口径 76（wps 26 + pull 11 + 09 11 + index 8 + doc guard 7 + wps_w2 13）。W2 仅 Mock/本地，真实 HTTP/生产写未启；S0 只做本地补证，未签。
+> **2026-11-20 W2 桌面 Mock 入口 + S0 补证**：`voucher-core` 测试 **449 个**（282 单元 + 167 集成；本轮新增 9 例：`wps_w2_dev` 8、`backup_flow` 凭据排除 1），加壳 3 共 **452**；全量实跑 **457 passed / 0 failed / 0 ignored**（含 voucher-api 4 + doctest 1；静态 452 ≠ 实跑 457）。桌面入口另加 `voucher-api/tests/dev_w2_entry.rs` 1 例、`dev_w2` 守卫 2 例。前端不变 **44 文件 230 用例**。`services::wps` 过滤口径 84（wps 26 + pull 11 + 09 11 + index 8 + doc guard 7 + wps_w2 13 + wps_w2_dev 8）。W2 桌面入口仅 Mock/临时库，真实 HTTP/生产写未启；S0 只做本地补证，未签。
 
 > **2026-11-20 W1-B4+doc guard**：`voucher-core` 测试 **421 个（#65 已修复）**（255 单元 + 166 集成；B4 在 `wps_09` 补 4 例：无 view_id、非法期间、合法期间、UPSERT 写库失败归一；A 主线新增 `wps_doc_guard` 7 例），加壳 3 共 **424**；前端新增 dataPageContract 2 例，**44 文件 230 用例**。`services::wps` 过滤口径 51→58（含 doc guard 7）；`wps_09` 7→11；`wps_index` 8（B3 增 1、B4 未增删）。
 >

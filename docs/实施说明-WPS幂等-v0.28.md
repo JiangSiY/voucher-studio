@@ -253,8 +253,14 @@ pub fn run_mock_batch<T: WpsTransport>(
 
 `wps_pull` 不再逐页写索引：页结果先 `staged` 累积；只有 `complete` 且无坏页、游标连续、结束信号一致时才调用 `wps_index::publish_scan`，在同一事务内 upsert 本轮索引并把 `wps_scans.complete=1`。失败/坏页/游标异常/空页假 `has_more`/达页上限均不发布，保留上一轮有效索引并阻断写入。
 
-### 11.4 已知边界
+### 11.4 桌面开发入口
 
-- 只有服务层入口，**未接 Tauri 命令/UI**；MockTransport 仅在测试构建可用。
+- `voucher-api::dev_w2::run` 提供进程内 W2 开发入口；`src-tauri/src/commands/dev_w2.rs` 暴露 `dev_w2_mock_sync`，`src/pages/DataPage.vue` 在 `import.meta.env.DEV && isTauri` 时显示「开发本地模拟同步」面板。
+- 守卫：debug 构建 + `VOUCHER_W2_MOCK=1` + 非空 `VOUCHER_DATA_DIR` 且位于系统临时目录；命令参数只有 `action`（pull/write）与 `scenario`，不接受 file_id 或数据目录，无法把目标改成真实文件/生产库。
+- 普通运行、生产目录、网页端均返回 `dev_only`；入口只走 `DevW2Transport` 合成数据，不读取 WPS 凭据、不发 HTTP。
+
+### 11.5 已知边界
+
+- 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
 - S0-01/02/03/05/09/10/11/12 仍依赖实现/目标环境/授权；本文件不替代 S0/G1 签字。
