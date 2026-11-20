@@ -237,6 +237,8 @@ pub enum WpsError {
     Timeout,
     /// 远端返回的其他业务错误。
     Remote(String),
+    /// 分页响应缺少可解析的 records 数组；只读拉取专用错误码。
+    PullMalformed(String),
     /// MCP 会话过期（HTTP 404）；只读可重初始化一次，写入不自动重放。
     SessionExpired,
     /// 写入缺少客户端幂等键；本地拒绝，不发起请求。
@@ -255,6 +257,7 @@ impl WpsError {
             Self::RateLimited => "WPS_E_RATE",
             Self::Timeout => "WPS_E_TIMEOUT",
             Self::Remote(_) => "WPS_E_REMOTE",
+            Self::PullMalformed(_) => "WPS_E_PULL_MALFORMED",
             Self::SessionExpired => "WPS_E_SESSION",
             Self::IdempotencyMissing => "WPS_E_IDEMPOTENCY_MISSING",
             Self::IdempotencyCountMismatch { .. } => "WPS_E_IDEMPOTENCY_COUNT_MISMATCH",
@@ -304,6 +307,7 @@ impl std::fmt::Display for WpsError {
             Self::RateLimited => write!(f, "{}: WPS 限流，请稍后重试", self.code()),
             Self::Timeout => write!(f, "{}: WPS 请求超时", self.code()),
             Self::Remote(msg) => write!(f, "{}: {msg}", self.code()),
+            Self::PullMalformed(msg) => write!(f, "{}: {msg}", self.code()),
             Self::SessionExpired => write!(f, "{}: MCP 会话已过期", self.code()),
             Self::IdempotencyMissing => {
                 write!(f, "{}: 写入缺少 idempotency_key，已本地拒绝", self.code())
@@ -388,6 +392,12 @@ impl<T: WpsTransport> WpsClient<T> {
 
     pub fn session_id(&self) -> Option<String> {
         self.session.lock().ok().and_then(|guard| guard.clone())
+    }
+
+    /// 测试专用：让同 crate 的 B3 门用例检查底层 mock 的调用记录。
+    #[cfg(test)]
+    pub(crate) fn transport(&self) -> &T {
+        &self.transport
     }
 
     /// 原始 `tools/call`；未初始化时返回 `WPS_E_PROTOCOL`。

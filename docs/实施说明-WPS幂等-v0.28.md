@@ -90,3 +90,10 @@
 | 缺 key 编译失败 | doctest `compile_fail`（`create_records` 文档，1 例） |
 
 命令：`cargo test -p voucher-core --lib services::wps` → **23 passed**；`cargo test -p voucher-core --doc` → **1 passed（compile_fail）**。
+## 八、分页与 09 门错误码（B2/B3 统一）
+
+- 分页响应缺 records 数组统一返回 **`WPS_E_PULL_MALFORMED`**（`WpsError::PullMalformed`）；`WPS_E_PULL_PAYLOAD` 已停用，代码/测试/证据不再出现。
+- 达到页上限不是自然结束：`PullReport.complete=false`、`error_code=WPS_E_PULL_MAX_PAGES`；只有空页/`has_more=false`/`total` 到达/短页且非 `has_more=true` 才 `complete=true`。
+- `WpsPullReport`（`PullReport` 别名）公开 `complete`、`skipped`、`error`、`error_code`；`complete=true` 时后两者为空。
+- 09 创建前门 `Wps09CreateGuard::ensure_create_allowed` 固定顺序：key 校验（0 请求）→ `pull_sheet(9, "09", None)` → `complete=false` 或 `skipped>0` → `WPS_E_09_STALE`（文本带 `error`/`error_code`）→ 查索引 → `WPS_E_09_DUPLICATE` → `Ok`。全程不调用写入。
+- 09 拒绝码：`WPS_E_09_KEY`、`WPS_E_09_STALE`、`WPS_E_09_DUPLICATE`。

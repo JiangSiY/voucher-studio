@@ -32,7 +32,7 @@ pub fn pull_sheet<T: WpsTransport>(
 
 - `page_size` 上限 `MAX_PAGE_SIZE = 500`；分页上限 `MAX_PULL_PAGES = 1_000`，防止 offset 异常导致无限循环。
 - 支持 `records`、`data.records`、`data` 数组；`has_more`/`hasMore`、`total`/`total_count`、`next_offset`/`nextOffset` 两种命名。
-- 坏记录（缺 id、`fields` 非对象、记录非对象）计入 `skipped`，不阻断整页；响应缺少 records 数组才返回 `WPS_E_PULL_PAYLOAD`。
+- 坏记录（缺 id、`fields` 非对象、记录非对象）计入 `skipped`，不阻断整页；响应缺少 records 数组才返回 `WPS_E_PULL_MALFORMED`。
 - 远端/解析/offset 不前进 → `finish_scan(complete=false, error=...)`，报告 `complete=false`，返回 `Ok(report)`；数据库错误才返回 `Err`。
 - 正常终止条件：空页、`has_more=false`、`total` 到达、`has_more != true` 且短页、`MAX_PULL_PAGES`。
 - 索引行 `pulled_at` 用 UTC RFC3339（秒精度）；`fields_json` 保存原字段对象，不丢字段。
@@ -48,16 +48,17 @@ cargo test -p voucher-core --lib services::wps
 
 结果：
 
-- `services::wps_pull`：**8 passed / 0 failed**
+- `services::wps_pull`：**9 passed / 0 failed**
   - `parse_page_extracts_rows_and_page_metadata`
   - `parse_page_skips_bad_records_without_failing`
   - `parse_page_accepts_data_array_and_camel_case_has_more`
   - `parse_page_rejects_payload_without_records`
   - `pull_sheet_pages_until_short_page_and_marks_scan_complete`
+  - `pull_sheet_marks_complete_false_when_max_pages_reached`
   - `pull_sheet_marks_scan_incomplete_on_offset_regression`
   - `pull_sheet_marks_scan_incomplete_on_remote_error`
   - `pull_sheet_marks_scan_incomplete_on_payload_error`
-- `services::wps`（含 index）：**38 passed / 0 failed**。
+- `services::wps`（含 index/guard）：**47 passed / 0 failed**。
 - `cargo clippy -p voucher-core --all-targets -- -D warnings`、`cargo fmt --all --check` 通过。
 
 ## 4. 覆盖与缺口
@@ -67,6 +68,7 @@ cargo test -p voucher-core --lib services::wps
 - 远端 429（只读重试耗尽）→ scan 不完整 + 错误落库；
 - payload 缺 records → scan 不完整；
 - offset 回退 → 拒绝并标记不完整；
+- 页上限 → `complete=false` + `WPS_E_PULL_MAX_PAGES`，不误标完成；
 - 坏记录跳过、`data` 数组/camelCase 元数据、缺 records 报错。
 
 未覆盖（后续阶段）：
@@ -80,8 +82,8 @@ cargo test -p voucher-core --lib services::wps
 
 | 项 | 状态 |
 |---|---|
-| B2 分页用例 | ✅ 8/8 |
-| `services::wps` 回归 | ✅ 38/38 |
+| B2 分页用例 | ✅ 9/9 |
+| `services::wps` 回归 | ✅ 47/47 |
 | clippy / fmt | ✅ |
 | S0 / G1 | ❌ 仍阻断 |
 | 真实 HTTP | ❌ 关闭 |

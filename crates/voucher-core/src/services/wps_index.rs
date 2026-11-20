@@ -452,4 +452,21 @@ mod tests {
         assert_eq!(key, "");
         assert_eq!(kind, KIND_NONE);
     }
+
+    #[test]
+    fn business_key_for_uses_documented_main_fields_for_05_07_08_10() {
+        // 依据 财务工作流/设计/项目台账_v2_设计.md：
+        // 05 L159「调整编号」、07 L192「发票号」、08 L197「表号」、10 L205「SKU」。
+        let cases = [
+            (5, "调整编号", "ADJ-1"),
+            (7, "发票号", "INV-1"),
+            (8, "表号", "METER-1"),
+            (10, "SKU", "SKU-1"),
+        ];
+        for (sheet_id, field, value) in cases {
+            let (key, kind) = business_key_for(sheet_id, &json!({ field: value }));
+            assert_eq!(key, value, "sheet {sheet_id} 主字段 {field}");
+            assert_eq!(kind, KIND_DOC_NO);
+        }
+    }
 }

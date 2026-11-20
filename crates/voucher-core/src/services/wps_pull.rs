@@ -40,21 +40,24 @@ pub struct PullReport {
     pub skipped: usize,
     pub complete: bool,
     pub error: Option<String>,
+    pub error_code: Option<String>,
 }
+
+/// 对外使用的报告别名；B3 09 门按 `complete` / `skipped` / `error_code` 判定。
+pub type WpsPullReport = PullReport;
 
 /// 解析一页 `list_records` 响应。
 ///
 /// 容错规则：缺少 `id`、`fields` 非对象、记录非对象的条目计入 `skipped`，
-/// 不阻断整页；响应缺少 records 数组才返回 `WPS_E_PULL_PAYLOAD`。
+/// 不阻断整页；响应缺少 records 数组才返回 `WPS_E_PULL_MALFORMED`。
 pub fn parse_list_page(
     sheet_id: i64,
     record_type: &str,
     payload: &Value,
 ) -> std::result::Result<PullPage, WpsError> {
     let records = records_array(payload).ok_or_else(|| {
-        WpsError::Protocol(
-            "WPS_E_PULL_PAYLOAD: 响应缺少 records 数组（支持 records / data.records / data 数组）"
-                .into(),
+        WpsError::PullMalformed(
+            "响应缺少 records 数组（支持 records / data.records / data 数组）".into(),
         )
     })?;
     let mut page = PullPage {
@@ -114,7 +117,29 @@ pub fn pull_sheet<T: WpsTransport>(
     view_id: Option<&str>,
     page_size: usize,
 ) -> Result<PullReport> {
+    pull_sheet_with_limit(
+        client,
+        store,
+        sheet_id,
+        record_type,
+        view_id,
+        page_size,
+        MAX_PULL_PAGES,
+    )
+}
+
+/// 与 `pull_sheet` 相同，但显式给出页上限；测试用，生产固定 `MAX_PULL_PAGES`。
+fn pull_sheet_with_limit<T: WpsTransport>(
+    client: &WpsClient<T>,
+    store: &WpsStore<'_>,
+    sheet_id: i64,
+    record_type: &str,
+    view_id: Option<&str>,
+    page_size: usize,
+    max_pages: usize,
+) -> Result<PullReport> {
     let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
+    let max_pages = max_pages.max(1);
     let scan_id = store.begin_scan(sheet_id, view_id)?;
     let mut report = PullReport {
         sheet_id,
@@ -126,11 +151,13 @@ pub fn pull_sheet<T: WpsTransport>(
         skipped: 0,
         complete: false,
         error: None,
+        error_code: None,
     };
 
     if client.session_id().is_none() {
         if let Err(err) = client.initialize() {
             report.error = Some(format!("{}: {err}", err.code()));
+            report.error_code = Some(err.code().to_string());
             store.finish_scan(scan_id, 0, false, report.error.as_deref())?;
             return Ok(report);
         }
@@ -138,10 +165,9 @@ pub fn pull_sheet<T: WpsTransport>(
 
     let mut offset = 0usize;
     loop {
-        if report.pages >= MAX_PULL_PAGES {
-            report.error = Some(format!(
-                "WPS_E_PULL_MAX_PAGES: 超过 {MAX_PULL_PAGES} 页仍未结束"
-            ));
+        if report.pages >= max_pages {
+            report.error = Some(format!("WPS_E_PULL_MAX_PAGES: 超过 {max_pages} 页仍未结束"));
+            report.error_code = Some("WPS_E_PULL_MAX_PAGES".to_string());
             store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
             return Ok(report);
         }
@@ -150,6 +176,7 @@ pub fn pull_sheet<T: WpsTransport>(
             Ok(payload) => payload,
             Err(err) => {
                 report.error = Some(format!("{}: {err}", err.code()));
+                report.error_code = Some(err.code().to_string());
                 store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
                 return Ok(report);
             }
@@ -158,6 +185,7 @@ pub fn pull_sheet<T: WpsTransport>(
             Ok(page) => page,
             Err(err) => {
                 report.error = Some(format!("{}: {err}", err.code()));
+                report.error_code = Some(err.code().to_string());
                 store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
                 return Ok(report);
             }
@@ -184,6 +212,7 @@ pub fn pull_sheet<T: WpsTransport>(
             report.error = Some(format!(
                 "WPS_E_PULL_OFFSET: offset 未前进（{previous} → {offset}）"
             ));
+            report.error_code = Some("WPS_E_PULL_OFFSET".to_string());
             store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
             return Ok(report);
         }
@@ -345,8 +374,8 @@ mod tests {
     #[test]
     fn parse_page_rejects_payload_without_records() {
         let err = parse_list_page(3, "03", &json!({"items": []})).expect_err("must fail");
-        assert_eq!(err.code(), "WPS_E_PROTOCOL");
-        assert!(err.to_string().contains("WPS_E_PULL_PAYLOAD"));
+        assert_eq!(err.code(), "WPS_E_PULL_MALFORMED");
+        assert!(err.to_string().contains("WPS_E_PULL_MALFORMED"));
     }
 
     #[test]
@@ -391,6 +420,43 @@ mod tests {
         assert_eq!(complete, 1);
         assert!(error.is_none());
         assert!(finished.is_some());
+    }
+
+    #[test]
+    fn pull_sheet_marks_complete_false_when_max_pages_reached() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let page = || {
+            Ok(json!({
+                "records": [
+                    {"id": "r1", "fields": {"应收单号": "AR-1"}},
+                    {"id": "r2", "fields": {"应收单号": "AR-2"}}
+                ],
+                "has_more": true
+            }))
+        };
+        let transport = MockTransport::new("session-1", vec![page(), page(), page()]);
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet_with_limit(&client, &store, 3, "03", None, 2, 2).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(report.pages, 2);
+        assert_eq!(report.error_code.as_deref(), Some("WPS_E_PULL_MAX_PAGES"));
+        assert!(report
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("WPS_E_PULL_MAX_PAGES")));
+
+        let scan_id: i64 = db
+            .with_conn(|conn| {
+                conn.query_row("SELECT MAX(id) FROM wps_scans", [], |row| row.get(0))
+                    .map_err(Into::into)
+            })
+            .expect("scan id");
+        let (complete, error, _) = scan_row(&db, scan_id);
+        assert_eq!(complete, 0);
+        assert!(error
+            .as_deref()
+            .is_some_and(|error| error.contains("WPS_E_PULL_MAX_PAGES")));
     }
 
     #[test]
@@ -445,6 +511,7 @@ mod tests {
         let report = pull_sheet(&client, &store, 3, "03", None, 500).expect("pull");
         assert!(!report.complete);
         assert_eq!(report.pages, 0);
+        assert_eq!(report.error_code.as_deref(), Some("WPS_E_RATE"));
         assert!(report
             .error
             .as_deref()
@@ -471,10 +538,11 @@ mod tests {
         let client = WpsClient::new(transport, "file-1");
         let report = pull_sheet(&client, &store, 3, "03", None, 500).expect("pull");
         assert!(!report.complete);
+        assert_eq!(report.error_code.as_deref(), Some("WPS_E_PULL_MALFORMED"));
         assert!(report
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("WPS_E_PULL_PAYLOAD")));
+            .is_some_and(|error| error.contains("WPS_E_PULL_MALFORMED")));
         let scan_id: i64 = db
             .with_conn(|conn| {
                 conn.query_row("SELECT MAX(id) FROM wps_scans", [], |row| row.get(0))
@@ -485,6 +553,6 @@ mod tests {
         assert_eq!(complete, 0);
         assert!(error
             .as_deref()
-            .is_some_and(|error| error.contains("WPS_E_PULL_PAYLOAD")));
+            .is_some_and(|error| error.contains("WPS_E_PULL_MALFORMED")));
     }
 }
