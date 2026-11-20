@@ -524,6 +524,43 @@ fn export_full_backup_composes_single_zip() -> Result<()> {
     Ok(())
 }
 
+/// S0-10：备份包只含数据库快照、app.json、附件与 manifest，不含凭据文件。
+#[test]
+fn backup_zip_entries_exclude_credential_files() -> Result<()> {
+    let (dir, ctx) = test_ctx();
+    let img = dir.path().join("s0-10.png");
+    make_png(&img);
+    ingestion::import_images(&ctx, std::slice::from_ref(&img), None, false)?;
+    let info = backup::run_backup(&ctx)?;
+
+    let file = std::fs::File::open(&info.path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut names = Vec::new();
+    for index in 0..archive.len() {
+        names.push(archive.by_index(index)?.name().to_string());
+    }
+    assert!(
+        names.iter().any(|n| n == backup::DB_ENTRY),
+        "备份应含 voucher.db：{names:?}"
+    );
+    for name in &names {
+        let lower = name.to_ascii_lowercase();
+        assert!(
+            !lower.contains("secret") && !lower.contains("token") && !lower.contains("keychain"),
+            "备份不得含凭据文件：{name}"
+        );
+        assert!(
+            name == backup::DB_ENTRY
+                || name == backup::CONFIG_ENTRY
+                || name == backup::MANIFEST_FILE
+                || name.starts_with(backup::ATTACHMENTS_PREFIX)
+                || name.ends_with(".json"),
+            "备份出现未登记条目：{name}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn unwritable_secondary_dir_warns_but_backup_succeeds() -> Result<()> {
     let (_dir, ctx) = test_ctx();

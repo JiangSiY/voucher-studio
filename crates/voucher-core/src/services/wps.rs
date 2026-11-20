@@ -957,6 +957,19 @@ impl<'a> WpsStore<'a> {
         })
     }
 
+    /// 读取一条关联的本地状态（W2/恢复展示用；不修改任何数据）。
+    pub fn link_state(&self, link_id: i64) -> Result<Option<String>> {
+        self.database().with_conn(|conn| {
+            conn.query_row(
+                "SELECT state FROM wps_links WHERE id = ?1",
+                params![link_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
     pub fn count_links(&self, state: &str) -> Result<i64> {
         self.db.with_conn(|conn| {
             Ok(conn.query_row(

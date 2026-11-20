@@ -1193,8 +1193,52 @@ export interface NewVoucherInput {
   note?: string;
 }
 
+/** 开发态 W2 Mock（仅 debug + VOUCHER_W2_MOCK=1 + 临时数据目录可用） */
+export interface DevW2PullSheet {
+  sheetId: number;
+  recordType: string;
+  complete: boolean;
+  skipped: number;
+  rawRecords: number;
+  indexed: number;
+  error: string | null;
+}
+
+export interface DevW2Pull {
+  complete: boolean;
+  writesBlocked: boolean;
+  sheets: DevW2PullSheet[];
+}
+
+export interface DevW2Outcome {
+  sequence: number;
+  idempotencyKey: string;
+  status: "succeeded" | "unknown" | "rejected" | "pending_backfill" | "not_attempted";
+  remoteRecordId: string | null;
+  linkId: number | null;
+  linkState: string | null;
+  savedLink: boolean;
+  posted: boolean;
+  error: string | null;
+}
+
+export interface DevW2Batch {
+  runId: number | null;
+  stopped: boolean;
+  outcomes: DevW2Outcome[];
+}
+
+export interface DevW2Result {
+  mode: string;
+  dataDir: string;
+  pull: DevW2Pull;
+  batch?: DevW2Batch;
+}
+
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
+  devW2MockSync: (action: "pull" | "write", scenario?: string) =>
+    invoke<DevW2Result>("dev_w2_mock_sync", { action, scenario }),
   openPath: (path: string) => (isTauri ? invoke<void>("open_path", { path }) : openInBrowser(path)),
   restartApp: () => invoke<void>("restart_app"),
 

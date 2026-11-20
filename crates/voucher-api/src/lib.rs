@@ -15,6 +15,7 @@
 pub mod accounting;
 pub mod backup;
 pub mod biz;
+pub mod dev_w2;
 pub mod enhance;
 pub mod export;
 pub mod ingest;
@@ -453,6 +454,13 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
                 "unsupported",
                 "该操作只在桌面版可用；网页版请用页面上传或浏览器下载",
             ));
+        }
+
+        // ---------- 开发态 W2 Mock（守卫在 dev_w2::run；普通/生产运行返回 dev_only）----------
+        "dev_w2_mock_sync" => {
+            let action: Option<String> = get(&args, "action")?;
+            let scenario: Option<String> = get(&args, "scenario")?;
+            to_value(dev_w2::run(ctx, action.as_deref(), scenario.as_deref())?)?
         }
 
         // ---------- 服务端元信息 ----------

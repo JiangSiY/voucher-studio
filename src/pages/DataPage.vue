@@ -12,6 +12,9 @@ import VoucherEditor from "../components/voucher/VoucherEditor.vue";
 import { assetUrl } from "../api/asset";
 import {
   api,
+  isTauri,
+  type DevW2Outcome,
+  type DevW2Result,
   type ImportBatch,
   type Voucher,
   type VoucherDetail,
@@ -63,6 +66,35 @@ const detailBusy = ref(0);
 const { open } = useModalRoute();
 const router = useRouter();
 const newOpen = ref(route.query.new === "1");
+const isDev = import.meta.env.DEV && isTauri;
+const w2Busy = ref(false);
+const w2Error = ref("");
+const w2Result = ref<DevW2Result | null>(null);
+
+const w2StatusLabel: Record<string, string> = {
+  succeeded: "成功",
+  unknown: "结果不明",
+  rejected: "整批拒绝",
+  pending_backfill: "待回填",
+  not_attempted: "未尝试",
+};
+
+async function runDevW2(action: "pull" | "write", scenario?: string) {
+  w2Busy.value = true;
+  w2Error.value = "";
+  try {
+    w2Result.value = await api.devW2MockSync(action, scenario);
+  } catch (e) {
+    w2Error.value = String(e);
+  } finally {
+    w2Busy.value = false;
+  }
+}
+
+function w2LinkText(o: DevW2Outcome): string {
+  if (!o.savedLink) return "未保存";
+  return o.linkState === "linked" ? "已关联" : "已保存（未认领）";
+}
 
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -333,6 +365,83 @@ watch(query, load);
       </div>
     </div>
 
+    <section v-if="isDev" class="dev-w2" aria-label="开发本地模拟同步">
+      <div class="dev-w2-head">
+        <div>
+          <strong>开发本地模拟同步（W2 Mock）</strong>
+          <p>仅在 debug + VOUCHER_W2_MOCK=1 + 临时数据目录可用；不连接真实 WPS。</p>
+        </div>
+        <div class="dev-w2-actions">
+          <button class="btn btn-sm" type="button" :disabled="w2Busy" @click="runDevW2('pull')">
+            拉取 11 表（只读）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('write', 'normal')"
+          >
+            模拟创建（正常）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('write', 'timeout_second')"
+          >
+            模拟创建（第二笔超时）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('write', 'missing_reference')"
+          >
+            模拟创建（缺引用）
+          </button>
+        </div>
+      </div>
+      <p v-if="w2Error" class="dev-w2-error">{{ w2Error }}</p>
+      <template v-if="w2Result">
+        <p class="dev-w2-meta">
+          {{ w2Result.mode }} · 数据目录 {{ w2Result.dataDir }} · 拉取
+          {{ w2Result.pull.complete ? "完整" : "不完整" }}（{{ w2Result.pull.sheets.length }} 表）
+        </p>
+        <p v-if="w2Result.pull.writesBlocked" class="dev-w2-error">索引不完整，写入已阻断。</p>
+        <div v-if="w2Result.batch" class="dev-w2-tablewrap">
+          <table class="dev-w2-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>幂等键</th>
+                <th>结果</th>
+                <th>远端记录</th>
+                <th>保存关联</th>
+                <th>正式入账</th>
+                <th>错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="o in w2Result.batch.outcomes" :key="o.idempotencyKey">
+                <td>{{ o.sequence }}</td>
+                <td>{{ o.idempotencyKey }}</td>
+                <td>
+                  <span class="dev-w2-status" :data-status="o.status">{{
+                    w2StatusLabel[o.status] ?? o.status
+                  }}</span>
+                </td>
+                <td>{{ o.remoteRecordId ?? "—" }}</td>
+                <td>{{ w2LinkText(o) }}</td>
+                <td>{{ o.posted ? "已入账" : "未入账" }}</td>
+                <td class="dev-w2-err">{{ o.error ?? "—" }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="w2Result.batch.stopped" class="dev-w2-meta">本批已按停止规则终止。</p>
+        </div>
+      </template>
+    </section>
+
     <div v-if="activeView === 'batches'" class="data-batchbar">
       <label class="data-field">
         <span>导入批次</span>
@@ -488,6 +597,79 @@ watch(query, load);
 </template>
 
 <style scoped>
+.dev-w2 {
+  margin-bottom: var(--s-3);
+  padding: var(--s-3);
+  border: 1px dashed var(--accent-soft);
+  border-radius: var(--radius-control);
+  background: var(--bg-card);
+}
+
+.dev-w2-head,
+.dev-w2-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.dev-w2-head p,
+.dev-w2-meta {
+  margin: var(--s-1) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+}
+
+.dev-w2-actions {
+  justify-content: flex-start;
+}
+
+.dev-w2-error {
+  margin: var(--s-2) 0 0;
+  color: var(--accent-strong);
+  font-size: var(--fs-caption);
+}
+
+.dev-w2-tablewrap {
+  margin-top: var(--s-2);
+  overflow-x: auto;
+}
+
+.dev-w2-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-caption);
+}
+
+.dev-w2-table th,
+.dev-w2-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--card-hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.dev-w2-table th {
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.dev-w2-status[data-status="succeeded"] {
+  color: var(--success);
+}
+
+.dev-w2-status[data-status="unknown"],
+.dev-w2-status[data-status="pending_backfill"],
+.dev-w2-status[data-status="rejected"] {
+  color: var(--accent-strong);
+}
+
+.dev-w2-err {
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
 .data-actions {
   display: flex;
   align-items: center;

@@ -12,6 +12,7 @@
 
 mod accounting;
 mod backup;
+mod dev_w2;
 mod enhance;
 mod export;
 mod ingest;
@@ -22,6 +23,7 @@ mod vouchers;
 
 pub use accounting::*;
 pub use backup::*;
+pub use dev_w2::*;
 pub use enhance::*;
 pub use export::*;
 pub use ingest::*;
