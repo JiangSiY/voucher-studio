@@ -128,7 +128,6 @@ impl<'a> WpsStore<'a> {
     }
 
     /// 同一业务键允许重复（WPS 允许重复单号/同表同期），返回全部命中。
-    #[allow(dead_code)] // W2 预检接入；B2 仅写索引
     pub(crate) fn find_index_by_business_key(
         &self,
         sheet_id: i64,
@@ -170,7 +169,7 @@ impl<'a> WpsStore<'a> {
         })
     }
 
-    #[allow(dead_code)] // W2 预检接入；B2 仅写索引
+    #[cfg(test)]
     pub(crate) fn count_index(&self, sheet_id: i64) -> Result<usize> {
         self.database().with_conn(|conn| {
             let n: i64 = conn.query_row(

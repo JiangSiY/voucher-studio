@@ -3,10 +3,6 @@
 //! 只负责把 WPS `list_records` 的原始 JSON 解析成索引行，并维护
 //! `wps_scans` 生命周期；不含 09 创建门、不含写入、不含真实 HTTP。
 //!
-//! B2 尚未接入生产调用（W2/W3 使用），模块暂时允许 `dead_code`；
-//! TODO(B3): 接入同步调度后移除模块级 allow。
-#![allow(dead_code)]
-
 use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
 
