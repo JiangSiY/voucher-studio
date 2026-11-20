@@ -68,6 +68,31 @@ fn is_valid_period(period: &str) -> bool {
 pub struct Wps09CreateGuard;
 
 impl Wps09CreateGuard {
+    /// 索引已由同一轮全历史刷新发布时，只做 09 复合键重复判定（不再发请求）。
+    ///
+    /// `business_key` 必须为 `meter_record_id\u{1f}period` 形式。
+    pub fn ensure_index_unique(
+        store: &WpsStore<'_>,
+        business_key: &str,
+    ) -> std::result::Result<(), Wps09Error> {
+        let key = business_key.trim();
+        let Some((meter, period)) = key.split_once('\u{1f}') else {
+            return Err(Wps09Error::Key("09 业务键格式不合法".into()));
+        };
+        if meter.trim().is_empty() || !is_valid_period(period) {
+            return Err(Wps09Error::Key("09 电表编号或期间不合法".into()));
+        }
+        let found = store
+            .find_index_by_business_key(9, key)
+            .map_err(|err| Wps09Error::Stale(format!("读取索引失败: {err}")))?;
+        if !found.is_empty() {
+            return Err(Wps09Error::Duplicate(format!(
+                "09 已有电表 {meter} / 期间 {period}"
+            )));
+        }
+        Ok(())
+    }
+
     /// 只读检查；通过后调用方才可发起 09 创建。
     ///
     /// `meter_record_id` 是 08 电表的 WPS 记录 id，`period` 是 09 的期间文本

@@ -159,6 +159,7 @@ fn pull_sheet_with_limit<T: WpsTransport>(
         }
     }
 
+    let mut staged: Vec<WpsIndexRow> = Vec::new();
     let mut offset = 0usize;
     loop {
         if report.pages >= max_pages {
@@ -187,17 +188,22 @@ fn pull_sheet_with_limit<T: WpsTransport>(
             }
         };
 
-        if let Err(err) = store.upsert_index_rows(&page.rows) {
-            let message = err.to_string();
-            store.finish_scan(scan_id, report.pages, false, Some(&message))?;
-            return Err(err);
-        }
         report.pages += 1;
         report.raw_records += page.raw_records;
         report.indexed += page.rows.len();
         report.skipped += page.skipped;
+        staged.extend(page.rows);
 
         if page.raw_records == 0 {
+            if page.has_more == Some(true) {
+                report.error = Some(
+                    "WPS_E_PULL_INCONSISTENT: 空页仍声明 has_more=true，拒绝发布本轮索引"
+                        .to_string(),
+                );
+                report.error_code = Some("WPS_E_PULL_INCONSISTENT".to_string());
+                store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
+                return Ok(report);
+            }
             break;
         }
         let previous = offset;
@@ -212,11 +218,17 @@ fn pull_sheet_with_limit<T: WpsTransport>(
             store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
             return Ok(report);
         }
-        if page.has_more == Some(false) {
-            break;
-        }
         if let Some(total) = page.total {
             if offset >= total {
+                if page.has_more == Some(true) {
+                    report.error = Some(
+                        "WPS_E_PULL_INCONSISTENT: 到达 total 仍声明 has_more=true，拒绝发布本轮索引"
+                            .to_string(),
+                    );
+                    report.error_code = Some("WPS_E_PULL_INCONSISTENT".to_string());
+                    store.finish_scan(scan_id, report.pages, false, report.error.as_deref())?;
+                    return Ok(report);
+                }
                 break;
             }
         }
@@ -225,7 +237,12 @@ fn pull_sheet_with_limit<T: WpsTransport>(
         }
     }
 
-    store.finish_scan(scan_id, report.pages, true, None)?;
+    // 只有完整扫描才在同一事务发布索引并标记 scan 完成；失败轮保留上一轮索引。
+    if let Err(err) = store.publish_scan(scan_id, report.pages, &staged) {
+        let message = err.to_string();
+        let _ = store.finish_scan(scan_id, report.pages, false, Some(&message));
+        return Err(err);
+    }
     report.complete = true;
     Ok(report)
 }
@@ -524,6 +541,69 @@ mod tests {
         assert!(error
             .as_deref()
             .is_some_and(|error| error.contains("WPS_E_RATE")));
+    }
+
+    #[test]
+    fn pull_sheet_failure_preserves_previous_published_index() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        store
+            .upsert_index_rows(&[WpsIndexRow::new(
+                3,
+                "R-OLD",
+                "03",
+                "AR-OLD",
+                "doc_no",
+                None,
+                "{}",
+                "2026-11-20T00:00:00Z",
+            )])
+            .expect("seed old index");
+        let transport = MockTransport::new(
+            "session-1",
+            vec![
+                Ok(json!({
+                    "records": [{"id": "R-NEW", "fields": {"应收单号": "AR-NEW"}}],
+                    "has_more": true
+                })),
+                Err(WpsError::RateLimited),
+                Err(WpsError::RateLimited),
+                Err(WpsError::RateLimited),
+            ],
+        );
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet(&client, &store, 3, "03", None, 1).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(report.error_code.as_deref(), Some("WPS_E_RATE"));
+        assert_eq!(store.count_index(3).expect("count"), 1);
+        assert!(
+            store
+                .find_index_by_business_key(3, "AR-OLD")
+                .expect("old")
+                .len()
+                == 1
+        );
+        assert!(store
+            .find_index_by_business_key(3, "AR-NEW")
+            .expect("new not published")
+            .is_empty());
+    }
+
+    #[test]
+    fn pull_sheet_rejects_empty_page_that_claims_more() {
+        let db = db_with_schema();
+        let store = WpsStore::from_db(&db);
+        let transport = MockTransport::new(
+            "session-1",
+            vec![Ok(json!({"records": [], "has_more": true}))],
+        );
+        let client = WpsClient::new(transport, "file-1");
+        let report = pull_sheet(&client, &store, 3, "03", None, 500).expect("pull");
+        assert!(!report.complete);
+        assert_eq!(
+            report.error_code.as_deref(),
+            Some("WPS_E_PULL_INCONSISTENT")
+        );
     }
 
     #[test]

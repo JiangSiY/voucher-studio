@@ -627,6 +627,28 @@ CREATE INDEX IF NOT EXISTS idx_wps_index_key
 CREATE INDEX IF NOT EXISTS idx_wps_index_type
     ON wps_record_index(sheet_id, record_type);
 
+CREATE TABLE IF NOT EXISTS wps_write_intents (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            INTEGER NOT NULL,
+    batch_id          TEXT    NOT NULL,
+    sequence          INTEGER NOT NULL,
+    sheet_id          INTEGER NOT NULL,
+    record_type       TEXT    NOT NULL,
+    business_key      TEXT    NOT NULL,
+    target_voucher_id INTEGER,
+    idempotency_key   TEXT    NOT NULL UNIQUE,
+    payload_hash      TEXT    NOT NULL,
+    state             TEXT    NOT NULL DEFAULT 'intent'
+                      CHECK (state IN ('intent','remote_succeeded','remote_rejected',
+                                       'unknown','linked','pending_backfill','backfill_failed')),
+    remote_record_id  TEXT,
+    error             TEXT,
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wps_intents_run
+    ON wps_write_intents(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS wps_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

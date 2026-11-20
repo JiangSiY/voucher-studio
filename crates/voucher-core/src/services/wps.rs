@@ -23,7 +23,7 @@ use crate::db::Database;
 use crate::{CoreContext, CoreError, Result};
 
 /// 同步表集合；与 `db::schema::SCHEMA_WPS` 保持一致。
-pub const WPS_TABLES: [&str; 12] = [
+pub const WPS_TABLES: [&str; 13] = [
     "wps_links",
     "wps_tombstones",
     "wps_scans",
@@ -35,6 +35,7 @@ pub const WPS_TABLES: [&str; 12] = [
     "wps_run_created",
     "wps_idempotency_keys",
     "wps_record_index",
+    "wps_write_intents",
     "wps_state",
 ];
 
@@ -277,7 +278,25 @@ impl WpsError {
         match code {
             Some(400006) => Self::AuthExpired,
             Some(429) => Self::RateLimited,
-            _ => Self::Remote(value.to_string()),
+            _ => Self::Remote(Self::redacted_remote_message(value)),
+        }
+    }
+
+    /// 远端错误体只保留状态码/短消息，绝不把整个 JSON（可能含 token、税号、金额）带进日志。
+    fn redacted_remote_message(value: &Value) -> String {
+        let code = value
+            .get("code")
+            .and_then(Value::as_i64)
+            .or_else(|| value.pointer("/error/code").and_then(Value::as_i64));
+        let message = value
+            .get("message")
+            .or_else(|| value.pointer("/error/message"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let message: String = message.chars().take(160).collect();
+        match code {
+            Some(code) => format!("远端错误 code={code} message={message}"),
+            None => format!("远端错误 message={message}"),
         }
     }
 
@@ -349,6 +368,7 @@ pub struct WpsClient<T: WpsTransport> {
     file_id: String,
     session: Mutex<Option<String>>,
     retry: WpsRetryPolicy,
+    allowed_files: Option<HashSet<String>>,
 }
 
 impl<T: WpsTransport> WpsClient<T> {
@@ -363,7 +383,29 @@ impl<T: WpsTransport> WpsClient<T> {
             file_id: file_id.into(),
             session: Mutex::new(None),
             retry,
+            allowed_files: None,
         }
+    }
+
+    /// 绑定目标 file_id 白名单；S0-06 使用，未列入的 file_id 在发请求前拒绝。
+    pub fn with_allowed_files(
+        mut self,
+        files: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.allowed_files = Some(files.into_iter().map(Into::into).collect());
+        self
+    }
+
+    fn ensure_file_allowed(&self) -> std::result::Result<(), WpsError> {
+        if let Some(allowed) = &self.allowed_files {
+            if !allowed.contains(&self.file_id) {
+                return Err(WpsError::Protocol(format!(
+                    "WPS_E_FILE_NOT_ALLOWED: 目标文件 {0} 不在允许清单",
+                    self.file_id
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// 按配置构造；默认 mock，http 必须 S0 批准。
@@ -382,6 +424,7 @@ impl<T: WpsTransport> WpsClient<T> {
 
     /// 初始化会话；重复调用会覆盖旧 session（真实实现应先释放旧会话）。
     pub fn initialize(&self) -> std::result::Result<String, WpsError> {
+        self.ensure_file_allowed()?;
         let session_id = self.transport.initialize()?;
         *self
             .session
@@ -402,6 +445,7 @@ impl<T: WpsTransport> WpsClient<T> {
 
     /// 原始 `tools/call`；未初始化时返回 `WPS_E_PROTOCOL`。
     pub fn call(&self, action: &str, args: &Value) -> std::result::Result<Value, WpsError> {
+        self.ensure_file_allowed()?;
         let guard = self
             .session
             .lock()
@@ -576,7 +620,7 @@ pub(crate) fn build_create_args(
 }
 
 /// 从 W0 已观测到的响应形状中提取记录 id；未知形状返回 `None`，由上层标记 unknown。
-pub fn extract_remote_record_id(value: &Value) -> Option<String> {
+pub(crate) fn extract_remote_record_id(value: &Value) -> Option<String> {
     for pointer in [
         "/records/0/id",
         "/data/records/0/id",
@@ -726,7 +770,7 @@ impl<'a> WpsStore<'a> {
         self.db
     }
 
-    /// 运行期自检：12 张表齐全且 `wps_state.schema_version='wps-1'`。
+    /// 运行期自检：13 张表齐全且 `wps_state.schema_version='wps-1'`。
     pub fn ensure_schema(&self) -> Result<()> {
         self.database().with_conn(|conn| {
             let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")?;
@@ -1641,5 +1685,37 @@ mod tests {
 
         let err = parse_mcp_payload("not json").expect_err("invalid");
         assert_eq!(err.code(), "WPS_E_PROTOCOL");
+    }
+
+    #[test]
+    fn remote_error_text_redacts_field_values() {
+        let err = WpsError::from_mcp_error(&json!({
+            "code": 500,
+            "message": "后台错误",
+            "fields": {"客户": "某客户", "金额": 128600, "电话": "13800000000"}
+        }));
+        let text = err.to_string();
+        assert!(text.contains("code=500"));
+        assert!(text.contains("后台错误"));
+        assert!(!text.contains("13800000000"));
+        assert!(!text.contains("128600"));
+        assert!(!text.contains("某客户"));
+    }
+
+    #[test]
+    fn file_whitelist_rejects_before_transport() {
+        let mock = MockTransport::new("sess-1", vec![]);
+        let client = WpsClient::new(mock, "file-1").with_allowed_files(["file-2"]);
+        let err = client.initialize().expect_err("blocked file");
+        assert_eq!(err.code(), "WPS_E_PROTOCOL");
+        assert!(err.to_string().contains("WPS_E_FILE_NOT_ALLOWED"));
+        assert!(client.transport().calls().is_empty());
+    }
+
+    #[test]
+    fn file_whitelist_allows_target_file() {
+        let mock = MockTransport::new("sess-1", vec![]);
+        let client = WpsClient::new(mock, "file-1").with_allowed_files(["file-1"]);
+        client.initialize().expect("allowed file");
     }
 }

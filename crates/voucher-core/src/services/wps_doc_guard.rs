@@ -65,6 +65,22 @@ pub const DOC_SPEC_11: WpsDocNoSpec = WpsDocNoSpec {
     record_type: "11",
 };
 
+/// 按 sheet_id 取单号表规格；仅供 W2 预检等已刷新索引的调用方复用判定。
+pub fn doc_spec_for_sheet(sheet_id: i64) -> Option<WpsDocNoSpec> {
+    match sheet_id {
+        2 => Some(DOC_SPEC_02),
+        3 => Some(DOC_SPEC_03),
+        4 => Some(DOC_SPEC_04),
+        5 => Some(DOC_SPEC_05),
+        6 => Some(DOC_SPEC_06),
+        7 => Some(DOC_SPEC_07),
+        8 => Some(DOC_SPEC_08),
+        10 => Some(DOC_SPEC_10),
+        11 => Some(DOC_SPEC_11),
+        _ => None,
+    }
+}
+
 /// 单号创建门的拒绝原因；`code()` 直接对应方案错误码。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WpsDocNoError {
@@ -103,6 +119,30 @@ impl std::error::Error for WpsDocNoError {}
 pub struct WpsDocNoCreateGuard;
 
 impl WpsDocNoCreateGuard {
+    /// 索引已由同一轮全历史刷新发布时，只做单号重复判定（不再发请求）。
+    ///
+    /// W2 预检使用本方法复用单号门的判定，不重复刷新整表。
+    pub fn ensure_index_unique(
+        store: &WpsStore<'_>,
+        spec: &WpsDocNoSpec,
+        business_key: &str,
+    ) -> std::result::Result<(), WpsDocNoError> {
+        let key = business_key.trim();
+        if key.is_empty() {
+            return Err(WpsDocNoError::Key("单号为空".into()));
+        }
+        let found = store
+            .find_index_by_business_key(spec.sheet_id, key)
+            .map_err(|err| WpsDocNoError::Stale(format!("读取索引失败: {err}")))?;
+        if !found.is_empty() {
+            return Err(WpsDocNoError::Duplicate(format!(
+                "表 {} 已有单号 {key}",
+                spec.sheet_id
+            )));
+        }
+        Ok(())
+    }
+
     /// 只读检查；通过后调用方才可发起单号表创建。
     ///
     /// `spec` 指定目标表（sheet_id + record_type），`doc_no` 为待创建的单号文本。

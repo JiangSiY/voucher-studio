@@ -92,37 +92,35 @@ impl<'a> WpsStore<'a> {
         })
     }
 
-    /// 页面级 UPSERT；调用方负责只传已完整解析的页。
+    /// 页面级 UPSERT（测试/受控场景）；完整扫描必须使用 `publish_scan`。
+    #[cfg(test)]
     pub(crate) fn upsert_index_rows(&self, rows: &[WpsIndexRow]) -> Result<()> {
         if rows.is_empty() {
             return Ok(());
         }
+        self.database().with_tx(|tx| upsert_rows_tx(tx, rows))
+    }
+
+    /// 完整扫描发布：索引行与 `wps_scans.complete=1` 在同一事务提交。
+    ///
+    /// 失败轮、坏页或结束信号矛盾时不得调用；调用方应保留上一轮索引。
+    pub(crate) fn publish_scan(
+        &self,
+        scan_id: i64,
+        pages: usize,
+        rows: &[WpsIndexRow],
+    ) -> Result<()> {
         self.database().with_tx(|tx| {
-            let mut stmt = tx.prepare(
-                "INSERT INTO wps_record_index
-                   (sheet_id, record_id, record_type, business_key,
-                    business_key_kind, remote_modified_at, fields_json, pulled_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT(sheet_id, record_id) DO UPDATE SET
-                   record_type = excluded.record_type,
-                   business_key = excluded.business_key,
-                   business_key_kind = excluded.business_key_kind,
-                   remote_modified_at = excluded.remote_modified_at,
-                   fields_json = excluded.fields_json,
-                   pulled_at = excluded.pulled_at",
+            upsert_rows_tx(tx, rows)?;
+            tx.execute(
+                "UPDATE wps_scans
+                    SET finished_at = datetime('now'),
+                        pages = ?2,
+                        complete = 1,
+                        error = NULL
+                  WHERE id = ?1",
+                params![scan_id, pages as i64],
             )?;
-            for row in rows {
-                stmt.execute(params![
-                    row.sheet_id,
-                    row.record_id,
-                    row.record_type,
-                    row.business_key,
-                    row.business_key_kind,
-                    row.remote_modified_at,
-                    row.fields_json,
-                    row.pulled_at,
-                ])?;
-            }
             Ok(())
         })
     }
@@ -180,6 +178,38 @@ impl<'a> WpsStore<'a> {
             Ok(n as usize)
         })
     }
+}
+
+fn upsert_rows_tx(tx: &rusqlite::Transaction<'_>, rows: &[WpsIndexRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = tx.prepare(
+        "INSERT INTO wps_record_index
+           (sheet_id, record_id, record_type, business_key,
+            business_key_kind, remote_modified_at, fields_json, pulled_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(sheet_id, record_id) DO UPDATE SET
+           record_type = excluded.record_type,
+           business_key = excluded.business_key,
+           business_key_kind = excluded.business_key_kind,
+           remote_modified_at = excluded.remote_modified_at,
+           fields_json = excluded.fields_json,
+           pulled_at = excluded.pulled_at",
+    )?;
+    for row in rows {
+        stmt.execute(params![
+            row.sheet_id,
+            row.record_id,
+            row.record_type,
+            row.business_key,
+            row.business_key_kind,
+            row.remote_modified_at,
+            row.fields_json,
+            row.pulled_at,
+        ])?;
+    }
+    Ok(())
 }
 
 fn map_index_row(row: &Row<'_>) -> rusqlite::Result<WpsIndexRow> {

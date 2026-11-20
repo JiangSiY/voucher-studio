@@ -143,3 +143,34 @@ pub struct SecretStatus {
     pub label: String,
     pub exists: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_backend_is_0600_and_inspect_never_echoes_secret() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secrets.json");
+        let store = SecretStore::with_file("VoucherStudio-S0", path.clone());
+        store
+            .set("ocr_api_key", "sk-synthetic-should-not-echo")
+            .expect("set");
+        assert_eq!(
+            store.get("ocr_api_key").expect("get"),
+            Some("sk-synthetic-should-not-echo".into())
+        );
+        let json = serde_json::to_string(&store.inspect()).expect("serialize");
+        assert!(!json.contains("sk-synthetic-should-not-echo"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+}

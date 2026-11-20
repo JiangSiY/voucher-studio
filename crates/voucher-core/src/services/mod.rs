@@ -36,6 +36,7 @@ pub mod wps_09;
 pub mod wps_doc_guard;
 pub mod wps_index;
 pub mod wps_pull;
+pub mod wps_w2;
 // v0.6 文档扫描矫正与增强（5.5 方案，A 步：依赖接入 + 占位）
 pub mod enhance;
 pub mod enhance_cache;
