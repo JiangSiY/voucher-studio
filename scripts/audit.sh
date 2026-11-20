@@ -109,18 +109,21 @@ printf '  实测：Rust %s（单元 %s + 集成 %s + 壳 %s）；前端 %s 文�
   "${RUST_TOTAL}" "${RUST_UNIT}" "${RUST_INTEG}" "${RUST_TAURI}" "${FE_FILES}" "${FE_TESTS}"
 
 # 期望：README 的 "cargo test" 注释行、清单1 修订注记、开发日志最新条目三者与实测一致
-README_N=$(grep -oE '共 [0-9]+ 用例' README.md | head -1 | grep -oE '[0-9]+' || echo "")
-Q1_N=$(grep -oE '测试 \*\*[0-9]+ 个\*\*' docs/验收基线/清单1-非GUI测试映射.md | head -1 | grep -oE '[0-9]+' || echo "")
+README_N=$(grep -oE '共 [0-9]+ 用例' README.md | head -1 | grep -oE '[0-9]+' | head -1 || echo "")
+# 现行注记可能写作「测试 **421 个（含 1 例挂账失败 #65）**」，
+# 后面的历史注记仍有 410/401 等数字；必须取当前注记里的 421，而不是第一处「**N 个**」。
+Q1_N=$(grep -oE '测试 \*\*[0-9]+ 个[^*]*\*\*' docs/验收基线/清单1-非GUI测试映射.md | head -1 | grep -oE '[0-9]+' | head -1 || echo "")
 LOG_N=$(grep -oE 'voucher-core \*\*[0-9]+' docs/开发日志.md | tail -1 | grep -oE '[0-9]+' || echo "")
 RUST_CORE=$((RUST_UNIT + RUST_INTEG))
 # README 的写法是「voucher-core：… 共 N 用例；加 src-tauri 3 用例共 M」——N 对 voucher-core，M 对总数
-README_TOTAL=$(grep -oE '共 [0-9]+ 用例；加 src-tauri 3 用例共 [0-9]+' README.md | head -1 | grep -oE '共 [0-9]+$' | grep -oE '[0-9]+' || echo "")
+# README 的 voucher-core 数字后面可能带「（含 1 例挂账失败 #65）」；总数取「加 src-tauri 3 用例共 N」。
+README_TOTAL=$(grep -oE '加 src-tauri 3 用例共 [0-9]+' README.md | head -1 | grep -oE '[0-9]+$' || echo "")
 [ -n "${README_N}" ] && { [ "${README_N}" = "${RUST_CORE}" ] && ok "README 的 voucher-core 数与实测一致（${README_N}）" || warn "README 写 voucher-core ${README_N}，实测 ${RUST_CORE}"; } || warn "README 未找到用例数"
 [ -n "${README_TOTAL}" ] && { [ "${README_TOTAL}" = "${RUST_TOTAL}" ] && ok "README 的总数含壳与实测一致（${README_TOTAL}）" || warn "README 总数写 ${README_TOTAL}，实测 ${RUST_TOTAL}"; } || warn "README 未找到含壳总数"
 [ -n "${Q1_N}" ] && { [ "${Q1_N}" = "${RUST_CORE}" ] && ok "清单1 与实测一致（${Q1_N}）" || warn "清单1 写 ${Q1_N}，实测 voucher-core ${RUST_CORE}"; } || warn "清单1 未找到用例数"
 [ -n "${LOG_N}" ] && { [ "${LOG_N}" = "${RUST_CORE}" ] && ok "开发日志 与实测一致（${LOG_N}）" || warn "开发日志写 ${LOG_N}，实测 voucher-core ${RUST_CORE}"; } || warn "开发日志 未找到用例数"
 
-FE_DOC=$(grep -oE '前端 vitest \*\*[0-9]+ 文件 [0-9]+ 用例\*\*' docs/验收基线/清单1-非GUI测试映射.md | head -1 || echo "")
+FE_DOC=$(grep -oE '前端[^*]*\*\*[0-9]+ 文件 [0-9]+ 用例\*\*' docs/验收基线/清单1-非GUI测试映射.md | head -1 || echo "")
 if [ -n "${FE_DOC}" ]; then
   DOC_F=$(echo "${FE_DOC}" | grep -oE '[0-9]+ 文件' | grep -oE '[0-9]+')
   DOC_T=$(echo "${FE_DOC}" | grep -oE '[0-9]+ 用例' | grep -oE '[0-9]+')
@@ -218,7 +221,7 @@ EXPECTED_GUARDS=(
   "src/__tests__/config-defaults.test.ts:配置默认值双端对齐"
   "src/__tests__/tokenContract.test.ts:CSS 令牌引用有定义"
   "src/__tests__/assetScopeContract.test.ts:附件 scope 与不得自拼路径"
-  "src/__tests__/drilldownContract.test.ts:下钻参数必须被列表读取"
+  "src/pages/__tests__/dataPageContract.test.ts:下钻 query 参数必须被 /data 页读取"
   "src/__tests__/controlSizeContract.test.ts:控件尺寸统一走令牌"
   "src/__tests__/iaContract.test.ts:信息架构与拖动区"
   "src/pages/__tests__/dataPageContract.test.ts:数据页真实化与新建条目"
