@@ -13,7 +13,9 @@
 mod common;
 
 use common::*;
+use voucher_core::db::repos::attachment_repo;
 use voucher_core::db::repos::voucher_link_repo;
+use voucher_core::models::attachment::NewAttachment;
 use voucher_core::models::enums::VoucherLinkKind;
 use voucher_core::models::NewVoucher;
 use voucher_core::services::query::VoucherQuery;
@@ -43,6 +45,27 @@ fn mk(ctx: &CoreContext, no: &str, amount_cents: Option<i64>) -> Result<i64> {
         },
     )?;
     Ok(v.id)
+}
+
+/// 给凭证挂一条最小附件行（只造数据，不落物理文件）；用于满足复核闸门。
+fn attach(ctx: &CoreContext, voucher_id: i64) {
+    ctx.db
+        .with_conn(|conn| {
+            attachment_repo::insert(
+                conn,
+                &NewAttachment {
+                    voucher_id,
+                    file_name: format!("scan-{voucher_id}.png"),
+                    file_path: format!("2026-11/{voucher_id}.png"),
+                    file_hash: format!("hash-{voucher_id}"),
+                    file_size: 10,
+                    mime_type: "image/png".into(),
+                    is_pdf: Some(false),
+                    page_count: None,
+                },
+            )
+        })
+        .expect("插附件");
 }
 
 fn new_ctx() -> (tempfile::TempDir, CoreContext) {
@@ -435,6 +458,9 @@ fn multi_status_filter_matches_any_of_the_statuses() -> Result<()> {
     let a = mk(&ctx, "状态-草稿", Some(100))?;
     let b = mk(&ctx, "状态-已复核", Some(200))?;
     let c = mk(&ctx, "状态-已导出", Some(300))?;
+    for id in [a, b, c] {
+        attach(&ctx, id);
+    }
     for (id, st) in [(a, "draft"), (b, "reviewed"), (c, "exported")] {
         voucher_mgr::update_voucher(
             &ctx,
