@@ -13,6 +13,8 @@ import { repoFile } from "../../__tests__/helpers/designGuard";
 
 const dataSrc = repoFile("src/pages/DataPage.vue");
 const dialogSrc = repoFile("src/components/dialogs/NewRecordDialog.vue");
+const routerSrc = repoFile("src/router/index.ts");
+const workbenchSrc = repoFile("src/pages/WorkbenchPage.vue");
 
 describe("数据页真实化", () => {
   it("用 list_vouchers 取数，保留视图 chips 与移动卡片", () => {
@@ -24,6 +26,24 @@ describe("数据页真实化", () => {
     expect(dataSrc).toContain("q.ocr");
     expect(dataSrc).toContain("q.amountEmpty");
     expect(dataSrc).toContain("q.stale");
+  });
+
+  it("消费 view / focus / new 三种下钻参数", () => {
+    expect(dataSrc).toContain("route.query.view");
+    expect(dataSrc).toContain("route.query.focus");
+    expect(dataSrc).toContain("route.query.new");
+    // 对象形式 query：打开新建时保留其他筛选参数
+    expect(dataSrc).toMatch(/router\.replace\(\{\s*query:\s*\{\s*\.\.\.route\.query,\s*new:\s*"1"/);
+    // 字符串 URL：工作台最近条目仍是 `/data?focus=`
+    expect(workbenchSrc).toContain("router.push(`/data?focus=${r.id}`)");
+  });
+
+  it("旧路由重定向到 /data 时保留 focus / new", () => {
+    expect(routerSrc).toContain('{ path: "vouchers", redirect: "/data" }');
+    expect(routerSrc).toContain('{ path: "vouchers/new", redirect: "/data?new=1" }');
+    expect(routerSrc).toContain('path: "vouchers/:id"');
+    expect(routerSrc).toContain("query: { focus: String(to.params.id) }");
+    expect(routerSrc).toContain('{ path: "print", redirect: "/data?modal=export" }');
   });
 
   it("新建/导入/打印导出各只有一个入口", () => {
