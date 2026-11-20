@@ -61,7 +61,7 @@ cargo fmt --all --check
 
 结果：
 
-- `services::wps_09`：**7 passed / 0 failed**
+- `services::wps_09`：**11 passed / 0 failed**（B4 补 4 例）
   - `missing_key_rejects_without_any_request`：空电表/期间 → `WPS_E_09_KEY`，initialize 0、calls 空
   - `complete_empty_pull_allows_create_and_never_writes`：09 空表 → Ok，只有 `dbsheet.list_records`
   - `incomplete_refresh_rejects_stale_with_readable_error`：429 重试耗尽 → `WPS_E_09_STALE`，文本含 `error_code=WPS_E_RATE`
@@ -69,7 +69,7 @@ cargo fmt --all --check
   - `duplicate_same_meter_period_rejects_duplicate`：同表同期 → `WPS_E_09_DUPLICATE`，无 create
   - `different_period_is_not_duplicate`：同表不同期 → 放行
   - `malformed_payload_is_stale_with_readable_error_code`：缺 records → STALE，文本含 `WPS_E_PULL_MALFORMED`
-- `services::wps`（含 index/pull/guard）：**47 passed / 0 failed**
+- `services::wps`（含 index/pull/guard）：**51 passed / 0 failed**
 - clippy/fmt 通过。
 
 ## 5. 门禁状态
@@ -77,9 +77,18 @@ cargo fmt --all --check
 | 项 | 状态 |
 |---|---|
 | B3 判定顺序/错误码 | ✅ |
+| B4 无 view_id / 期间格式 / UPSERT 失败 | ✅ 11 例 |
 | 09 skipped/complete=false 拒绝 | ✅ |
 | 无写请求 | ✅ 测试断言 action 仅 list_records |
 | 真实 HTTP | ❌ 关闭（S0/G1 未通过） |
 | W4 | ❌ 未进入 |
 
-结论：B3 只读 09 门通过本地 mock 验收，停在 B3，不进入 B4。
+B4 追加 4 例：`guard_full_refresh_has_no_view`、`invalid_period_formats_reject_without_any_request`、`valid_period_formats_are_accepted`、`db_upsert_failure_maps_to_stale_not_bare_db_error`。
+
+## 6. 交叉引用
+
+- 分页/错误码/页上限：`docs/验收基线/证据/2026-11-19-W1/pull.md`
+- 本地索引/扫描记录/B1 字段依据：`docs/验收基线/证据/2026-11-19-W1/pull-index.md`
+- 实施口径：`docs/实施说明-WPS幂等-v0.28.md` §八、§九
+
+结论：B3 只读 09 门通过本地 mock 验收；B4 四项核对完成，停在 B4，不进入 W2/真实 HTTP。

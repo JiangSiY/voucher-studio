@@ -75,7 +75,7 @@ cargo test -p voucher-core --lib services::wps
 - 真实 HTTP/MCP 传输（S0/G1 未通过，`transport` 仍默认 `Mock`）；
 - 09 创建前全表刷新（B3 门，本批不做）；
 - 视图 `view_id` 的有效性（W0 已验证存在性，B2 只透传）；
-- `upsert_index_rows` 数据库失败路径的注入测试（当前仅正常路径）；
+- ~~`upsert_index_rows` 数据库失败路径的注入测试~~（B4 已在 `wps09.md` 的 `db_upsert_failure_maps_to_stale_not_bare_db_error` 覆盖）；
 - 50 万级/多页真实压测（W0 页预算：02/03/04 约 2 页、06 约 4 页、09 1 页、11 约 15 页）。
 
 ## 5. 门禁状态
@@ -88,7 +88,13 @@ cargo test -p voucher-core --lib services::wps
 | S0 / G1 | ❌ 仍阻断 |
 | 真实 HTTP | ❌ 关闭 |
 | filter 预检 A/B | ❌ 仍阻断（W0 结论：A + view 缩窄） |
-| 09 创建前刷新 | ❌ B3 实现 |
+| 09 创建前刷新 | ✅ B3 实现，B4 补无 view_id/期间格式/失败归一 |
 | W2 写入 | ❌ 未进入 |
 
-结论：B2 只读分页与索引写入路径通过本地 mock 验收；不进入 B3，不接真实 HTTP，不碰 09 门/写入。
+## 6. 交叉引用
+
+- 09 门与 B4 四点：`docs/验收基线/证据/2026-11-19-W1/wps09.md`
+- 索引/扫描记录：`docs/验收基线/证据/2026-11-19-W1/pull-index.md`
+- 实施口径：`docs/实施说明-WPS幂等-v0.28.md` §八、§九
+
+结论：B2 只读分页与索引写入路径通过本地 mock 验收；B3/B4 已在其上完成 09 门与核对；不接真实 HTTP，不碰写入。

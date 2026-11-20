@@ -97,3 +97,60 @@
 - `WpsPullReport`（`PullReport` 别名）公开 `complete`、`skipped`、`error`、`error_code`；`complete=true` 时后两者为空。
 - 09 创建前门 `Wps09CreateGuard::ensure_create_allowed` 固定顺序：key 校验（0 请求）→ `pull_sheet(9, "09", None)` → `complete=false` 或 `skipped>0` → `WPS_E_09_STALE`（文本带 `error`/`error_code`）→ 查索引 → `WPS_E_09_DUPLICATE` → `Ok`。全程不调用写入。
 - 09 拒绝码：`WPS_E_09_KEY`、`WPS_E_09_STALE`、`WPS_E_09_DUPLICATE`。
+
+
+## 九、B4 四点核对（2026-11-20）
+
+### 9.1 09 刷新签名与 view_id
+
+`pull_sheet` 的签名为：
+
+```rust
+pull_sheet(
+    client: &WpsClient<T>,
+    store: &WpsStore<'_>,
+    sheet_id: i64,
+    record_type: &str,
+    view_id: Option<&str>,
+    page_size: usize,
+) -> Result<WpsPullReport>
+```
+
+09 门调用 `pull_sheet(client, store, 9, "09", None, 500)`：第 3 个数据参数是 `sheet_id=9`，第 4 个是 `record_type="09"`，`view_id` 明确为 `None`，页大小 500。测试 `guard_full_refresh_has_no_view` 直接读取 `MockTransport` 收到的 `arguments`，断言 `sheet_id=9`、`offset=0`、`page_size=500`，且 `arguments.get("view_id").is_none()`。
+
+### 9.2 期间格式
+
+期间只接受 `YYYY-MM`（4 位数字 + `-` + 01–12）。`2026-13`、`2026/11`、`2026-1`、`2026-00`、`2026-1a`、前后带空格等均在本地返回 `WPS_E_09_KEY`，`initialize_calls=0`、`calls` 为空；`2026-01`、`2026-12` 放行。用例：`invalid_period_formats_reject_without_any_request`、`valid_period_formats_are_accepted`。
+
+### 9.3 UPSERT 写库失败
+
+`pull_sheet` 在 `upsert_index_rows` 失败时先 `finish_scan(false, error)`，然后返回 **`Err`**（不是 `Ok(complete=false)`）；`Wps09CreateGuard` 把任何 `pull_sheet` 错误（含本地 DB 错误）统一映射为 **`WPS_E_09_STALE`**，文本带「09 刷新本地失败」，不会漏成裸 DB error。用例 `db_upsert_failure_maps_to_stale_not_bare_db_error` 通过删除 `wps_record_index` 表注入该路径。
+
+### 9.4 剩余 `dead_code` allow
+
+- `crates/voucher-core/src/services/wps_index.rs`：仅 `find_index_by_record_id` 保留 `#[allow(dead_code)] // W2 预检接入；B2 仅写索引`；接入 W2 按 record id 回查后移除。
+- `count_index` 已改为 `#[cfg(test)]`，不再用 allow；`find_index_by_business_key` 的 allow 已移除（B3 09 门已使用）。
+- `wps_pull.rs`、`wps_09.rs` 的模块级 `#![allow(dead_code)]` 已移除；B2/B3 已由 `pull_sheet`/`Wps09CreateGuard` 实际引用。
+
+### 9.5 B4 验证原始结果
+
+```text
+cargo test -p voucher-core --lib services::wps
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 197 filtered out
+
+cargo test -p voucher-core --lib services::wps_pull
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 239 filtered out
+
+cargo test -p voucher-core --lib services::wps_09
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 237 filtered out
+
+cargo test -p voucher-core --lib services::wps_index
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out
+
+cargo check -p voucher-studio      # Finished
+cargo clippy -p voucher-core --all-targets -- -D warnings  # Finished
+cargo fmt --all --check            # 通过（无输出）
+cargo test -p voucher-core --doc   # 1 passed（compile_fail）
+```
+
+说明：`wps_09` 由 7 增至 11（B4 补 4 例）；`wps_index` 为 8（B3 字段依据 1 例已包含，B4 未增删）；`services::wps` 相应由 47 增至 51。Rust 静态计数：voucher-core **414**（248 单元 + 166 集成），加壳 3 = **417**；前端仍 44 文件 228 用例。

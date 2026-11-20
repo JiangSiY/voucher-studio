@@ -139,11 +139,12 @@ cargo clippy -p voucher-core --all-targets -- -D warnings
 | G0 真正阻断 | **不变**：filter 预检 A/B、09 创建前全表刷新 |
 | S0 / G1 | 仍阻断；真实 HTTP 关闭 |
 | B1 | 索引+扫描记录完成，仅本地/mock，未进入 W2 |
+| B2/B3/B4 | 分页拉取、09 门、B4 四点核对已完成（详见 `pull.md`/`wps09.md`） |
 | 旧 `create_records` 单参 | `git grep` 零残留 |
 
 ## 8. 未覆盖/待补充
 
-- 本次不含 `wps_pull` 分页解析，也不含 `wps_09` 创建前刷新门；
-- `wps_record_index` 目前无生产调用（模块级 `#![allow(dead_code)]`），已登记挂账 #60：B2 接入 `wps_pull` 后改为具体项 allow 并逐步移除；
+- B1 本次不含 `wps_pull` 分页解析与 `wps_09` 创建前刷新门（B2/B3 已补齐，见 `pull.md`、`wps09.md`）；
+- `wps_record_index` 已由 B2 `wps_pull`/B3 09 门使用；B2 已移除模块级 `#![allow(dead_code)]`，B4 又移除 `find_index_by_business_key` 的 allow；仅 `find_index_by_record_id` 保留 allow（W2 预检接入后移除）。#60 可销账；
 - `Database` 无 `&Connection` 访问器的情况已在 `W1-T3-阻塞.md`/本文件记录，后续若需要跨模块引用连接，统一走 `with_conn`/`with_tx`；
 - 未跑全量 `cargo test`（已知 `backup::crypto` 长跑 #58），仅按任务跑相关过滤。
