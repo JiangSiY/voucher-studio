@@ -256,11 +256,12 @@ pub fn run_mock_batch<T: WpsTransport>(
 ### 11.4 桌面开发入口
 
 - `voucher-api::dev_w2::run` 提供进程内 W2 开发入口；`src-tauri/src/commands/dev_w2.rs` 暴露 `dev_w2_mock_sync`，`src/pages/DataPage.vue` 在 `import.meta.env.DEV && isTauri` 时显示「开发本地模拟同步」面板。
-- 守卫：debug 构建 + `VOUCHER_W2_MOCK=1` + 非空 `VOUCHER_DATA_DIR` 且位于系统临时目录；命令参数只有 `action`（pull/write）与 `scenario`，不接受 file_id 或数据目录，无法把目标改成真实文件/生产库。
+- 守卫：启动时在创建目录、待恢复动作、打开数据库之前校验 `VOUCHER_DATA_DIR`：必须显式、已存在、canonicalize 后位于系统临时根内、且不等于临时根；空路径/缺失/临时根本身/外指符号链接均退出，不回落默认目录。命令侧仍要求 debug 构建 + `VOUCHER_W2_MOCK=1`，参数只有 `action`（pull/write）与 `scenario`，不接受 file_id 或数据目录，无法把目标改成真实文件/生产库。
 - 普通运行、生产目录、网页端均返回 `dev_only`；入口只走 `DevW2Transport` 合成数据，不读取 WPS 凭据、不发 HTTP。
+- WPS 凭据入口独立为 `services/wps_credentials.rs`：service 固定 `voucher-studio-wps`，keyring-only、不读 `CENTER_SECRETS_FILE`、无文件回退；对外仅 `WpsTokenStatus{token_set,token_expires_at}`，不提供读取明文 API；Tauri `wps_credentials_status` 只回状态。
 
 ### 11.5 已知边界
 
 - 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
-- S0-01/02/03/05/09/10/11/12 仍依赖实现/目标环境/授权；本文件不替代 S0/G1 签字。
+- S0-01/02/03 已有专用 keyring-only 入口与合成后端测试，真实钥匙串写入/读取/删除、锁定/重启演练待 G1；S0-05/09/10/11/12 仍依赖实现/目标环境/授权；本文件不替代 S0/G1 签字。
