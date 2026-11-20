@@ -64,7 +64,7 @@ sqlite3 "$DB" "select id,status,pid from wps_sync_runs order by id;"
 
 ## 2.1 人工点击状态
 
-本轮桌面开发版已启动成功：日志出现 `W2 Mock 启动隔离校验通过：/private/var/.../voucher-w2-mock.oyWR0R`，窗口已显示工作台（截图：[`桌面Mock窗口截图.png`](./桌面Mock窗口截图.png)）。但当前执行环境的 `osascript` 访问 Tauri 原生窗口被 macOS 拒绝（返回“osascript 不允许辅助访问”），无法用本工具点击“数据”页和开发面板，因此**未完成人工点击目视**；截图只证明窗口启动，不当作同步流程已验收证据。可复跑命令见第 1 节；若在目标 Mac 上执行，按第 2 节顺序点击并记录：
+本轮桌面开发版已启动成功：日志出现 `W2 Mock 启动隔离校验通过：/private/var/.../voucher-w2-mock.oyWR0R`，窗口已显示工作台（截图：[`桌面Mock窗口截图.png`](./桌面Mock窗口截图.png)）。但当前执行环境的 `osascript` 访问 Tauri 原生窗口被 macOS 拒绝（返回“osascript 不允许辅助访问”），尝试将窗口置前并使用 System Events 点击均失败；**未完成人工点击目视，保留“待人工验收”**。截图只证明窗口启动，不当作同步流程已验收证据。可复跑命令见第 1 节；若在目标 Mac 上执行，按第 2 节顺序点击并记录：
 
 - 每步的 `mode`、`dataDir`、11 表完整性；
 - `wps_write_intents` 与 `wps_links` 的增量；
@@ -90,8 +90,8 @@ cargo test -p voucher-api --lib --offline dev_w2::tests
 | C1 日期 | `classify_date` 覆盖 2026-10-31 旧、2026-11-01 新、空/非法 NeedsReview；`classify_period` 覆盖 09 YYYY-MM 与非法值 | 06 到账日/02/03/04/11 各表真实字段值、`2026-10-31` 到账但 11 月补录等业务数据未造 |
 | C2 旧资料 | `preflight` 对 01/08/10 引用做存在性校验；缺引用场景整批拒绝；资料零新增（引用只读） | 同名不同 ID、分界日前失效资料、真实关联目标未测 |
 | C3 拉取恢复 | `wps_pull` staged：不完整/坏页/游标回退保留旧索引并阻断写；空页假 `has_more` 有测试；`dev_pull` 11 表全历史 | 扫描中插入/删除/更新、同键字段冲突、总数不变场景未测；真实远端重扫未执行 |
-| C4 重复与互斥 | 同批 `(sheet,key)` 重复、历史索引重复、二次运行幂等键拒绝、`preflight` 0 请求；01/08/10、05/07 范围拒绝；第二页历史重复整批拒绝 | 非首页重复已覆盖“第二页重复 ID”；多候选、无互斥凭据并发录入、跨端互斥仍未测 |
-| C5 分页与变化 | `wps_pull` 覆盖取页失败、坏行、游标不前进、空页假 `has_more`、页上限、跨页重复 ID、扫描中 `total` 变化；失败保留旧索引并阻断写 | 同总数但记录内容变化无法从分页响应判定，已记录限制；多页真实副本未执行 |
+| C4 重复与互斥 | 同批 `(sheet,key)` 重复、历史索引重复、二次运行幂等键拒绝、`preflight` 0 请求；01/08/10、05/07 范围拒绝；第二页历史重复整批拒绝；`entry_owner=Wps` 或 `exclusive=false` 时 `WPS_E_ENTRY_PERMISSION` | 非首页重复已覆盖“第二页重复 ID”；录入权互斥只覆盖配置标志，真实跨端互斥凭据/并发录入仍未测 |
+| C5 分页与变化 | `wps_pull` 覆盖取页失败、坏行、游标不前进、空页假 `has_more`、页上限、跨页重复 ID、扫描中 `total` 变化、记录 `remote_modified_at` 晚于扫描起点；失败保留旧索引并阻断写；`c5_field_change_with_unique_ids_is_not_snapshot_verified` 证明“总数不变、ID 不重复、字段变化”无法被接口证明，`pull_all_history_strict` 因此 `writes_blocked` | 字段级快照无 token，严格路径只能阻断、不能证明；多页真实副本未执行 |
 | C6 写入恢复 | 首笔成功/第二笔超时/第三笔未尝试；意图先落库；回填失败→pending_backfill；恢复需证据、不重发；二次运行拒绝；新增“远端已落库但响应丢失→重启 preflight 拒绝、0 create、补链不重发” | 请求后进程崩溃、真实重启、首次查询未见远端记录的补偿查询仍未执行 |
 
 ## 5. 边界与签审提示

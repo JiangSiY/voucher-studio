@@ -260,8 +260,16 @@ pub fn run_mock_batch<T: WpsTransport>(
 - 普通运行、生产目录、网页端均返回 `dev_only`；入口只走 `DevW2Transport` 合成数据，不读取 WPS 凭据、不发 HTTP。
 - WPS 凭据入口独立为 `services/wps_credentials.rs`：service 固定 `voucher-studio-wps`，keyring-only、不读 `CENTER_SECRETS_FILE`、无文件回退；对外仅 `WpsTokenStatus{token_set,token_expires_at}`，不提供读取明文 API；Tauri `wps_credentials_status` 只回状态。
 
-### 11.5 已知边界
+### 11.5 凭据、限流与保留（2026-11-20 本地补证）
+
+- 认证链：`WpsClient::with_credentials` 接受 `WpsCredentialProvider`；token 只作为 `initialize`/`call` 的 `auth` 参数，不进 `arguments`、URL、日志或备份。`DevW2Credentials` 仅给本地 Mock 返回合成 token。
+- 400006：W2 `execute` 停止当前批、后续 `NotAttempted`，幂等键保持 `pending`，不重发；重授权 UI、队列续传和红点仍未实现。
+- 429：只读仍按 3 次退避；W2 写路径遇 429 写入 `wps.rate_limit_until`（`wps_state`），30 分钟冷却内预检拒绝，测试用可控时钟推进。冷却提示与人工转交未实现。
+- 审计/日志保留：`finish_run` 仅保留最近 500 条 `wps_sync_runs`；启动时清理 30 天前普通日志文件（不跟随符号链接），失败只告警。
+- C5：`PullReport.snapshot_verified` 在无快照 token 时恒为 false；`pull_all_history_strict` 强制 `writes_blocked`。真实写入路径必须走 strict；开发 Mock 仅为本地走查保留非严格路径。字段级跨页变化无法从 `list_records` 证明，已记录限制。
+
+### 11.6 已知边界
 
 - 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
-- S0-01/02/03 已有专用 keyring-only 入口与合成后端测试，真实钥匙串写入/读取/删除、锁定/重启演练待 G1；S0-05/09/10/11/12 仍依赖实现/目标环境/授权；本文件不替代 S0/G1 签字。
+- S0-01/02/03 已有专用 keyring-only 入口、客户端 provider 与合成 token 测试，真实钥匙串/真实 token/重启演练待 G1；S0-05/09 仍依赖 HTTP/TLS 实现与目标环境；S0-07/08/11 有部分本地证据，但重授权 UI/冷却提示/真实运行样例未闭环；本文件不替代 S0/G1 签字。

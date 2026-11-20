@@ -2,6 +2,8 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
+> **2026-11-20 S0/W2 凭据链与本地证据（本轮）**：`voucher-core` 测试 **473 个**（306 单元 + 167 集成；新增 `wps_credentials` 2、`wps::tests` 2、`wps_w2` 3、`wps_pull` 2、`log_retention` 1 等），加壳 3 共 **476**；全量实跑 **481 passed / 0 failed / 0 ignored**（跳过 2 个既有备份测试：`plaintext_options_no_encryption`、`cloud_parts_split_and_compose_roundtrip` 在沙箱内挂起，未计通过；静态 476 ≠ 实跑 481）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **107**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + dev 8）。W2 仍仅 Mock/临时库；真实 HTTP/生产写未启；S0 只做本地补证，未签。
+
 > **2026-11-20 W2 桌面 Mock 入口 + S0 补证（启动隔离/凭据门）**：`voucher-core` 测试 **461 个**（294 单元 + 167 集成；本轮新增 12 例：`wps_pull` 2、`wps_w2` 4、`wps_credentials` 6），加壳 3 共 **464**；全量实跑 **471 passed / 0 failed / 0 ignored**（含 voucher-api 4 + doctest 1 + 桌面入口集成 1；静态 464 ≠ 实跑 471）。桌面入口另加 `voucher-api/tests/dev_w2_entry.rs` 1 例、`dev_w2` 启动/守卫 4 例。前端不变 **44 文件 230 用例**。`services::wps` 过滤口径 96（wps 26 + pull 13 + 09 11 + index 8 + doc guard 7 + wps_w2 17 + wps_credentials 6 + wps_w2_dev 8）。W2 桌面入口仅 Mock/临时库，真实 HTTP/生产写未启；S0 只做本地补证，未签。
 
 ## 功能特性
@@ -97,7 +99,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：294 单元 + 167 集成，共 461 用例；加 src-tauri 3 用例共 464；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：306 单元 + 167 集成，共 473 用例；加 src-tauri 3 用例共 476；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

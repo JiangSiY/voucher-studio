@@ -309,12 +309,13 @@
 | 回填与停止 | `W2Sync::execute`/`recover_link`/`status` | 成功回填 `wps_links`；链接失败→`pending_backfill`；远端超时→`unknown`；停止后后续 `not_attempted`；恢复需证据、只补本地链、不重发 |
 | 桌面开发入口 | `voucher-api::dev_w2`、`src-tauri/src/commands/dev_w2.rs`、`src/pages/DataPage.vue` | 启动前校验 `VOUCHER_DATA_DIR`（显式、已存在、规范化在临时根内、不等于根、外指符号链接拒绝、失败不回落）；仅 debug + `VOUCHER_W2_MOCK=1` 可用；命令不接受 file_id/数据目录参数；普通运行、生产目录、网页端返回 `dev_only`；界面展示拉取完整性、逐条状态、保存关联/正式入账 |
 | B 主数据策略 | `W2CreateRequest.required_ref_ids`、`W2Sync::preflight` | 01/08/10 引用 WPS 原记录 ID；缺失/失效 `WPS_E_REF_STALE` 整批拒绝；非 01/08/10 引用 `WPS_E_REF_INVALID`；不代建主数据 |
-| C4/C5/C6 本地覆盖 | `wps_pull.rs`、`wps_w2.rs` | 第二页重复 ID、扫描中 `total` 变化阻断发布；非首页历史重复整批 rejected；远端成功但响应丢失后重启 preflight 拒绝、0 create、补链不重发 |
-| WPS 凭据入口 | `services/wps_credentials.rs`、`voucher-api::wps_credentials`、`commands::wps_credentials_status` | 专用 service `voucher-studio-wps`，keyring-only、无文件回退；只暴露 `token_set/token_expires_at`；6 例合成后端测试通过；真实钥匙串待目标机 |
+| C4/C5/C6 本地覆盖 | `wps_pull.rs`、`wps_w2.rs` | 第二页重复 ID、扫描中 `total` 变化、记录 `remote_modified_at` 晚于扫描起点均阻断发布；非首页历史重复整批 rejected；录入权非软件/非独占 `WPS_E_ENTRY_PERMISSION`；C5 字段跨页变化证明“无快照 token”并令 strict 路径 `writes_blocked`；远端成功但响应丢失后重启 preflight 拒绝、0 create、补链不重发 |
+| WPS 凭据入口 | `services/wps_credentials.rs`、`WpsCredentialProvider`、`voucher-api::wps_credentials`、`commands::wps_credentials_status` | 专用 service `voucher-studio-wps`，keyring-only、无文件回退；只暴露 `token_set/token_expires_at`；`WpsClient::with_credentials` 把 token 只放进 initialize/call 的 auth，不进 arguments；`DevW2Credentials` 合成 token；8 例凭据测试 + 2 例注入/提前停止测试；真实钥匙串待目标机 |
+| 400006/429/保留 | `wps_w2.rs`、`wps.rs`、`utils/log_retention.rs`、`main.rs` | 400006 停止当前批、幂等键 pending、后续 not_attempted；429 写 30 分钟冷却（可控时钟），冷却内预检拒绝；`wps_sync_runs` 保留 500 条；启动清理 30 天普通日志；均有本地单测 |
 
-本轮定向测试：`services::wps` **96 passed / 0 failed / 0 ignored**（wps 26 + pull 13 + 09 11 + index 8 + doc guard 7 + wps_w2 17 + wps_credentials 6 等）；`utils::crypto::tests` 1 passed；桌面入口集成 1 例（`voucher-api/tests/dev_w2_entry.rs`）通过；`dev_w2` 4 例（含启动校验）。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)；S0-01/02/03 已从“无实现”改为“专用入口已就位、目标机取证待 G1”，S0-05/09/10/11/12 仍依赖实现/目标环境/授权，S0 未签、G1 未开放。
+本轮定向测试：`services::wps` **107 passed / 0 failed / 0 ignored**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + dev 8 等）；`utils::crypto::tests` 1、`utils::log_retention` 1 passed；桌面入口集成 1 例（`voucher-api/tests/dev_w2_entry.rs`）通过；`dev_w2` 4 例（含启动校验）。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)。S0-01/02/03 已有专用入口、客户端 provider 与合成 token 证据，真实钥匙串/token 待 G1；S0-07/08/11 有部分本地证据，重授权 UI/冷却提示/真实运行样例未闭环；S0-05/09 仍依赖真实 HTTP/TLS；S0 未签、G1 未开放。
 
-**仍缺**：真实 HTTP transport、真实 token 写入/读取/删除与钥匙串故障演练、重授权/30 分钟冷却、500 条审计清理、真实备份不含 token 的实测、六组真实副本 C1–C6。桌面入口只走 Mock，不是生产接线。
+**仍缺**：真实 HTTP transport/TLS、真实 token 写入/读取/删除与钥匙串故障演练、重授权/队列/红点、30 分钟冷却提示、真实备份不含 token 的实测、六组真实副本 C1–C6；真实运行/日志样例。桌面入口只走 Mock，不是生产接线；人工点击被 macOS 辅助访问拒绝，保留待人工验收。
 
 **G0 重审材料清单**：
 
