@@ -1,0 +1,18 @@
+# C5 入口阻断本地证据（2026-11-22）
+
+入口：`run_strict_mock_batch`（严格拉取 → 快照门 → 未通过则直接返回，不进入 `execute`）；桌面开发入口场景 `c5_blocked` 复用该入口。
+
+命令：
+
+```
+cargo test -p voucher-api --test dev_w2_entry --offline -- --nocapture
+```
+
+同一轮输出（扫描诊断 + 入口阻断结果 + Mock create 计数 + 库增量），末行为正常创建的对照：
+
+```
+C5_EVIDENCE pull.complete=true snapshot_verified=false writes_blocked=true reason=WPS_E_PULL_SNAPSHOT_UNVERIFIED: WPS list_records 无快照 token，字段级并发变更不可证明；本轮不得作为写入依据              sheets=11 list_requests=11 create_requests=0 create_keys=[] batch_is_none=true
+C5_DB runs=0 intents=0 scans=11
+C5_CONTROL list_requests=11 create_requests=2 create_keys=["AR-DEV-001", "AR-DEV-002"]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+```
