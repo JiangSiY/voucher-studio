@@ -5,7 +5,9 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> **2026-11-20 S0/W2 凭据链与本地证据（本轮）**：`voucher-core` 测试 **473 个**（306 单元 + 167 集成），加壳 3 共 **476**；全量实跑 **481 passed / 0 failed / 0 ignored**（跳过 2 个既有备份测试；`plaintext_options_no_encryption`、`cloud_parts_split_and_compose_roundtrip` 沙箱挂起）；前端 **44 文件 230 用例**；`services::wps` 过滤口径 **107**。新增凭据 provider、400006/429、500 run 保留、30 天日志清理、C5 快照阻断；W2 仍仅 Mock，S0 未签。
+> **2026-11-22 W2/S0 本地交付收口（结构化反馈 + 回环 HTTP 边界）**：`voucher-core` 测试 **477 个**（310 单元 + 167 集成；新增 `wps_http` 4 例：回环白名单、缺/过期凭据零请求、不跟随重定向、错误体不回显；`wps_w2`/`wps::tests` 仅扩断言），加壳 3 共 **480**；全量实跑 **487 passed / 0 failed / 0 ignored**，**无跳过项**（上一轮 2 个挂起备份测试本轮直接通过）。前端 **44 文件 230 用例**；`services::wps` 过滤口径 **111**。W2 返回 `authRequired`/`cooldownUntil`，400006 需重授权、429 给冷却截止时间，结果不明项不自动重发；回环 HTTP 传输落地但真实端点未接线；真实副本 C1–C6 未执行，S0/G1 未签。
+
+> **2026-11-20 S0/W2 凭据链与本地证据（上一轮）**：`voucher-core` 测试 **473 个**（306 单元 + 167 集成），加壳 3 共 **476**；全量实跑 **481 passed / 0 failed / 0 ignored**（跳过 2 个既有备份测试；`plaintext_options_no_encryption`、`cloud_parts_split_and_compose_roundtrip` 沙箱挂起）；前端 **44 文件 230 用例**；`services::wps` 过滤口径 **107**。新增凭据 provider、400006/429、500 run 保留、30 天日志清理、C5 快照阻断；W2 仍仅 Mock，S0 未签。
 
 > **2026-11-20 W2 桌面 Mock 入口 + S0 补证（启动隔离/凭据门）**：`voucher-core` 测试 **461 个**（294 单元 + 167 集成；本轮新增 12 例：`wps_pull` 2、`wps_w2` 4、`wps_credentials` 6），加壳 3 共 **464**；全量实跑 **471 passed / 0 failed / 0 ignored**（含 voucher-api 4 + doctest 1 + 桌面入口集成 1；静态 464 ≠ 实跑 471）。桌面入口另加 `voucher-api/tests/dev_w2_entry.rs` 1 例、`dev_w2` 启动/守卫 4 例。前端不变 **44 文件 230 用例**。`services::wps` 过滤口径 96（wps 26 + pull 13 + 09 11 + index 8 + doc guard 7 + wps_w2 17 + wps_credentials 6 + wps_w2_dev 8）。W2 桌面入口仅 Mock/临时库，真实 HTTP/生产写未启；S0 只做本地补证，未签。
 

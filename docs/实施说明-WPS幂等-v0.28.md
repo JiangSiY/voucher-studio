@@ -27,6 +27,9 @@
 - `WPS_E_IDEMPOTENCY_COUNT_MISMATCH`：记录数与幂等键数不一致；内部构造器防御，**本地拒绝，0 次请求**。
 - `WPS_E_SESSION`：MCP 会话过期（HTTP 404）；只读路径重初始化一次，写入路径不自动重放。
 - 既有 `WPS_E_AUTH` / `WPS_E_RATE` / `WPS_E_TIMEOUT` / `WPS_E_REMOTE` / `WPS_E_PROTOCOL` / `WPS_E_SCHEMA` 不变。
+- HTTP 状态映射（`WpsError::from_http_status`）：`401|403 → AuthExpired`、`404 → SessionExpired`、`429 → RateLimited`、其余 → `Remote("HTTP {status}")`；3xx 由回环传输单独返回 `Remote("HTTP {status}（不跟随重定向）")`。
+- 连接错误（`WpsError::from_io`）：`TimedOut`/`WouldBlock → Timeout`，其余 → `Remote("HTTP connect failed")`；不把底层错误文本带出。
+- 远端自由文本一律不回显：`from_mcp_error` 对未知码只返回 `WPS_E_REMOTE` + 固定文案，已删除 `redacted_remote_message`；回归用例 `remote_error_text_never_echoes_free_text`。
 
 ## 三、幂等契约
 
@@ -89,7 +92,7 @@
 | 单条写入耗时基线 | `single_record_write_latency_baseline`（mock，100 次均值约 33µs） |
 | 缺 key 编译失败 | doctest `compile_fail`（`create_records` 文档，1 例） |
 
-命令：`cargo test -p voucher-core --lib services::wps` → **23 passed**；`cargo test -p voucher-core --doc` → **1 passed（compile_fail）**。
+命令：`cargo test -p voucher-core --lib --offline services::wps::` → **29 passed**；`cargo test -p voucher-core --lib --offline services::wps_http` → **4 passed**；`cargo test -p voucher-core --doc` → **1 passed（compile_fail）**。
 ## 八、分页与 09 门错误码（B2/B3 统一）
 
 - 分页响应缺 records 数组统一返回 **`WPS_E_PULL_MALFORMED`**（`WpsError::PullMalformed`）；`WPS_E_PULL_PAYLOAD` 已停用且**无残留**，代码/测试/证据不再出现。
@@ -263,13 +266,17 @@ pub fn run_mock_batch<T: WpsTransport>(
 ### 11.5 凭据、限流与保留（2026-11-20 本地补证）
 
 - 认证链：`WpsClient::with_credentials` 接受 `WpsCredentialProvider`；token 只作为 `initialize`/`call` 的 `auth` 参数，不进 `arguments`、URL、日志或备份。`DevW2Credentials` 仅给本地 Mock 返回合成 token。
-- 400006：W2 `execute` 停止当前批、后续 `NotAttempted`，幂等键保持 `pending`，不重发；重授权 UI、队列续传和红点仍未实现。
-- 429：只读仍按 3 次退避；W2 写路径遇 429 写入 `wps.rate_limit_until`（`wps_state`），30 分钟冷却内预检拒绝，测试用可控时钟推进。冷却提示与人工转交未实现。
+- 400006：W2 `execute` 停止当前批、后续 `NotAttempted`，幂等键保持 `pending`，不重发；批次返回 `auth_required=true`、`cooldown_until=None`，前端提示「需重新授权，待处理项已保留，恢复后不会自动重发」。真正的重授权 UI、队列续传和红点仍未实现。
+- 429：只读仍按 3 次退避；W2 写路径遇 429 写入 `wps.rate_limit_until`（`wps_state`），30 分钟冷却内预检拒绝，测试用可控时钟推进；批次回填 `cooldown_until`（RFC3339），前端显示冷却截止时间，冷却结束前不发起新批次。人工转交与真实 429 演练未实现。
+- 结果不明不自动重发：`execute` 只处理显式传入的请求，`pending`/`unknown` 仅落库等人工确认；代码中不存在扫描待处理项并自动重试的路径。
+- 结构化字段契约：`W2BatchReport.auth_required`/`cooldown_until` 由 `voucher-api::dev_w2::DevW2Batch` 以 camelCase 透传为 `authRequired`/`cooldownUntil`，前端 `src/api/client.ts` 对应 `boolean`/`string | null`。
 - 审计/日志保留：`finish_run` 仅保留最近 500 条 `wps_sync_runs`；启动时清理 30 天前普通日志文件（不跟随符号链接），失败只告警。
 - C5：`PullReport.snapshot_verified` 在无快照 token 时恒为 false；`pull_all_history_strict` 强制 `writes_blocked`。真实写入路径必须走 strict；开发 Mock 仅为本地走查保留非严格路径。字段级跨页变化无法从 `list_records` 证明，已记录限制。
 
 ### 11.6 已知边界
 
-- 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用。
+- 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用；`LoopbackHttpTransport` 只服务本地回环伪服务，非生产传输。
+- 真实 HTTPS 端点未接线：`services/wps_http.rs` 只接受 `127.0.0.1`/`localhost`/`[::1]`，拒绝 https、查询串/片段与非回环地址，无 TLS/DNS、不跟随重定向；因此不存在面向 WPS 真实域名的请求路径，S0-05/09 的目标环境取证仍缺。
+- 前端 `authRequired`/`cooldownUntil` 提示条只有代码与类型核对，未做界面渲染走查（本轮未启动窗口、未点击按钮）。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
 - S0-01/02/03 已有专用 keyring-only 入口、客户端 provider 与合成 token 测试，真实钥匙串/真实 token/重启演练待 G1；S0-05/09 仍依赖 HTTP/TLS 实现与目标环境；S0-07/08/11 有部分本地证据，但重授权 UI/冷却提示/真实运行样例未闭环；本文件不替代 S0/G1 签字。
