@@ -55,7 +55,11 @@ impl From<CoreMockCounts> for DevW2MockCounts {
 #[serde(rename_all = "camelCase")]
 pub struct DevW2Pull {
     pub complete: bool,
+    /// WPS `list_records` 无快照 token，当前实现恒为 false（C5）。
+    pub snapshot_verified: bool,
     pub writes_blocked: bool,
+    /// 为 `Some` 时写入被拉取阶段的门阻断（如 C5 快照不可验证）。
+    pub blocked_reason: Option<String>,
     pub sheets: Vec<DevW2PullSheet>,
 }
 
@@ -177,7 +181,9 @@ fn status_text(status: W2WriteStatus) -> &'static str {
 fn pull_dto(pull: &W2PullReport) -> DevW2Pull {
     DevW2Pull {
         complete: pull.complete,
+        snapshot_verified: pull.snapshot_verified,
         writes_blocked: pull.writes_blocked,
+        blocked_reason: pull.blocked_reason.clone(),
         sheets: pull
             .sheets
             .iter()

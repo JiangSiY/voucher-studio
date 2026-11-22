@@ -381,6 +381,32 @@ pub fn run_mock_batch<T: WpsTransport>(
     sync.execute(&W2Config::mock_write(), requests)
 }
 
+/// 严格 Mock 批次结果；`report == None` 表示拉取阶段的完整性/快照门已阻断，未进入预检与写入。
+pub struct W2StrictBatch {
+    pub pull: W2PullReport,
+    pub report: Option<W2BatchReport>,
+}
+
+/// 拟放行写入入口的本地 Mock 版本：先 `pull_all_history_strict`，被 C5/完整性门阻断时
+/// 直接返回拉取报告且 **不进入 `execute`**（transport 层 create 数为 0）。
+pub fn run_strict_mock_batch<T: WpsTransport>(
+    store: &WpsStore<'_>,
+    transport: T,
+    requests: &[W2CreateRequest],
+) -> Result<W2StrictBatch> {
+    let client = WpsClient::new(transport, "mock://w2-batch-strict");
+    let sync = W2Sync::new(&client, store);
+    let pull = sync.pull_all_history_strict()?;
+    if pull.writes_blocked {
+        return Ok(W2StrictBatch { pull, report: None });
+    }
+    let report = sync.execute(&W2Config::mock_write(), requests)?;
+    Ok(W2StrictBatch {
+        pull,
+        report: Some(report),
+    })
+}
+
 impl<'a, T: WpsTransport> W2Sync<'a, T> {
     pub fn new(client: &'a WpsClient<T>, store: &'a WpsStore<'a>) -> Self {
         Self {

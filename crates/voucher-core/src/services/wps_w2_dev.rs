@@ -12,15 +12,16 @@ use std::sync::Arc;
 
 use crate::services::wps::{WpsClient, WpsCredentialProvider, WpsError, WpsStore, WpsTransport};
 use crate::services::wps_w2::{
-    run_mock_batch, W2BatchReport, W2Config, W2CreateRequest, W2PullReport, W2Sync,
+    run_mock_batch, run_strict_mock_batch, W2BatchReport, W2Config, W2CreateRequest, W2PullReport,
+    W2Sync,
 };
 use crate::{CoreError, Result};
 
 /// 开发 Mock 的合成授权状态键（存在 `wps_state`，随临时库持久化）。
 pub const DEV_AUTH_EXPIRED_KEY: &str = "dev_w2_auth_expired";
 
-/// 可复跑的五种合成场景：正常两笔、第二笔超时、缺引用整批拒绝、
-/// 授权失效（400006）与限流（429）。
+/// 可复跑的合成场景：正常两笔、第二笔超时、缺引用整批拒绝、
+/// 授权失效（400006）、限流（429），以及走严格写入入口被 C5 阻断。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DevW2Scenario {
     Normal,
@@ -28,6 +29,8 @@ pub enum DevW2Scenario {
     MissingReference,
     AuthExpired,
     RateLimited,
+    /// 严格入口：11 表扫描完成但无快照证据（C5），写入在预检前被阻断、零 create。
+    C5Blocked,
 }
 
 impl DevW2Scenario {
@@ -38,8 +41,9 @@ impl DevW2Scenario {
             "missing_reference" | "missing_ref" => Ok(Self::MissingReference),
             "auth_expired" | "auth" => Ok(Self::AuthExpired),
             "rate_limited" | "rate_limit" | "rate" => Ok(Self::RateLimited),
+            "c5_blocked" | "c5" => Ok(Self::C5Blocked),
             other => Err(CoreError::Invalid(format!(
-                "未知 W2 开发场景: {other}（可用 normal/timeout_second/missing_reference/auth_expired/rate_limited）"
+                "未知 W2 开发场景: {other}（可用 normal/timeout_second/missing_reference/auth_expired/rate_limited/c5_blocked）"
             ))),
         }
     }
@@ -51,6 +55,7 @@ impl DevW2Scenario {
             Self::MissingReference => "missing_reference",
             Self::AuthExpired => "auth_expired",
             Self::RateLimited => "rate_limited",
+            Self::C5Blocked => "c5_blocked",
         }
     }
 }
@@ -239,6 +244,9 @@ pub fn dev_requests(scenario: DevW2Scenario) -> Vec<W2CreateRequest> {
             ),
             request("AR-DEV-R2", "开发模拟应收-限流2", refs, ref_ids),
         ],
+        DevW2Scenario::C5Blocked => {
+            vec![request("AR-DEV-C51", "开发模拟应收-C5阻断", refs, ref_ids)]
+        }
     };
     if scenario == DevW2Scenario::MissingReference {
         requests[0].required_refs.push((10, "SKU-1".into()));
@@ -337,6 +345,25 @@ fn blocked_report(
 pub fn dev_write(store: &WpsStore<'_>, scenario: DevW2Scenario) -> Result<DevW2Run> {
     let requests = dev_requests(scenario);
     let counts = Arc::new(Mutex::new(DevW2MockCounts::default()));
+
+    // C5 场景走严格写入入口：拉取阶段即被快照门阻断，不进入预检/写入。
+    if scenario == DevW2Scenario::C5Blocked {
+        let strict = run_strict_mock_batch(
+            store,
+            DevW2Transport::with_counts(scenario, Arc::clone(&counts)),
+            &requests,
+        )?;
+        let mock = counts
+            .lock()
+            .map_err(|_| CoreError::Invalid("开发 mock 计数锁中毒".into()))?
+            .clone();
+        return Ok(DevW2Run {
+            pull: Some(strict.pull),
+            report: strict.report,
+            mock,
+        });
+    }
+
     let transport = DevW2Transport::with_counts(scenario, Arc::clone(&counts));
     let client =
         WpsClient::new(transport, "mock://w2-dev").with_credentials(Arc::new(DevW2Credentials));
@@ -689,5 +716,53 @@ mod tests {
             .all(|o| o.status == W2WriteStatus::Rejected));
         assert_eq!(second.mock.total, 0, "冷却期内不得发出任何请求");
         assert_eq!(second.mock.create, 0);
+    }
+
+    #[test]
+    fn dev_c5_blocked_strict_entry_returns_c5_reason_with_zero_create() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        let run = dev_write(&store, DevW2Scenario::C5Blocked).expect("run");
+        let pull = pull_of(&run);
+        // 扫描确实发起且 11 表全部完成；阻断原因是快照不可验证（C5），不是分页缺失。
+        assert!(pull.complete, "C5 场景应扫描完整");
+        assert!(!pull.snapshot_verified);
+        assert!(pull.writes_blocked);
+        let reason = pull.blocked_reason.as_deref().expect("blocked reason");
+        assert!(
+            reason.contains("WPS_E_PULL_SNAPSHOT_UNVERIFIED"),
+            "{reason}"
+        );
+        assert!(run.report.is_none(), "阻断发生在预检之前，不应有批次结果");
+        assert_eq!(run.mock.list, 11);
+        assert_eq!(run.mock.create, 0, "C5 阻断后不得发出 create 请求");
+        assert!(run.mock.create_keys.is_empty());
+        // 阻断不落 run 行、不落意图，库保持干净。
+        let runs: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM wps_sync_runs", [], |r| r.get(0))?)
+            })
+            .expect("count runs");
+        assert_eq!(runs, 0);
+        let intents: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM wps_write_intents", [], |r| r.get(0))?)
+            })
+            .expect("count intents");
+        assert_eq!(intents, 0);
+    }
+
+    #[test]
+    fn dev_c5_control_normal_write_records_create_requests() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        let run = dev_write(&store, DevW2Scenario::Normal).expect("run");
+        assert!(report_of(&run).outcomes.len() == 2);
+        assert_eq!(run.mock.list, 11);
+        assert_eq!(run.mock.create, 2, "对照场景证明计数能捕获 create");
+        assert_eq!(
+            run.mock.create_keys,
+            vec!["AR-DEV-001".to_string(), "AR-DEV-002".to_string()]
+        );
     }
 }

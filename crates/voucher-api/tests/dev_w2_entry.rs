@@ -1,4 +1,5 @@
-//! 桌面开发入口的进程内验收：守卫 + pull + 正常/超时/缺引用 + 400006/429 与授权恢复。
+//! 桌面开发入口的进程内验收：守卫 + pull + 正常/超时/缺引用 + 400006/429 + 授权恢复，
+//! 以及严格入口的 C5 阻断（扫描完成但快照不可验证 → 0 次 create）。
 //! 只使用临时目录与合成 mock transport，不读取 WPS 凭据、不发真实请求。
 
 use std::path::PathBuf;
@@ -94,6 +95,70 @@ fn desktop_entry_runs_pull_write_and_stop_scenarios() {
         missing.mock_requests.create, 0,
         "预检失败不得发出 create 请求"
     );
+
+    // #69：严格入口的 C5 阻断——扫描真实发生且 11 表完成，但快照不可验证，写入在预检前被挡；
+    // transport 层 create = 0。用独立临时库避免与前面的正常批次互斥。
+    {
+        let (c5_dir, c5_ctx) = temp_ctx();
+        std::env::set_var("VOUCHER_DATA_DIR", &c5_dir.0);
+        let c5 = dev_w2::run(&c5_ctx, Some("write"), Some("c5_blocked")).expect("c5");
+        assert_eq!(c5.mode, "write:c5_blocked");
+        let pull = c5.pull.as_ref().expect("c5 pull");
+        assert!(pull.complete, "11 表扫描应全部完成");
+        assert!(!pull.snapshot_verified, "C5：无快照 token");
+        assert!(pull.writes_blocked);
+        assert_eq!(pull.sheets.len(), 11);
+        let reason = pull.blocked_reason.as_deref().expect("blocked reason");
+        assert!(
+            reason.contains("WPS_E_PULL_SNAPSHOT_UNVERIFIED"),
+            "{reason}"
+        );
+        assert!(c5.batch.is_none(), "阻断发生在预检之前，不应产生批次结果");
+        assert_eq!(c5.mock_requests.list, 11, "扫描请求应真实发出");
+        assert_eq!(c5.mock_requests.create, 0, "C5 阻断后不得发出 create 请求");
+        assert!(c5.mock_requests.create_keys.is_empty());
+        println!(
+            "C5_EVIDENCE pull.complete={} snapshot_verified={} writes_blocked={} reason={}              sheets={} list_requests={} create_requests={} create_keys={:?} batch_is_none={}",
+            pull.complete,
+            pull.snapshot_verified,
+            pull.writes_blocked,
+            reason,
+            pull.sheets.len(),
+            c5.mock_requests.list,
+            c5.mock_requests.create,
+            c5.mock_requests.create_keys,
+            c5.batch.is_none()
+        );
+        let (runs, intents, scans): (i64, i64, i64) = c5_ctx
+            .db
+            .with_conn(|conn| {
+                Ok((
+                    conn.query_row("SELECT COUNT(*) FROM wps_sync_runs", [], |r| r.get(0))?,
+                    conn.query_row("SELECT COUNT(*) FROM wps_write_intents", [], |r| r.get(0))?,
+                    conn.query_row("SELECT COUNT(*) FROM wps_scans", [], |r| r.get(0))?,
+                ))
+            })
+            .expect("c5 db counts");
+        assert_eq!(runs, 0, "C5 阻断不得落 run 行");
+        assert_eq!(intents, 0, "C5 阻断不得落意图");
+        assert_eq!(scans, 11, "11 张表的扫描诊断应落库");
+        println!("C5_DB runs={runs} intents={intents} scans={scans}");
+
+        // 对照：同一入口的正常创建能捕获 create，证明计数口径本身有效。
+        let control = dev_w2::run(&c5_ctx, Some("write"), Some("normal")).expect("control");
+        assert_eq!(control.mock_requests.create, 2);
+        assert_eq!(
+            control.mock_requests.create_keys,
+            vec!["AR-DEV-001".to_string(), "AR-DEV-002".to_string()]
+        );
+        println!(
+            "C5_CONTROL list_requests={} create_requests={} create_keys={:?}",
+            control.mock_requests.list,
+            control.mock_requests.create,
+            control.mock_requests.create_keys
+        );
+        std::env::set_var("VOUCHER_DATA_DIR", &dir.0);
+    }
 
     // 429：本批停止并返回冷却截止；冷却期内再次点击零请求。
     let rate = dev_w2::run(&ctx, Some("write"), Some("rate_limited")).expect("rate");

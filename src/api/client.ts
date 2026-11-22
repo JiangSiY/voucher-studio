@@ -1206,7 +1206,11 @@ export interface DevW2PullSheet {
 
 export interface DevW2Pull {
   complete: boolean;
+  /** WPS list_records 无快照 token，当前实现恒为 false（C5）。 */
+  snapshotVerified: boolean;
   writesBlocked: boolean;
+  /** 拉取阶段门阻断原因（如 C5 快照不可验证）；未阻断为 null。 */
+  blockedReason: string | null;
   sheets: DevW2PullSheet[];
 }
 

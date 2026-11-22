@@ -419,6 +419,14 @@ watch(query, load);
             class="btn btn-sm"
             type="button"
             :disabled="w2Busy"
+            @click="runDevW2('write', 'c5_blocked')"
+          >
+            模拟创建（C5 阻断）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
             @click="runDevW2('auth_recover')"
           >
             恢复授权（本地合成）
@@ -446,7 +454,12 @@ watch(query, load);
             · create 键 {{ w2Result.mockRequests.createKeys.join("、") }}
           </template>
         </p>
-        <p v-if="w2Result.pull?.writesBlocked" class="dev-w2-error">索引不完整，写入已阻断。</p>
+        <p v-if="w2Result.pull?.writesBlocked" class="dev-w2-error">
+          {{ w2Result.pull.blockedReason ?? "索引不完整，写入已阻断。" }}
+        </p>
+        <p v-if="w2Result.pull?.writesBlocked && w2Result.pull.complete" class="dev-w2-warn">
+          create 请求 0：严格入口在预检前阻断，未进入写入。
+        </p>
         <div v-if="w2Result.batch" class="dev-w2-tablewrap">
           <table class="dev-w2-table">
             <thead>
