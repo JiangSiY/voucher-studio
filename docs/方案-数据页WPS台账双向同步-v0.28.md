@@ -2,7 +2,7 @@
 
 > **重建说明（2026-11-20）**：原方案正文未在仓库/Obsidian 落盘；上一版按 [`docs/方案-销账64-65-66.md`](./方案-销账64-65-66.md) 的「#66 每章重建依据映射表」从已落盘证据重建。本复审稿加入用户已确认的业务口径及拟实施的约束；未证实的字段、能力与职责不作为既定事实。
 >
-> **状态（2026-11-22 送审修订）**：**G0 设计复审已通过**（2026-11-20 用户确认）；**S0 待签**（结论栏空白）；**P2 未授权执行**；**G1 未放行**；真实副本 **C1–C6 全部未执行**；真实 HTTP/生产写关闭，`transport` 保持 Mock。§15.1 为 2026-11-20 及之前的历史基线，当前 Mock 实现、结构化反馈与 400006/429 桌面入口以 §15.2 为准；本地 WPS 服务回归实测 116 项通过，全量 494 项通过（静态 484）。
+> **状态（2026-11-22 送审修订）**：**G0 设计复审已通过**（2026-11-20 用户确认）；**S0 待签**（结论栏空白）；**P2 未授权执行**；**G1 未放行**；真实副本 **C1–C6 全部未执行**；真实 HTTP/生产写关闭，`transport` 保持 Mock。§15.1 为 2026-11-20 及之前的历史基线，当前 Mock 实现、结构化反馈与 400006/429 桌面入口以 §15.2 为准；本地 WPS 服务回归实测 131 项通过，全量 507 项通过（静态 497）。
 >
 > **附录**：[`docs/评审修订清单-2026-11-20.md`](./评审修订清单-2026-11-20.md)（原评审修订清单，现降为本文附录，保留 9 项修正记录与 view_id 定稿）。
 
@@ -316,6 +316,7 @@
 | 400006/429/保留 | `wps_w2.rs`、`wps.rs`、`utils/log_retention.rs`、`main.rs` | 400006 停止当前批、幂等键 pending、后续 not_attempted；429 写 30 分钟冷却（可控时钟），冷却内预检拒绝；`wps_sync_runs` 保留 500 条；启动清理 30 天普通日志；均有本地单测 |
 | 结构化错误反馈（2026-11-22） | `W2BatchReport.auth_required`/`cooldown_until`、`voucher-api::dev_w2::DevW2Batch`、`src/api/client.ts`、`src/pages/DataPage.vue` | Rust DTO camelCase 序列化，前端 `authRequired: boolean`、`cooldownUntil: string \| null` 对齐；400006 分支 `auth_required=true`、`cooldown_until=None`，429 分支回填 RFC3339 冷却时间（测试断言前缀 `2026-11-20T00:30:00`）；界面分别提示“需重新授权、待处理项保留、恢复后不自动重发”与“冷却至某时刻”；`pending`/`unknown` 无自动重发路径；七个面板按钮已于 2026-11-22 人工点击走查；新增「授权失效 400006」「限流 429」「恢复授权（本地合成）」后，两条提示均已实机目视（见桌面走查 §2.3）：未恢复/冷却期内再点为零请求、恢复后新批次不重发旧键、429 截止时刻三处一致 |
 | 回环 HTTP 边界（2026-11-22） | `services/wps_http.rs`、`WpsError::from_http_status`/`from_io` | 仅接受 `127.0.0.1`/`localhost`/`[::1]`，拒绝 https、查询串、片段、非回环、端口 0；手写 HTTP/1.1，token 只走 `Authorization: Bearer`；缺/过期凭据在连接前失败（0 请求）；302 不跟随且不回显目标；错误体自由文本不回显；4 例测试。**非生产传输**，真实 HTTPS 端点未接线 |
+| P2 只读入口守卫（2026-11-22） | `services/wps_p2.rs`：`P2Gate` 默认关闭、`P2Grant` 预检（签批人/端点/`file_id`/表字段/窗口/授权主体）、只允许 `dbsheet.list_records`、响应字段越界拒绝、审计行掩码；`P2TlsPolicy` 强制证书与主机名校验、不跟随重定向。13 例离线对照（入口关闭/目标不符/表越界/窗口过期/写动作/未接线传输零请求；证书、主机名、重定向各一次请求后停止；会话重建不计数、暂时性错误上限 3 次）。真实 HTTPS 线协议未接线。详见 [`入口证据.md`](./验收基线/证据/2026-11-22-P2-只读入口/入口证据.md) |
 | P1 目标机离线取证（2026-11-22） | `tests/keyring_native.rs`、`utils/crypto.rs`、`backup_flow.rs`、`utils/log_retention.rs` | 目标 Mac 合成值钥匙串 set/get/delete（清理后条目不存在；无权限时直接失败、无文件回退）；状态接口仅 `token_set/token_expires_at`；备份条目白名单与隔离恢复；500 条保留与 30 天日志清理；隔离目录无凭据文件。详见 [`离线取证记录.md`](./验收基线/证据/2026-11-22-P1-离线取证/离线取证记录.md)。**真实 token 与图形会话演练未做** |
 | C5 阻断入口（2026-11-22） | `wps_w2::run_strict_mock_batch`、`wps_w2_dev`（场景 `c5_blocked`）、`voucher-api::dev_w2` | 严格拉取 → 快照门：`snapshot_verified=false` 时置 `writes_blocked` 并带 `WPS_E_PULL_SNAPSHOT_UNVERIFIED`，**不进入预检/写入**；入口 DTO 增加 `snapshotVerified`/`blockedReason`。实测 11 表扫描完成、`create=0`、库内 `runs=0/intents=0/scans=11`；同入口 normal 对照 `create=2`（见 [`2026-11-22-C5-入口阻断/入口证据.txt`](./验收基线/证据/2026-11-22-C5-入口阻断/入口证据.txt)）。真实副本 C5 仍待专项授权 |
 
