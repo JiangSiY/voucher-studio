@@ -277,6 +277,6 @@ pub fn run_mock_batch<T: WpsTransport>(
 
 - 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用；`LoopbackHttpTransport` 只服务本地回环伪服务，非生产传输。
 - 真实 HTTPS 端点未接线：`services/wps_http.rs` 只接受 `127.0.0.1`/`localhost`/`[::1]`，拒绝 https、查询串/片段与非回环地址，无 TLS/DNS、不跟随重定向；因此不存在面向 WPS 真实域名的请求路径，S0-05/09 的目标环境取证仍缺。
-- 前端 `authRequired`/`cooldownUntil` 提示条只有代码与类型核对，未做界面渲染走查（本轮未启动窗口、未点击按钮）。
+- 前端 `authRequired`/`cooldownUntil` 提示条只有代码与类型核对：dev 面板的四个按钮已于 2026-11-22 人工点击走查（见 `docs/验收基线/证据/2026-11-20-S0-W2/桌面Mock走查.md` §2.1），但面板没有 400006/429 场景入口，这两条提示的界面渲染仍未目视（挂账 #68）。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
 - S0-01/02/03 已有专用 keyring-only 入口、客户端 provider 与合成 token 测试，真实钥匙串/真实 token/重启演练待 G1；S0-05/09 仍依赖 HTTP/TLS 实现与目标环境；S0-07/08/11 有部分本地证据，但重授权 UI/冷却提示/真实运行样例未闭环；本文件不替代 S0/G1 签字。

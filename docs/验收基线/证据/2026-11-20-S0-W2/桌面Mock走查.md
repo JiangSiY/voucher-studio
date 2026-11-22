@@ -62,12 +62,44 @@ sqlite3 "$DB" "select id,status,pid from wps_sync_runs order by id;"
 - `wps_links`：正常/超时成功笔为 `unclaimed`，不自动 `posted`。
 - 重启应用后再次点击同一场景：幂等键已存在，整批拒绝；不重发。
 
-## 2.1 人工点击状态（2026-11-22 复核）
+## 2.1 人工点击实测（2026-11-22 完成）
 
-- **实测范围**：2026-11-22 本轮只做进程内测试与静态核对，**未启动新窗口、未新增截图、未点击任何实际按钮**；面板按钮的真实点击与渲染仍为「待人工验收」，不得引用本轮测试替代。
-- **截图与测试分开留痕**：窗口启动截图只有 2026-11-20 的 [`桌面Mock窗口截图.png`](./桌面Mock窗口截图.png)，仅证明窗口出现；`authRequired`/`cooldownUntil` 提示条的实际显示、按钮点击后的界面变化无截图证据。
-- **结构化反馈**：本轮在 `src/pages/DataPage.vue` 增加两条提示（需重新授权、冷却至某时刻），数据来自 `DevW2Batch` 的 `authRequired`/`cooldownUntil`；字段与 Rust DTO 已核对，但界面渲染未目视确认。
-- **按钮行为**：拉取、模拟创建（正常/第二笔超时/缺引用）由 `wps_w2_dev` 8 例、`dev_w2` 4 例与 `dev_w2_entry` 1 例在进程内覆盖，**不等于**桌面点击验收。
+**执行方式**：开发模式启动桌面版（debug + `VOUCHER_W2_MOCK=1` + 临时库），由**用户本人**在数据页点击面板按钮；助手负责驱动窗口、截图与读取临时库。助手侧无法模拟点击——`osascript` 对 System Events 仍返回 `execution error: … 发生权限违例。 (-10004)`（Apple Events/Accessibility 均被 macOS 拒绝），故点击动作由人完成，截图为助手在点击后立即抓取。
+
+**本轮临时库**（均在系统临时根内，未触生产目录）：
+
+| 临时库 | 用途 |
+|---|---|
+| `/private/var/folders/.../voucher-w2-mock.B4oelv` | 第 1 轮：拉取 11 表、正常、第二笔超时、缺引用 |
+| `/private/var/folders/.../voucher-w2-mock.Fazdb5` | 第 2 轮补拍：正常、第二笔超时（另捕获重复运行拒绝） |
+
+**复跑命令**（`--config` 只覆盖本次启动的 `devUrl`，不改仓库文件；临时目录必须建在 `$TMPDIR` 下，建在 `/tmp` 会被启动校验以 `不在系统临时根内` 拒绝并 `exit 2`）：
+
+```bash
+cd /Users/apple/Downloads/开发/voucher-studio
+export VOUCHER_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/voucher-w2-mock.XXXXXX")"
+test -d "$VOUCHER_DATA_DIR"
+export VOUCHER_W2_MOCK=1
+. "$HOME/.cargo/env"
+export PKG_CONFIG_PATH="$HOME/.local/opencv-4.10/lib/pkgconfig"
+npm run tauri dev -- --config '{"build":{"devUrl":"http://localhost:5173/#/data"}}'
+```
+
+**实测结果（界面文案 + 库增量）**：
+
+| 步骤 | 界面实测 | 临时库增量 |
+|---|---|---|
+| 拉取 11 表（只读） | 表头 `mode=pull · 数据目录 … · 拉取 完整（11 表）`；下方业务列表仍为「当前视图没有条目」 | `wps_scans` 44 行 = 11 表 × 4 页，`complete=1`、`error` 全空；无业务写入 |
+| 模拟创建（正常） | 两行均「成功」「已保存（未认领）」「未入账」，错误列 `—` | `wps_sync_runs#1 status=ok scanned=2 created=2 errors=0`；intent 2 条 `linked`；`wps_links` +2、state=`unclaimed` |
+| 模拟创建（第二笔超时） | 1「成功」/ 2「结果不明」+ `WPS_E_TIMEOUT: WPS 请求超时` / 3「未尝试」；表尾「本批已按停止规则终止。」见 [`02-第二笔超时-批次结果.jpg`](../2026-11-22-桌面走查-W2Mock/02-第二笔超时-批次结果.jpg) | `wps_sync_runs#2 status=partial scanned=3 created=1 conflicts=1 errors=1`；intent `AR-DEV-T1=linked`、`AR-DEV-T2=unknown`；T3 无 intent |
+| 模拟创建（缺引用） | 单行「整批拒绝」「远端记录 —」「未保存关联」「未入账」+ `WPS_E_REF_STALE: 引用原记录不存在或已失效: 表 10 / dev-10-missing`；表尾「本批已按停止规则终止。」见 [`03-缺引用-整批拒绝.jpg`](../2026-11-22-桌面走查-W2Mock/03-缺引用-整批拒绝.jpg) | **零本地业务写入**：无新 run / intent / link；仅新增 11 条 pull 扫描（1 页/表，`complete=1`） |
+| 重复点击「正常」（附加） | 两行「整批拒绝」+ `WPS_E_IDEMPOTENCY_STATE: 幂等键已存在，拒绝自动重试`；表尾「终止。」见 [`04-重复运行-幂等键拒绝.jpg`](../2026-11-22-桌面走查-W2Mock/04-重复运行-幂等键拒绝.jpg)（窗口左缘越界，幂等键列未入镜，行号 01/02 与库内键一一对应） | 无新 run / intent / link；`wps_idempotency_keys` 仍只有 `AR-DEV-001`/`AR-DEV-002` |
+
+**重启后不自动重发（实测）**：第 2 轮启动复用的是仍含 `partial` 批次的临时库，重启后 `wps_sync_runs#2` 仍为 `partial`、`AR-DEV-T2` 仍为 `unknown`，未出现任何自动 `create` 调用或新 run 行——与「结果不明项只保留、不自动重发」的约定一致。
+
+**仍未覆盖**：`authRequired`/`cooldownUntil` 两条提示的**界面渲染**本轮没有触发——dev 面板只有 pull / normal / timeout / missing_reference 四个入口，没有 400006/429 场景按钮，面板也无法注入这两种错误；这两条的界面显示仍只有单测（`services::wps_w2` 断言 `auth_required=true`、`cooldown_until` 前缀）与 DTO 核对，须记为缺口（见 §5），不得写成已目视验收。
+
+截图目录：[`docs/验收基线/证据/2026-11-22-桌面走查-W2Mock/`](../2026-11-22-桌面走查-W2Mock/)（`01-数据页-W2Mock面板.jpg` 为点击前的面板状态）。
 
 ## 2.2 上轮人工点击记录（2026-11-20）
 
@@ -112,3 +144,6 @@ cargo test -p voucher-core --lib --offline services::wps_http
 - `posted` 本轮始终为 false；「正式入账」未发生，符合 Mock 边界。
 - 六组真实副本 C1–C6 继续登记为未执行；需 G0/S0/G1 与副本专项授权后另跑，范围草案见 [真实副本授权范围草案](./真实副本授权范围草案.md)。
 - S0-01/02/03 已有 WPS 专用 keyring-only 入口与合成后端测试，但未写真实 token、未演练目标机钥匙串；不能由本轮补证通过，见 [凭据链核查](./凭据链核查.md)。
+- **点击由人执行**：助手侧 `osascript`/System Events 被 macOS 拒绝（`-10004`），点击动作无法自动化；本轮界面证据是「人点击 + 助手即时截图 + 临时库行级核对」的组合，重跑同样需要人工点击（命令见 §2.1）。
+- **提示条仍未目视**：`authRequired`/`cooldownUntil` 两条提示没有对应 dev 场景入口（无 400006/429 按钮），本轮未渲染、未截图；需在后续给面板补错误注入入口后另行走查，或明确接受「仅单测覆盖」。
+- **截图瑕疵**：`04-重复运行-幂等键拒绝.jpg` 为整屏截图，窗口左缘越界导致「幂等键」列未入镜；错误列与行号清晰，且可与库内 `wps_idempotency_keys` 对账，不影响该步结论。
