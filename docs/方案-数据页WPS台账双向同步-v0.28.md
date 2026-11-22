@@ -2,7 +2,7 @@
 
 > **重建说明（2026-11-20）**：原方案正文未在仓库/Obsidian 落盘；上一版按 [`docs/方案-销账64-65-66.md`](./方案-销账64-65-66.md) 的「#66 每章重建依据映射表」从已落盘证据重建。本复审稿加入用户已确认的业务口径及拟实施的约束；未证实的字段、能力与职责不作为既定事实。
 >
-> **状态（2026-11-20）**：四项整改结论及可复跑证据见 §15.1；本地 WPS 服务回归实测 96 项通过，W2 桌面开发入口（Mock）见 §15.2。**用户已确认 G0 设计复审通过**（2026-11-20），作为本轮开发依据；S0/G1 仍未通过，真实 HTTP/生产写关闭，六组真实副本未执行，`transport` 保持 Mock。
+> **状态（2026-11-20）**：四项整改结论及可复跑证据见 §15.1；本地 WPS 服务回归实测 116 项通过，W2 桌面开发入口（Mock）见 §15.2；400006/429 两个错误场景已有 dev 入口和人工点击证据。**用户已确认 G0 设计复审通过**（2026-11-20），作为本轮开发依据；S0/G1 仍未通过，真实 HTTP/生产写关闭，六组真实副本未执行，`transport` 保持 Mock。
 >
 > **附录**：[`docs/评审修订清单-2026-11-20.md`](./评审修订清单-2026-11-20.md)（原评审修订清单，现降为本文附录，保留 9 项修正记录与 view_id 定稿）。
 
@@ -271,13 +271,13 @@
 | G0 | 技术负责人复审 §2、§4–§6 及 §13.1；对未确认项明确阻塞范围；A 全表预检、doc guard/09 门只读 | **设计复审通过（2026-11-20 用户确认）**；S0/G1 仍未通过，真实 HTTP/生产写仍禁止 | `W0/接口记录.md` §3–§4；本文；§15.2 |
 | G1 | S0 12 项签字，通过真实读取接入门禁；不自动授予写入权 | **未通过**；S0 待签，`transport=mock` | `S0/检查表.md` §2–§3 |
 | W1 | B1–B4 + doc guard 本地验收 | **条件收口**；全量门禁见开发日志第九十二至九十四笔 | `W1/*` 证据 |
-| W2 | 创建流程/回填/真实写入 | **Mock/本地接线已提交（第一百笔）**；真实写入禁止 | 本文 §6、§12、§15.2 |
+| W2 | 创建流程/回填/真实写入 | **Mock/本地接线已提交（第一百零二笔：400006/429 dev 入口 + 人工点击证据）**；真实写入禁止 | 本文 §6、§12、§15.2 |
 
 真实副本写入须 G0 通过、S0/G1 满足并获得副本专项授权；生产启用还须六组副本用例通过、确认目标表及权限、录入交接与恢复责任人。W0 条件 GO 仅支持 Mock/本地推进，不能替代业务验收或启用门禁。
 
 ### 15.1 四项阻塞结论与验收证据
 
-2026-11-20 在 `main@2716c75`、OpenCV `4.10.0`、Mock/本地 SQLite 下执行 `cargo test -p voucher-core --lib --offline services::wps -- --include-ignored`：退出码 0，**58 通过、0 失败、0 忽略、197 过滤**（当时基线）。本轮 W2 桌面入口后同一过滤口径为 **96 通过**；2026-11-22 结构化反馈与回环 HTTP 边界后同一家族口径为 **111 通过**，见 §15.2；仍不是全量测试、六组真实副本验收或 S0/G1 结论。
+2026-11-20 在 `main@2716c75`、OpenCV `4.10.0`、Mock/本地 SQLite 下执行 `cargo test -p voucher-core --lib --offline services::wps -- --include-ignored`：退出码 0，**58 通过、0 失败、0 忽略、197 过滤**（当时基线）。本轮 W2 桌面入口后同一过滤口径为 **96 通过**；2026-11-22 结构化反馈与回环 HTTP 边界后同一家族口径为 **111 通过**；补 400006/429 dev 入口后再增至 **116 通过**，见 §15.2；仍不是全量测试、六组真实副本验收或 S0/G1 结论。
 
 | G0 阻塞 | 本稿处理结论 | 已有或本轮实测证据 / 仍缺的验收 |
 |---|---|---|
@@ -312,12 +312,12 @@
 | C4/C5/C6 本地覆盖 | `wps_pull.rs`、`wps_w2.rs` | 第二页重复 ID、扫描中 `total` 变化、记录 `remote_modified_at` 晚于扫描起点均阻断发布；非首页历史重复整批 rejected；录入权非软件/非独占 `WPS_E_ENTRY_PERMISSION`；C5 字段跨页变化证明“无快照 token”并令 strict 路径 `writes_blocked`；远端成功但响应丢失后重启 preflight 拒绝、0 create、补链不重发 |
 | WPS 凭据入口 | `services/wps_credentials.rs`、`WpsCredentialProvider`、`voucher-api::wps_credentials`、`commands::wps_credentials_status` | 专用 service `voucher-studio-wps`，keyring-only、无文件回退；只暴露 `token_set/token_expires_at`；`WpsClient::with_credentials` 把 token 只放进 initialize/call 的 auth，不进 arguments；`DevW2Credentials` 合成 token；8 例凭据测试 + 2 例注入/提前停止测试；真实钥匙串待目标机 |
 | 400006/429/保留 | `wps_w2.rs`、`wps.rs`、`utils/log_retention.rs`、`main.rs` | 400006 停止当前批、幂等键 pending、后续 not_attempted；429 写 30 分钟冷却（可控时钟），冷却内预检拒绝；`wps_sync_runs` 保留 500 条；启动清理 30 天普通日志；均有本地单测 |
-| 结构化错误反馈（2026-11-22） | `W2BatchReport.auth_required`/`cooldown_until`、`voucher-api::dev_w2::DevW2Batch`、`src/api/client.ts`、`src/pages/DataPage.vue` | Rust DTO camelCase 序列化，前端 `authRequired: boolean`、`cooldownUntil: string \| null` 对齐；400006 分支 `auth_required=true`、`cooldown_until=None`，429 分支回填 RFC3339 冷却时间（测试断言前缀 `2026-11-20T00:30:00`）；界面分别提示“需重新授权、待处理项保留、恢复后不自动重发”与“冷却至某时刻”；`pending`/`unknown` 无自动重发路径；四个面板按钮已于 2026-11-22 人工点击走查（见 §15.2 末与桌面走查记录），两条提示因无 400006/429 入口仍未目视 |
+| 结构化错误反馈（2026-11-22） | `W2BatchReport.auth_required`/`cooldown_until`、`voucher-api::dev_w2::DevW2Batch`、`src/api/client.ts`、`src/pages/DataPage.vue` | Rust DTO camelCase 序列化，前端 `authRequired: boolean`、`cooldownUntil: string \| null` 对齐；400006 分支 `auth_required=true`、`cooldown_until=None`，429 分支回填 RFC3339 冷却时间（测试断言前缀 `2026-11-20T00:30:00`）；界面分别提示“需重新授权、待处理项保留、恢复后不自动重发”与“冷却至某时刻”；`pending`/`unknown` 无自动重发路径；七个面板按钮已于 2026-11-22 人工点击走查；新增「授权失效 400006」「限流 429」「恢复授权（本地合成）」后，两条提示均已实机目视（见桌面走查 §2.3）：未恢复/冷却期内再点为零请求、恢复后新批次不重发旧键、429 截止时刻三处一致 |
 | 回环 HTTP 边界（2026-11-22） | `services/wps_http.rs`、`WpsError::from_http_status`/`from_io` | 仅接受 `127.0.0.1`/`localhost`/`[::1]`，拒绝 https、查询串、片段、非回环、端口 0；手写 HTTP/1.1，token 只走 `Authorization: Bearer`；缺/过期凭据在连接前失败（0 请求）；302 不跟随且不回显目标；错误体自由文本不回显；4 例测试。**非生产传输**，真实 HTTPS 端点未接线 |
 
-本轮定向测试（2026-11-22 复跑）：`services::wps` 家族口径 **111 passed / 0 failed / 0 ignored**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + dev 8 + http 4）；`utils::crypto::tests` 1、`utils::log_retention` 1 passed；桌面入口集成 1 例（`voucher-api/tests/dev_w2_entry.rs`）通过；`dev_w2` 4 例（含启动校验）。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)。S0-01/02/03 已有专用入口、客户端 provider 与合成 token 证据，真实钥匙串/token 待 G1；S0-07/08/11 有部分本地证据：400006/429 的结构化字段与前端提示已落地，重授权 UI/队列续传/红点与真实运行样例仍未闭环；S0-05/09 的真实 HTTPS/TLS 端点未接线；S0 未签、G1 未开放。
+本轮定向测试（2026-11-22 复跑）：`services::wps` 家族口径 **116 passed / 0 failed / 0 ignored**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + dev 13 + http 4）；`utils::crypto::tests` 1、`utils::log_retention` 1 passed；桌面入口集成 1 例（`voucher-api/tests/dev_w2_entry.rs`，覆盖守卫→pull→400006→未恢复零请求→auth_recover→正常→超时→缺引用→429→冷却期零请求）通过；`dev_w2` 4 例（含启动校验）。S0 本地补证见 [`2026-11-20-S0-W2/补证.md`](./验收基线/证据/2026-11-20-S0-W2/补证.md)。S0-01/02/03 已有专用入口、客户端 provider 与合成 token 证据，真实钥匙串/token 待 G1；S0-07/08/11 有部分本地证据：400006/429 的结构化字段与前端提示已落地，重授权 UI/队列续传/红点与真实运行样例仍未闭环；S0-05/09 的真实 HTTPS/TLS 端点未接线；S0 未签、G1 未开放。
 
-**仍缺**：真实 HTTPS 端点与 TLS、真实 token 写入/读取/删除与钥匙串故障演练、重授权 UI/队列续传/红点、真实备份不含 token 的实测、六组真实副本 C1–C6；真实运行/日志样例。桌面入口只走 Mock，不是生产接线；四个面板按钮的人工点击已在 2026-11-22 完成（界面文案与临时库行级增量见 [`桌面Mock走查.md`](./验收基线/证据/2026-11-20-S0-W2/桌面Mock走查.md) §2.1），但 `authRequired`/`cooldownUntil` 两条提示仍无对应 dev 场景入口、界面未目视，只能以单测与 DTO 核对为准。
+**仍缺**：真实 HTTPS 端点与 TLS、真实 token 写入/读取/删除与钥匙串故障演练、重授权 UI/队列续传/红点、真实备份不含 token 的实测、六组真实副本 C1–C6；真实运行/日志样例。桌面入口只走 Mock，不是生产接线；七个面板按钮的人工点击已在 2026-11-22 完成（界面文案与临时库行级增量见 [`桌面Mock走查.md`](./验收基线/证据/2026-11-20-S0-W2/桌面Mock走查.md) §2.1 与 §2.3），`authRequired`/`cooldownUntil` 两条提示已实机目视；仍属合成 400006/429，真实错误、真实重授权与冷却转交未演练。
 
 **G0 重审材料清单**：
 

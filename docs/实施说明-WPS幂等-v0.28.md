@@ -259,17 +259,18 @@ pub fn run_mock_batch<T: WpsTransport>(
 ### 11.4 桌面开发入口
 
 - `voucher-api::dev_w2::run` 提供进程内 W2 开发入口；`src-tauri/src/commands/dev_w2.rs` 暴露 `dev_w2_mock_sync`，`src/pages/DataPage.vue` 在 `import.meta.env.DEV && isTauri` 时显示「开发本地模拟同步」面板。
-- 守卫：启动时在创建目录、待恢复动作、打开数据库之前校验 `VOUCHER_DATA_DIR`：必须显式、已存在、canonicalize 后位于系统临时根内、且不等于临时根；空路径/缺失/临时根本身/外指符号链接均退出，不回落默认目录。命令侧仍要求 debug 构建 + `VOUCHER_W2_MOCK=1`，参数只有 `action`（pull/write）与 `scenario`，不接受 file_id 或数据目录，无法把目标改成真实文件/生产库。
+- 守卫：启动时在创建目录、待恢复动作、打开数据库之前校验 `VOUCHER_DATA_DIR`：必须显式、已存在、canonicalize 后位于系统临时根内、且不等于临时根；空路径/缺失/临时根本身/外指符号链接均退出，不回落默认目录。命令侧仍要求 debug 构建 + `VOUCHER_W2_MOCK=1`，参数只有 `action`（pull/write/auth_recover）与 `scenario`（normal/timeout_second/missing_reference/auth_expired/rate_limited），不接受 file_id 或数据目录，无法把目标改成真实文件/生产库。
 - 普通运行、生产目录、网页端均返回 `dev_only`；入口只走 `DevW2Transport` 合成数据，不读取 WPS 凭据、不发 HTTP。
 - WPS 凭据入口独立为 `services/wps_credentials.rs`：service 固定 `voucher-studio-wps`，keyring-only、不读 `CENTER_SECRETS_FILE`、无文件回退；对外仅 `WpsTokenStatus{token_set,token_expires_at}`，不提供读取明文 API；Tauri `wps_credentials_status` 只回状态。
 
 ### 11.5 凭据、限流与保留（2026-11-20 本地补证）
 
 - 认证链：`WpsClient::with_credentials` 接受 `WpsCredentialProvider`；token 只作为 `initialize`/`call` 的 `auth` 参数，不进 `arguments`、URL、日志或备份。`DevW2Credentials` 仅给本地 Mock 返回合成 token。
-- 400006：W2 `execute` 停止当前批、后续 `NotAttempted`，幂等键保持 `pending`，不重发；批次返回 `auth_required=true`、`cooldown_until=None`，前端提示「需重新授权，待处理项已保留，恢复后不会自动重发」。真正的重授权 UI、队列续传和红点仍未实现。
-- 429：只读仍按 3 次退避；W2 写路径遇 429 写入 `wps.rate_limit_until`（`wps_state`），30 分钟冷却内预检拒绝，测试用可控时钟推进；批次回填 `cooldown_until`（RFC3339），前端显示冷却截止时间，冷却结束前不发起新批次。人工转交与真实 429 演练未实现。
+- 400006：W2 `execute` 停止当前批、后续 `NotAttempted`，幂等键保持 `pending`，不重发；批次返回 `auth_required=true`、`cooldown_until=None`，前端提示「需重新授权，待处理项已保留，恢复后不会自动重发」。dev 面板的「授权失效 400006」入口可直接合成该错误并已实机目视（`AR-DEV-A1` 结果不明、`AR-DEV-A2` 未尝试，见 `桌面Mock走查.md` §2.3）；真正的重授权 UI、队列续传和红点仍未实现。
+- 429：只读仍按 3 次退避；W2 写路径遇 429 写入 `wps.rate_limit_until`（`wps_state`），30 分钟冷却内预检拒绝，测试用可控时钟推进；批次回填 `cooldown_until`（RFC3339、秒级 UTC），前端显示冷却截止时间，冷却结束前不发起新批次。dev 面板「限流 429」入口已实机目视：页面红条、行内错误与库内 `wps.rate_limit_until` 同为 `2026-11-22T11:17:48Z`，冷却期内再点为零请求。人工转交与真实 429 演练未实现。
 - 结果不明不自动重发：`execute` 只处理显式传入的请求，`pending`/`unknown` 仅落库等人工确认；代码中不存在扫描待处理项并自动重试的路径。
 - 结构化字段契约：`W2BatchReport.auth_required`/`cooldown_until` 由 `voucher-api::dev_w2::DevW2Batch` 以 camelCase 透传为 `authRequired`/`cooldownUntil`，前端 `src/api/client.ts` 对应 `boolean`/`string | null`。
+- dev 场景与零请求：`auth_expired`/`rate_limited` 由 `DevW2Transport` 在首次 create 返回对应错误；合成授权标记 `dev_w2_auth_expired` 或仍在冷却期的 `wps.rate_limit_until` 会让 `dev_write` 在拉取前整批拒绝并返回 `authRequired`/`cooldownUntil`，`DevW2MockCounts` 全 0；`auth_recover` 只清本地标记。面板显示 `Mock 请求 N（list / create）· create 键 …`，作为零请求的行为证据。
 - 审计/日志保留：`finish_run` 仅保留最近 500 条 `wps_sync_runs`；启动时清理 30 天前普通日志文件（不跟随符号链接），失败只告警。
 - C5：`PullReport.snapshot_verified` 在无快照 token 时恒为 false；`pull_all_history_strict` 强制 `writes_blocked`。真实写入路径必须走 strict；开发 Mock 仅为本地走查保留非严格路径。字段级跨页变化无法从 `list_records` 证明，已记录限制。
 
@@ -277,6 +278,6 @@ pub fn run_mock_batch<T: WpsTransport>(
 
 - 桌面入口仍是开发态 Mock，不是生产接线；`MockTransport` 仅在测试构建使用；`LoopbackHttpTransport` 只服务本地回环伪服务，非生产传输。
 - 真实 HTTPS 端点未接线：`services/wps_http.rs` 只接受 `127.0.0.1`/`localhost`/`[::1]`，拒绝 https、查询串/片段与非回环地址，无 TLS/DNS、不跟随重定向；因此不存在面向 WPS 真实域名的请求路径，S0-05/09 的目标环境取证仍缺。
-- 前端 `authRequired`/`cooldownUntil` 提示条只有代码与类型核对：dev 面板的四个按钮已于 2026-11-22 人工点击走查（见 `docs/验收基线/证据/2026-11-20-S0-W2/桌面Mock走查.md` §2.1），但面板没有 400006/429 场景入口，这两条提示的界面渲染仍未目视（挂账 #68）。
+- 前端 `authRequired`/`cooldownUntil` 提示条已于 2026-11-22 实机目视：面板新增「授权失效 400006」「限流 429」「恢复授权（本地合成）」，界面与库增量见 `docs/验收基线/证据/2026-11-20-S0-W2/桌面Mock走查.md` §2.3，挂账 #68 已销账；但错误仍是传输层合成的 400006/429，不是真实 WPS 演练。
 - `wps_write_intents` 已落库；`wps_links` 回填成功/失败均有测试，但真实副本 C1–C6 未执行。
 - S0-01/02/03 已有专用 keyring-only 入口、客户端 provider 与合成 token 测试，真实钥匙串/真实 token/重启演练待 G1；S0-05/09 仍依赖 HTTP/TLS 实现与目标环境；S0-07/08/11 有部分本地证据，但重授权 UI/冷却提示/真实运行样例未闭环；本文件不替代 S0/G1 签字。

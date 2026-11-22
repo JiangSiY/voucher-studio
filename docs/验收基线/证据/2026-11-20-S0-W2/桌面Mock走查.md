@@ -18,7 +18,7 @@ npm run tauri dev
 
 - 启动时先校验 `VOUCHER_DATA_DIR`：必须显式、已存在、规范化后位于系统临时根内、且不等于临时根；外指符号链接、空路径、缺路径都在**创建目录/待恢复/打开库之前**退出，不回落默认目录。
 - 仅 debug 构建 + `VOUCHER_W2_MOCK=1` + 上述临时目录时入口可用；普通运行、生产目录、网页端会收到 `dev_only`。
-- 命令只接受 `action=pull|write`、`scenario=normal|timeout_second|missing_reference`，不接受 file_id 或数据目录；界面无法把目标换成真实文件/生产库。
+- 命令只接受 `action=pull|write|auth_recover`、`scenario=normal|timeout_second|missing_reference|auth_expired|rate_limited`，不接受 file_id 或数据目录；界面无法把目标换成真实文件/生产库。
 - 桌面数据页 →「开发本地模拟同步（W2 Mock）」面板。
 
 ### 1.1 启动隔离实测
@@ -109,14 +109,59 @@ npm run tauri dev -- --config '{"build":{"devUrl":"http://localhost:5173/#/data"
 - `wps_write_intents` 与 `wps_links` 的增量；
 - 重启应用后再次点击同场景，确认幂等键存在、整批拒绝、不重发。
 
+## 2.3 400006 / 429 场景与目视验收（2026-11-22 完成）
+
+2026-11-22 给面板补了三个入口：「模拟创建（授权失效 400006）」「模拟创建（限流 429）」「恢复授权（本地合成）」。三者都走同一个 `DevW2Transport` 与 `W2Sync::execute`：错误由 transport 返回 `WpsError::AuthExpired`/`WpsError::RateLimited`，不是前端硬造；面板另外显示本次调用的 Mock 请求计数（`list`/`create` 与 create 幂等键），用来证明「零请求」。
+
+两个前置阻断在**拉取之前**短路：合成授权标记（`wps_state.dev_w2_auth_expired=1`）存在、或 `wps.rate_limit_until` 仍在冷却期时，本次调用直接返回整批拒绝并填 `authRequired`/`cooldownUntil`，transport 请求数为 0，也不产生 run 行。
+
+**本轮临时库**（各自独立，均在系统临时根内）：
+
+| 临时库 | 用途 |
+|---|---|
+| `/private/var/folders/.../voucher-w2-mock.3qbkJ6` | 400006 全流程：超时造 unknown → 授权失效 → 未恢复再点 → 恢复 → 正常 |
+| `/private/var/folders/.../voucher-w2-mock.2avUi6` | 单独捕获 400006 批次本身的界面 |
+| `/private/var/folders/.../voucher-w2-mock.MJBfjX` | 429：限流批次 → 冷却期内再点 |
+
+**实测 1：400006（授权失效）**
+
+| 步骤 | 界面实测 | 临时库增量 |
+|---|---|---|
+| 模拟创建（第二笔超时） | 1「成功」/ 2「结果不明」+ `WPS_E_TIMEOUT` / 3「未尝试」 | run#1 `partial`；`AR-DEV-T1=linked dev-03-1`、`AR-DEV-T2=unknown`（作为后续「已有 unknown 记录」） |
+| 模拟创建（授权失效 400006） | 红条「WPS 授权已失效：请重新授权。当前待处理项已保留，恢复后不会自动重发。」；①`AR-DEV-A1`「结果不明」+ `WPS_E_AUTH: 授权失效，已停止批量写入；该条保留待处理`；②`AR-DEV-A2`「未尝试」；表尾「本批已按停止规则终止。」；表头 `Mock 请求 12（list 11 / create 1）· create 键 AR-DEV-A1`。见 [`05-授权失效400006-批次结果.jpg`](../2026-11-22-桌面走查-W2Mock/05-授权失效400006-批次结果.jpg) | run#2 `partial scanned=2 created=0 conflicts=1 errors=1`；intent 仅 `AR-DEV-A1=unknown`（A2 无 intent）；`wps_idempotency_keys.AR-DEV-A1=pending`；`wps_state.dev_w2_auth_expired=1` |
+| 模拟创建（正常）——授权未恢复 | 同一红条；表头 `拉取 已跳过（前置阻断，零请求） · Mock 请求 0（list 0 / create 0）`；两行「整批拒绝」+ `WPS_E_AUTH`；见 [`06-授权未恢复-零请求被挡.jpg`](../2026-11-22-桌面走查-W2Mock/06-授权未恢复-零请求被挡.jpg) | **无新 run / intent / link**；`wps_scans` 与键状态不变（旧 `AR-DEV-T2` 仍 `unknown`） |
+| 恢复授权（本地合成） | 面板回到可写状态（`mode=auth_recover`） | `wps_state.dev_w2_auth_expired=0`；无 transport 请求 |
+| 模拟创建（正常）——已恢复 | 两行「成功」「已保存（未认领）」「未入账」；表头 `拉取 完整（11 表） · Mock 请求 13（list 11 / create 2）· create 键 AR-DEV-001、AR-DEV-002`；见 [`07-恢复授权后-新批次未重发旧键.jpg`](../2026-11-22-桌面走查-W2Mock/07-恢复授权后-新批次未重发旧键.jpg) | run#3 `ok scanned=2 created=2`；新增 intent 仅 `AR-DEV-001`/`AR-DEV-002`（`linked`）；`AR-DEV-T2` 仍 `unknown`、`AR-DEV-A1` 仍 `unknown` 且键仍 `pending`——**旧记录 create 增量为 0、未被标成成功** |
+
+**实测 2：429（限流）**（独立库，冷却状态不跨场景）
+
+| 步骤 | 界面实测 | 临时库增量 |
+|---|---|---|
+| 模拟创建（限流 429） | 红条「WPS 限流：冷却至 2026-11-22T11:17:48Z，冷却结束前不会发起新批次。」；①`AR-DEV-R1`「结果不明」+ `WPS_E_RATE: 限流，已停止批量写入并冷却至 2026-11-22T11:17:48Z`；②「未尝试」；表头 `Mock 请求 12（list 11 / create 1）· create 键 AR-DEV-R1`；见 [`08-限流429-冷却截止.jpg`](../2026-11-22-桌面走查-W2Mock/08-限流429-冷却截止.jpg) | run#1 `partial scanned=2 created=0 conflicts=1 errors=1`；`AR-DEV-R1=unknown`、键 `pending`；`wps.rate_limit_until=2026-11-22T11:17:48Z` |
+| 冷却期内再点（正常） | 红条仍是同一截止时刻；表头 `拉取 已跳过（前置阻断，零请求） · Mock 请求 0（list 0 / create 0）`；两行「整批拒绝」+ 同一 `WPS_E_RATE` 文案；见 [`09-冷却期内再次点击-零请求.jpg`](../2026-11-22-桌面走查-W2Mock/09-冷却期内再次点击-零请求.jpg) | `wps_sync_runs` 仍 1、`wps_write_intents` 仍 1、`wps_links` 0、`wps_scans` 仍 11——**零新请求、零新 run** |
+
+**截止时刻三处一致**：页面红条、行内 `WPS_E_RATE` 文案、库内 `wps.rate_limit_until` 均为 `2026-11-22T11:17:48Z`（RFC3339、秒级、UTC），与批次返回的 `cooldownUntil` 同值。
+
+**库核对命令**：
+
+```bash
+DB="$VOUCHER_DATA_DIR/voucher.db"
+sqlite3 "$DB" "select id,status,scanned,created,conflicts,errors from wps_sync_runs order by id;"
+sqlite3 "$DB" "select business_key,state,coalesce(error,'') from wps_write_intents order by id;"
+sqlite3 "$DB" "select idempotency_key,local_status from wps_idempotency_keys order by rowid;"
+sqlite3 "$DB" "select key,value from wps_state where key in ('dev_w2_auth_expired','wps.rate_limit_until');"
+```
+
+**边界**：以上是**合成** 400006/429（transport 直接返回错误码），不是真实 WPS 演练；「恢复授权」是本地清标记，不是真实 OAuth/重授权流程。`authRequired`/`cooldownUntil` 两条提示已完成目视验收；重授权 UI、队列续传、红点仍未实现。
+
 ## 3. 自动化证据
 
 ```bash
 cargo test -p voucher-core --lib --offline services::wps_w2_dev
-# 8 passed / 0 failed
+# 13 passed / 0 failed（2026-11-22 新增 5 例：auth 停工保 pending、auth 未恢复零请求、恢复后新批次不重发旧键、429 冷却与返回值一致、429 二次点击零请求）
 
 cargo test -p voucher-api --test dev_w2_entry --offline
-# 1 passed / 0 failed：pull + normal + timeout_second + missing_reference
+# 1 passed / 0 failed：守卫 → pull → 400006 → 未恢复零请求 → auth_recover → 正常 → 超时 → 缺引用 → 429 → 冷却期零请求
 
 cargo test -p voucher-api --lib --offline dev_w2::tests
 # 4 passed：启动校验（空路径/临时根/外指符号链接/有效目录）；守卫拒绝；status 文本稳定
@@ -125,7 +170,7 @@ cargo test -p voucher-core --lib --offline services::wps_http
 # 4 passed（2026-11-22 新增）：回环白名单、Bearer 注入、缺/过期凭据零请求、不跟随重定向、错误体不回显
 ```
 
-2026-11-22 复跑：`services::wps_w2` 29 passed（含 `wps_w2_dev` 8）、`dev_w2_entry` 1 passed、`dev_w2::tests` 4 passed；全量 `cargo test --workspace --no-fail-fast --offline -- --include-ignored` → 487 passed / 0 failed / 0 ignored。
+2026-11-22 复跑：`services::wps_w2` 34 passed（含 `wps_w2_dev` 13）、`dev_w2_entry` 1 passed、`dev_w2::tests` 4 passed；全量（`CENTER_SECRETS_FILE=/tmp/vs-headless-secrets.json RUST_TEST_THREADS=1`）`cargo test --workspace --no-fail-fast --offline -- --include-ignored` → **492 passed / 0 failed / 0 ignored**；WPS 家族过滤口径 116（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + wps_w2_dev 13 + credentials 8 + wps_http 4）。
 
 ## 4. C1–C6 本地 Mock 覆盖
 
@@ -145,5 +190,5 @@ cargo test -p voucher-core --lib --offline services::wps_http
 - 六组真实副本 C1–C6 继续登记为未执行；需 G0/S0/G1 与副本专项授权后另跑，范围草案见 [真实副本授权范围草案](./真实副本授权范围草案.md)。
 - S0-01/02/03 已有 WPS 专用 keyring-only 入口与合成后端测试，但未写真实 token、未演练目标机钥匙串；不能由本轮补证通过，见 [凭据链核查](./凭据链核查.md)。
 - **点击由人执行**：助手侧 `osascript`/System Events 被 macOS 拒绝（`-10004`），点击动作无法自动化；本轮界面证据是「人点击 + 助手即时截图 + 临时库行级核对」的组合，重跑同样需要人工点击（命令见 §2.1）。
-- **提示条仍未目视**：`authRequired`/`cooldownUntil` 两条提示没有对应 dev 场景入口（无 400006/429 按钮），本轮未渲染、未截图；需在后续给面板补错误注入入口后另行走查，或明确接受「仅单测覆盖」。
+- **提示条已目视（2026-11-22 补做）**：面板新增 400006/429/恢复授权三个入口后，`authRequired`/`cooldownUntil` 两条提示均已实机渲染并截图，零请求行为与库增量见 §2.3；仍属合成错误，不是真实 WPS 演练。
 - **截图瑕疵**：`04-重复运行-幂等键拒绝.jpg` 为整屏截图，窗口左缘越界导致「幂等键」列未入镜；错误列与行号清晰，且可与库内 `wps_idempotency_keys` 对账，不影响该步结论。

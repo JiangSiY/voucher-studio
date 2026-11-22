@@ -2,7 +2,7 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
-> **2026-11-22 W2/S0 本地交付收口（结构化反馈 + 回环 HTTP 边界）**：`voucher-core` 测试 **477 个**（310 单元 + 167 集成；新增 `wps_http` 4 例——回环地址白名单、缺失/过期凭据零请求、不跟随重定向、错误体自由文本不回显；`wps_w2` 与 `wps::tests` 只扩断言未增例），加壳 3 共 **480**；全量实跑 **487 passed / 0 failed / 0 ignored**（静态 480 ≠ 实跑 487；上一轮沙箱内挂起的 2 个备份测试本轮直接通过，**无跳过项**）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **111**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 8 + wps_http 4）。W2 批次返回 `authRequired`/`cooldownUntil`：400006 提示重新授权并保留待处理项、429 提示冷却截止时间；`pending`/`unknown` 不自动重发。回环 HTTP 传输仅接受 `127.0.0.1`/`localhost`/`[::1]`，无 TLS/DNS、不跟随重定向；**真实 WPS 端点仍未接线**，真实副本 C1–C6 未执行；S0/G1 未签。桌面 Mock 四个按钮已于 2026-11-22 人工点击走查（界面文案 + 临时库行级增量见 [`docs/验收基线/证据/2026-11-22-桌面走查-W2Mock/`](docs/验收基线/证据/2026-11-22-桌面走查-W2Mock/)），两条提示因无 400006/429 场景入口仍未目视。
+> **2026-11-22 W2/S0 本地交付收口（结构化反馈 + 回环 HTTP 边界 + 400006/429 dev 入口）**：`voucher-core` 测试 **482 个**（315 单元 + 167 集成；本轮 `wps_w2_dev` 新增 5 例——授权失效停机并保 `pending`、未恢复时零请求、恢复后新批次不重发旧键、429 冷却与返回值一致、冷却期二次点击零请求），加壳 3 共 **485**；全量实跑 **492 passed / 0 failed / 0 ignored**（`CENTER_SECRETS_FILE=/tmp/vs-headless-secrets.json RUST_TEST_THREADS=1`；静态 485 ≠ 实跑 492，差在 voucher-api/doctest 目标，**无跳过项**）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **116**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 13 + wps_http 4）。W2 批次返回 `authRequired`/`cooldownUntil`：400006 提示重新授权并保留待处理项、429 提示冷却截止时间；`pending`/`unknown` 不自动重发。回环 HTTP 传输仅接受 `127.0.0.1`/`localhost`/`[::1]`，无 TLS/DNS、不跟随重定向；**真实 WPS 端点仍未接线**，真实副本 C1–C6 未执行；S0/G1 未签。桌面 Mock 面板现有 7 个按钮（拉取/正常/超时/缺引用/授权失效 400006/限流 429/恢复授权），已于 2026-11-22 全部人工点击走查：未恢复与冷却期内再点均为零请求、恢复后不重发旧键、429 截止时刻页面与库内一致；界面文案 + 临时库行级增量见 [`docs/验收基线/证据/2026-11-22-桌面走查-W2Mock/`](docs/验收基线/证据/2026-11-22-桌面走查-W2Mock/)，两条提示已目视。
 
 > **2026-11-20 S0/W2 凭据链与本地证据（上一轮）**：`voucher-core` 测试 **473 个**（306 单元 + 167 集成；新增 `wps_credentials` 2、`wps::tests` 2、`wps_w2` 3、`wps_pull` 2、`log_retention` 1 等），加壳 3 共 **476**；全量实跑 **481 passed / 0 failed / 0 ignored**（跳过 2 个既有备份测试：`plaintext_options_no_encryption`、`cloud_parts_split_and_compose_roundtrip` 在沙箱内挂起，未计通过；静态 476 ≠ 实跑 481）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **107**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + dev 8）。W2 仍仅 Mock/临时库；真实 HTTP/生产写未启；S0 只做本地补证，未签。
 
@@ -101,7 +101,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：310 单元 + 167 集成，共 477 用例；加 src-tauri 3 用例共 480；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：315 单元 + 167 集成，共 482 用例；加 src-tauri 3 用例共 485；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
