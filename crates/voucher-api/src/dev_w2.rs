@@ -9,7 +9,9 @@ use serde::Serialize;
 
 use voucher_core::services::wps::WpsStore;
 use voucher_core::services::wps_w2::{W2BatchReport, W2PullReport, W2WriteStatus};
-use voucher_core::services::wps_w2_dev::{dev_pull, dev_write, DevW2Scenario};
+use voucher_core::services::wps_w2_dev::{
+    dev_auth_recover, dev_pull, dev_write, DevW2MockCounts as CoreMockCounts, DevW2Scenario,
+};
 use voucher_core::CoreContext;
 
 use crate::{ApiError, ApiResult};
@@ -19,9 +21,34 @@ use crate::{ApiError, ApiResult};
 pub struct DevW2Result {
     pub mode: String,
     pub data_dir: String,
-    pub pull: DevW2Pull,
+    /// `None` 表示本次被前置阻断（授权失效/冷却中）而未拉取，transport 零请求。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull: Option<DevW2Pull>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch: Option<DevW2Batch>,
+    /// 本次调用的 Mock transport 请求计数（含只读拉取）。
+    pub mock_requests: DevW2MockCounts,
+}
+
+/// 一次开发调用的 Mock transport 请求计数；`create_keys` 用于核对是否重发旧幂等键。
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevW2MockCounts {
+    pub total: usize,
+    pub list: usize,
+    pub create: usize,
+    pub create_keys: Vec<String>,
+}
+
+impl From<CoreMockCounts> for DevW2MockCounts {
+    fn from(value: CoreMockCounts) -> Self {
+        Self {
+            total: value.total,
+            list: value.list,
+            create: value.create,
+            create_keys: value.create_keys,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -203,7 +230,7 @@ fn batch_dto(store: &WpsStore<'_>, report: &W2BatchReport) -> ApiResult<DevW2Bat
     })
 }
 
-/// `action` 只有 `pull` / `write`；`scenario` 只在 `write` 时生效。
+/// `action` 为 `pull` / `write` / `auth_recover`；`scenario` 只在 `write` 时生效。
 pub fn run(
     ctx: &CoreContext,
     action: Option<&str>,
@@ -214,27 +241,43 @@ pub fn run(
     let store = WpsStore::from_db(&ctx.db);
     match action {
         "pull" => {
-            let pull = dev_pull(&store).map_err(ApiError::from_core)?;
+            let run = dev_pull(&store).map_err(ApiError::from_core)?;
             Ok(DevW2Result {
                 mode: "pull".into(),
                 data_dir: ctx.paths.base.to_string_lossy().to_string(),
-                pull: pull_dto(&pull),
+                pull: run.pull.as_ref().map(pull_dto),
                 batch: None,
+                mock_requests: run.mock.into(),
             })
         }
         "write" => {
             let scenario = DevW2Scenario::parse(scenario).map_err(ApiError::from_core)?;
             let run = dev_write(&store, scenario).map_err(ApiError::from_core)?;
+            let batch = match run.report.as_ref() {
+                Some(report) => Some(batch_dto(&store, report)?),
+                None => None,
+            };
             Ok(DevW2Result {
                 mode: format!("write:{}", scenario.as_str()),
                 data_dir: ctx.paths.base.to_string_lossy().to_string(),
-                pull: pull_dto(&run.pull),
-                batch: Some(batch_dto(&store, &run.report)?),
+                pull: run.pull.as_ref().map(pull_dto),
+                batch,
+                mock_requests: run.mock.into(),
+            })
+        }
+        "auth_recover" => {
+            dev_auth_recover(&store).map_err(ApiError::from_core)?;
+            Ok(DevW2Result {
+                mode: "auth_recover".into(),
+                data_dir: ctx.paths.base.to_string_lossy().to_string(),
+                pull: None,
+                batch: None,
+                mock_requests: DevW2MockCounts::default(),
             })
         }
         other => Err(ApiError::plain(
             "invalid_args",
-            format!("未知开发 Mock 动作: {other}（可用 pull/write）"),
+            format!("未知开发 Mock 动作: {other}（可用 pull/write/auth_recover）"),
         )),
     }
 }

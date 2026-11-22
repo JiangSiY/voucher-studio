@@ -79,7 +79,7 @@ const w2StatusLabel: Record<string, string> = {
   not_attempted: "未尝试",
 };
 
-async function runDevW2(action: "pull" | "write", scenario?: string) {
+async function runDevW2(action: "pull" | "write" | "auth_recover", scenario?: string) {
   w2Busy.value = true;
   w2Error.value = "";
   try {
@@ -399,6 +399,30 @@ watch(query, load);
           >
             模拟创建（缺引用）
           </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('write', 'auth_expired')"
+          >
+            模拟创建（授权失效 400006）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('write', 'rate_limited')"
+          >
+            模拟创建（限流 429）
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="w2Busy"
+            @click="runDevW2('auth_recover')"
+          >
+            恢复授权（本地合成）
+          </button>
         </div>
       </div>
       <p v-if="w2Error" class="dev-w2-error">{{ w2Error }}</p>
@@ -411,9 +435,18 @@ watch(query, load);
       <template v-if="w2Result">
         <p class="dev-w2-meta">
           {{ w2Result.mode }} · 数据目录 {{ w2Result.dataDir }} · 拉取
-          {{ w2Result.pull.complete ? "完整" : "不完整" }}（{{ w2Result.pull.sheets.length }} 表）
+          <template v-if="w2Result.pull">
+            {{ w2Result.pull.complete ? "完整" : "不完整" }}（{{ w2Result.pull.sheets.length }} 表）
+          </template>
+          <template v-else>已跳过（前置阻断，零请求）</template>
+          · Mock 请求 {{ w2Result.mockRequests.total }}（list {{ w2Result.mockRequests.list }} /
+          create {{ w2Result.mockRequests.create }}）<template
+            v-if="w2Result.mockRequests.createKeys.length"
+          >
+            · create 键 {{ w2Result.mockRequests.createKeys.join("、") }}
+          </template>
         </p>
-        <p v-if="w2Result.pull.writesBlocked" class="dev-w2-error">索引不完整，写入已阻断。</p>
+        <p v-if="w2Result.pull?.writesBlocked" class="dev-w2-error">索引不完整，写入已阻断。</p>
         <div v-if="w2Result.batch" class="dev-w2-tablewrap">
           <table class="dev-w2-table">
             <thead>

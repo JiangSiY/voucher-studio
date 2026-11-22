@@ -16,12 +16,18 @@ use crate::services::wps_w2::{
 };
 use crate::{CoreError, Result};
 
-/// 可复跑的三种合成场景：正常两笔、第一笔成功第二笔超时、缺引用整批拒绝。
+/// 开发 Mock 的合成授权状态键（存在 `wps_state`，随临时库持久化）。
+pub const DEV_AUTH_EXPIRED_KEY: &str = "dev_w2_auth_expired";
+
+/// 可复跑的五种合成场景：正常两笔、第二笔超时、缺引用整批拒绝、
+/// 授权失效（400006）与限流（429）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DevW2Scenario {
     Normal,
     TimeoutSecond,
     MissingReference,
+    AuthExpired,
+    RateLimited,
 }
 
 impl DevW2Scenario {
@@ -30,8 +36,10 @@ impl DevW2Scenario {
             "normal" => Ok(Self::Normal),
             "timeout_second" | "timeout" => Ok(Self::TimeoutSecond),
             "missing_reference" | "missing_ref" => Ok(Self::MissingReference),
+            "auth_expired" | "auth" => Ok(Self::AuthExpired),
+            "rate_limited" | "rate_limit" | "rate" => Ok(Self::RateLimited),
             other => Err(CoreError::Invalid(format!(
-                "未知 W2 开发场景: {other}（可用 normal/timeout_second/missing_reference）"
+                "未知 W2 开发场景: {other}（可用 normal/timeout_second/missing_reference/auth_expired/rate_limited）"
             ))),
         }
     }
@@ -41,6 +49,8 @@ impl DevW2Scenario {
             Self::Normal => "normal",
             Self::TimeoutSecond => "timeout_second",
             Self::MissingReference => "missing_reference",
+            Self::AuthExpired => "auth_expired",
+            Self::RateLimited => "rate_limited",
         }
     }
 }
@@ -54,24 +64,57 @@ impl WpsCredentialProvider for DevW2Credentials {
     }
 }
 
-/// 一次合成批次的结果；`pull` 用于展示每张表的索引健康度。
+/// 一次开发 Mock 调用的 transport 计数（含只读拉取），用于走查核对「零请求」。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DevW2MockCounts {
+    pub total: usize,
+    pub list: usize,
+    pub create: usize,
+    pub create_keys: Vec<String>,
+}
+
+/// 一次合成调用的结果；`pull` 为 `None` 表示前置阻断（授权失效/冷却中）而未拉取。
 pub struct DevW2Run {
-    pub pull: W2PullReport,
-    pub report: W2BatchReport,
+    pub pull: Option<W2PullReport>,
+    pub report: Option<W2BatchReport>,
+    pub mock: DevW2MockCounts,
 }
 
 /// 合成 transport：11 张表只返回预置基础资料；create 按场景成功/超时。
 pub struct DevW2Transport {
     scenario: DevW2Scenario,
     create_calls: Mutex<usize>,
+    counts: Arc<Mutex<DevW2MockCounts>>,
 }
 
 impl DevW2Transport {
     pub fn new(scenario: DevW2Scenario) -> Self {
+        Self::with_counts(scenario, Arc::new(Mutex::new(DevW2MockCounts::default())))
+    }
+
+    fn with_counts(scenario: DevW2Scenario, counts: Arc<Mutex<DevW2MockCounts>>) -> Self {
         Self {
             scenario,
             create_calls: Mutex::new(0),
+            counts,
         }
+    }
+
+    fn record(&self, list: bool, key: Option<&str>) -> std::result::Result<(), WpsError> {
+        let mut counts = self
+            .counts
+            .lock()
+            .map_err(|_| WpsError::Protocol("开发 mock 计数锁中毒".into()))?;
+        counts.total += 1;
+        if list {
+            counts.list += 1;
+        } else {
+            counts.create += 1;
+            if let Some(key) = key {
+                counts.create_keys.push(key.to_string());
+            }
+        }
+        Ok(())
     }
 
     fn reference_page(sheet_id: i64) -> Value {
@@ -103,6 +146,7 @@ impl WpsTransport for DevW2Transport {
     ) -> std::result::Result<Value, WpsError> {
         match action {
             "dbsheet.list_records" => {
+                self.record(true, None)?;
                 let sheet_id = args
                     .get("sheet_id")
                     .and_then(Value::as_i64)
@@ -110,6 +154,11 @@ impl WpsTransport for DevW2Transport {
                 Ok(Self::reference_page(sheet_id))
             }
             "dbsheet.create_records" => {
+                let key = args
+                    .get("idempotency_key")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                self.record(false, key.as_deref())?;
                 let mut calls = self
                     .create_calls
                     .lock()
@@ -118,6 +167,12 @@ impl WpsTransport for DevW2Transport {
                 *calls += 1;
                 if self.scenario == DevW2Scenario::TimeoutSecond && index == 1 {
                     return Err(WpsError::Timeout);
+                }
+                if self.scenario == DevW2Scenario::AuthExpired && index == 0 {
+                    return Err(WpsError::AuthExpired);
+                }
+                if self.scenario == DevW2Scenario::RateLimited && index == 0 {
+                    return Err(WpsError::RateLimited);
                 }
                 Ok(json!({
                     "records": [{"id": format!("dev-03-{}", index + 1)}],
@@ -166,6 +221,24 @@ pub fn dev_requests(scenario: DevW2Scenario) -> Vec<W2CreateRequest> {
             vec![(1, "不存在的客户".to_string()), (8, "METER-1".to_string())],
             vec![(1, "dev-01-客户A".to_string()), (8, "dev-08-1".to_string())],
         )],
+        DevW2Scenario::AuthExpired => vec![
+            request(
+                "AR-DEV-A1",
+                "开发模拟应收-授权失效1",
+                refs.clone(),
+                ref_ids.clone(),
+            ),
+            request("AR-DEV-A2", "开发模拟应收-授权失效2", refs, ref_ids),
+        ],
+        DevW2Scenario::RateLimited => vec![
+            request(
+                "AR-DEV-R1",
+                "开发模拟应收-限流1",
+                refs.clone(),
+                ref_ids.clone(),
+            ),
+            request("AR-DEV-R2", "开发模拟应收-限流2", refs, ref_ids),
+        ],
     };
     if scenario == DevW2Scenario::MissingReference {
         requests[0].required_refs.push((10, "SKU-1".into()));
@@ -200,26 +273,120 @@ fn request(
 }
 
 /// 只拉取：结果与 `write` 前同样走一遍 11 表全历史链，不初始化写会话。
-pub fn dev_pull(store: &WpsStore<'_>) -> Result<W2PullReport> {
-    let client = WpsClient::new(DevW2Transport::new(DevW2Scenario::Normal), "mock://w2-dev")
-        .with_credentials(Arc::new(DevW2Credentials));
+pub fn dev_pull(store: &WpsStore<'_>) -> Result<DevW2Run> {
+    let counts = Arc::new(Mutex::new(DevW2MockCounts::default()));
+    let transport = DevW2Transport::with_counts(DevW2Scenario::Normal, Arc::clone(&counts));
+    let client =
+        WpsClient::new(transport, "mock://w2-dev").with_credentials(Arc::new(DevW2Credentials));
     let sync = W2Sync::new(&client, store);
-    sync.pull_all_history()
+    let pull = sync.pull_all_history()?;
+    let mock = counts
+        .lock()
+        .map_err(|_| CoreError::Invalid("开发 mock 计数锁中毒".into()))?
+        .clone();
+    Ok(DevW2Run {
+        pull: Some(pull),
+        report: None,
+        mock,
+    })
+}
+
+/// 合成授权是否处于失效态（存 `wps_state`，随同一临时库跨进程保留）。
+pub fn dev_auth_expired(store: &WpsStore<'_>) -> Result<bool> {
+    Ok(store
+        .get_state(DEV_AUTH_EXPIRED_KEY)?
+        .as_deref()
+        .is_some_and(|v| v == "1"))
+}
+
+/// 本地合成授权恢复：只清开发态标记，不触发任何网络或凭据读取。
+pub fn dev_auth_recover(store: &WpsStore<'_>) -> Result<()> {
+    store.set_state(DEV_AUTH_EXPIRED_KEY, "0")?;
+    Ok(())
+}
+
+/// 前置阻断批次：全部整批拒绝、零 transport 请求，但仍保留 `auth_required`/`cooldown_until`。
+fn blocked_report(
+    requests: &[W2CreateRequest],
+    auth_required: bool,
+    cooldown_until: Option<String>,
+    message: &str,
+) -> W2BatchReport {
+    W2BatchReport {
+        run_id: None,
+        outcomes: requests
+            .iter()
+            .map(|request| crate::services::wps_w2::W2Outcome {
+                idempotency_key: request.idempotency_key.clone(),
+                status: crate::services::wps_w2::W2WriteStatus::Rejected,
+                remote_record_id: None,
+                link_id: None,
+                error: Some(message.to_string()),
+            })
+            .collect(),
+        stopped: true,
+        auth_required,
+        cooldown_until,
+    }
 }
 
 /// 显式测试写：固定 Mock 配置，先全历史拉取，再整批预检/逐条创建。
+///
+/// 两种前置阻断都在拉取之前短路，保证「恢复授权前」与「冷却期内」再次点击时
+/// transport 请求数为 0；待处理意图留在库里，不会自动重发。
 pub fn dev_write(store: &WpsStore<'_>, scenario: DevW2Scenario) -> Result<DevW2Run> {
-    let client = WpsClient::new(DevW2Transport::new(scenario), "mock://w2-dev")
-        .with_credentials(Arc::new(DevW2Credentials));
+    let requests = dev_requests(scenario);
+    let counts = Arc::new(Mutex::new(DevW2MockCounts::default()));
+    let transport = DevW2Transport::with_counts(scenario, Arc::clone(&counts));
+    let client =
+        WpsClient::new(transport, "mock://w2-dev").with_credentials(Arc::new(DevW2Credentials));
     let sync = W2Sync::new(&client, store);
+
+    if dev_auth_expired(store)? {
+        return Ok(DevW2Run {
+            pull: None,
+            report: Some(blocked_report(
+                &requests,
+                true,
+                None,
+                "WPS_E_AUTH: 授权失效，已停止批量写入；该条保留待处理",
+            )),
+            mock: DevW2MockCounts::default(),
+        });
+    }
+    if let Some(until) = sync.active_rate_limit()? {
+        let cooldown = until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        return Ok(DevW2Run {
+            pull: None,
+            report: Some(blocked_report(
+                &requests,
+                false,
+                Some(cooldown.clone()),
+                &format!("WPS_E_RATE: 限流，已停止批量写入并冷却至 {cooldown}"),
+            )),
+            mock: DevW2MockCounts::default(),
+        });
+    }
+
     let pull = sync.pull_all_history()?;
     if pull.writes_blocked {
         return Err(CoreError::Invalid(
             "WPS_E_PULL_BLOCKED: 开发 mock 全历史拉取不完整，已阻断写入".into(),
         ));
     }
-    let report = sync.execute(&W2Config::mock_write(), &dev_requests(scenario))?;
-    Ok(DevW2Run { pull, report })
+    let report = sync.execute(&W2Config::mock_write(), &requests)?;
+    if scenario == DevW2Scenario::AuthExpired && report.auth_required {
+        store.set_state(DEV_AUTH_EXPIRED_KEY, "1")?;
+    }
+    let mock = counts
+        .lock()
+        .map_err(|_| CoreError::Invalid("开发 mock 计数锁中毒".into()))?
+        .clone();
+    Ok(DevW2Run {
+        pull: Some(pull),
+        report: Some(report),
+        mock,
+    })
 }
 
 /// 保留 `run_mock_batch` 的入口测试：应用层只允许显式 Mock 配置。
@@ -244,20 +411,49 @@ mod tests {
         (Database::new(conn), ())
     }
 
+    fn pull_of(run: &DevW2Run) -> &W2PullReport {
+        run.pull.as_ref().expect("pull")
+    }
+
+    fn report_of(run: &DevW2Run) -> &W2BatchReport {
+        run.report.as_ref().expect("report")
+    }
+
+    fn key_status(db: &Database, key: &str) -> String {
+        db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT local_status FROM wps_idempotency_keys WHERE idempotency_key = ?1",
+            )?;
+            Ok(stmt.query_row([key], |row| row.get(0))?)
+        })
+        .expect("idempotency status")
+    }
+
+    fn intent_state(db: &Database, key: &str) -> String {
+        db.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT state FROM wps_write_intents WHERE idempotency_key = ?1")?;
+            Ok(stmt.query_row([key], |row| row.get(0))?)
+        })
+        .expect("intent state")
+    }
+
     #[test]
     fn dev_normal_write_succeeds_and_links() {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
         let run = dev_write(&store, DevW2Scenario::Normal).expect("run");
-        assert!(run.pull.complete);
-        assert_eq!(run.report.outcomes.len(), 2);
-        assert!(run
-            .report
+        assert!(pull_of(&run).complete);
+        let report = report_of(&run);
+        assert_eq!(report.outcomes.len(), 2);
+        assert!(report
             .outcomes
             .iter()
             .all(|o| o.status == W2WriteStatus::Succeeded));
-        assert!(run.report.outcomes.iter().all(|o| o.link_id.is_some()));
-        assert!(!run.report.stopped);
+        assert!(report.outcomes.iter().all(|o| o.link_id.is_some()));
+        assert!(!report.stopped);
+        assert_eq!(run.mock.create, 2);
+        assert_eq!(run.mock.list, 11);
     }
 
     #[test]
@@ -265,7 +461,8 @@ mod tests {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
         let run = dev_write(&store, DevW2Scenario::TimeoutSecond).expect("run");
-        let statuses: Vec<_> = run.report.outcomes.iter().map(|o| o.status).collect();
+        let report = report_of(&run);
+        let statuses: Vec<_> = report.outcomes.iter().map(|o| o.status).collect();
         assert_eq!(
             statuses,
             vec![
@@ -274,8 +471,8 @@ mod tests {
                 W2WriteStatus::NotAttempted
             ]
         );
-        assert!(run.report.stopped);
-        assert!(run.report.outcomes[1]
+        assert!(report.stopped);
+        assert!(report.outcomes[1]
             .error
             .as_deref()
             .is_some_and(|e| e.contains("TIMEOUT")));
@@ -286,13 +483,15 @@ mod tests {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
         let run = dev_write(&store, DevW2Scenario::MissingReference).expect("run");
-        assert_eq!(run.report.outcomes.len(), 1);
-        assert_eq!(run.report.outcomes[0].status, W2WriteStatus::Rejected);
-        assert!(run.report.stopped);
-        assert!(run.report.outcomes[0]
+        let report = report_of(&run);
+        assert_eq!(report.outcomes.len(), 1);
+        assert_eq!(report.outcomes[0].status, W2WriteStatus::Rejected);
+        assert!(report.stopped);
+        assert!(report.outcomes[0]
             .error
             .as_deref()
             .is_some_and(|e| e.contains("WPS_E_REF_STALE") || e.contains("WPS_E_REF_MISSING")));
+        assert_eq!(run.mock.create, 0, "预检失败不得发出 create 请求");
     }
 
     #[test]
@@ -300,14 +499,14 @@ mod tests {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
         let first = dev_write(&store, DevW2Scenario::Normal).expect("first");
-        assert_eq!(first.report.outcomes.len(), 2);
+        assert_eq!(report_of(&first).outcomes.len(), 2);
         let second = dev_write(&store, DevW2Scenario::Normal).expect("second");
-        assert!(second
-            .report
+        let report = report_of(&second);
+        assert!(report
             .outcomes
             .iter()
             .all(|o| o.status == W2WriteStatus::Rejected));
-        assert!(second.report.outcomes.iter().all(|o| o
+        assert!(report.outcomes.iter().all(|o| o
             .error
             .as_deref()
             .is_some_and(|e| e.contains("WPS_E_IDEMPOTENCY_STATE"))));
@@ -317,8 +516,7 @@ mod tests {
     fn dev_timeout_persists_intent_before_each_attempt_and_stops_third() {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
-        let run = dev_write(&store, DevW2Scenario::TimeoutSecond).expect("run");
-        assert_eq!(run.report.outcomes[1].status, W2WriteStatus::Unknown);
+        dev_write(&store, DevW2Scenario::TimeoutSecond).expect("run");
         let intents: Vec<(i64, String, String)> = db
             .with_conn(|conn| {
                 let mut stmt = conn.prepare(
@@ -342,12 +540,12 @@ mod tests {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
         let run = dev_write(&store, DevW2Scenario::Normal).expect("run");
-        let link_id = run.report.outcomes[0].link_id.expect("link");
+        let link_id = report_of(&run).outcomes[0].link_id.expect("link");
         assert_eq!(
             store.link_state(link_id).expect("state").as_deref(),
             Some("unclaimed")
         );
-        assert!(!run.report.outcomes.iter().any(|o| o.link_id.is_none()));
+        assert!(!report_of(&run).outcomes.iter().any(|o| o.link_id.is_none()));
     }
 
     #[test]
@@ -360,6 +558,14 @@ mod tests {
             DevW2Scenario::parse(Some("timeout")).expect("timeout"),
             DevW2Scenario::TimeoutSecond
         );
+        assert_eq!(
+            DevW2Scenario::parse(Some("auth")).expect("auth"),
+            DevW2Scenario::AuthExpired
+        );
+        assert_eq!(
+            DevW2Scenario::parse(Some("rate_limit")).expect("rate"),
+            DevW2Scenario::RateLimited
+        );
         assert!(DevW2Scenario::parse(Some("real_wps")).is_err());
     }
 
@@ -367,8 +573,121 @@ mod tests {
     fn dev_pull_only_does_not_need_write_session() {
         let (db, _) = store();
         let store = WpsStore::from_db(&db);
-        let pull = dev_pull(&store).expect("pull");
-        assert!(pull.complete);
-        assert_eq!(pull.sheets.len(), 11);
+        let run = dev_pull(&store).expect("pull");
+        assert!(pull_of(&run).complete);
+        assert_eq!(pull_of(&run).sheets.len(), 11);
+        assert!(run.report.is_none());
+        assert_eq!(run.mock.create, 0);
+        assert_eq!(run.mock.list, 11);
+    }
+
+    #[test]
+    fn dev_auth_expired_stops_first_create_and_keeps_intent_pending() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        let run = dev_write(&store, DevW2Scenario::AuthExpired).expect("run");
+        let report = report_of(&run);
+        assert!(report.auth_required, "400006 必须回填 auth_required");
+        assert!(report.cooldown_until.is_none());
+        assert!(report.stopped);
+        assert_eq!(
+            report.outcomes[0].status,
+            W2WriteStatus::Unknown,
+            "授权失效的那一条是结果不明，不是成功"
+        );
+        assert!(report.outcomes[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("WPS_E_AUTH")));
+        assert_eq!(report.outcomes[1].status, W2WriteStatus::NotAttempted);
+        assert_eq!(run.mock.create, 1);
+        assert_eq!(run.mock.create_keys, vec!["AR-DEV-A1".to_string()]);
+        assert_eq!(intent_state(&db, "AR-DEV-A1"), "unknown");
+        assert_eq!(
+            key_status(&db, "AR-DEV-A1"),
+            "pending",
+            "待处理键不得标记为成功"
+        );
+        assert!(dev_auth_expired(&store).expect("state"));
+    }
+
+    #[test]
+    fn dev_auth_blocks_next_write_with_zero_mock_requests() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        dev_write(&store, DevW2Scenario::AuthExpired).expect("auth");
+        let blocked = dev_write(&store, DevW2Scenario::Normal).expect("blocked");
+        assert!(blocked.pull.is_none(), "前置阻断不应再拉取");
+        let report = report_of(&blocked);
+        assert!(report.auth_required);
+        assert!(report.stopped);
+        assert!(report
+            .outcomes
+            .iter()
+            .all(|o| o.status == W2WriteStatus::Rejected));
+        assert_eq!(blocked.mock.total, 0, "授权未恢复时不得发出任何请求");
+        assert!(blocked.mock.create_keys.is_empty());
+        assert_eq!(intent_state(&db, "AR-DEV-A1"), "unknown");
+        assert_eq!(key_status(&db, "AR-DEV-A1"), "pending");
+    }
+
+    #[test]
+    fn dev_auth_recover_allows_new_batch_without_retrying_pending() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        dev_write(&store, DevW2Scenario::AuthExpired).expect("auth");
+        dev_auth_recover(&store).expect("recover");
+        assert!(!dev_auth_expired(&store).expect("state"));
+        let run = dev_write(&store, DevW2Scenario::Normal).expect("normal");
+        let report = report_of(&run);
+        assert!(report
+            .outcomes
+            .iter()
+            .all(|o| o.status == W2WriteStatus::Succeeded));
+        assert!(
+            !run.mock.create_keys.iter().any(|k| k == "AR-DEV-A1"),
+            "恢复后新批次不得自动重发待处理键：{:?}",
+            run.mock.create_keys
+        );
+        assert_eq!(run.mock.create_keys, vec!["AR-DEV-001", "AR-DEV-002"]);
+        assert_eq!(intent_state(&db, "AR-DEV-A1"), "unknown");
+        assert_eq!(key_status(&db, "AR-DEV-A1"), "pending");
+    }
+
+    #[test]
+    fn dev_rate_limited_sets_cooldown_matching_report() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        let run = dev_write(&store, DevW2Scenario::RateLimited).expect("run");
+        let report = report_of(&run);
+        assert!(!report.auth_required);
+        let until = report.cooldown_until.clone().expect("cooldown");
+        assert!(until.len() > 19, "冷却截止应为 RFC3339：{until}");
+        assert!(report.outcomes[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("WPS_E_RATE") && e.contains(&until)));
+        assert!(report.stopped);
+        assert_eq!(run.mock.create, 1);
+        assert_eq!(intent_state(&db, "AR-DEV-R1"), "unknown");
+        assert_eq!(key_status(&db, "AR-DEV-R1"), "pending");
+    }
+
+    #[test]
+    fn dev_rate_limited_second_click_issues_zero_mock_requests() {
+        let (db, _) = store();
+        let store = WpsStore::from_db(&db);
+        let first = dev_write(&store, DevW2Scenario::RateLimited).expect("first");
+        let until = report_of(&first).cooldown_until.clone().expect("cooldown");
+        let second = dev_write(&store, DevW2Scenario::Normal).expect("second");
+        assert!(second.pull.is_none());
+        let report = report_of(&second);
+        assert_eq!(report.cooldown_until.as_deref(), Some(until.as_str()));
+        assert!(report
+            .outcomes
+            .iter()
+            .all(|o| o.status == W2WriteStatus::Rejected));
+        assert_eq!(second.mock.total, 0, "冷却期内不得发出任何请求");
+        assert_eq!(second.mock.create, 0);
     }
 }

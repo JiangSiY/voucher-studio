@@ -405,6 +405,16 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
             .map(|value| value.with_timezone(&Utc)))
     }
 
+    /// 当前是否仍在限流冷却期；返回生效中的截止时间（只读，不写状态）。
+    ///
+    /// 供开发态入口在拉取前短路，使「冷却期内再次点击」的 transport 请求数为 0。
+    pub fn active_rate_limit(&self) -> Result<Option<DateTime<Utc>>> {
+        match self.cooldown_until()? {
+            Some(until) if self.clock.now() < until => Ok(Some(until)),
+            _ => Ok(None),
+        }
+    }
+
     fn set_rate_limit_cooldown(&self) -> Result<DateTime<Utc>> {
         let until = self.clock.now() + Duration::seconds(RATE_LIMIT_COOLDOWN_SECS);
         self.store.set_state(
@@ -895,7 +905,8 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                         auth_required = true;
                     }
                     if let Some(until) = rate_until {
-                        cooldown_until = Some(until.to_rfc3339());
+                        cooldown_until =
+                            Some(until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
                     }
                     let pending_attention =
                         matches!(err, WpsError::AuthExpired | WpsError::RateLimited);
@@ -914,7 +925,7 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                         }
                         (WpsError::RateLimited, Some(until)) => format!(
                             "WPS_E_RATE: 限流，已停止批量写入并冷却至 {}",
-                            until.to_rfc3339()
+                            until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
                         ),
                         _ => err.to_string(),
                     };

@@ -1232,11 +1232,21 @@ export interface DevW2Batch {
   outcomes: DevW2Outcome[];
 }
 
+/** 一次开发 Mock 调用的 transport 请求计数（含只读拉取）。 */
+export interface DevW2MockCounts {
+  total: number;
+  list: number;
+  create: number;
+  createKeys: string[];
+}
+
 export interface DevW2Result {
   mode: string;
   dataDir: string;
-  pull: DevW2Pull;
+  /** 前置阻断（授权失效/冷却中）时缺省：本次未拉取，transport 零请求。 */
+  pull?: DevW2Pull;
   batch?: DevW2Batch;
+  mockRequests: DevW2MockCounts;
 }
 
 export interface WpsTokenStatus {
@@ -1247,7 +1257,7 @@ export interface WpsTokenStatus {
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
   wpsCredentialsStatus: () => invoke<WpsTokenStatus>("wps_credentials_status"),
-  devW2MockSync: (action: "pull" | "write", scenario?: string) =>
+  devW2MockSync: (action: "pull" | "write" | "auth_recover", scenario?: string) =>
     invoke<DevW2Result>("dev_w2_mock_sync", { action, scenario }),
   openPath: (path: string) => (isTauri ? invoke<void>("open_path", { path }) : openInBrowser(path)),
   restartApp: () => invoke<void>("restart_app"),
