@@ -1225,6 +1225,10 @@ export interface DevW2Outcome {
 export interface DevW2Batch {
   runId: number | null;
   stopped: boolean;
+  /** 本批因 400006/授权失效停止；待处理项已保留，恢复后不得自动重发。 */
+  authRequired: boolean;
+  /** 429 冷却截止时间（RFC3339）；冷却内不得发起新批次。 */
+  cooldownUntil: string | null;
   outcomes: DevW2Outcome[];
 }
 

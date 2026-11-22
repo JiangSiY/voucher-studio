@@ -402,6 +402,12 @@ watch(query, load);
         </div>
       </div>
       <p v-if="w2Error" class="dev-w2-error">{{ w2Error }}</p>
+      <p v-if="w2Result?.batch?.authRequired" class="dev-w2-warn">
+        WPS 授权已失效：请重新授权。当前待处理项已保留，恢复后不会自动重发。
+      </p>
+      <p v-if="w2Result?.batch?.cooldownUntil" class="dev-w2-warn">
+        WPS 限流：冷却至 {{ w2Result.batch.cooldownUntil }}，冷却结束前不会发起新批次。
+      </p>
       <template v-if="w2Result">
         <p class="dev-w2-meta">
           {{ w2Result.mode }} · 数据目录 {{ w2Result.dataDir }} · 拉取
@@ -628,6 +634,12 @@ watch(query, load);
 .dev-w2-error {
   margin: var(--s-2) 0 0;
   color: var(--accent-strong);
+  font-size: var(--fs-caption);
+}
+
+.dev-w2-warn {
+  margin: var(--s-2) 0 0;
+  color: var(--warning);
   font-size: var(--fs-caption);
 }
 

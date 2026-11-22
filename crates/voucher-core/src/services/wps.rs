@@ -274,8 +274,9 @@ impl WpsError {
 
     /// 从 MCP/HTTP JSON 错误体识别错误码。
     ///
-    /// W0 已确认 400006 与 429 会出现在 WPS 的 JSON 里；这里只认这两个稳定码，
-    /// 其他一律归 `Remote`，不猜测未验证的嵌套字段。
+    /// W0 已确认 400006 与 429 会出现在 WPS 的 JSON 里；这里只认这两个稳定码。
+    /// 远端自由文本可能含 token、电话、税号或金额，一律丢弃，不进入日志、
+    /// 运行记录、界面或返回错误；未知错误只保留本地固定文案。
     pub fn from_mcp_error(value: &Value) -> Self {
         let code = value
             .get("code")
@@ -284,33 +285,24 @@ impl WpsError {
         match code {
             Some(400006) => Self::AuthExpired,
             Some(429) => Self::RateLimited,
-            _ => Self::Remote(Self::redacted_remote_message(value)),
-        }
-    }
-
-    /// 远端错误体只保留状态码/短消息，绝不把整个 JSON（可能含 token、税号、金额）带进日志。
-    fn redacted_remote_message(value: &Value) -> String {
-        let code = value
-            .get("code")
-            .and_then(Value::as_i64)
-            .or_else(|| value.pointer("/error/code").and_then(Value::as_i64));
-        let message = value
-            .get("message")
-            .or_else(|| value.pointer("/error/message"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let message: String = message.chars().take(160).collect();
-        match code {
-            Some(code) => format!("远端错误 code={code} message={message}"),
-            None => format!("远端错误 message={message}"),
+            _ => Self::Remote("远端返回未分类错误".into()),
         }
     }
 
     pub fn from_http_status(status: u16) -> Self {
         match status {
+            401 | 403 => Self::AuthExpired,
             404 => Self::SessionExpired,
             429 => Self::RateLimited,
             _ => Self::Remote(format!("HTTP {status}")),
+        }
+    }
+
+    /// 回环 HTTP 的 I/O 错误只保留安全分类，不拼接 OS/URL 文本。
+    pub fn from_io(err: &std::io::Error) -> Self {
+        match err.kind() {
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => Self::Timeout,
+            _ => Self::Remote("HTTP connect failed".into()),
         }
     }
 
@@ -1769,18 +1761,22 @@ mod tests {
     }
 
     #[test]
-    fn remote_error_text_redacts_field_values() {
+    fn remote_error_text_never_echoes_free_text() {
+        let secret = "synthetic-token-13800000000-91310000MA1K-128600";
         let err = WpsError::from_mcp_error(&json!({
             "code": 500,
-            "message": "后台错误",
+            "message": format!("{secret} 后台错误"),
             "fields": {"客户": "某客户", "金额": 128600, "电话": "13800000000"}
         }));
         let text = err.to_string();
-        assert!(text.contains("code=500"));
-        assert!(text.contains("后台错误"));
+        assert_eq!(err.code(), "WPS_E_REMOTE");
+        assert!(text.contains("WPS_E_REMOTE"));
+        assert!(!text.contains(secret));
         assert!(!text.contains("13800000000"));
         assert!(!text.contains("128600"));
+        assert!(!text.contains("91310000MA1K"));
         assert!(!text.contains("某客户"));
+        assert!(!text.contains("后台错误"));
     }
 
     struct StaticProvider(&'static str);

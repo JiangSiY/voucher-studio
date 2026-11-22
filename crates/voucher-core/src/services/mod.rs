@@ -35,6 +35,7 @@ pub mod wps;
 pub mod wps_09;
 pub mod wps_credentials;
 pub mod wps_doc_guard;
+pub mod wps_http;
 pub mod wps_index;
 pub mod wps_pull;
 pub mod wps_w2;

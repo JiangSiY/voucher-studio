@@ -306,6 +306,10 @@ pub struct W2BatchReport {
     pub run_id: Option<i64>,
     pub outcomes: Vec<W2Outcome>,
     pub stopped: bool,
+    /// 本批因 400006/授权失效停止，需要重授权；待处理项已保留，恢复后不得自动重发。
+    pub auth_required: bool,
+    /// 429 触发的冷却截止时间（RFC3339）；冷却内不得发起新批次。
+    pub cooldown_until: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -720,15 +724,21 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                     run_id: None,
                     outcomes,
                     stopped: true,
+                    auth_required: false,
+                    cooldown_until: None,
                 });
             }
         };
 
         if self.client.session_id().is_none() {
             if let Err(err) = self.client.initialize() {
-                if matches!(err, WpsError::RateLimited) {
-                    let _ = self.set_rate_limit_cooldown();
-                }
+                let cooldown = if matches!(err, WpsError::RateLimited) {
+                    self.set_rate_limit_cooldown()
+                        .ok()
+                        .map(|until| until.to_rfc3339())
+                } else {
+                    None
+                };
                 return Ok(W2BatchReport {
                     run_id: None,
                     outcomes: requests
@@ -742,6 +752,8 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                         })
                         .collect(),
                     stopped: true,
+                    auth_required: matches!(err, WpsError::AuthExpired),
+                    cooldown_until: cooldown,
                 });
             }
         }
@@ -749,6 +761,8 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
         let batch_id = format!("w2-{run_id}");
         let mut outcomes = Vec::with_capacity(requests.len());
         let mut stopped = false;
+        let mut auth_required = false;
+        let mut cooldown_until: Option<String> = None;
 
         for (index, request) in requests.iter().enumerate() {
             if stopped {
@@ -877,6 +891,12 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
                     } else {
                         None
                     };
+                    if matches!(err, WpsError::AuthExpired) {
+                        auth_required = true;
+                    }
+                    if let Some(until) = rate_until {
+                        cooldown_until = Some(until.to_rfc3339());
+                    }
                     let pending_attention =
                         matches!(err, WpsError::AuthExpired | WpsError::RateLimited);
                     self.store.mark_idempotency_key(
@@ -949,6 +969,8 @@ impl<'a, T: WpsTransport> W2Sync<'a, T> {
             run_id: Some(run_id),
             outcomes,
             stopped,
+            auth_required,
+            cooldown_until,
         })
     }
 
@@ -1617,6 +1639,8 @@ mod tests {
             )
             .expect("execute");
         assert!(report.stopped);
+        assert!(report.auth_required);
+        assert!(report.cooldown_until.is_none());
         assert_eq!(report.outcomes[0].status, W2WriteStatus::Unknown);
         assert_eq!(report.outcomes[1].status, W2WriteStatus::NotAttempted);
         assert_eq!(
@@ -1646,6 +1670,12 @@ mod tests {
             .expect("execute");
         assert!(report.stopped);
         assert_eq!(report.outcomes[0].status, W2WriteStatus::Unknown);
+        assert!(!report.auth_required);
+        assert!(report
+            .cooldown_until
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("2026-11-20T00:30:00"));
         let state = store
             .get_state(RATE_LIMIT_COOLDOWN_KEY)
             .expect("state")

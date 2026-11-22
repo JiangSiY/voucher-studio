@@ -49,6 +49,10 @@ pub struct DevW2PullSheet {
 pub struct DevW2Batch {
     pub run_id: Option<i64>,
     pub stopped: bool,
+    /// 本批因 400006/授权失效停止；待处理项已保留，恢复后不得自动重发。
+    pub auth_required: bool,
+    /// 429 冷却截止时间（RFC3339）；冷却内不得发起新批次。
+    pub cooldown_until: Option<String>,
     pub outcomes: Vec<DevW2Outcome>,
 }
 
@@ -193,6 +197,8 @@ fn batch_dto(store: &WpsStore<'_>, report: &W2BatchReport) -> ApiResult<DevW2Bat
     Ok(DevW2Batch {
         run_id: report.run_id,
         stopped: report.stopped,
+        auth_required: report.auth_required,
+        cooldown_until: report.cooldown_until.clone(),
         outcomes,
     })
 }
