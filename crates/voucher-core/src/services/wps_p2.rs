@@ -493,6 +493,243 @@ impl P2TlsPolicy {
     }
 }
 
+/// 真实 HTTPS 只读传输：固定 JSON-RPC 报文、Bearer 头与 `Mcp-Session-Id` 会话，
+/// 证书与主机名默认严格校验、不跟随重定向。
+///
+/// 报文形态取自仓库内已验证的回环传输（`services::wps_http`）与 MCP 公开规范；
+/// 真实端点、账号主体与服务端只读权限仍由 A2 授权单决定（#70）。
+pub struct HttpsP2Transport {
+    endpoint: P2Endpoint,
+    client: reqwest::blocking::Client,
+}
+
+impl std::fmt::Debug for HttpsP2Transport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpsP2Transport")
+            .field("host", &self.endpoint.host())
+            .finish()
+    }
+}
+
+impl HttpsP2Transport {
+    pub fn builder(endpoint: P2Endpoint) -> HttpsP2TransportBuilder {
+        HttpsP2TransportBuilder::new(endpoint)
+    }
+
+    fn post(
+        &self,
+        endpoint: &P2Endpoint,
+        session: Option<&str>,
+        auth: Option<&str>,
+        body: &Value,
+    ) -> Result<reqwest::blocking::Response, P2Error> {
+        if endpoint != &self.endpoint {
+            return Err(P2Error::Endpoint(
+                "传输层端点与授权端点不一致，拒绝请求".into(),
+            ));
+        }
+        let mut request = self
+            .client
+            .post(endpoint.as_url())
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .body(body.to_string());
+        if let Some(token) = auth {
+            request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        if let Some(session) = session {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        request.send().map_err(map_transport_error)
+    }
+}
+
+/// HTTPS 传输构造器：允许测试注入私有 CA 与主机映射，生产调用只用默认严格策略。
+pub struct HttpsP2TransportBuilder {
+    endpoint: P2Endpoint,
+    tls: P2TlsPolicy,
+    timeout: Duration,
+    roots: Vec<Vec<u8>>,
+    resolves: Vec<(String, std::net::SocketAddr)>,
+}
+
+impl HttpsP2TransportBuilder {
+    pub fn new(endpoint: P2Endpoint) -> Self {
+        Self {
+            endpoint,
+            tls: P2TlsPolicy::default(),
+            timeout: Duration::from_secs(10),
+            roots: Vec::new(),
+            resolves: Vec::new(),
+        }
+    }
+
+    pub fn tls(mut self, tls: P2TlsPolicy) -> Self {
+        self.tls = tls;
+        self
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// 追加信任根（DER）。仅用于本机测试 CA；生产端点必须由系统信任链验证。
+    pub fn trust_root_der(mut self, der: Vec<u8>) -> Self {
+        self.roots.push(der);
+        self
+    }
+
+    /// 把主机名固定解析到指定地址（DER 测试服务用，避免真实 DNS）。
+    pub fn resolve(mut self, host: &str, addr: std::net::SocketAddr) -> Self {
+        self.resolves.push((host.to_string(), addr));
+        self
+    }
+
+    pub fn build(self) -> Result<HttpsP2Transport, P2Error> {
+        self.tls.validate()?;
+        if !self.tls.https_only {
+            return Err(P2Error::Endpoint("P2 传输只允许 https".into()));
+        }
+        let mut builder = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(self.timeout)
+            .danger_accept_invalid_certs(!self.tls.verify_certificates)
+            .danger_accept_invalid_hostnames(!self.tls.verify_hostname);
+        for der in self.roots {
+            let cert = reqwest::Certificate::from_der(&der)
+                .map_err(|_| P2Error::Tls("测试信任根解析失败".into()))?;
+            builder = builder.add_root_certificate(cert);
+        }
+        for (host, addr) in self.resolves {
+            builder = builder.resolve(&host, addr);
+        }
+        let client = builder
+            .build()
+            .map_err(|_| P2Error::Protocol("HTTPS 客户端初始化失败".into()))?;
+        Ok(HttpsP2Transport {
+            endpoint: self.endpoint,
+            client,
+        })
+    }
+}
+
+impl P2Transport for HttpsP2Transport {
+    fn initialize(&self, endpoint: &P2Endpoint, auth: Option<&str>) -> Result<String, P2Error> {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "voucher-studio-p2", "version": "0.28"}
+            }
+        });
+        let response = self.post(endpoint, None, auth, &body)?;
+        if let Some(err) = classify_http_status(response.status().as_u16()) {
+            return Err(err);
+        }
+        let session = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let text = response
+            .text()
+            .map_err(|_| P2Error::Protocol("初始化响应读取失败".into()))?;
+        let session = session.or_else(|| {
+            serde_json::from_str::<Value>(&text).ok().and_then(|value| {
+                value
+                    .pointer("/result/sessionId")
+                    .or_else(|| value.pointer("/result/session_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+        });
+        match session {
+            Some(session) if !session.is_empty() => Ok(session),
+            _ => Err(P2Error::Protocol("初始化响应缺少 MCP session id".into())),
+        }
+    }
+
+    fn call(
+        &self,
+        endpoint: &P2Endpoint,
+        session_id: &str,
+        action: &str,
+        args: &Value,
+        auth: Option<&str>,
+    ) -> Result<Value, P2Error> {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": action, "arguments": args}
+        });
+        let response = self.post(endpoint, Some(session_id), auth, &body)?;
+        if let Some(err) = classify_http_status(response.status().as_u16()) {
+            return Err(err);
+        }
+        let text = response
+            .text()
+            .map_err(|_| P2Error::Protocol("响应读取失败".into()))?;
+        let value: Value =
+            serde_json::from_str(&text).map_err(|_| P2Error::Protocol("响应不是 JSON".into()))?;
+        if let Some(error) = value.get("error") {
+            return Err(map_mcp_error(error));
+        }
+        if value
+            .pointer("/result/isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(P2Error::Protocol("远端返回工具错误，已停止".into()));
+        }
+        value
+            .get("result")
+            .cloned()
+            .ok_or_else(|| P2Error::Protocol("响应缺少 result".into()))
+    }
+}
+
+/// 只按错误类型归类传输失败，不回显远端或系统原始文本。
+fn map_transport_error(err: reqwest::Error) -> P2Error {
+    if err.is_timeout() {
+        return P2Error::Timeout;
+    }
+    let mut text = String::new();
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&err);
+    while let Some(current) = source {
+        text.push_str(&current.to_string());
+        text.push(' ');
+        source = current.source();
+    }
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("hostname") || lower.contains("host name") || lower.contains("dnsname") {
+        P2Error::Hostname("证书主机名不匹配，已拒绝".into())
+    } else if lower.contains("certificate") || lower.contains("tls") || lower.contains("ssl") {
+        P2Error::Tls("证书不可信或 TLS 握手失败，已拒绝".into())
+    } else {
+        P2Error::Protocol("HTTPS 连接失败（本地拒绝，不重试）".into())
+    }
+}
+
+/// JSON-RPC 错误码映射；只保留错误码，不回显错误文本。
+fn map_mcp_error(error: &Value) -> P2Error {
+    let code = error
+        .get("code")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
+    match code {
+        400006 => P2Error::AuthExpired,
+        404 => P2Error::SessionExpired,
+        429 => P2Error::RateLimited,
+        other => P2Error::Protocol(format!("远端错误码 {other}")),
+    }
+}
+
 /// HTTP 状态到 P2 错误的映射；真实传输接线后复用，离线可测。
 pub fn classify_http_status(status: u16) -> Option<P2Error> {
     match status {
@@ -509,7 +746,11 @@ pub fn classify_http_status(status: u16) -> Option<P2Error> {
 /// TLS 连接失败的安全分类：只按提示词归类，不回显原始错误文本。
 pub fn classify_connect_hint(hint: &str) -> P2Error {
     let lower = hint.to_ascii_lowercase();
-    if lower.contains("hostname") || lower.contains("dnsname") || lower.contains("subject") {
+    if lower.contains("hostname")
+        || lower.contains("host name")
+        || lower.contains("dnsname")
+        || lower.contains("subject")
+    {
         P2Error::Hostname("证书主机名不匹配，已拒绝".into())
     } else {
         P2Error::Tls("证书不可信或 TLS 握手失败，已拒绝".into())
@@ -586,10 +827,20 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         let mut session = self
             .transport
             .initialize(&grant.endpoint, token.as_deref())?;
+        // 读取预算：一次逻辑读取最多真实发出 max_attempts 次 list_records，
+        // 首次调用、会话重建后的重发、超时重试都各消耗一次；初始化不占用读取预算。
+        let mut sent = 0usize;
         let mut reinitialized = false;
-        let mut attempts = 0usize;
+        let mut last_error: Option<P2Error> = None;
         loop {
-            attempts += 1;
+            if sent >= self.max_attempts {
+                let err = last_error.unwrap_or_else(|| {
+                    P2Error::Malformed(format!("读取预算耗尽（上限 {sent} 次）"))
+                });
+                self.audit(grant, request.sheet_id, err.code(), sent);
+                return Err(err);
+            }
+            sent += 1;
             match self.transport.call(
                 &grant.endpoint,
                 &session,
@@ -604,24 +855,31 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                         sheet_id: request.sheet_id,
                         records,
                         total,
-                        attempts_used: attempts,
+                        attempts_used: sent,
                     };
-                    self.audit(grant, request.sheet_id, "ok", attempts);
+                    self.audit(grant, request.sheet_id, "ok", sent);
                     return Ok(outcome);
                 }
-                Err(P2Error::SessionExpired) if !reinitialized => {
-                    // 会话过期只重建一次，不消耗尝试次数。
+                Err(P2Error::SessionExpired) => {
+                    // 会话重建最多一次，且消耗已发出的那一次读取预算。
+                    if reinitialized {
+                        self.audit(grant, request.sheet_id, "P2_E_SESSION", sent);
+                        return Err(P2Error::SessionExpired);
+                    }
                     reinitialized = true;
                     session = self
                         .transport
                         .initialize(&grant.endpoint, token.as_deref())?;
-                    attempts -= 1;
+                    last_error = Some(P2Error::SessionExpired);
                 }
-                Err(err) if err.is_retryable() && attempts < self.max_attempts => {
-                    std::thread::sleep(self.backoff);
+                Err(err) if err.is_retryable() => {
+                    last_error = Some(err);
+                    if sent < self.max_attempts {
+                        std::thread::sleep(self.backoff);
+                    }
                 }
                 Err(err) => {
-                    self.audit(grant, request.sheet_id, err.code(), attempts);
+                    self.audit(grant, request.sheet_id, err.code(), sent);
                     return Err(err);
                 }
             }
@@ -685,6 +943,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     fn endpoint(raw: &str) -> P2Endpoint {
@@ -1063,15 +1322,38 @@ mod tests {
 
     #[test]
     fn p2_retries_are_capped_and_session_expiry_reinitializes_once() {
-        // 脚本按 pop 取（后进先出）：先会话过期，再两次暂时性失败，最后成功。
+        // 脚本按 pop 取（后进先出）：会话过期 → 超时 → 5xx，第 4 个“成功”不得被取用。
         let transport = CountingTransport::with_script(vec![
-            Ok(json!({"records": []})),
+            Ok(json!({"records": [{"A": "不应被取用"}]})),
             Err(P2Error::Server(500)),
             Err(P2Error::Timeout),
             Err(P2Error::SessionExpired),
         ]);
         let reader = entry(transport, Some("tenant-a/reader"), "2026-11-22T10:30:00Z");
         let gate = P2Gate::open(grants(&[(3, &["A"])]));
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        // 预算 3 次：会话过期后的重发、超时、5xx 各占一次，耗尽即停止。
+        assert_eq!(err.code(), "P2_E_SERVER");
+        assert_eq!(reader.transport.calls.lock().unwrap().len(), 3);
+        assert_eq!(*reader.transport.init.lock().unwrap(), 2);
+        // 第 4 条成功响应仍在脚本里，未被消费。
+        assert_eq!(reader.transport.script.lock().unwrap().len(), 1);
+
+        // 预算内重建后读取成功：2 次调用、1 次重建、attempts_used=2。
+        let transport = CountingTransport::with_script(vec![
+            Ok(json!({"records": [{"A": "一"}]})),
+            Err(P2Error::SessionExpired),
+        ]);
+        let reader = entry(transport, Some("tenant-a/reader"), "2026-11-22T10:30:00Z");
         let outcome = reader
             .read(
                 &gate,
@@ -1081,10 +1363,10 @@ mod tests {
                     page_size: 50,
                 },
             )
-            .unwrap();
-        // 会话重建不计入尝试次数：3 次计入额度 + 1 次重建后的首次调用。
-        assert_eq!(outcome.attempts_used, 3);
-        assert_eq!(reader.transport.calls.lock().unwrap().len(), 4);
+            .expect("重建后应成功");
+        assert_eq!(outcome.attempts_used, 2);
+        assert_eq!(outcome.records.len(), 1);
+        assert_eq!(reader.transport.calls.lock().unwrap().len(), 2);
         assert_eq!(*reader.transport.init.lock().unwrap(), 2);
 
         // 全部失败：总请求次数不超过上限。
@@ -1210,5 +1492,361 @@ mod tests {
         assert!(!text.contains("dbsheet_replica_001"));
         assert!(!text.contains("synthetic-p2-token"));
         assert!(line.action == P2_ACTION_LIST_RECORDS);
+    }
+
+    // ---- 本机 HTTPS 测试服务（自签 CA，静态 DER 夹具）----
+
+    const TLS_CA: &[u8] = include_bytes!("../../tests/fixtures/p2-tls/ca.der");
+    const TLS_SRV_CERT: &[u8] = include_bytes!("../../tests/fixtures/p2-tls/srv.der");
+    const TLS_SRV_KEY: &[u8] = include_bytes!("../../tests/fixtures/p2-tls/srv.key.der");
+    const TLS_OTHER_CERT: &[u8] = include_bytes!("../../tests/fixtures/p2-tls/other.der");
+    const TLS_OTHER_KEY: &[u8] = include_bytes!("../../tests/fixtures/p2-tls/other.key.der");
+
+    #[derive(Clone)]
+    enum ServerMode {
+        /// 正常返回 `{"records":[...]}`；`leak` 时额外返回未授权字段。
+        JsonOk { leak: bool },
+        /// 返回 302 与 Location，不改写目标。
+        Redirect { location: String },
+    }
+
+    struct TlsServer {
+        port: u16,
+        requests: Arc<Mutex<Vec<String>>>,
+        stop: Arc<AtomicBool>,
+    }
+
+    impl TlsServer {
+        fn endpoint(&self) -> P2Endpoint {
+            endpoint(&format!("https://p2-local.test:{}/mcp", self.port))
+        }
+
+        fn count(&self) -> usize {
+            self.requests.lock().unwrap().len()
+        }
+    }
+
+    impl Drop for TlsServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn spawn_tls_server(cert: &'static [u8], key: &'static [u8], mode: ServerMode) -> TlsServer {
+        use std::sync::Once;
+        static PROVIDER: Once = Once::new();
+        PROVIDER.call_once(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        });
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.set_nonblocking(true).expect("nonblocking");
+        let port = listener.local_addr().expect("addr").port();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let config = Arc::new(
+            rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![rustls::pki_types::CertificateDer::from(cert.to_vec())],
+                    rustls::pki_types::PrivateKeyDer::Pkcs8(
+                        rustls::pki_types::PrivatePkcs8KeyDer::from(key.to_vec()),
+                    ),
+                )
+                .expect("server config"),
+        );
+        let requests_for_thread = Arc::clone(&requests);
+        let stop_for_thread = Arc::clone(&stop);
+        std::thread::spawn(move || loop {
+            if stop_for_thread.load(Ordering::SeqCst) {
+                break;
+            }
+            match listener.accept() {
+                Ok((tcp, _)) => {
+                    let _ = tcp.set_nonblocking(false);
+                    let config = Arc::clone(&config);
+                    let requests = Arc::clone(&requests_for_thread);
+                    let mode = mode.clone();
+                    std::thread::spawn(move || {
+                        handle_tls_connection(tcp, config, mode, requests);
+                    });
+                }
+                Err(ref err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => break,
+            }
+        });
+        TlsServer {
+            port,
+            requests,
+            stop,
+        }
+    }
+
+    fn handle_tls_connection(
+        tcp: std::net::TcpStream,
+        config: Arc<rustls::ServerConfig>,
+        mode: ServerMode,
+        requests: Arc<Mutex<Vec<String>>>,
+    ) {
+        use std::io::{Read, Write};
+        let Ok(connection) = rustls::ServerConnection::new(config) else {
+            return;
+        };
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+        let mut raw = Vec::new();
+        let mut buffer = [0u8; 2048];
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => {
+                    raw.extend_from_slice(&buffer[..read]);
+                    if raw.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+        if raw.is_empty() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let first_line = text.lines().next().unwrap_or_default().to_string();
+        requests.lock().unwrap().push(first_line.clone());
+
+        let initialize = text.contains("\"method\":\"initialize\"");
+        let (status, headers, body) = match &mode {
+            ServerMode::Redirect { location } => (
+                302u16,
+                vec![("Location".to_string(), location.clone())],
+                String::new(),
+            ),
+            ServerMode::JsonOk { leak } => {
+                if initialize {
+                    (
+                        200,
+                        vec![("Mcp-Session-Id".to_string(), "sess-1".to_string())],
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}"
+                            .to_string(),
+                    )
+                } else {
+                    let mut record = String::from("{\"A\":\"一\"");
+                    if *leak {
+                        record.push_str(",\"SECRET\":\"不可见\"");
+                    }
+                    record.push('}');
+                    (
+                        200,
+                        Vec::new(),
+                        format!(
+                            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"records\":[{record}],\"total\":1}}}}"
+                        ),
+                    )
+                }
+            }
+        };
+        let mut response = format!(
+            "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        response.push_str(&body);
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+
+    fn https_entry(
+        transport: HttpsP2Transport,
+        subject: &str,
+    ) -> P2ReadOnlyEntry<HttpsP2Transport> {
+        let clock = Arc::new(FixedClock(
+            DateTime::parse_from_rfc3339("2026-11-22T10:30:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        ));
+        P2ReadOnlyEntry::new(
+            transport,
+            Some(Arc::new(SyntheticCredential {
+                subject: Some(subject.to_string()),
+            })),
+        )
+        .with_clock_and_backoff(clock, Duration::ZERO, P2_MAX_READ_ATTEMPTS)
+    }
+
+    fn https_grant(server: &TlsServer) -> P2Gate {
+        let mut grant = grants(&[(3, &["A"])]);
+        grant.endpoint = server.endpoint();
+        grant.approved_endpoint = server.endpoint();
+        P2Gate::open(grant)
+    }
+
+    fn https_reader(server: &TlsServer, trust_ca: bool) -> HttpsP2Transport {
+        let mut builder = HttpsP2Transport::builder(server.endpoint()).resolve(
+            "p2-local.test",
+            format!("127.0.0.1:{}", server.port).parse().unwrap(),
+        );
+        if trust_ca {
+            builder = builder.trust_root_der(TLS_CA.to_vec());
+        }
+        builder.build().expect("transport")
+    }
+
+    #[test]
+    fn p2_https_legal_read_runs_full_chain_with_trusted_ca() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let outcome = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .expect("合法读取应成功");
+        assert_eq!(outcome.records.len(), 1);
+        assert_eq!(outcome.attempts_used, 1);
+        assert_eq!(server.count(), 2, "初始化 1 次 + 读取 1 次");
+    }
+
+    #[test]
+    fn p2_https_untrusted_certificate_stops_before_http_request() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, false), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_TLS");
+        assert_eq!(server.count(), 0, "TLS 握手失败，不产生 HTTP 请求");
+    }
+
+    #[test]
+    fn p2_https_hostname_mismatch_stops_before_http_request() {
+        // 服务端出示 other.test 证书，客户端按 p2-local.test 连接。
+        let server = spawn_tls_server(
+            TLS_OTHER_CERT,
+            TLS_OTHER_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_HOST");
+        assert_eq!(server.count(), 0, "主机名不匹配，不产生 HTTP 请求");
+    }
+
+    #[test]
+    fn p2_https_redirect_is_not_followed_and_target_receives_zero_requests() {
+        let target = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let location = format!("https://p2-local.test:{}/steal", target.port);
+        let source = spawn_tls_server(TLS_SRV_CERT, TLS_SRV_KEY, ServerMode::Redirect { location });
+        let reader = https_entry(https_reader(&source, true), "tenant-a/reader");
+        let gate = https_grant(&source);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_REDIRECT");
+        assert_eq!(source.count(), 1, "只发出 1 次请求，不跟随重定向");
+        assert_eq!(target.count(), 0, "重定向目标收到 0 次请求");
+    }
+
+    #[test]
+    fn p2_https_response_with_unapproved_field_blocks_whole_page() {
+        let server = spawn_tls_server(TLS_SRV_CERT, TLS_SRV_KEY, ServerMode::JsonOk { leak: true });
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_SCOPE");
+        assert_eq!(
+            server.count(),
+            2,
+            "越界字段在收到响应后拒绝，无后续分页或重试"
+        );
+    }
+
+    #[test]
+    fn p2_https_wrong_target_and_write_action_issue_zero_connections() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+
+        let mut wrong = grants(&[(3, &["A"])]);
+        wrong.endpoint = server.endpoint();
+        wrong.approved_endpoint = server.endpoint();
+        wrong.file_id = "dbsheet_replica_999".into();
+        let err = reader
+            .read(
+                &P2Gate::open(wrong),
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_TARGET");
+
+        let mut write = grants(&[(3, &["A"])]);
+        write.endpoint = server.endpoint();
+        write.approved_endpoint = server.endpoint();
+        let write_err = write
+            .preflight(Utc::now(), P2Action::Write, Some("tenant-a/reader"), 3)
+            .unwrap_err();
+        assert_eq!(write_err.code(), "P2_E_ACTION");
+        assert_eq!(server.count(), 0, "预检拒绝时不建立任何连接");
     }
 }
