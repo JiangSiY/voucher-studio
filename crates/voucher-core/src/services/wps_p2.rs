@@ -2948,4 +2948,244 @@ mod tests {
         assert!(reason.contains("P2_E_EXEC_LIMIT"), "原因: {reason}");
         assert_eq!(server.count(), 3, "预算耗尽后不发送 DELETE");
     }
+
+    // ---- 跨进程验收：子进程复用本测试二进制（仅在设置 `P2_CP_ROLE` 时执行）----
+
+    const CHILD_TEST: &str = "services::wps_p2::tests::p2_child_worker";
+
+    fn wait_for_file(path: &std::path::Path, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if path.exists() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        path.exists()
+    }
+
+    fn spawn_p2_child(
+        sync: &std::path::Path,
+        role: &str,
+        db: &std::path::Path,
+        port: u16,
+        grant_id: &str,
+    ) -> std::process::Child {
+        std::process::Command::new(std::env::current_exe().expect("current exe"))
+            .arg("--exact")
+            .arg(CHILD_TEST)
+            .arg("--nocapture")
+            .env("P2_CP_ROLE", role)
+            .env("P2_CP_DB", db)
+            .env("P2_CP_PORT", port.to_string())
+            .env("P2_CP_GRANT_ID", grant_id)
+            .env("P2_CP_SYNC", sync)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn p2 child")
+    }
+
+    fn child_output(child: std::process::Child) -> String {
+        let output = child.wait_with_output().expect("child output");
+        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        text
+    }
+
+    /// 测试用消费包装：先写状态库，再留一个同步点，用于验证「登记已提交、尚未发网」的时点。
+    struct PausingConsumption {
+        inner: Arc<SqliteP2State>,
+        sync: std::path::PathBuf,
+    }
+
+    impl P2Consumption for PausingConsumption {
+        fn consume(
+            &self,
+            grant_id: &str,
+            file_id_masked: &str,
+            window_end: DateTime<Utc>,
+            now: DateTime<Utc>,
+        ) -> Result<(), P2Error> {
+            self.inner
+                .consume(grant_id, file_id_masked, window_end, now)?;
+            std::fs::write(self.sync.join("consumed"), b"1").expect("consumed marker");
+            let _ = wait_for_file(&self.sync.join("resume"), Duration::from_secs(120));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn p2_child_worker() {
+        let Ok(role) = std::env::var("P2_CP_ROLE") else {
+            return;
+        };
+        let db = std::env::var("P2_CP_DB").expect("P2_CP_DB");
+        let port: u16 = std::env::var("P2_CP_PORT")
+            .expect("P2_CP_PORT")
+            .parse()
+            .expect("port");
+        let grant_id = std::env::var("P2_CP_GRANT_ID").expect("P2_CP_GRANT_ID");
+        let sync = std::path::PathBuf::from(std::env::var("P2_CP_SYNC").expect("P2_CP_SYNC"));
+        let store = Arc::new(SqliteP2State::open(std::path::Path::new(&db)).expect("state"));
+        let consumption: Arc<dyn P2Consumption> = if role == "paused" {
+            Arc::new(PausingConsumption {
+                inner: store,
+                sync: sync.clone(),
+            })
+        } else {
+            store
+        };
+        let endpoint = endpoint(&format!("https://p2-local.test:{port}/mcp"));
+        let transport = HttpsP2Transport::builder(endpoint.clone())
+            .resolve(
+                "p2-local.test",
+                format!("127.0.0.1:{port}").parse().expect("addr"),
+            )
+            .trust_root_der(TLS_CA.to_vec())
+            .build()
+            .expect("transport");
+        let reader = https_entry(transport, "tenant-a/reader").with_state(consumption);
+        let mut grant = grants(&[(3, &["A"])]);
+        grant.grant_id = grant_id;
+        grant.endpoint = endpoint.clone();
+        grant.approved_endpoint = endpoint;
+        if role.starts_with("race") {
+            std::fs::write(sync.join(format!("ready-{role}")), b"1").expect("ready marker");
+            if !wait_for_file(&sync.join("go"), Duration::from_secs(20)) {
+                println!("CHILD_ERR role={role} code=P2_E_SYNC_TIMEOUT");
+                std::process::exit(3);
+            }
+        }
+        let pid = std::process::id();
+        match reader.read(&P2Gate::open(grant), &read_req()) {
+            Ok(outcome) => {
+                println!(
+                    "CHILD_OK role={role} pid={pid} termination={} actions=init{} read{} notify{} term{} total{}",
+                    outcome.termination.message(),
+                    outcome.actions.initialize,
+                    outcome.actions.read,
+                    outcome.actions.notify,
+                    outcome.actions.terminate,
+                    outcome.actions.total
+                );
+            }
+            Err(err) => println!("CHILD_ERR role={role} pid={pid} code={}", err.code()),
+        }
+        println!("CHILD_EXIT role={role} pid={pid} code=0");
+        std::process::exit(0);
+    }
+
+    #[test]
+    fn p2_cross_process_restart_after_normal_exit_rejects_replay() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sync = dir.path().join("sync");
+        std::fs::create_dir_all(&sync).expect("sync dir");
+        let db = dir.path().join("state.db");
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let grant_id = "A2-2026-11-23-CP-01";
+        let first = spawn_p2_child(&sync, "first", &db, server.port, grant_id);
+        let pid_a = first.id();
+        let text_a = child_output(first);
+        assert!(text_a.contains("CHILD_OK"), "A 应成功：{text_a}");
+        assert_eq!(
+            server.count(),
+            4,
+            "A 应完成一轮读取（初始化+通知+读取+终止）"
+        );
+        let after_a = server.count();
+        let replay = spawn_p2_child(&sync, "replay", &db, server.port, grant_id);
+        let pid_b = replay.id();
+        let text_b = child_output(replay);
+        assert!(text_b.contains("P2_E_ALREADY_USED"), "B 应被拒绝：{text_b}");
+        assert_eq!(server.count(), after_a, "B 不得新增任何请求");
+        println!(
+            "CP1 pid_a={pid_a} pid_b={pid_b} after_a={after_a} after_b={}",
+            server.count()
+        );
+    }
+
+    #[test]
+    fn p2_cross_process_concurrent_children_claim_once() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sync = dir.path().join("sync");
+        std::fs::create_dir_all(&sync).expect("sync dir");
+        let db = dir.path().join("state.db");
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let grant_id = "A2-2026-11-23-CP-02";
+        let a = spawn_p2_child(&sync, "race-a", &db, server.port, grant_id);
+        let pid_a = a.id();
+        let b = spawn_p2_child(&sync, "race-b", &db, server.port, grant_id);
+        let pid_b = b.id();
+        assert!(
+            wait_for_file(&sync.join("ready-race-a"), Duration::from_secs(20)),
+            "A 未就绪"
+        );
+        assert!(
+            wait_for_file(&sync.join("ready-race-b"), Duration::from_secs(20)),
+            "B 未就绪"
+        );
+        std::fs::write(sync.join("go"), b"1").expect("go marker");
+        let text_a = child_output(a);
+        let text_b = child_output(b);
+        let ok = [&text_a, &text_b]
+            .iter()
+            .filter(|text| text.contains("CHILD_OK"))
+            .count();
+        let used = [&text_a, &text_b]
+            .iter()
+            .filter(|text| text.contains("P2_E_ALREADY_USED"))
+            .count();
+        assert_eq!(ok, 1, "应只有一个进程取得资格：A={text_a} B={text_b}");
+        assert_eq!(used, 1, "另一个应被状态库拒绝：A={text_a} B={text_b}");
+        assert_eq!(server.count(), 4, "服务端应只发生一轮读取");
+        println!(
+            "CP2 pid_a={pid_a} pid_b={pid_b} ok={ok} used={used} server_total={}",
+            server.count()
+        );
+    }
+
+    #[test]
+    fn p2_cross_process_crash_after_consume_before_send_blocks_restart() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sync = dir.path().join("sync");
+        std::fs::create_dir_all(&sync).expect("sync dir");
+        let db = dir.path().join("state.db");
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let grant_id = "A2-2026-11-23-CP-03";
+        let mut paused = spawn_p2_child(&sync, "paused", &db, server.port, grant_id);
+        let pid_a = paused.id();
+        assert!(
+            wait_for_file(&sync.join("consumed"), Duration::from_secs(25)),
+            "登记未在限时内提交"
+        );
+        assert_eq!(server.count(), 0, "登记提交后、发网前应为零请求");
+        paused.kill().expect("kill paused child");
+        let _ = paused.wait();
+        let after_kill = server.count();
+        let restart = spawn_p2_child(&sync, "after-crash", &db, server.port, grant_id);
+        let pid_b = restart.id();
+        let text_b = child_output(restart);
+        assert!(
+            text_b.contains("P2_E_ALREADY_USED"),
+            "重启后应被拒绝：{text_b}"
+        );
+        assert_eq!(server.count(), after_kill, "重启不得新增请求");
+        println!(
+            "CP3 pid_a={pid_a} pid_b={pid_b} after_kill={after_kill} after_restart={}",
+            server.count()
+        );
+    }
 }
