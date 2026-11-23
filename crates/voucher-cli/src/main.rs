@@ -275,6 +275,7 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
         return fail(2, "wps-p2-read 需要 --grant <授权.json>");
     };
     let check_only = args.iter().any(|a| a == "--check");
+    let want_stats = args.iter().any(|a| a == "--stats");
     let transport_kind = arg_value(args, "--transport").unwrap_or_else(|| "offline".into());
     if !matches!(
         transport_kind.as_str(),
@@ -441,6 +442,11 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
         }
     };
 
+    let granted_fields: Vec<String> = grant
+        .sheets
+        .get(&(p2_number_i64(&value, "sheet_id").unwrap_or_default() as i64))
+        .map(|set| set.iter().cloned().collect())
+        .unwrap_or_default();
     match outcome {
         Ok(outcome) => {
             println!(
@@ -463,6 +469,11 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
                         "total": outcome.actions.total,
                     },
                     "termination": outcome.termination.message(),
+                    "stats": if want_stats {
+                        Some(field_stats(&outcome.records, &granted_fields))
+                    } else {
+                        None
+                    },
                 })
             );
             ExitCode::SUCCESS
@@ -472,6 +483,65 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// 字段级脱敏统计：只回「非空计数 + JSON 类型分布 + 类日期计数」，不回任何具体值。
+///
+/// 目的：回答「金额是数值还是字符串」「日期是什么形状」「自增列是否可读」这类
+/// 写入映射问题，同时不把业务数据落到输出、日志或审计里。
+fn field_stats(records: &[serde_json::Value], granted: &[String]) -> serde_json::Value {
+    let mut fields: Vec<serde_json::Value> = Vec::new();
+    for name in granted {
+        let mut non_null = 0usize;
+        let mut date_like = 0usize;
+        let mut types = std::collections::BTreeMap::<&'static str, usize>::new();
+        for record in records {
+            let scope = record.get("fields").unwrap_or(record);
+            match scope.get(name) {
+                None | Some(serde_json::Value::Null) => {}
+                Some(value) => {
+                    non_null += 1;
+                    let kind = match value {
+                        serde_json::Value::Number(_) => "number",
+                        serde_json::Value::String(_) => "string",
+                        serde_json::Value::Bool(_) => "boolean",
+                        serde_json::Value::Array(_) => "array",
+                        serde_json::Value::Object(_) => "object",
+                        serde_json::Value::Null => "null",
+                    };
+                    *types.entry(kind).or_default() += 1;
+                    if is_date_like(value) {
+                        date_like += 1;
+                    }
+                }
+            }
+        }
+        fields.push(serde_json::json!({
+            "field": name,
+            "non_null": non_null,
+            "date_like": date_like,
+            "types": types,
+        }));
+    }
+    serde_json::json!({
+        "sampled": records.len(),
+        "fields": fields,
+        "note": "只统计非空计数与 JSON 类型，不输出任何字段值",
+    })
+}
+
+/// 形态判断（不看语义）：`2026-11-01`、`2026/11/01`、`2026-11-01T08:00:00Z` 都算类日期字符串。
+fn is_date_like(value: &serde_json::Value) -> bool {
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    let trimmed = text.trim();
+    if trimmed.len() < 8 {
+        return false;
+    }
+    let separators = trimmed.matches(['-', '/']).count();
+    let digits = trimmed.chars().filter(|c| c.is_ascii_digit()).count();
+    separators >= 2 && digits >= 6
 }
 
 /// C5 辅助证据：打印本地索引的全字段指纹（只读，不发网）。
@@ -629,5 +699,51 @@ fn main() -> ExitCode {
         }
         "wps-p2-read" => wps_p2_read(&args),
         other => fail(2, format!("未知命令：{other}\n\n{}", usage())),
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::{field_stats, is_date_like};
+    use serde_json::json;
+
+    fn records() -> Vec<serde_json::Value> {
+        vec![
+            json!({"id":"r1","fields":{"金额":1234.56,"日期":"2026-08-19","单据号":"20260819-001"}}),
+            json!({"id":"r2","fields":{"金额":"88","日期":"2026/08/20","单据号":null}}),
+            json!({"id":"r3","fields":{"金额":null,"日期":"2026-08-21T10:00:00Z"}}),
+        ]
+    }
+
+    #[test]
+    fn stats_report_types_and_never_values() {
+        let granted = vec!["金额".to_string(), "日期".to_string(), "单据号".to_string()];
+        let stats = field_stats(&records(), &granted);
+        let text = stats.to_string();
+        assert!(!text.contains("1234.56"), "不得回显字段值");
+        assert!(!text.contains("20260819-001"), "不得回显字段值");
+        assert_eq!(stats["sampled"], 3);
+        let fields = stats["fields"].as_array().unwrap();
+        assert_eq!(fields[0]["field"], "金额");
+        assert_eq!(fields[0]["non_null"], 2);
+        assert_eq!(fields[0]["types"]["number"], 1);
+        assert_eq!(fields[0]["types"]["string"], 1);
+        assert_eq!(fields[1]["date_like"], 3);
+        assert_eq!(fields[2]["non_null"], 1);
+    }
+
+    #[test]
+    fn stats_ignore_fields_outside_the_grant() {
+        let stats = field_stats(&records(), &["金额".to_string()]);
+        assert_eq!(stats["fields"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn date_like_detection_is_shape_only() {
+        assert!(is_date_like(&json!("2026-08-19")));
+        assert!(is_date_like(&json!("2026/08/19")));
+        assert!(is_date_like(&json!("2026-08-19T10:00:00Z")));
+        assert!(!is_date_like(&json!("20260819-001")));
+        assert!(!is_date_like(&json!(1234.56)));
     }
 }
