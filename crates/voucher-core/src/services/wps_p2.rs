@@ -23,6 +23,12 @@ pub const P2_ACTION_LIST_RECORDS: &str = "dbsheet.list_records";
 /// 单次读取的传输尝试上限（会话重建不计入次数）。
 pub const P2_MAX_READ_ATTEMPTS: usize = 3;
 
+/// 单次授权的执行窗口上限：15 分钟（A2 授权单条款）。
+pub const P2_MAX_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+/// 单次授权的整场 HTTP 请求上限：8 次（初始化 + 通知 + 读取 + 终止之和）。
+pub const P2_MAX_TOTAL_REQUESTS: u32 = 8;
+
 /// P2 入口错误；`code()` 是进入日志/证据的稳定码，文案不含远端自由文本。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum P2Error {
@@ -42,6 +48,10 @@ pub enum P2Error {
     PageSize(String),
     /// 同一份单次授权不能再次启动（已完成或已停止）。
     SingleUse(String),
+    /// 执行状态库不可用或登记失败；本地停止，不发网。
+    State(String),
+    /// 该授权已在持久状态库登记消费，不能再次启动（跨重启/并发有效）。
+    AlreadyUsed(String),
     /// 整场请求预算耗尽。
     ExecLimit(String),
     /// 授权主体（账号/租户）待补或与凭据不一致。
@@ -87,6 +97,8 @@ impl P2Error {
             Self::Offset(_) => "P2_E_OFFSET",
             Self::PageSize(_) => "P2_E_PAGE_SIZE",
             Self::SingleUse(_) => "P2_E_SINGLE_USE",
+            Self::State(_) => "P2_E_STATE",
+            Self::AlreadyUsed(_) => "P2_E_ALREADY_USED",
             Self::ExecLimit(_) => "P2_E_EXEC_LIMIT",
             Self::ScopePending(_) => "P2_E_SCOPE_PENDING",
             Self::Window(_) => "P2_E_WINDOW",
@@ -123,6 +135,8 @@ impl std::fmt::Display for P2Error {
             | Self::Offset(msg)
             | Self::PageSize(msg)
             | Self::SingleUse(msg)
+            | Self::State(msg)
+            | Self::AlreadyUsed(msg)
             | Self::ExecLimit(msg)
             | Self::ScopePending(msg)
             | Self::Window(msg)
@@ -254,6 +268,8 @@ impl P2Action {
 /// A2 签批的授权参数。字段都来自签批单；未知值保持 `None`／空表即视为待补。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct P2Grant {
+    /// 签批授权单的唯一编号；作为持久状态库的主键，跨重启/并发防重。
+    pub grant_id: String,
     pub approved_by: Option<String>,
     pub approved_endpoint: P2Endpoint,
     pub endpoint: P2Endpoint,
@@ -280,6 +296,9 @@ impl P2Grant {
         credential_subject: Option<&str>,
         sheet_id: i64,
     ) -> Result<(), P2Error> {
+        if self.grant_id.trim().is_empty() {
+            return Err(P2Error::NotApproved);
+        }
         if self.approved_by.as_deref().unwrap_or("").trim().is_empty() {
             return Err(P2Error::NotApproved);
         }
@@ -334,6 +353,24 @@ impl P2Grant {
                 "整场请求上限为 0，签批单未绑定预算，已拒绝".into(),
             ));
         }
+        if self.max_total_requests > P2_MAX_TOTAL_REQUESTS {
+            return Err(P2Error::ExecLimit(format!(
+                "整场请求上限 {} 超过 {} 次上限，已拒绝",
+                self.max_total_requests, P2_MAX_TOTAL_REQUESTS
+            )));
+        }
+        if self.window_end <= self.window_start {
+            return Err(P2Error::Window("执行窗口起止顺序不合法，已拒绝".into()));
+        }
+        let window = (self.window_end - self.window_start)
+            .to_std()
+            .map_err(|_| P2Error::Window("执行窗口长度不可用，已拒绝".into()))?;
+        if window > P2_MAX_WINDOW {
+            return Err(P2Error::Window(format!(
+                "执行窗口 {:?} 超过 {:?} 上限，已拒绝",
+                window, P2_MAX_WINDOW
+            )));
+        }
         Ok(())
     }
 
@@ -382,6 +419,41 @@ pub struct P2ReadOutcome {
     pub attempts_used: usize,
     /// 本轮实际发出的动作计数（初始化/读取/通知/终止/合计）。
     pub actions: P2ActionCounts,
+    /// 会话终止的实际状态；失败或未发送都如实记录，不追加请求。
+    pub termination: P2Termination,
+}
+
+/// 会话终止状态：签审人需要看到「未确认」与「未发送原因」，而不是静默成功。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum P2Termination {
+    /// 已授权并成功发送 `DELETE`。
+    Completed,
+    /// 已发送 `DELETE` 但远端未确认（如 5xx/网络失败）；本地已关闭。
+    Unconfirmed,
+    /// 因窗口/预算/签批开关未发送，附固定原因。
+    Skipped(String),
+}
+
+impl Default for P2Termination {
+    fn default() -> Self {
+        Self::Skipped("未执行终止".into())
+    }
+}
+
+impl P2Termination {
+    pub fn message(&self) -> String {
+        match self {
+            Self::Completed => "远端终止已确认".into(),
+            Self::Unconfirmed => "远端终止未确认，本地已关闭".into(),
+            Self::Skipped(reason) => format!("未发送终止（{reason}）"),
+        }
+    }
+}
+
+impl std::fmt::Display for P2Termination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message())
+    }
 }
 
 /// 单次 P2 执行的动作计数；用于签审时逐项核对发网次数。
@@ -919,6 +991,114 @@ pub fn classify_connect_hint(hint: &str) -> P2Error {
     }
 }
 
+/// 单次授权的消费登记：首次发网前原子登记，跨重启与并发进程有效。
+///
+/// 实现必须保证同一 `grant_id` 至多成功一次；失败时本地停止，绝不发网。
+pub trait P2Consumption: Send + Sync {
+    fn consume(
+        &self,
+        grant_id: &str,
+        file_id_masked: &str,
+        window_end: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<(), P2Error>;
+}
+
+/// 隔离的 SQLite 执行状态库：只保存防重所需的最小元数据（授权号、登记时间、掩码副本号、窗口终点）。
+pub struct SqliteP2State {
+    conn: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl SqliteP2State {
+    /// 打开（或创建）状态库；失败一律视为「不可用」，入口此后不发网。
+    pub fn open(path: &std::path::Path) -> Result<Self, P2Error> {
+        let conn = rusqlite::Connection::open(path)
+            .map_err(|_| P2Error::State("执行状态库不可用".into()))?;
+        conn.busy_timeout(Duration::from_secs(2))
+            .map_err(|_| P2Error::State("执行状态库不可用".into()))?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS p2_consumed(\
+                 grant_id TEXT PRIMARY KEY,\
+                 claimed_at TEXT NOT NULL,\
+                 file_id_masked TEXT NOT NULL,\
+                 window_end TEXT NOT NULL\
+             )",
+        )
+        .map_err(|_| P2Error::State("执行状态库初始化失败".into()))?;
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+        })
+    }
+}
+
+impl P2Consumption for SqliteP2State {
+    fn consume(
+        &self,
+        grant_id: &str,
+        file_id_masked: &str,
+        window_end: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<(), P2Error> {
+        if grant_id.trim().is_empty() {
+            return Err(P2Error::NotApproved);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| P2Error::State("执行状态库不可用".into()))?;
+        match conn.execute(
+            "INSERT INTO p2_consumed (grant_id, claimed_at, file_id_masked, window_end) \
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                grant_id,
+                now.to_rfc3339(),
+                file_id_masked,
+                window_end.to_rfc3339()
+            ],
+        ) {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(err, _))
+                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                Err(P2Error::AlreadyUsed(
+                    "该授权已在执行状态库登记消费，不能再次启动".into(),
+                ))
+            }
+            Err(_) => Err(P2Error::State("登记执行状态失败".into())),
+        }
+    }
+}
+
+/// 进程内消费登记：仅用于没有持久库的单元测试；跨重启场景必须用 [`SqliteP2State`]。
+#[derive(Default)]
+pub struct MemoryConsumption {
+    seen: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+impl P2Consumption for MemoryConsumption {
+    fn consume(
+        &self,
+        grant_id: &str,
+        _file_id_masked: &str,
+        _window_end: DateTime<Utc>,
+        _now: DateTime<Utc>,
+    ) -> Result<(), P2Error> {
+        if grant_id.trim().is_empty() {
+            return Err(P2Error::NotApproved);
+        }
+        let mut seen = self
+            .seen
+            .lock()
+            .map_err(|_| P2Error::State("执行状态库不可用".into()))?;
+        if !seen.insert(grant_id.to_string()) {
+            return Err(P2Error::AlreadyUsed(
+                "该授权已在执行状态库登记消费，不能再次启动".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// P2 只读入口。
 pub struct P2ReadOnlyEntry<T: P2Transport> {
     transport: T,
@@ -930,6 +1110,8 @@ pub struct P2ReadOnlyEntry<T: P2Transport> {
     audit_sink: Option<Arc<std::sync::Mutex<Vec<String>>>>,
     /// 已占用的单次授权 key；成功或停止后不可再次启动。
     claimed: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// 持久消费登记：配置后必须在发网前登记成功，跨重启/并发有效。
+    state: Option<Arc<dyn P2Consumption>>,
 }
 
 impl<T: P2Transport> P2ReadOnlyEntry<T> {
@@ -942,7 +1124,14 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             max_attempts: P2_MAX_READ_ATTEMPTS,
             audit_sink: None,
             claimed: std::sync::Mutex::new(std::collections::HashSet::new()),
+            state: None,
         }
+    }
+
+    /// 接入隔离执行状态库；未接入时只做进程内防重（重启后可再次启动）。
+    pub fn with_state(mut self, state: Arc<dyn P2Consumption>) -> Self {
+        self.state = Some(state);
+        self
     }
 
     /// 测试用：把审计行同时写入给定缓冲，便于证据用例逐字核对。
@@ -985,6 +1174,15 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             request.sheet_id,
         )?;
         self.claim(grant)?;
+        // 持久登记必须发生在任何发网动作之前：登记失败即本地停止，零请求。
+        if let Some(state) = &self.state {
+            state.consume(
+                &grant.grant_id,
+                &mask_id(&grant.file_id),
+                grant.window_end,
+                self.clock.now(),
+            )?;
+        }
 
         let token = match &self.credential {
             Some(credential) => {
@@ -1048,24 +1246,50 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                             }
                         };
                     self.audit(grant, request.sheet_id, "ok", sent);
-                    if grant.terminate_allowed {
-                        // 结束后终止会话；失败只做本地关闭，不再发网。
-                        if let Ok(deadline) = self.reserve(grant, &mut counts) {
-                            counts.terminate += 1;
-                            let _ = self.transport.terminate(
-                                &grant.endpoint,
-                                &session,
-                                token.as_deref(),
-                                deadline,
-                            );
+                    let termination = if grant.terminate_allowed {
+                        // 结束后终止会话；失败只做本地关闭，不再发网、不追加请求。
+                        match self.reserve(grant, &mut counts) {
+                            Ok(deadline) => {
+                                counts.terminate += 1;
+                                match self.transport.terminate(
+                                    &grant.endpoint,
+                                    &session,
+                                    token.as_deref(),
+                                    deadline,
+                                ) {
+                                    Ok(()) => P2Termination::Completed,
+                                    Err(err) => {
+                                        self.audit(
+                                            grant,
+                                            request.sheet_id,
+                                            "P2_E_TERMINATE",
+                                            counts.terminate as usize,
+                                        );
+                                        let _ = err;
+                                        P2Termination::Unconfirmed
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                self.audit(
+                                    grant,
+                                    request.sheet_id,
+                                    err.code(),
+                                    counts.terminate as usize,
+                                );
+                                P2Termination::Skipped(err.to_string())
+                            }
                         }
-                    }
+                    } else {
+                        P2Termination::Skipped("授权单未允许终止动作".into())
+                    };
                     return Ok(P2ReadOutcome {
                         sheet_id: request.sheet_id,
                         records,
                         total,
                         attempts_used: sent,
                         actions: counts,
+                        termination,
                     });
                 }
                 Err(P2Error::SessionExpired) => {
@@ -1198,8 +1422,9 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                     continue;
                 }
                 if !allowed.contains(key) {
+                    // 只给固定提示与表号：不回显远端字段名/字段值。
                     return Err(P2Error::Scope(format!(
-                        "响应包含未授权字段 {key}（表 {sheet_id}）"
+                        "响应包含未授权字段，整页已拒绝（表 {sheet_id}）"
                     )));
                 }
                 filtered.insert(key.clone(), item.clone());
@@ -1246,6 +1471,7 @@ mod tests {
             );
         }
         P2Grant {
+            grant_id: "A2-2026-11-23-01".into(),
             approved_by: Some("A2-2026-11-22".into()),
             approved_endpoint: endpoint("https://wps.example.test/mcp"),
             endpoint: endpoint("https://wps.example.test/mcp"),
@@ -1255,10 +1481,10 @@ mod tests {
             max_total_requests: 8,
             terminate_allowed: true,
             sheets: map,
-            window_start: DateTime::parse_from_rfc3339("2026-11-22T10:00:00Z")
+            window_start: DateTime::parse_from_rfc3339("2026-11-22T10:25:00Z")
                 .unwrap()
                 .with_timezone(&Utc),
-            window_end: DateTime::parse_from_rfc3339("2026-11-22T12:00:00Z")
+            window_end: DateTime::parse_from_rfc3339("2026-11-22T10:40:00Z")
                 .unwrap()
                 .with_timezone(&Utc),
             approved_subject: Some("tenant-a/reader".into()),
@@ -1809,6 +2035,8 @@ mod tests {
             statuses: Arc<Mutex<Vec<u16>>>,
             leak: bool,
         },
+        /// `DELETE`（会话终止）返回给定状态码；其余请求照常。
+        DeleteFail { status: u16 },
     }
 
     struct TlsServer {
@@ -1917,7 +2145,27 @@ mod tests {
         requests.lock().unwrap().push(first_line.clone());
 
         let initialize = text.contains("\"method\":\"initialize\"");
+        let is_delete = first_line.starts_with("DELETE ");
         let (status, headers, body) = match &mode {
+            ServerMode::DeleteFail { status } if is_delete => (*status, Vec::new(), String::new()),
+            ServerMode::DeleteFail { .. } => (
+                200,
+                if initialize {
+                    vec![("Mcp-Session-Id".to_string(), "sess-1".to_string())]
+                } else {
+                    Vec::new()
+                },
+                if initialize {
+                    "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}"
+                        .to_string()
+                } else {
+                    let payload = "{\"records\":[{\"A\":\"一\"}],\"total\":1}";
+                    let literal = serde_json::to_string(payload).expect("payload literal");
+                    format!(
+                        "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":{literal}}}],\"isError\":false}}}}"
+                    )
+                },
+            ),
             ServerMode::Script { statuses, leak } if text.contains("\"method\":\"tools/call\"") => {
                 let next = statuses.lock().unwrap().pop().unwrap_or(200);
                 if next == 200 {
@@ -2058,6 +2306,11 @@ mod tests {
             }
         );
         assert_eq!(server.count(), 4, "初始化 + 通知 + 读取 + 终止");
+        assert_eq!(
+            outcome.termination,
+            P2Termination::Completed,
+            "成功发送 DELETE 应记为已确认"
+        );
     }
 
     #[test]
@@ -2151,12 +2404,17 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(err.code(), "P2_E_SCOPE");
-        // 结果层文案：错误码 + 越界字段名，调用方无需再自行拼装。
+        // 结果层文案：只给固定提示、错误码与表号；不回显远端字段名。
         let shown = err.to_string();
         assert!(shown.contains("P2_E_SCOPE"), "提示缺错误码: {shown}");
         assert!(
-            shown.contains("响应包含未授权字段 SECRET"),
-            "提示未点明越界字段: {shown}"
+            shown.contains("响应包含未授权字段"),
+            "提示缺固定文案: {shown}"
+        );
+        assert!(shown.contains("表 3"), "提示缺表号: {shown}");
+        assert!(
+            !shown.contains("SECRET") && !shown.contains("不可见"),
+            "结果层不得回显远端字段名/值: {shown}"
         );
         // 脱敏审计：一行、带错误码与表号，不出现完整 file_id、字段值或凭据。
         let lines = sink.lock().unwrap().clone();
@@ -2442,5 +2700,252 @@ mod tests {
             5,
             "初始化 1 + 通知 1 + 读取 3；最后一次额度用完不得再重建会话"
         );
+    }
+
+    fn read_req() -> P2ReadRequest {
+        P2ReadRequest {
+            sheet_id: 3,
+            offset: 0,
+            page_size: 50,
+        }
+    }
+
+    /// 初始化失败但不会发网：用于「登记成功后、发网前中断」。
+    struct FailingInit;
+
+    impl P2Transport for FailingInit {
+        fn initialize(
+            &self,
+            _endpoint: &P2Endpoint,
+            _auth: Option<&str>,
+            _deadline: Duration,
+        ) -> Result<String, P2Error> {
+            Err(P2Error::Protocol("synthetic init failure".into()))
+        }
+
+        fn call(
+            &self,
+            _endpoint: &P2Endpoint,
+            _session_id: &str,
+            _action: &str,
+            _args: &Value,
+            _auth: Option<&str>,
+            _deadline: Duration,
+        ) -> Result<Value, P2Error> {
+            Err(P2Error::Protocol("synthetic call failure".into()))
+        }
+    }
+
+    #[test]
+    fn p2_consumed_grant_cannot_restart_after_entry_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("p2-state.db");
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let first_store = Arc::new(SqliteP2State::open(&path).expect("state"));
+        let first =
+            https_entry(https_reader(&server, true), "tenant-a/reader").with_state(first_store);
+        let gate = https_grant(&server);
+        first.read(&gate, &read_req()).expect("首次执行应成功");
+        let after_first = server.count();
+        assert_eq!(after_first, 4);
+
+        // 模拟重启：新入口、新连接、同一状态库、同一授权。
+        let second_store = Arc::new(SqliteP2State::open(&path).expect("state"));
+        let second =
+            https_entry(https_reader(&server, true), "tenant-a/reader").with_state(second_store);
+        let err = second.read(&gate, &read_req()).unwrap_err();
+        assert_eq!(err.code(), "P2_E_ALREADY_USED");
+        assert_eq!(server.count(), after_first, "重建入口后同一授权零新增请求");
+    }
+
+    #[test]
+    fn p2_concurrent_entries_only_one_claims_sqlite_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("p2-state.db");
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let store = Arc::new(SqliteP2State::open(&path).expect("state"));
+                let reader = entry(
+                    CountingTransport::default(),
+                    Some("tenant-a/reader"),
+                    "2026-11-22T10:30:00Z",
+                )
+                .with_state(store);
+                let gate = P2Gate::open(grants(&[(3, &["A"])]));
+                barrier.wait();
+                reader
+                    .read(&gate, &read_req())
+                    .map(|_| ())
+                    .map_err(|err| err.code().to_string())
+            }));
+        }
+        let results: Vec<Result<(), String>> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("thread"))
+            .collect();
+        let ok = results.iter().filter(|result| result.is_ok()).count();
+        let used = results
+            .iter()
+            .filter(|result| matches!(result, Err(code) if code == "P2_E_ALREADY_USED"))
+            .count();
+        assert_eq!(ok, 1, "两个进程并发只能一个取得资格: {results:?}");
+        assert_eq!(used, 1, "另一个必须是已登记消费: {results:?}");
+    }
+
+    #[test]
+    fn p2_claim_survives_crash_before_send() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("p2-state.db");
+        let store = Arc::new(SqliteP2State::open(&path).expect("state"));
+        let reader = P2ReadOnlyEntry::new(
+            FailingInit,
+            Some(Arc::new(SyntheticCredential {
+                subject: Some("tenant-a/reader".into()),
+            })),
+        )
+        .with_clock_and_backoff(
+            Arc::new(FixedClock(
+                DateTime::parse_from_rfc3339("2026-11-22T10:30:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            )),
+            Duration::ZERO,
+            P2_MAX_READ_ATTEMPTS,
+        )
+        .with_state(store);
+        let gate = P2Gate::open(grants(&[(3, &["A"])]));
+        // 初始化即失败：登记已写，但没有任何 list_records 成功。
+        let err = reader.read(&gate, &read_req()).unwrap_err();
+        assert_eq!(err.code(), "P2_E_PROTOCOL");
+
+        // 登记后中断：重启也不能恢复同一授权。
+        let restarted = P2ReadOnlyEntry::new(
+            CountingTransport::default(),
+            Some(Arc::new(SyntheticCredential {
+                subject: Some("tenant-a/reader".into()),
+            })),
+        )
+        .with_clock_and_backoff(
+            Arc::new(FixedClock(
+                DateTime::parse_from_rfc3339("2026-11-22T10:30:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            )),
+            Duration::ZERO,
+            P2_MAX_READ_ATTEMPTS,
+        )
+        .with_state(Arc::new(SqliteP2State::open(&path).expect("state")));
+        let err = restarted.read(&gate, &read_req()).unwrap_err();
+        assert_eq!(err.code(), "P2_E_ALREADY_USED");
+    }
+
+    /// 状态库不可用/登记失败：入口必须在发网前停止。
+    struct BrokenConsumption;
+
+    impl P2Consumption for BrokenConsumption {
+        fn consume(
+            &self,
+            _grant_id: &str,
+            _file_id_masked: &str,
+            _window_end: DateTime<Utc>,
+            _now: DateTime<Utc>,
+        ) -> Result<(), P2Error> {
+            Err(P2Error::State("执行状态库不可用".into()))
+        }
+    }
+
+    #[test]
+    fn p2_unusable_state_store_stops_before_any_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing-dir").join("p2-state.db");
+        let err = SqliteP2State::open(&missing).err().expect("应失败");
+        assert_eq!(err.code(), "P2_E_STATE");
+
+        let transport = CountingTransport::default();
+        let reader = entry(transport, Some("tenant-a/reader"), "2026-11-22T10:30:00Z")
+            .with_state(Arc::new(BrokenConsumption));
+        let gate = P2Gate::open(grants(&[(3, &["A"])]));
+        let err = reader.read(&gate, &read_req()).unwrap_err();
+        assert_eq!(err.code(), "P2_E_STATE");
+    }
+
+    #[test]
+    fn p2_window_longer_than_limit_and_total_over_cap_are_rejected() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+
+        let mut long_window = grants(&[(3, &["A"])]);
+        long_window.endpoint = server.endpoint();
+        long_window.approved_endpoint = server.endpoint();
+        long_window.window_end = long_window.window_start + chrono::Duration::minutes(20);
+        let err = reader
+            .read(&P2Gate::open(long_window), &read_req())
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_WINDOW");
+        assert_eq!(server.count(), 0, "超长窗口零请求");
+
+        let mut over_cap = grants(&[(3, &["A"])]);
+        over_cap.endpoint = server.endpoint();
+        over_cap.approved_endpoint = server.endpoint();
+        over_cap.max_total_requests = P2_MAX_TOTAL_REQUESTS + 1;
+        let err = reader
+            .read(&P2Gate::open(over_cap), &read_req())
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_EXEC_LIMIT");
+        assert_eq!(server.count(), 0, "超上限授权零请求");
+    }
+
+    #[test]
+    fn p2_https_terminate_failure_reports_unconfirmed_without_extra_requests() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::DeleteFail { status: 500 },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let outcome = reader.read(&gate, &read_req()).expect("读取本身应成功");
+        assert_eq!(outcome.termination, P2Termination::Unconfirmed);
+        assert_eq!(outcome.termination.message(), "远端终止未确认，本地已关闭");
+        assert_eq!(server.count(), 4, "终止失败不追加请求");
+    }
+
+    #[test]
+    fn p2_https_terminate_skipped_when_budget_exhausted() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let mut grant = grants(&[(3, &["A"])]);
+        grant.endpoint = server.endpoint();
+        grant.approved_endpoint = server.endpoint();
+        grant.max_total_requests = 3;
+        let outcome = reader
+            .read(&P2Gate::open(grant), &read_req())
+            .expect("读取应成功");
+        let P2Termination::Skipped(reason) = &outcome.termination else {
+            assert_eq!(
+                outcome.termination,
+                P2Termination::Completed,
+                "应记录未发送原因"
+            );
+            return;
+        };
+        assert!(reason.contains("P2_E_EXEC_LIMIT"), "原因: {reason}");
+        assert_eq!(server.count(), 3, "预算耗尽后不发送 DELETE");
     }
 }
