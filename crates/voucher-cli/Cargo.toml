@@ -14,3 +14,7 @@ path = "src/main.rs"
 voucher-core = { path = "../voucher-core" }
 serde_json.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+# 仅测试：CLI 本机 HTTPS 验收用的 rustls 测试服务（与 voucher-core 测试同一套夹具）。
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

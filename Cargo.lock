@@ -6323,6 +6323,7 @@ name = "voucher-cli"
 version = "0.25.0"
 dependencies = [
  "chrono",
+ "rustls",
  "serde_json",
  "voucher-core",
 ]
