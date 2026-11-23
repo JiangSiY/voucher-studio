@@ -1,0 +1,21 @@
+{
+  "grant_id": "A2-LEDGER-20261124-02",
+  "approved_by": "本人签署【唯一责任人】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "sheet_id": 3,
+  "fields": [
+    "单据号",
+    "日期",
+    "类型",
+    "分类",
+    "单据金额"
+  ],
+  "page_size": 50,
+  "max_total_requests": 4,
+  "terminate_allowed": true,
+  "window_start": "2026-11-23T13:51:55Z",
+  "window_end": "2026-11-23T14:01:55Z",
+  "approved_subject": "tenant-a/reader",
+  "_说明": "真实副本只读第二发：备份 tbl 表 3「单据」（382 行，W2 写入目标表），只批 5 个字段、单页 50 行、整场 4 次请求、窗口 10 分钟。签批人 2026-11-23 21:51 CST 指示执行；窗口按实际执行时刻设为 2026-11-23T13:51:55Z–2026-11-23T14:01:55Z（UTC）。"
+}
