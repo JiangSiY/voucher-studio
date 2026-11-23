@@ -1,0 +1,21 @@
+{
+  "grant_id": "A2-LEDGER-20261124-03",
+  "approved_by": "本人签署【唯一责任人】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "sheet_id": 3,
+  "fields": [
+    "单据号",
+    "日期",
+    "类型",
+    "分类",
+    "单据金额"
+  ],
+  "page_size": 50,
+  "max_total_requests": 4,
+  "terminate_allowed": true,
+  "window_start": "2026-11-23T14:03:41Z",
+  "window_end": "2026-11-23T14:13:41Z",
+  "approved_subject": "tenant-a/reader",
+  "_说明": "真实副本只读第三发：同一份 11-13 备份、表 3「单据」，加 --stats 取字段形状（非空计数/JSON 类型/类日期计数，不落值）。签批人 2026-11-23 22:03 CST 指示执行；窗口按实际执行时刻设为 2026-11-23T14:03:41Z–2026-11-23T14:13:41Z（UTC）。"
+}
