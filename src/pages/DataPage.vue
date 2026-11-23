@@ -73,6 +73,8 @@ const w2Error = ref("");
 const w2Result = ref<DevW2Result | null>(null);
 // 台账 CSV 导入向导（B5 清场后原「台账」页退役，向导接到「导入批次」视图）
 const ledgerImportOpen = ref(false);
+// 逐行「已入账」在途标记：同一行只允许一个请求，防连点重复写库
+const bookedBusy = ref<Set<number>>(new Set());
 
 const w2StatusLabel: Record<string, string> = {
   succeeded: "成功",
@@ -202,6 +204,29 @@ const rows = computed(() => viewRows());
 
 function metaOf(id: number): VoucherRowMeta {
   return meta.value[id] ?? { booked: false, batchId: null, attachmentRequired: true };
+}
+
+/**
+ * 人工勾「已入账」/ 取消（B5 遗留补收尾：原台账页的 `markBooked` 随页退役丢了入口）。
+ *
+ * 成功后只就地改这一行的 `meta`，不整表重拉——重拉会丢滚动位置；
+ * 「待入账」视图的过滤条件就是 `!booked`，勾上后该行自然消失，属预期，不报错。
+ * 失败时 `meta` 不动（标签保持原状），错误交给页面既有的 toast 通道。
+ */
+async function toggleBooked(r: Voucher) {
+  if (bookedBusy.value.has(r.id)) return;
+  const target = !metaOf(r.id).booked;
+  bookedBusy.value = new Set(bookedBusy.value).add(r.id);
+  try {
+    await api.setLedgerBooked(r.id, target);
+    meta.value = { ...meta.value, [r.id]: { ...metaOf(r.id), booked: target } };
+  } catch (e) {
+    toastError(e);
+  } finally {
+    const rest = new Set(bookedBusy.value);
+    rest.delete(r.id);
+    bookedBusy.value = rest;
+  }
 }
 
 function amountText(cents: number | null): string {
@@ -573,13 +598,18 @@ watch(query, load);
                 <span class="data-status" :data-status="r.status">{{ statusLabel[r.status] }}</span>
               </td>
               <td class="col-hide-sm">
-                <span
-                  class="data-booked"
+                <button
+                  class="data-booked is-action"
+                  type="button"
                   :class="{ 'is-on': metaOf(r.id).booked }"
-                  :aria-label="metaOf(r.id).booked ? '已入账' : '未入账'"
+                  :disabled="bookedBusy.has(r.id)"
+                  :aria-label="metaOf(r.id).booked ? '已入账，点击取消' : '未入账，点击标记已入账'"
+                  :title="metaOf(r.id).booked ? '点击取消已入账' : '点击标记已入账'"
+                  @click.stop="toggleBooked(r)"
+                  @keydown.enter.stop
                 >
                   {{ metaOf(r.id).booked ? "已入" : "未入" }}
-                </span>
+                </button>
               </td>
             </tr>
             <tr v-if="expanded === r.id" class="data-expand">
@@ -609,7 +639,14 @@ watch(query, load);
       </table>
       <div class="data-cards">
         <template v-for="r in rows" :key="`card-${r.id}`">
-          <button class="data-card" type="button" @click="toggle(r.id)">
+          <div
+            class="data-card"
+            role="button"
+            tabindex="0"
+            @click="toggle(r.id)"
+            @keydown.enter="toggle(r.id)"
+            @keydown.space.prevent="toggle(r.id)"
+          >
             <span class="data-card-top">
               <span>{{ r.voucherDate }}</span>
               <span class="data-status" :data-status="r.status">{{ statusLabel[r.status] }}</span>
@@ -625,9 +662,19 @@ watch(query, load);
                 >缺凭证</span
               >
               <span v-else class="data-card-flag">历史豁免</span>
-              <span class="data-card-flag">{{ metaOf(r.id).booked ? "已入账" : "未入账" }}</span>
+              <button
+                class="data-card-flag is-action"
+                type="button"
+                :class="{ 'is-on': metaOf(r.id).booked }"
+                :disabled="bookedBusy.has(r.id)"
+                :aria-label="metaOf(r.id).booked ? '已入账，点击取消' : '未入账，点击标记已入账'"
+                @click.stop="toggleBooked(r)"
+                @keydown.enter.stop
+              >
+                {{ metaOf(r.id).booked ? "已入账" : "未入账" }}
+              </button>
             </span>
-          </button>
+          </div>
           <div v-if="expanded === r.id" class="data-card-expand">
             <VoucherEditor
               v-if="details[r.id]"
@@ -780,6 +827,27 @@ watch(query, load);
   color: var(--success);
 }
 
+/* 「已入账」是唯一可点的行内动作：给足点击反馈，禁用态表示该行请求在途 */
+.data-booked.is-action,
+.data-card-flag.is-action {
+  padding: 0 var(--s-1);
+  background: transparent;
+  border: 1px solid var(--card-hairline);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+
+.data-booked.is-action:hover:not(:disabled),
+.data-card-flag.is-action:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.data-booked.is-action:disabled,
+.data-card-flag.is-action:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
 .data-thumb-img {
   width: 28px;
   height: var(--control-h-lg);
@@ -793,6 +861,7 @@ watch(query, load);
 }
 
 .data-card {
+  cursor: pointer;
   display: grid;
   gap: var(--s-1);
   width: 100%;
