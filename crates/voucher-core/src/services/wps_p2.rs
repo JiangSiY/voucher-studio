@@ -687,10 +687,27 @@ impl P2Transport for HttpsP2Transport {
         {
             return Err(P2Error::Protocol("远端返回工具错误，已停止".into()));
         }
-        value
+        let result = value
             .get("result")
             .cloned()
-            .ok_or_else(|| P2Error::Protocol("响应缺少 result".into()))
+            .ok_or_else(|| P2Error::Protocol("响应缺少 result".into()))?;
+        // MCP 2025-06-18 `tools/call` 的结果形状是 `content: [{type:"text", text: ...}]`，
+        // 工具负载通常在 text 里以 JSON 文本返回；这里按规范解包，兼容直接返回负载的服务端。
+        if let Some(parts) = result.get("content").and_then(Value::as_array) {
+            let mut text = String::new();
+            for part in parts {
+                if part.get("type").and_then(Value::as_str) == Some("text") {
+                    if let Some(chunk) = part.get("text").and_then(Value::as_str) {
+                        text.push_str(chunk);
+                    }
+                }
+            }
+            if !text.is_empty() {
+                return serde_json::from_str(&text)
+                    .map_err(|_| P2Error::Protocol("工具结果不是 JSON".into()));
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -764,6 +781,8 @@ pub struct P2ReadOnlyEntry<T: P2Transport> {
     clock: Arc<dyn P2Clock>,
     backoff: Duration,
     max_attempts: usize,
+    /// 测试用审计汇聚点：与 `log::info!` 同源同格式，供证据用例断言脱敏内容。
+    audit_sink: Option<Arc<std::sync::Mutex<Vec<String>>>>,
 }
 
 impl<T: P2Transport> P2ReadOnlyEntry<T> {
@@ -774,7 +793,14 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             clock: Arc::new(SystemP2Clock),
             backoff: Duration::from_secs(1),
             max_attempts: P2_MAX_READ_ATTEMPTS,
+            audit_sink: None,
         }
+    }
+
+    /// 测试用：把审计行同时写入给定缓冲，便于证据用例逐字核对。
+    pub fn with_audit_sink(mut self, sink: Arc<std::sync::Mutex<Vec<String>>>) -> Self {
+        self.audit_sink = Some(sink);
+        self
     }
 
     /// 测试用：固定时钟、零退避、可控尝试上限。
@@ -850,7 +876,14 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             ) {
                 Ok(value) => {
                     let (records, total) =
-                        self.validate_records(grant, request.sheet_id, &value)?;
+                        match self.validate_records(grant, request.sheet_id, &value) {
+                            Ok(validated) => validated,
+                            Err(err) => {
+                                // 响应越界也要留审计：只记错误码与脱敏范围，不记字段值。
+                                self.audit(grant, request.sheet_id, err.code(), sent);
+                                return Err(err);
+                            }
+                        };
                     let outcome = P2ReadOutcome {
                         sheet_id: request.sheet_id,
                         records,
@@ -936,6 +969,11 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             outcome,
             attempts,
         );
+        if let Some(sink) = &self.audit_sink {
+            if let Ok(mut lines) = sink.lock() {
+                lines.push(line.to_string());
+            }
+        }
         log::info!("{line}");
     }
 }
@@ -1636,11 +1674,13 @@ mod tests {
                         record.push_str(",\"SECRET\":\"不可见\"");
                     }
                     record.push('}');
+                    let payload = format!("{{\"records\":[{record}],\"total\":1}}");
+                    let literal = serde_json::to_string(&payload).expect("payload literal");
                     (
                         200,
                         Vec::new(),
                         format!(
-                            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"records\":[{record}],\"total\":1}}}}"
+                            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":{literal}}}],\"isError\":false}}}}"
                         ),
                     )
                 }
@@ -1795,7 +1835,9 @@ mod tests {
     #[test]
     fn p2_https_response_with_unapproved_field_blocks_whole_page() {
         let server = spawn_tls_server(TLS_SRV_CERT, TLS_SRV_KEY, ServerMode::JsonOk { leak: true });
-        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader")
+            .with_audit_sink(Arc::clone(&sink));
         let gate = https_grant(&server);
         let err = reader
             .read(
@@ -1808,6 +1850,28 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(err.code(), "P2_E_SCOPE");
+        // 结果层文案：错误码 + 越界字段名，调用方无需再自行拼装。
+        let shown = err.to_string();
+        assert!(shown.contains("P2_E_SCOPE"), "提示缺错误码: {shown}");
+        assert!(
+            shown.contains("响应包含未授权字段 SECRET"),
+            "提示未点明越界字段: {shown}"
+        );
+        // 脱敏审计：一行、带错误码与表号，不出现完整 file_id、字段值或凭据。
+        let lines = sink.lock().unwrap().clone();
+        assert_eq!(lines.len(), 1, "一次失败只写一行审计：{lines:?}");
+        let line = &lines[0];
+        assert!(line.contains("action=dbsheet.list_records"), "{line}");
+        assert!(line.contains("outcome=P2_E_SCOPE"), "{line}");
+        assert!(line.contains("sheet=3"), "{line}");
+        assert!(line.contains("attempts=1"), "读取尝试次数应为 1：{line}");
+        assert!(line.contains("dbsh…01"), "file_id 应掩码：{line}");
+        assert!(!line.contains("dbsheet_replica_001"), "{line}");
+        assert!(
+            !line.contains("不可见") && !line.contains("SECRET"),
+            "{line}"
+        );
+        assert!(!line.contains("synthetic"), "{line}");
         assert_eq!(
             server.count(),
             2,
