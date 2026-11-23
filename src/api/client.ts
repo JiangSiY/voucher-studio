@@ -454,7 +454,7 @@ export interface PendingLedgerItem {
   hasAttachment: boolean;
 }
 
-// ---- v13 台账页（/ledger）：导入批次 · 待补附件 · 待入账 ----
+// ---- 台账凭证（v13 /ledger 页引入；v0.27 B5 起页面并入数据页视图）：导入批次 · 待补附件 · 待入账 ----
 
 /** 台账凭证条目（待补附件 / 待入账两条列表共用） */
 export interface LedgerItem {
@@ -473,7 +473,7 @@ export interface LedgerItem {
   importBatchId: number | null;
 }
 
-/** 台账页概览计数（与两条列表同口径） */
+/** 台账概览计数（与两条列表同口径） */
 export interface LedgerCounts {
   unattached: number;
   unbooked: number;
@@ -511,7 +511,7 @@ export interface CheckReport {
   issues: CheckIssue[];
 }
 
-/** 台账页两个阶段：待补附件 / 待入账 */
+/** 台账两个阶段：待补附件 / 待入账 */
 export type LedgerStage = "unattached" | "unbooked";
 
 // ---- v0.26 Center：台账字段 / 会计投影 ----
@@ -1405,7 +1405,7 @@ export const api = {
   /** 待归档的台账凭证（长期挂着缺附件的清单） */
   listPendingLedger: () => invoke<PendingLedgerItem[]>("cli_list_pending"),
 
-  // ---- v13 台账页（GUI 入口）：选 CSV → 预演 → 写入 → 补附件 → 已入账 ----
+  // ---- 台账（数据页「导入批次」视图的「导入台账 CSV」入口）：选 CSV → 预演 → 写入 → 补附件 → 已入账 ----
   /** 选一份台账清单 CSV（Rust 侧对话框）。null = 用户取消 */
   pickLedgerCsv: () => (isTauri ? invoke<string | null>("pick_ledger_csv") : webPickLedgerCsv()),
   /** 给**已有**凭证挂一张票据（台账凭证补附件）。null = 用户取消 */
@@ -1413,7 +1413,7 @@ export const api = {
     isTauri
       ? invoke<ImportSummary | null>("pick_and_attach_image", { voucherId, runOcr })
       : webPickAndAttachImage(voucherId, runOcr),
-  /** 台账页概览：待补附件 / 待入账 / 有效批次 */
+  /** 台账概览：待补附件 / 待入账 / 有效批次 */
   // ---- v0.26 Center：台账字段与会计投影 ----
   getBizFields: (voucherId: number) => invoke<BizDetail>("get_biz_fields", { voucherId }),
   saveBizFields: (voucherId: number, fields: BizFields) =>

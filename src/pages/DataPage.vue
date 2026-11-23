@@ -26,6 +26,7 @@ import {
 import { toast, toastError } from "../stores/toast";
 import { useModalRoute } from "../composables/useModalRoute";
 import NewRecordDialog from "../components/dialogs/NewRecordDialog.vue";
+import LedgerImportDialog from "../components/ledger/LedgerImportDialog.vue";
 
 type View = "all" | "missing" | "legacy" | "booked" | "draft" | "month" | "batches";
 
@@ -70,6 +71,8 @@ const isDev = import.meta.env.DEV && isTauri;
 const w2Busy = ref(false);
 const w2Error = ref("");
 const w2Result = ref<DevW2Result | null>(null);
+// 台账 CSV 导入向导（B5 清场后原「台账」页退役，向导接到「导入批次」视图）
+const ledgerImportOpen = ref(false);
 
 const w2StatusLabel: Record<string, string> = {
   succeeded: "成功",
@@ -170,6 +173,13 @@ async function ensureFocus() {
   }
   expanded.value = id;
   await loadDetail(id);
+}
+
+/** 台账 CSV 导入完成后刷新批次下拉（清空缓存再拉，否则 loadBatches 会直接返回） */
+async function onLedgerImported() {
+  batches.value = [];
+  batchId.value = null;
+  await loadBatches();
 }
 
 async function loadBatches() {
@@ -495,6 +505,10 @@ watch(query, load);
     </section>
 
     <div v-if="activeView === 'batches'" class="data-batchbar">
+      <button class="btn" type="button" @click="ledgerImportOpen = true">
+        <FluentIcon name="upload" :size="14" />
+        <span>导入台账 CSV</span>
+      </button>
       <label class="data-field">
         <span>导入批次</span>
         <select v-model="batchId" class="input" @change="goto(1)">
@@ -645,6 +659,11 @@ watch(query, load);
       </div>
     </div>
     <NewRecordDialog :open="newOpen" @close="closeNew" @saved="onCreated" />
+    <LedgerImportDialog
+      :visible="ledgerImportOpen"
+      @close="ledgerImportOpen = false"
+      @done="onLedgerImported"
+    />
   </div>
 </template>
 

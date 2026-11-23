@@ -237,7 +237,7 @@ onMounted(async () => {
   // 之后由事件驱动刷新（导入/备份/处置都会改变待办构成）
   void dupStore.refresh();
   void inboxStore.refresh();
-  void ledgerStore.refresh(); // 台账徽标（待补附件张数）：与台账页同源 ledger_counts
+  void ledgerStore.refresh(); // 台账徽标（待补附件张数）：与数据页「待补凭证」视图同源 ledger_counts
   unlistenDupChanged = await safeListen("dup:changed", () => {
     void dupStore.refresh();
     void inboxStore.refresh();

@@ -6,7 +6,7 @@
  * （这里刚挂完附件、那里还挂着旧数字）。
  *
  * 口径只有一条：`unattached`（有 `ledger_ref` 但还没有附件的凭证张数），
- * 与台账页「待补附件」Tab 同源（都走 `ledger_counts`）。
+ * 与数据页「待补凭证」视图同源（都走 `ledger_counts`）。
  */
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
