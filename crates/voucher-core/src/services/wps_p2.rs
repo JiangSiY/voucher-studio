@@ -36,6 +36,14 @@ pub enum P2Error {
     Target(String),
     /// 表或字段超出授权范围。
     Scope(String),
+    /// 首屏 `offset` 必须为 0。
+    Offset(String),
+    /// 请求 `page_size` 与签批值不一致。
+    PageSize(String),
+    /// 同一份单次授权不能再次启动（已完成或已停止）。
+    SingleUse(String),
+    /// 整场请求预算耗尽。
+    ExecLimit(String),
     /// 授权主体（账号/租户）待补或与凭据不一致。
     ScopePending(String),
     /// 不在签批执行窗口内。
@@ -76,6 +84,10 @@ impl P2Error {
             Self::Endpoint(_) => "P2_E_ENDPOINT",
             Self::Target(_) => "P2_E_TARGET",
             Self::Scope(_) => "P2_E_SCOPE",
+            Self::Offset(_) => "P2_E_OFFSET",
+            Self::PageSize(_) => "P2_E_PAGE_SIZE",
+            Self::SingleUse(_) => "P2_E_SINGLE_USE",
+            Self::ExecLimit(_) => "P2_E_EXEC_LIMIT",
             Self::ScopePending(_) => "P2_E_SCOPE_PENDING",
             Self::Window(_) => "P2_E_WINDOW",
             Self::Action(_) => "P2_E_ACTION",
@@ -108,6 +120,10 @@ impl std::fmt::Display for P2Error {
             Self::Endpoint(msg)
             | Self::Target(msg)
             | Self::Scope(msg)
+            | Self::Offset(msg)
+            | Self::PageSize(msg)
+            | Self::SingleUse(msg)
+            | Self::ExecLimit(msg)
             | Self::ScopePending(msg)
             | Self::Window(msg)
             | Self::Action(msg)
@@ -247,6 +263,12 @@ pub struct P2Grant {
     pub window_start: DateTime<Utc>,
     pub window_end: DateTime<Utc>,
     pub approved_subject: Option<String>,
+    /// 签批的首屏 `page_size`；请求值必须一致。
+    pub page_size: u32,
+    /// 整场执行的 HTTP 请求总上限（初始化 + 读取 + 通知 + 终止）。
+    pub max_total_requests: u32,
+    /// 是否允许发送会话终止（`DELETE`）。依据不足时由签批人关闭。
+    pub terminate_allowed: bool,
 }
 
 impl P2Grant {
@@ -296,8 +318,21 @@ impl P2Grant {
                 ))
             }
         }
+        if self.sheets.is_empty() {
+            return Err(P2Error::NotApproved);
+        }
+        if self.sheets.len() > 1 {
+            return Err(P2Error::Scope(
+                "单次授权只允许一张表，授权中出现多张表，已拒绝".into(),
+            ));
+        }
         if !self.sheets.contains_key(&sheet_id) {
             return Err(P2Error::Scope(format!("表 {sheet_id} 不在签批范围内")));
+        }
+        if self.max_total_requests == 0 {
+            return Err(P2Error::ExecLimit(
+                "整场请求上限为 0，签批单未绑定预算，已拒绝".into(),
+            ));
         }
         Ok(())
     }
@@ -345,6 +380,18 @@ pub struct P2ReadOutcome {
     pub records: Vec<Value>,
     pub total: Option<u64>,
     pub attempts_used: usize,
+    /// 本轮实际发出的动作计数（初始化/读取/通知/终止/合计）。
+    pub actions: P2ActionCounts,
+}
+
+/// 单次 P2 执行的动作计数；用于签审时逐项核对发网次数。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct P2ActionCounts {
+    pub initialize: u32,
+    pub read: u32,
+    pub notify: u32,
+    pub terminate: u32,
+    pub total: u32,
 }
 
 /// 凭据提供方：token 只进认证参数；`subject` 用于核对签批授权主体。
@@ -371,7 +418,35 @@ impl P2Clock for SystemP2Clock {
 
 /// 传输边界：真实实现待 A2 参数到位后接线；离线测试用计数桩。
 pub trait P2Transport: Send + Sync {
-    fn initialize(&self, endpoint: &P2Endpoint, auth: Option<&str>) -> Result<String, P2Error>;
+    /// `deadline` 由入口按「窗口剩余时间」给出，传输层必须用它作为本次请求的超时上限。
+    fn initialize(
+        &self,
+        endpoint: &P2Endpoint,
+        auth: Option<&str>,
+        deadline: Duration,
+    ) -> Result<String, P2Error>;
+
+    /// 协议必需的 `notifications/initialized`。默认实现不发网（桩传输用）。
+    fn notify(
+        &self,
+        _endpoint: &P2Endpoint,
+        _session_id: &str,
+        _auth: Option<&str>,
+        _deadline: Duration,
+    ) -> Result<(), P2Error> {
+        Ok(())
+    }
+
+    /// 会话终止（`DELETE`）。默认实现不发网；真实传输按授权单开关执行。
+    fn terminate(
+        &self,
+        _endpoint: &P2Endpoint,
+        _session_id: &str,
+        _auth: Option<&str>,
+        _deadline: Duration,
+    ) -> Result<(), P2Error> {
+        Ok(())
+    }
 
     fn call(
         &self,
@@ -380,6 +455,7 @@ pub trait P2Transport: Send + Sync {
         action: &str,
         args: &Value,
         auth: Option<&str>,
+        deadline: Duration,
     ) -> Result<Value, P2Error>;
 }
 
@@ -389,7 +465,12 @@ pub trait P2Transport: Send + Sync {
 pub struct UnavailableP2Transport;
 
 impl P2Transport for UnavailableP2Transport {
-    fn initialize(&self, _endpoint: &P2Endpoint, _auth: Option<&str>) -> Result<String, P2Error> {
+    fn initialize(
+        &self,
+        _endpoint: &P2Endpoint,
+        _auth: Option<&str>,
+        _deadline: Duration,
+    ) -> Result<String, P2Error> {
         Err(P2Error::ProtocolPending(
             "真实 HTTPS 会话协议尚未取得可核实依据，P2 传输未接线".into(),
         ))
@@ -402,6 +483,7 @@ impl P2Transport for UnavailableP2Transport {
         _action: &str,
         _args: &Value,
         _auth: Option<&str>,
+        _deadline: Duration,
     ) -> Result<Value, P2Error> {
         Err(P2Error::ProtocolPending(
             "真实 HTTPS 会话协议尚未取得可核实依据，P2 传输未接线".into(),
@@ -501,6 +583,7 @@ impl P2TlsPolicy {
 pub struct HttpsP2Transport {
     endpoint: P2Endpoint,
     client: reqwest::blocking::Client,
+    timeout: Duration,
 }
 
 impl std::fmt::Debug for HttpsP2Transport {
@@ -522,6 +605,7 @@ impl HttpsP2Transport {
         session: Option<&str>,
         auth: Option<&str>,
         body: &Value,
+        deadline: Duration,
     ) -> Result<reqwest::blocking::Response, P2Error> {
         if endpoint != &self.endpoint {
             return Err(P2Error::Endpoint(
@@ -531,6 +615,7 @@ impl HttpsP2Transport {
         let mut request = self
             .client
             .post(endpoint.as_url())
+            .timeout(deadline.min(self.timeout))
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header(reqwest::header::ACCEPT, "application/json")
             .body(body.to_string());
@@ -539,6 +624,29 @@ impl HttpsP2Transport {
         }
         if let Some(session) = session {
             request = request.header("Mcp-Session-Id", session);
+        }
+        request.send().map_err(map_transport_error)
+    }
+
+    fn delete(
+        &self,
+        endpoint: &P2Endpoint,
+        session: &str,
+        auth: Option<&str>,
+        deadline: Duration,
+    ) -> Result<reqwest::blocking::Response, P2Error> {
+        if endpoint != &self.endpoint {
+            return Err(P2Error::Endpoint(
+                "传输层端点与授权端点不一致，拒绝请求".into(),
+            ));
+        }
+        let mut request = self
+            .client
+            .delete(endpoint.as_url())
+            .timeout(deadline.min(self.timeout))
+            .header("Mcp-Session-Id", session);
+        if let Some(token) = auth {
+            request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
         }
         request.send().map_err(map_transport_error)
     }
@@ -605,18 +713,25 @@ impl HttpsP2TransportBuilder {
         for (host, addr) in self.resolves {
             builder = builder.resolve(&host, addr);
         }
+        let timeout = self.timeout;
         let client = builder
             .build()
             .map_err(|_| P2Error::Protocol("HTTPS 客户端初始化失败".into()))?;
         Ok(HttpsP2Transport {
             endpoint: self.endpoint,
             client,
+            timeout,
         })
     }
 }
 
 impl P2Transport for HttpsP2Transport {
-    fn initialize(&self, endpoint: &P2Endpoint, auth: Option<&str>) -> Result<String, P2Error> {
+    fn initialize(
+        &self,
+        endpoint: &P2Endpoint,
+        auth: Option<&str>,
+        deadline: Duration,
+    ) -> Result<String, P2Error> {
         let body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -627,7 +742,7 @@ impl P2Transport for HttpsP2Transport {
                 "clientInfo": {"name": "voucher-studio-p2", "version": "0.28"}
             }
         });
-        let response = self.post(endpoint, None, auth, &body)?;
+        let response = self.post(endpoint, None, auth, &body, deadline)?;
         if let Some(err) = classify_http_status(response.status().as_u16()) {
             return Err(err);
         }
@@ -661,6 +776,7 @@ impl P2Transport for HttpsP2Transport {
         action: &str,
         args: &Value,
         auth: Option<&str>,
+        deadline: Duration,
     ) -> Result<Value, P2Error> {
         let body = json!({
             "jsonrpc": "2.0",
@@ -668,7 +784,7 @@ impl P2Transport for HttpsP2Transport {
             "method": "tools/call",
             "params": {"name": action, "arguments": args}
         });
-        let response = self.post(endpoint, Some(session_id), auth, &body)?;
+        let response = self.post(endpoint, Some(session_id), auth, &body, deadline)?;
         if let Some(err) = classify_http_status(response.status().as_u16()) {
             return Err(err);
         }
@@ -708,6 +824,35 @@ impl P2Transport for HttpsP2Transport {
             }
         }
         Ok(result)
+    }
+
+    fn notify(
+        &self,
+        endpoint: &P2Endpoint,
+        session_id: &str,
+        auth: Option<&str>,
+        deadline: Duration,
+    ) -> Result<(), P2Error> {
+        let body = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
+        let response = self.post(endpoint, Some(session_id), auth, &body, deadline)?;
+        match classify_http_status(response.status().as_u16()) {
+            None => Ok(()),
+            Some(err) => Err(err),
+        }
+    }
+
+    fn terminate(
+        &self,
+        endpoint: &P2Endpoint,
+        session_id: &str,
+        auth: Option<&str>,
+        deadline: Duration,
+    ) -> Result<(), P2Error> {
+        let response = self.delete(endpoint, session_id, auth, deadline)?;
+        match classify_http_status(response.status().as_u16()) {
+            None => Ok(()),
+            Some(err) => Err(err),
+        }
     }
 }
 
@@ -783,6 +928,8 @@ pub struct P2ReadOnlyEntry<T: P2Transport> {
     max_attempts: usize,
     /// 测试用审计汇聚点：与 `log::info!` 同源同格式，供证据用例断言脱敏内容。
     audit_sink: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+    /// 已占用的单次授权 key；成功或停止后不可再次启动。
+    claimed: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl<T: P2Transport> P2ReadOnlyEntry<T> {
@@ -794,6 +941,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             backoff: Duration::from_secs(1),
             max_attempts: P2_MAX_READ_ATTEMPTS,
             audit_sink: None,
+            claimed: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -816,8 +964,19 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         self
     }
 
+    /// 单次执行入口：绑定一份授权、一张表、首屏 `offset=0`、签批 `page_size` 与整场请求上限。
+    /// 预检通过即占用该授权；成功结束或触发停止条件后不能再次启动。
     pub fn read(&self, gate: &P2Gate, request: &P2ReadRequest) -> Result<P2ReadOutcome, P2Error> {
         let grant = gate.grant()?;
+        if request.offset != 0 {
+            return Err(P2Error::Offset("单次授权只读首屏：offset 必须为 0".into()));
+        }
+        if request.page_size == 0 || request.page_size != grant.page_size as usize {
+            return Err(P2Error::PageSize(format!(
+                "请求 page_size={} 与签批值 {} 不一致，已拒绝",
+                request.page_size, grant.page_size
+            )));
+        }
         let subject = self.credential.as_ref().and_then(|c| c.subject());
         grant.preflight(
             self.clock.now(),
@@ -825,6 +984,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             subject.as_deref(),
             request.sheet_id,
         )?;
+        self.claim(grant)?;
 
         let token = match &self.credential {
             Some(credential) => {
@@ -850,9 +1010,8 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             "fields": fields,
         });
 
-        let mut session = self
-            .transport
-            .initialize(&grant.endpoint, token.as_deref())?;
+        let mut counts = P2ActionCounts::default();
+        let mut session = self.start_session(grant, token.as_deref(), &mut counts)?;
         // 读取预算：一次逻辑读取最多真实发出 max_attempts 次 list_records，
         // 首次调用、会话重建后的重发、超时重试都各消耗一次；初始化不占用读取预算。
         let mut sent = 0usize;
@@ -866,13 +1025,17 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                 self.audit(grant, request.sheet_id, err.code(), sent);
                 return Err(err);
             }
+            // 每次发网前核对窗口剩余时间与整场请求上限；超时上限即剩余窗口。
+            let deadline = self.reserve(grant, &mut counts)?;
             sent += 1;
+            counts.read += 1;
             match self.transport.call(
                 &grant.endpoint,
                 &session,
                 P2_ACTION_LIST_RECORDS,
                 &args,
                 token.as_deref(),
+                deadline,
             ) {
                 Ok(value) => {
                     let (records, total) =
@@ -884,30 +1047,46 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                                 return Err(err);
                             }
                         };
-                    let outcome = P2ReadOutcome {
+                    self.audit(grant, request.sheet_id, "ok", sent);
+                    if grant.terminate_allowed {
+                        // 结束后终止会话；失败只做本地关闭，不再发网。
+                        if let Ok(deadline) = self.reserve(grant, &mut counts) {
+                            counts.terminate += 1;
+                            let _ = self.transport.terminate(
+                                &grant.endpoint,
+                                &session,
+                                token.as_deref(),
+                                deadline,
+                            );
+                        }
+                    }
+                    return Ok(P2ReadOutcome {
                         sheet_id: request.sheet_id,
                         records,
                         total,
                         attempts_used: sent,
-                    };
-                    self.audit(grant, request.sheet_id, "ok", sent);
-                    return Ok(outcome);
+                        actions: counts,
+                    });
                 }
                 Err(P2Error::SessionExpired) => {
-                    // 会话重建最多一次，且消耗已发出的那一次读取预算。
-                    if reinitialized {
+                    // 会话重建最多一次；读取额度已用尽时不再重建。
+                    if reinitialized || sent >= self.max_attempts {
                         self.audit(grant, request.sheet_id, "P2_E_SESSION", sent);
                         return Err(P2Error::SessionExpired);
                     }
                     reinitialized = true;
-                    session = self
-                        .transport
-                        .initialize(&grant.endpoint, token.as_deref())?;
+                    session = self.start_session(grant, token.as_deref(), &mut counts)?;
                     last_error = Some(P2Error::SessionExpired);
                 }
                 Err(err) if err.is_retryable() => {
                     last_error = Some(err);
                     if sent < self.max_attempts {
+                        // 退避不得超过窗口剩余时间；剩余不足则直接停止，不再发网。
+                        let remain = self.remaining(grant)?;
+                        if remain <= self.backoff {
+                            self.audit(grant, request.sheet_id, "P2_E_WINDOW", sent);
+                            return Err(P2Error::Window("执行窗口在退避期间到期，已停止".into()));
+                        }
                         std::thread::sleep(self.backoff);
                     }
                 }
@@ -917,6 +1096,76 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                 }
             }
         }
+    }
+
+    /// 占用单次授权：同一 key 只能成功一次，成功或停止后不可重启。
+    fn claim(&self, grant: &P2Grant) -> Result<(), P2Error> {
+        let approver = grant.approved_by.as_deref().ok_or(P2Error::NotApproved)?;
+        let key = format!(
+            "{approver}|{}|{}",
+            grant.file_id,
+            grant.window_start.to_rfc3339()
+        );
+        let mut claimed = self
+            .claimed
+            .lock()
+            .map_err(|_| P2Error::SingleUse("授权占用状态不可用，拒绝启动".into()))?;
+        if !claimed.insert(key) {
+            return Err(P2Error::SingleUse(
+                "该授权已完成或已停止，不能再次启动".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 窗口剩余时间；到期即拒绝继续发网。
+    fn remaining(&self, grant: &P2Grant) -> Result<Duration, P2Error> {
+        let now = self.clock.now();
+        if now >= grant.window_end {
+            return Err(P2Error::Window("执行窗口已到期，拒绝继续发网".into()));
+        }
+        (grant.window_end - now)
+            .to_std()
+            .map_err(|_| P2Error::Window("执行窗口剩余时间不可用".into()))
+    }
+
+    /// 消耗一次整场请求预算，返回本次请求允许的最长耗时（不超过窗口剩余时间）。
+    fn reserve(&self, grant: &P2Grant, counts: &mut P2ActionCounts) -> Result<Duration, P2Error> {
+        let remain = self.remaining(grant)?;
+        if counts.total >= grant.max_total_requests {
+            return Err(P2Error::ExecLimit(format!(
+                "整场请求已达上限 {} 次，已停止",
+                grant.max_total_requests
+            )));
+        }
+        counts.total += 1;
+        Ok(remain)
+    }
+
+    /// 建立（或重建）会话并发一次协议通知；初始化上限 2 次、通知上限 2 次。
+    fn start_session(
+        &self,
+        grant: &P2Grant,
+        token: Option<&str>,
+        counts: &mut P2ActionCounts,
+    ) -> Result<String, P2Error> {
+        if counts.initialize >= 2 {
+            return Err(P2Error::ExecLimit(
+                "会话初始化已达上限（初次 + 最多一次重建），已停止".into(),
+            ));
+        }
+        let deadline = self.reserve(grant, counts)?;
+        counts.initialize += 1;
+        let session = self
+            .transport
+            .initialize(&grant.endpoint, token, deadline)?;
+        if counts.notify < 2 {
+            let deadline = self.reserve(grant, counts)?;
+            counts.notify += 1;
+            self.transport
+                .notify(&grant.endpoint, &session, token, deadline)?;
+        }
+        Ok(session)
     }
 
     fn validate_records(
@@ -1002,6 +1251,9 @@ mod tests {
             endpoint: endpoint("https://wps.example.test/mcp"),
             approved_file_id: "dbsheet_replica_001".into(),
             file_id: "dbsheet_replica_001".into(),
+            page_size: 50,
+            max_total_requests: 8,
+            terminate_allowed: true,
             sheets: map,
             window_start: DateTime::parse_from_rfc3339("2026-11-22T10:00:00Z")
                 .unwrap()
@@ -1056,7 +1308,12 @@ mod tests {
     }
 
     impl P2Transport for CountingTransport {
-        fn initialize(&self, endpoint: &P2Endpoint, auth: Option<&str>) -> Result<String, P2Error> {
+        fn initialize(
+            &self,
+            endpoint: &P2Endpoint,
+            auth: Option<&str>,
+            _deadline: Duration,
+        ) -> Result<String, P2Error> {
             assert_eq!(endpoint.host(), "wps.example.test");
             assert!(auth.is_some(), "P2 需要显式 token");
             *self.init.lock().unwrap() += 1;
@@ -1070,6 +1327,7 @@ mod tests {
             action: &str,
             args: &Value,
             _auth: Option<&str>,
+            _deadline: Duration,
         ) -> Result<Value, P2Error> {
             assert_eq!(action, P2_ACTION_LIST_RECORDS);
             self.calls
@@ -1546,6 +1804,11 @@ mod tests {
         JsonOk { leak: bool },
         /// 返回 302 与 Location，不改写目标。
         Redirect { location: String },
+        /// 读取请求按脚本依次返回状态码（200 时走正常负载）；脚本为空后按 200 返回。
+        Script {
+            statuses: Arc<Mutex<Vec<u16>>>,
+            leak: bool,
+        },
     }
 
     struct TlsServer {
@@ -1655,6 +1918,33 @@ mod tests {
 
         let initialize = text.contains("\"method\":\"initialize\"");
         let (status, headers, body) = match &mode {
+            ServerMode::Script { statuses, leak } if text.contains("\"method\":\"tools/call\"") => {
+                let next = statuses.lock().unwrap().pop().unwrap_or(200);
+                if next == 200 {
+                    let mut record = String::from("{\"A\":\"一\"");
+                    if *leak {
+                        record.push_str(",\"SECRET\":\"不可见\"");
+                    }
+                    record.push('}');
+                    let payload = format!("{{\"records\":[{record}],\"total\":1}}");
+                    let literal = serde_json::to_string(&payload).expect("payload literal");
+                    (
+                        200,
+                        Vec::new(),
+                        format!(
+                            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":{literal}}}],\"isError\":false}}}}"
+                        ),
+                    )
+                } else {
+                    (next, Vec::new(), String::new())
+                }
+            }
+            ServerMode::Script { .. } => (
+                200,
+                vec![("Mcp-Session-Id".to_string(), "sess-1".to_string())],
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}"
+                    .to_string(),
+            ),
             ServerMode::Redirect { location } => (
                 302u16,
                 vec![("Location".to_string(), location.clone())],
@@ -1756,7 +2046,18 @@ mod tests {
             .expect("合法读取应成功");
         assert_eq!(outcome.records.len(), 1);
         assert_eq!(outcome.attempts_used, 1);
-        assert_eq!(server.count(), 2, "初始化 1 次 + 读取 1 次");
+        // 单次执行的动作计数：初始化 1 + 通知 1 + 读取 1 + 终止 1。
+        assert_eq!(
+            outcome.actions,
+            P2ActionCounts {
+                initialize: 1,
+                read: 1,
+                notify: 1,
+                terminate: 1,
+                total: 4
+            }
+        );
+        assert_eq!(server.count(), 4, "初始化 + 通知 + 读取 + 终止");
     }
 
     #[test]
@@ -1874,8 +2175,8 @@ mod tests {
         assert!(!line.contains("synthetic"), "{line}");
         assert_eq!(
             server.count(),
-            2,
-            "越界字段在收到响应后拒绝，无后续分页或重试"
+            3,
+            "初始化 + 通知 + 读取；越界后拒绝且无后续分页、重试或终止"
         );
     }
 
@@ -1912,5 +2213,234 @@ mod tests {
             .unwrap_err();
         assert_eq!(write_err.code(), "P2_E_ACTION");
         assert_eq!(server.count(), 0, "预检拒绝时不建立任何连接");
+    }
+
+    fn fixed_clock(at: &str) -> Arc<FixedClock> {
+        Arc::new(FixedClock(
+            DateTime::parse_from_rfc3339(at)
+                .unwrap()
+                .with_timezone(&Utc),
+        ))
+    }
+
+    fn entry_with_backoff(
+        transport: HttpsP2Transport,
+        subject: &str,
+        backoff: Duration,
+    ) -> P2ReadOnlyEntry<HttpsP2Transport> {
+        P2ReadOnlyEntry::new(
+            transport,
+            Some(Arc::new(SyntheticCredential {
+                subject: Some(subject.to_string()),
+            })),
+        )
+        .with_clock_and_backoff(
+            fixed_clock("2026-11-22T10:30:00Z"),
+            backoff,
+            P2_MAX_READ_ATTEMPTS,
+        )
+    }
+
+    #[test]
+    fn p2_https_non_first_page_and_unapproved_page_size_make_zero_requests() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+
+        let offset_err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 50,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(offset_err.code(), "P2_E_OFFSET");
+
+        let size_err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 20,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(size_err.code(), "P2_E_PAGE_SIZE");
+
+        assert_eq!(server.count(), 0, "分页参数不合法时零请求");
+    }
+
+    #[test]
+    fn p2_https_window_expiry_during_backoff_stops_without_next_request() {
+        let statuses = Arc::new(Mutex::new(vec![500u16]));
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::Script {
+                statuses: Arc::clone(&statuses),
+                leak: false,
+            },
+        );
+        let reader = entry_with_backoff(
+            https_reader(&server, true),
+            "tenant-a/reader",
+            Duration::from_secs(5),
+        );
+        let mut grant = grants(&[(3, &["A"])]);
+        grant.endpoint = server.endpoint();
+        grant.approved_endpoint = server.endpoint();
+        grant.window_end = DateTime::parse_from_rfc3339("2026-11-22T10:30:00.100Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let err = reader
+            .read(
+                &P2Gate::open(grant),
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_WINDOW", "退避期间窗口到期必须停止");
+        assert_eq!(server.count(), 3, "初始化 + 通知 + 首次读取，无第二次读取");
+    }
+
+    #[test]
+    fn p2_https_total_request_cap_stops_before_next_request() {
+        let statuses = Arc::new(Mutex::new(vec![500u16]));
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::Script {
+                statuses,
+                leak: false,
+            },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let mut grant = grants(&[(3, &["A"])]);
+        grant.endpoint = server.endpoint();
+        grant.approved_endpoint = server.endpoint();
+        grant.max_total_requests = 3;
+
+        let err = reader
+            .read(
+                &P2Gate::open(grant),
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_EXEC_LIMIT", "整场预算耗尽后停止");
+        assert_eq!(server.count(), 3, "初始化 + 通知 + 一次读取后不再发网");
+    }
+
+    #[test]
+    fn p2_https_completed_authorization_cannot_restart() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::JsonOk { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .expect("首次读取应成功");
+        assert_eq!(server.count(), 4);
+
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_SINGLE_USE");
+        assert_eq!(server.count(), 4, "完成后重复启动不得发网");
+    }
+
+    #[test]
+    fn p2_https_out_of_scope_stops_and_authorization_cannot_restart() {
+        let server = spawn_tls_server(TLS_SRV_CERT, TLS_SRV_KEY, ServerMode::JsonOk { leak: true });
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_SCOPE");
+        assert_eq!(server.count(), 3, "越界后无终止、无后续分页");
+
+        let restart = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(restart.code(), "P2_E_SINGLE_USE");
+        assert_eq!(server.count(), 3, "越界停止后不得再次启动");
+    }
+
+    #[test]
+    fn p2_https_last_read_attempt_session_expiry_skips_reinitialization() {
+        let statuses = Arc::new(Mutex::new(vec![404u16, 500u16, 500u16]));
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::Script {
+                statuses,
+                leak: false,
+            },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    offset: 0,
+                    page_size: 50,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err.code(), "P2_E_SESSION");
+        assert_eq!(
+            server.count(),
+            5,
+            "初始化 1 + 通知 1 + 读取 3；最后一次额度用完不得再重建会话"
+        );
     }
 }
