@@ -2,6 +2,8 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
+> **2026-11-23 数据页入账入口键盘与可访问性小修（verifier 复核后）**：移动卡片与桌面表格的「已入账」按钮补 `@keydown.space.stop`（Space 不再冒泡展开卡片；浏览器里 Space 仍按原生语义在 keyup 触发一次 click，只写一次库）；移动卡片 `div[role=button]` 与桌面表格行补 `aria-expanded`，展开态如实传给辅助技术，未重构成嵌套 button 结构（卡内必须可点入账，是已知取舍）。`src/pages/__tests__/DataPage.test.ts` 增至 7 例（新增：卡片按钮上按 Space 不展开、不调 `get_voucher`、整条链路只写一次库），前端实跑 **44 文件 227 用例**（原 226）。另修正 `docs/开发方案.md` B5 段动作数（两个 → 三个）与开发日志第一百一十六、一百一十七笔字段名（对齐 AGENTS 模板「关键提交（sha + 标题）」）。
+
 > **2026-11-23 数据页补回「人工勾已入账」入口（B5 补收尾）**：B5 换 IA 时随台账页退役的 `set_ledger_booked` 动作已接回数据页——桌面「入账」列与移动卡片标记均可点（`@click.stop` 不误触行展开、逐行防连点、失败走 toast），「待入账」视图勾上后该行自然消失（过滤条件本就是 `!booked`）。前端新增 `src/pages/__tests__/DataPage.test.ts` 6 例（成功只发一次/取消/在途禁用/失败不误改/不展开/移动卡片），实跑 **44 文件 226 用例**（五门全过，build 1.03s）。Rust 计数不变（`voucher-core` 353 单元 + 167 集成 = **520**，加壳 3 共 **523**；本轮零 Rust 改动，`cargo clippy` 与全量 `cargo test` 交验收方，`cargo fmt --all --check` 通过）。挂账 #71（批次撤销 `undo_import_batch` 仍只有命令层）不变。
 
 > **2026-11-23 前端死代码收敛（B5 补收尾）**：补删 `src/pages/LedgerPage.vue`（755 行）及其 10 例测试——路由自 B5 起已是 `/ledger` → `/reconcile`，该页生产无引用；`LedgerImportDialog`（6 例）保留，并把「导入台账 CSV」接进数据页「导入批次」视图（B5 换 IA 时漏接的入口）。前端实跑 **43 文件 220 用例**（原 44 文件 230 用例；五门 `typecheck` / `lint` / `format:check` / `test` / `build` 全过，build 971ms）。Rust 计数不变（`voucher-core` 353 单元 + 167 集成 = **520**，加壳 3 共 **523**；本轮未改 Rust，全量 `cargo test` 未复跑、交由验收方，`cargo fmt --all --check` 通过）。批次撤销仍只有命令层，界面入口见挂账 #71。
