@@ -2,7 +2,7 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
-> **2026-11-23 P2 跨进程消费登记验收**：`voucher-core` 测试 **520 个**（353 单元 + 167 集成；`wps_p2` 32 → **36 例**——新增独立子进程验收：正常退出后重启、两进程并发、登记提交后发网前中断，均只允许一次消费且零重复请求），加壳 3 共 **523**；全量实跑 **530 passed / 0 failed / 0 ignored**（须在无文件沙箱的终端执行，见下方 OCR 说明）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **154**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 36）。**跨进程证据**：子进程复用测试二进制（`current_exe --exact … p2_child_worker`）调用同一 `P2ReadOnlyEntry` 与同一 `SqliteP2State`；A 完成读取 4 次请求后退出，B 同授权得 `P2_E_ALREADY_USED`、新增 0；并发两进程 `ok=1 used=1`、服务端总计 4；登记提交后由测试用同步点暂停、父进程确认 0 请求后终止，重启仍 `P2_E_ALREADY_USED`、请求仍 0，时点由文件标记固定而非 `sleep`。**真实端点/账号主体/服务端只读权限仍未取得**，P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md) §3.4。
+> **2026-11-23 P2 跨进程消费登记验收**：`voucher-core` 测试 **520 个**（353 单元 + 167 集成；`wps_p2` 32 → **36 例**——新增独立子进程验收：正常退出后重启、两进程并发、登记提交后发网前中断，均只允许一次消费且零重复请求），加壳 3 共 **523**；全量实跑 **534 passed / 0 failed / 0 ignored**（含新增 `voucher-cli` 集成 4 例：P2 最小只读 CLI 的端点白名单/离线默认/单次授权状态库；须在无文件沙箱的终端执行，见下方 OCR 说明）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **154**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 36）。**跨进程证据**：子进程复用测试二进制（`current_exe --exact … p2_child_worker`）调用同一 `P2ReadOnlyEntry` 与同一 `SqliteP2State`；A 完成读取 4 次请求后退出，B 同授权得 `P2_E_ALREADY_USED`、新增 0；并发两进程 `ok=1 used=1`、服务端总计 4；登记提交后由测试用同步点暂停、父进程确认 0 请求后终止，重启仍 `P2_E_ALREADY_USED`、请求仍 0，时点由文件标记固定而非 `sleep`。**真实端点/账号主体/服务端只读权限仍未取得**，P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md) §3.4。
 
 > **2026-11-23 P2 跨重启消费登记与越界脱敏（上一轮）**：`voucher-core` 测试 **516 个**（349 单元 + 167 集成；`wps_p2` 25 → **32 例**——新增重建入口/并发/发网前中断后不可再启动、状态库不可用零请求、超长窗口与超上限授权零请求、`DELETE` 失败记「未确认」且不追加请求、预算耗尽记「未发送」原因），加壳 3 共 **519**；全量实跑 **526 passed / 0 failed / 0 ignored**（须在无文件沙箱的终端执行，见下方 OCR 说明）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **150**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 32）。**跨重启失效**：`P2Grant` 增 `grant_id`；`P2Consumption` + 隔离 SQLite `SqliteP2State`（只存授权号/登记时间/掩码副本号/窗口终点），发网前 `INSERT` 原子登记，冲突即 `P2_E_ALREADY_USED`，状态库不可用即 `P2_E_STATE` 本地停止；窗口 ≤15 分钟、整场 ≤8 次在 `preflight` 强制。**越界脱敏**：响应出现未授权字段时只给固定提示 + 错误码 + 表号，不回显字段名/值。**终止状态**：`P2Termination` 区分「已确认 / 未确认（本地已关闭）/ 未发送（原因）」。**真实端点/账号主体/服务端只读权限仍未取得**，P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md)。
 
@@ -107,7 +107,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：353 单元 + 167 集成，共 520 用例；加 src-tauri 3 用例共 523；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：353 单元 + 167 集成，共 520 用例；加 src-tauri 3 用例共 523；另 voucher-cli 集成 4 例；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
