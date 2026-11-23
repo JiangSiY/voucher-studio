@@ -1,0 +1,16 @@
+{
+  "_说明": "A2 合成专用表首联授权单模板。所有【待补】值必须由对应提供人补齐后才可提交签批；--check 只做本地预检，不发网、不建状态库、不消费 grant_id。",
+  "grant_id": "A2-SYN-20261123-01",
+  "approved_by": null,
+  "endpoint": "https://p2-local.test/mcp",
+  "file_id": "【待补：合成表 file_id】",
+  "approved_file_id": "【待补：合成表 file_id】",
+  "sheet_id": 1,
+  "fields": ["code", "amount", "day"],
+  "window_start": "2026-11-23T10:00:00Z",
+  "window_end": "2026-11-23T10:10:00Z",
+  "page_size": 50,
+  "max_total_requests": 8,
+  "terminate_allowed": true,
+  "approved_subject": "tenant-syn/reader"
+}
