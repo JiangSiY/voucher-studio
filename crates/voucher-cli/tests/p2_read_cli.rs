@@ -177,3 +177,105 @@ fn loopback_tls_to_closed_port_fails_locally_and_still_consumes_grant() {
     assert_eq!(code_of(&out), "P2_E_TLS", "非法 CA 应在建连前失败");
     assert!(state.exists(), "进入执行后仍应先登记再发网");
 }
+
+fn stderr_of(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).to_string()
+}
+
+fn token_file(dir: &Path, content: &str) -> PathBuf {
+    let path = dir.join("token.txt");
+    std::fs::write(&path, content).expect("写凭据文件");
+    path
+}
+
+#[test]
+fn real_endpoint_requires_explicit_allow_flag() {
+    let dir = temp_dir("real-no-flag");
+    // 非回环主机：默认应被授权单解析直接拒绝，且不进入任何网络分支。
+    let grant = grant(
+        &dir,
+        "https://wps.example.invalid/mcp",
+        "dbsheet_replica_001",
+    );
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--transport",
+        "https",
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = stderr_of(&out);
+    assert!(text.contains("--allow-real-endpoint"), "{text}");
+}
+
+#[test]
+fn real_endpoint_requires_token_file() {
+    let dir = temp_dir("real-no-token");
+    let grant = grant(&dir, "https://p2-local.test/mcp", "dbsheet_replica_001");
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--transport",
+        "https",
+        "--allow-real-endpoint",
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = stderr_of(&out);
+    assert!(text.contains("--token-file"), "{text}");
+}
+
+#[test]
+fn real_endpoint_rejects_empty_token_before_any_request() {
+    let dir = temp_dir("real-empty-token");
+    let grant = grant(&dir, "https://p2-local.test/mcp", "dbsheet_replica_001");
+    let token = token_file(&dir, "   \n");
+    let state = dir.join("state.db");
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--transport",
+        "https",
+        "--allow-real-endpoint",
+        "--token-file",
+        token.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = stderr_of(&out);
+    assert!(text.contains("凭据文件为空"), "{text}");
+    assert!(!state.exists(), "预检前失败不应创建状态库");
+}
+
+#[test]
+fn real_endpoint_check_reports_readiness_without_state_or_network() {
+    let dir = temp_dir("real-check");
+    let grant = grant(&dir, "https://p2-local.test/mcp", "dbsheet_replica_001");
+    let token = token_file(&dir, "synthetic-real-mode-token\n");
+    let state = dir.join("state.db");
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--transport",
+        "https",
+        "--allow-real-endpoint",
+        "--token-file",
+        token.to_str().unwrap(),
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(0));
+    let value = stdout_json(&out);
+    assert_eq!(value["real_endpoint"], json!(true));
+    assert_eq!(value["credential_file"], json!(true));
+    assert_eq!(value["check"], json!("preflight"));
+    assert!(!state.exists());
+    // token 值不得出现在输出里。
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("synthetic-real-mode-token"), "{text}");
+}
