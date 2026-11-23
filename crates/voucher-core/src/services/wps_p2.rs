@@ -410,12 +410,17 @@ pub struct P2ReadRequest {
     pub page_size: usize,
 }
 
+/// 校验后的一页：记录、可选总数、可选下一页游标。
+type ValidatedPage = (Vec<Value>, Option<u64>, Option<String>);
+
 /// 读取结果（只保留已授权字段）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct P2ReadOutcome {
     pub sheet_id: i64,
     pub records: Vec<Value>,
     pub total: Option<u64>,
+    /// 服务端游标（`data.detail.offset`）；为空表示没有下一页。
+    pub cursor: Option<String>,
     pub attempts_used: usize,
     /// 本轮实际发出的动作计数（初始化/读取/通知/终止/合计）。
     pub actions: P2ActionCounts,
@@ -1200,10 +1205,13 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             .iter()
             .cloned()
             .collect();
+        // SkillHub 的 `offset` 是**不透明字符串游标**（首屏传空串，下一页传响应里的
+        // `data.detail.offset`）。此前的数值 `0` 会被服务端当成另一种语义，实测只回了
+        // 首页一部分记录（2026-11-23 第二发 27 条 vs 插件同参数 50 条）。
         let args = json!({
             "file_id": grant.file_id,
             "sheet_id": request.sheet_id,
-            "offset": request.offset,
+            "offset": "",
             "page_size": request.page_size,
             "fields": fields,
         });
@@ -1236,7 +1244,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                 deadline,
             ) {
                 Ok(value) => {
-                    let (records, total) =
+                    let (records, total, cursor) =
                         match self.validate_records(grant, request.sheet_id, &value) {
                             Ok(validated) => validated,
                             Err(err) => {
@@ -1287,6 +1295,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
                         sheet_id: request.sheet_id,
                         records,
                         total,
+                        cursor,
                         attempts_used: sent,
                         actions: counts,
                         termination,
@@ -1397,7 +1406,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         grant: &P2Grant,
         sheet_id: i64,
         value: &Value,
-    ) -> Result<(Vec<Value>, Option<u64>), P2Error> {
+    ) -> Result<ValidatedPage, P2Error> {
         let allowed = grant.fields_for(sheet_id)?;
         // 真实端点的 `tools/call` 文本可能是 WPS 信封（`{code,message,data:{detail:{records}}}`），
         // 也可能是 `data.records` 或裸 `records`；三种都接受，其余一律按形状不符拒绝。
@@ -1439,7 +1448,12 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             .get("total")
             .or_else(|| value.get("total"))
             .and_then(Value::as_u64);
-        Ok((kept, total))
+        let cursor = payload
+            .get("offset")
+            .and_then(Value::as_str)
+            .filter(|cursor| !cursor.is_empty())
+            .map(str::to_string);
+        Ok((kept, total, cursor))
     }
 
     /// 找到承载 `records` 的那一层：裸响应、`data.records`、或 WPS 信封的 `data.detail.records`。
@@ -1937,6 +1951,26 @@ mod tests {
     }
 
     #[test]
+    fn p2_https_wps_envelope_cursor_is_reported() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::WpsEnvelope { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let outcome = reader.read(&gate, &read_req()).expect("读取应成功");
+        assert_eq!(outcome.cursor.as_deref(), Some("VW"));
+        // 服务端收到的读取请求里，`offset` 必须是空串而不是数字 0。
+        let bodies = server.bodies();
+        let read_body = bodies
+            .iter()
+            .find(|body| body.contains("tools/call"))
+            .expect("应记录到 list_records 请求体");
+        assert!(read_body.contains("\"offset\":\"\""), "{read_body}");
+    }
+
+    #[test]
     fn p2_records_payload_accepts_bare_data_records() {
         // 真实端点还有 `data.records` 这一层；三种形状都要能定位 records。
         let value = serde_json::json!({"data":{"records":[{"fields":{"A":"一"}}]}});
@@ -2114,7 +2148,14 @@ mod tests {
     struct TlsServer {
         port: u16,
         requests: Arc<Mutex<Vec<String>>>,
+        bodies: Arc<Mutex<Vec<String>>>,
         stop: Arc<AtomicBool>,
+    }
+
+    impl TlsServer {
+        fn bodies(&self) -> Vec<String> {
+            self.bodies.lock().unwrap().clone()
+        }
     }
 
     impl TlsServer {
@@ -2143,6 +2184,7 @@ mod tests {
         listener.set_nonblocking(true).expect("nonblocking");
         let port = listener.local_addr().expect("addr").port();
         let requests = Arc::new(Mutex::new(Vec::new()));
+        let bodies = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let config = Arc::new(
             rustls::ServerConfig::builder()
@@ -2156,6 +2198,7 @@ mod tests {
                 .expect("server config"),
         );
         let requests_for_thread = Arc::clone(&requests);
+        let bodies_for_thread = Arc::clone(&bodies);
         let stop_for_thread = Arc::clone(&stop);
         std::thread::spawn(move || loop {
             if stop_for_thread.load(Ordering::SeqCst) {
@@ -2166,9 +2209,10 @@ mod tests {
                     let _ = tcp.set_nonblocking(false);
                     let config = Arc::clone(&config);
                     let requests = Arc::clone(&requests_for_thread);
+                    let bodies = Arc::clone(&bodies_for_thread);
                     let mode = mode.clone();
                     std::thread::spawn(move || {
-                        handle_tls_connection(tcp, config, mode, requests);
+                        handle_tls_connection(tcp, config, mode, requests, bodies);
                     });
                 }
                 Err(ref err) if err.kind() == std::io::ErrorKind::WouldBlock => {
@@ -2180,6 +2224,7 @@ mod tests {
         TlsServer {
             port,
             requests,
+            bodies,
             stop,
         }
     }
@@ -2189,6 +2234,7 @@ mod tests {
         config: Arc<rustls::ServerConfig>,
         mode: ServerMode,
         requests: Arc<Mutex<Vec<String>>>,
+        bodies: Arc<Mutex<Vec<String>>>,
     ) {
         use std::io::{Read, Write};
         let Ok(connection) = rustls::ServerConnection::new(config) else {
@@ -2215,6 +2261,7 @@ mod tests {
         let text = String::from_utf8_lossy(&raw).to_string();
         let first_line = text.lines().next().unwrap_or_default().to_string();
         requests.lock().unwrap().push(first_line.clone());
+        bodies.lock().unwrap().push(text.clone());
 
         let initialize = text.contains("\"method\":\"initialize\"");
         let is_delete = first_line.starts_with("DELETE ");

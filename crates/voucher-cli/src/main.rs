@@ -451,6 +451,7 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
                     "grant_id": grant.grant_id,
                     "sheet_id": outcome.sheet_id,
                     "record_count": outcome.records.len(),
+                    "cursor": outcome.cursor,
                     "total": outcome.total,
                     "attempts_used": outcome.attempts_used,
                     "actions": {
