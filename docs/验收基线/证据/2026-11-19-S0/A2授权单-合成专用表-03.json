@@ -1,7 +1,7 @@
 {
-  "_说明": "A2 合成专用表**第二发**授权单（第三张单）。目的：在已修好 WPS 信封解析之后，取一次 CLI 级成功读取（`records` 正常返回）与 `DELETE` 终止结果；不再重复验证 Q1（已由第一发与插件通道确认成立）。签署：把 approved_by 的 null 改成你的名义，并填 window_start/window_end（RFC3339，≤15 分钟）；其余参数沿用，不得放宽。执行：wps-p2-read --transport https --allow-real-endpoint --token-file <t> --state <db>；单次授权，消费后不可重放。",
+  "_说明": "A2 合成专用表**第二发**授权单（第三张单）。目的：在已修好 WPS 信封解析之后，取一次 CLI 级成功读取（`records` 正常返回）与 `DELETE` 终止结果；不再重复验证 Q1（已由第一发与插件通道确认成立）。签署：把 approved_by 的 null 改成你的名义，并填 window_start/window_end（RFC3339，≤15 分钟）；其余参数沿用，不得放宽。执行：wps-p2-read --transport https --allow-real-endpoint --token-file <t> --state <db>；单次授权，消费后不可重放。 签署人填写的 20:54–21:04 为本地时间（CST），已换算为 UTC 12:54–13:04Z；签名值按原文补引号。",
   "grant_id": "A2-SYN-20261123-03",
-  "approved_by": null,
+  "approved_by": "本人签署（唯一责任人）",
   "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
   "file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
   "approved_file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
@@ -9,8 +9,8 @@
   "fields": [
     "code"
   ],
-  "window_start": "【待填：签署时填写，≤15 分钟】",
-  "window_end": "【待填：签署时填写，≤15 分钟】",
+  "window_start": "2026-11-23T12:54:00Z",
+  "window_end": "2026-11-23T13:04:00Z",
   "page_size": 50,
   "max_total_requests": 8,
   "terminate_allowed": true,
