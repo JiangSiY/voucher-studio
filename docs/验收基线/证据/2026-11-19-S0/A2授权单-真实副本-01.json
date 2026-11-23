@@ -1,0 +1,15 @@
+{
+  "grant_id": "A2-LEDGER-20261124-01",
+  "approved_by": "本人签署【唯一责任人】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "sheet_id": 2,
+  "fields": ["业务类型", "签约日期", "付款条件"],
+  "page_size": 50,
+  "max_total_requests": 4,
+  "terminate_allowed": true,
+  "window_start": "2026-11-23T13:45:00Z",
+  "window_end": "2026-11-23T13:55:00Z",
+  "approved_subject": "tenant-a/reader",
+  "_说明": "真实副本只读：WPS 云盘《项目管理台账系统v5_备份_20261113.dbt》的表 2（项目），只批 3 个字段、单页 50 行、整场 4 次请求、窗口 10 分钟。签批人 2026-11-23 21:45 CST 指示即时执行；窗口按实际执行时刻改为 2026-11-23T13:45:00Z–13:55:00Z（UTC）。"
+}
