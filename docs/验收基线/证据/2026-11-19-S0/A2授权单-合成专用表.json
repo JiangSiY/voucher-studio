@@ -1,18 +1,16 @@
 {
-  "_说明": "A2 合成专用表首联授权单模板。所有【待补】值必须由对应提供人补齐后才可提交签批；--check 只做本地预检，不发网、不建状态库、不消费 grant_id。",
-  "grant_id": "A2-SYN-20261123-01",
+  "_说明": "A2 合成专用表首联授权单（第二张：真实端点模式）。endpoint 取自本机 wps-mcp-lite 插件配置（`https://mcp-center.wps.cn/skill_hub/mcp`），是本机唯一已知的真实 MCP 端点，签署时须确认；approved_by 由签署人填写后本单才可执行；真实调用须 --transport https --allow-real-endpoint --token-file <t> --state <db>；窗口为候选值（2026-11-24 10:00–10:15 CST），签署时按实际改，≤15 分钟；fields 只批 code 一列，用于验证服务端是否按 fields 裁剪（Q1）。",
+  "grant_id": "A2-SYN-20261123-02",
   "approved_by": null,
-  "endpoint": "https://p2-local.test/mcp",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
   "file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
   "approved_file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
   "sheet_id": 2,
   "fields": [
-    "code",
-    "amount",
-    "day"
+    "code"
   ],
-  "window_start": "2026-11-23T12:20:00Z",
-  "window_end": "2026-11-23T12:35:00Z",
+  "window_start": "2026-11-24T02:00:00Z",
+  "window_end": "2026-11-24T02:15:00Z",
   "page_size": 50,
   "max_total_requests": 8,
   "terminate_allowed": true,

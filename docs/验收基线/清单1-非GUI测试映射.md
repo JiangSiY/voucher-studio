@@ -5,6 +5,7 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
+> **2026-11-23 P2 最小只读 CLI 真实端点模式（默认关闭）**：`voucher-cli` 增 `--transport https`，须 `--allow-real-endpoint` + `--token-file` 双开关（缺一退出 2、不建状态库）；凭据只读显式文件一行、不回显；`--check` 仅预检。新增 4 例（守卫/空凭据/真实模式预检），`voucher-cli` 共 **10 例**；全量实跑 **540 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **520**（353 单元 + 167 集成），加壳 3 共 **523**，`services::wps` 口径 **154**；前端 **44 文件 227 用例**。**未发生真实调用**：协议假设仍待 A2 签署后一次验证；P2 未授权、A2 未签、C1–C6 未执行、S0/G1 未签。证据：[`2026-11-23-P2-CLI/入口证据.md`](证据/2026-11-23-P2-CLI/入口证据.md) §8。
 > **2026-11-23 数据页入账入口键盘与可访问性小修（verifier 复核后）**：本轮**未改 Rust**，`voucher-core` 计数不变 **520 个**（353 单元 + 167 集成），加壳 3 共 **523**，`services::wps` 过滤口径 **154**；全量 `cargo test` 本轮未复跑（沿用第一百一十五笔 536 passed / 0 failed / 0 ignored）。移动卡片与桌面表格入账按钮补 `@keydown.space.stop`，`.data-card` 与桌面表格行补 `aria-expanded`；`src/pages/__tests__/DataPage.test.ts` 增至 7 例（新增：卡片按钮上按 Space 不展开且整条链路只写一次库），前端实跑 **44 文件 227 用例**（原 44 文件 226 用例）；前端五门 + `cargo fmt --all --check` 实跑通过。
 
 > **2026-11-23 数据页补回「人工勾已入账」入口（B5 遗留补收尾）**：本轮**未改 Rust**，`voucher-core` 计数不变 **520 个**（353 单元 + 167 集成），加壳 3 共 **523**，`services::wps` 过滤口径 **154**；全量 `cargo test` 本轮未复跑（交验收方复跑，沿用第一百一十五笔 536 passed / 0 failed / 0 ignored）。前端新增 `src/pages/__tests__/DataPage.test.ts` 6 例（成功只发一次并翻标签 / 再点取消 / 在途禁用防连点 / 失败不误改且有 toast / `@click.stop` 不展开 / 移动卡片同样可改），实跑 **44 文件 226 用例**（原 43 文件 220 用例）；前端五门 + `cargo fmt --all --check` 实跑通过。
