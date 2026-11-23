@@ -2,6 +2,8 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
+> **2026-11-23 P2 首联真实调用一次 + 响应信封形状修复**：合成表授权单 `A2-SYN-20261123-02`（`fields=["code"]`）已签署并执行**一次**：预检 `ok`，执行 `exit 1` 报 `P2_E_MALFORMED`——真实端点的 `tools/call` 文本是 WPS 信封 `{code,message,data:{detail:{records,offset}}}`，旧 `validate_records` 只认顶层 `records`；该授权已在发网前登记消费，**不可重放**，`DELETE` 未发。用同一 MCP 工具的插件通道对同一合成表复核：只批 `code` 时响应只回 `code` → **Q1（服务端按 `fields` 裁剪）成立**。已修 `validate_records` 接受裸 `records` / `data.records` / `data.detail.records` 三种形状，`wps_p2` 36 → **39 例**（新增信封形状成功与越界整页拒绝）。全量实跑 **543 passed / 0 failed / 0 ignored**；Rust 静态 `voucher-core` **523**（356 单元 + 167 集成），加壳 3 共 **526**，`services::wps` 口径 **157**；前端 44 文件 227 用例。仍未验证：`DELETE` 是否被接受、Q2（单副本隔离）、C5；P2 未整体授权、A2 未重签、真实副本 C1–C6 未执行、S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md`](docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md) §4.3。
+
 > **2026-11-23 P2 最小只读 CLI 补真实端点模式（默认关闭）**：`voucher-cli wps-p2-read` 增 `--transport https`，须同时满足 `--allow-real-endpoint` + `--token-file`（缺一退出 2），授权单端点主机非回环时才放行；凭据只从显式文件读一行，不读钥匙串/环境变量/argv，失败即停且错误里不含 token；`--check` 仍只预检（输出 `real_endpoint`/`credential_file`，不建状态库、不含 token）。本轮新增 `voucher-cli` 集成 4 例（守卫三连、空凭据、真实模式预检），`voucher-cli` 共 **10 例**；全量实跑 **540 passed / 0 failed / 0 ignored**；Rust 静态不变 `voucher-core` **520**（353 单元 + 167 集成），加壳 3 共 **523**，`services::wps` 口径 **154**；前端 **44 文件 227 用例**。**仍未发生任何真实调用**：WPS 端是否接受 Bearer/`Mcp-Session-Id`/`tools/call`/`DELETE` 仍待 A2 签署后执行一次；合成表已建成（`file_id` 掩码 `jcpy…MLtD`、`sheet_id=2`、60 行 3 列），首联 `fields` 只批 `["code"]` 以验证 Q1 服务端裁剪。P2 未授权执行、A2 未签、真实副本 C1–C6 未执行、S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-23-P2-CLI/入口证据.md`](docs/验收基线/证据/2026-11-23-P2-CLI/入口证据.md) §8。
 
 > **2026-11-23 数据页入账入口键盘与可访问性小修（verifier 复核后）**：移动卡片与桌面表格的「已入账」按钮补 `@keydown.space.stop`（Space 不再冒泡展开卡片；浏览器里 Space 仍按原生语义在 keyup 触发一次 click，只写一次库）；移动卡片 `div[role=button]` 与桌面表格行补 `aria-expanded`，展开态如实传给辅助技术，未重构成嵌套 button 结构（卡内必须可点入账，是已知取舍）。`src/pages/__tests__/DataPage.test.ts` 增至 7 例（新增：卡片按钮上按 Space 不展开、不调 `get_voucher`、整条链路只写一次库），前端实跑 **44 文件 227 用例**（原 226）。另修正 `docs/开发方案.md` B5 段动作数（两个 → 三个）与开发日志第一百一十六、一百一十七笔字段名（对齐 AGENTS 模板「关键提交（sha + 标题）」）。
@@ -115,7 +117,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：353 单元 + 167 集成，共 520 用例；加 src-tauri 3 用例共 523；另 voucher-cli 集成 6 例；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：356 单元 + 167 集成，共 523 用例；加 src-tauri 3 用例共 526；另 voucher-cli 集成用例；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
