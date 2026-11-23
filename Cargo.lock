@@ -6322,6 +6322,7 @@ dependencies = [
 name = "voucher-cli"
 version = "0.25.0"
 dependencies = [
+ "chrono",
  "serde_json",
  "voucher-core",
 ]
