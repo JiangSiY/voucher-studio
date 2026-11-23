@@ -1399,7 +1399,11 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         value: &Value,
     ) -> Result<(Vec<Value>, Option<u64>), P2Error> {
         let allowed = grant.fields_for(sheet_id)?;
-        let records = value
+        // 真实端点的 `tools/call` 文本可能是 WPS 信封（`{code,message,data:{detail:{records}}}`），
+        // 也可能是 `data.records` 或裸 `records`；三种都接受，其余一律按形状不符拒绝。
+        let payload = Self::records_payload(value)
+            .ok_or_else(|| P2Error::Malformed("响应缺少 records 数组".into()))?;
+        let records = payload
             .get("records")
             .and_then(Value::as_array)
             .ok_or_else(|| P2Error::Malformed("响应缺少 records 数组".into()))?;
@@ -1431,8 +1435,28 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
             }
             kept.push(Value::Object(filtered));
         }
-        let total = value.get("total").and_then(Value::as_u64);
+        let total = payload
+            .get("total")
+            .or_else(|| value.get("total"))
+            .and_then(Value::as_u64);
         Ok((kept, total))
+    }
+
+    /// 找到承载 `records` 的那一层：裸响应、`data.records`、或 WPS 信封的 `data.detail.records`。
+    fn records_payload(value: &Value) -> Option<&Value> {
+        if value.get("records").is_some_and(Value::is_array) {
+            return Some(value);
+        }
+        let data = value.get("data")?;
+        if let Some(detail) = data.get("detail") {
+            if detail.get("records").is_some_and(Value::is_array) {
+                return Some(detail);
+            }
+        }
+        if data.get("records").is_some_and(Value::is_array) {
+            return Some(data);
+        }
+        None
     }
 
     fn audit(&self, grant: &P2Grant, sheet_id: i64, outcome: &str, attempts: usize) {
@@ -1913,6 +1937,52 @@ mod tests {
     }
 
     #[test]
+    fn p2_records_payload_accepts_bare_data_records() {
+        // 真实端点还有 `data.records` 这一层；三种形状都要能定位 records。
+        let value = serde_json::json!({"data":{"records":[{"fields":{"A":"一"}}]}});
+        let payload =
+            P2ReadOnlyEntry::<UnavailableP2Transport>::records_payload(&value).expect("payload");
+        assert_eq!(
+            payload["records"][0]["fields"]["A"],
+            serde_json::json!("一")
+        );
+    }
+
+    #[test]
+    fn p2_https_wps_envelope_records_are_unwrapped() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::WpsEnvelope { leak: false },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let outcome = reader
+            .read(&gate, &read_req())
+            .expect("WPS 信封形状应可读取");
+        assert_eq!(outcome.records.len(), 1);
+        assert_eq!(outcome.records[0]["A"], serde_json::json!("一"));
+        assert_eq!(outcome.attempts_used, 1);
+    }
+
+    #[test]
+    fn p2_https_wps_envelope_scope_violation_blocks_whole_page() {
+        let server = spawn_tls_server(
+            TLS_SRV_CERT,
+            TLS_SRV_KEY,
+            ServerMode::WpsEnvelope { leak: true },
+        );
+        let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
+        let gate = https_grant(&server);
+        let err = reader.read(&gate, &read_req()).expect_err("越界应整页拒绝");
+        assert_eq!(err.code(), "P2_E_SCOPE");
+        let text = err.to_string();
+        assert!(text.contains("表 3"), "{text}");
+        assert!(!text.contains("SECRET"), "{text}");
+        assert!(!text.contains("不可见"), "{text}");
+    }
+
+    #[test]
     fn p2_tls_policy_and_status_mapping_are_strict() {
         assert!(P2TlsPolicy::default().validate().is_ok());
         let relaxed = P2TlsPolicy {
@@ -2037,6 +2107,8 @@ mod tests {
         },
         /// `DELETE`（会话终止）返回给定状态码；其余请求照常。
         DeleteFail { status: u16 },
+        /// 返回真实端点的 WPS 信封形状：`{code,message,data:{detail:{records,offset}}}`
+        WpsEnvelope { leak: bool },
     }
 
     struct TlsServer {
@@ -2198,6 +2270,33 @@ mod tests {
                 vec![("Location".to_string(), location.clone())],
                 String::new(),
             ),
+            ServerMode::WpsEnvelope { leak } => {
+                if initialize {
+                    (
+                        200,
+                        vec![("Mcp-Session-Id".to_string(), "sess-1".to_string())],
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}"
+                            .to_string(),
+                    )
+                } else {
+                    let mut fields = String::from("{\"A\":\"一\"");
+                    if *leak {
+                        fields.push_str(",\"SECRET\":\"不可见\"");
+                    }
+                    fields.push('}');
+                    let payload = format!(
+                        "{{\"code\":0,\"message\":\"成功\",\"data\":{{\"detail\":{{\"offset\":\"VW\",\"records\":[{{\"fields\":{fields},\"id\":\"REC1\"}}]}},\"result\":\"ok\"}}}}"
+                    );
+                    let literal = serde_json::to_string(&payload).expect("payload literal");
+                    (
+                        200,
+                        Vec::new(),
+                        format!(
+                            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":{literal}}}],\"isError\":false}}}}"
+                        ),
+                    )
+                }
+            }
             ServerMode::JsonOk { leak } => {
                 if initialize {
                     (
