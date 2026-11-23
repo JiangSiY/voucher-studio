@@ -403,10 +403,12 @@ impl P2Gate {
 }
 
 /// 一次分页读取请求；字段范围由授权决定，调用方不能自带字段清单。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct P2ReadRequest {
     pub sheet_id: i64,
-    pub offset: usize,
+    /// 不透明分页游标：首屏传 `None`，下一页传上一页返回的 `cursor`。
+    /// 游标由服务端生成、客户端不得自行构造（`2026-11-23` 实测：数值 `0` 与空串语义不同）。
+    pub cursor: Option<String>,
     pub page_size: usize,
 }
 
@@ -1158,13 +1160,10 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         self
     }
 
-    /// 单次执行入口：绑定一份授权、一张表、首屏 `offset=0`、签批 `page_size` 与整场请求上限。
+    /// 单次执行入口：绑定一份授权、一张表、一页（首屏或指定游标）、签批 `page_size` 与整场请求上限。
     /// 预检通过即占用该授权；成功结束或触发停止条件后不能再次启动。
     pub fn read(&self, gate: &P2Gate, request: &P2ReadRequest) -> Result<P2ReadOutcome, P2Error> {
         let grant = gate.grant()?;
-        if request.offset != 0 {
-            return Err(P2Error::Offset("单次授权只读首屏：offset 必须为 0".into()));
-        }
         if request.page_size == 0 || request.page_size != grant.page_size as usize {
             return Err(P2Error::PageSize(format!(
                 "请求 page_size={} 与签批值 {} 不一致，已拒绝",
@@ -1211,7 +1210,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         let args = json!({
             "file_id": grant.file_id,
             "sheet_id": request.sheet_id,
-            "offset": "",
+            "offset": request.cursor.clone().unwrap_or_else(String::new),
             "page_size": request.page_size,
             "fields": fields,
         });
@@ -1634,7 +1633,7 @@ mod tests {
                 &P2Gate::Closed,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1656,7 +1655,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1685,7 +1684,7 @@ mod tests {
                 &P2Gate::open(grant),
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1704,7 +1703,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 9,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1721,7 +1720,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1739,7 +1738,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1754,7 +1753,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1769,7 +1768,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1835,7 +1834,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1850,7 +1849,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1869,7 +1868,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1896,7 +1895,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1919,7 +1918,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -1941,7 +1940,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2102,7 +2101,7 @@ mod tests {
                 &P2Gate::open(grants(&[(3, &["A"])])),
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2433,7 +2432,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2473,7 +2472,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2497,7 +2496,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2522,7 +2521,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2544,7 +2543,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2602,7 +2601,7 @@ mod tests {
                 &P2Gate::open(wrong),
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2646,7 +2645,7 @@ mod tests {
     }
 
     #[test]
-    fn p2_https_non_first_page_and_unapproved_page_size_make_zero_requests() {
+    fn p2_https_unapproved_page_size_makes_zero_requests_and_cursor_is_forwarded() {
         let server = spawn_tls_server(
             TLS_SRV_CERT,
             TLS_SRV_KEY,
@@ -2655,31 +2654,39 @@ mod tests {
         let reader = https_entry(https_reader(&server, true), "tenant-a/reader");
         let gate = https_grant(&server);
 
-        let offset_err = reader
-            .read(
-                &gate,
-                &P2ReadRequest {
-                    sheet_id: 3,
-                    offset: 50,
-                    page_size: 50,
-                },
-            )
-            .unwrap_err();
-        assert_eq!(offset_err.code(), "P2_E_OFFSET");
-
         let size_err = reader
             .read(
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 20,
                 },
             )
             .unwrap_err();
         assert_eq!(size_err.code(), "P2_E_PAGE_SIZE");
+        assert_eq!(server.count(), 0, "page_size 与签批值不符时零请求");
 
-        assert_eq!(server.count(), 0, "分页参数不合法时零请求");
+        let ok = reader
+            .read(
+                &gate,
+                &P2ReadRequest {
+                    sheet_id: 3,
+                    cursor: Some("Cj".to_string()),
+                    page_size: 50,
+                },
+            )
+            .expect("带游标的第二页应被允许");
+        assert!(!ok.records.is_empty(), "第二页应返回记录");
+        let call = server
+            .bodies()
+            .into_iter()
+            .find(|body| body.contains("tools/call"))
+            .expect("至少一次 list_records 调用");
+        assert!(
+            call.contains("\"offset\":\"Cj\""),
+            "游标必须原样进入请求体，实际: {call}"
+        );
     }
 
     #[test]
@@ -2710,7 +2717,7 @@ mod tests {
                 &P2Gate::open(grant),
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2741,7 +2748,7 @@ mod tests {
                 &P2Gate::open(grant),
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2764,7 +2771,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2776,7 +2783,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2795,7 +2802,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2808,7 +2815,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2835,7 +2842,7 @@ mod tests {
                 &gate,
                 &P2ReadRequest {
                     sheet_id: 3,
-                    offset: 0,
+                    cursor: None,
                     page_size: 50,
                 },
             )
@@ -2851,7 +2858,7 @@ mod tests {
     fn read_req() -> P2ReadRequest {
         P2ReadRequest {
             sheet_id: 3,
-            offset: 0,
+            cursor: None,
             page_size: 50,
         }
     }

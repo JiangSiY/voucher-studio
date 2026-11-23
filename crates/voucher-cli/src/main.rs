@@ -326,9 +326,10 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
         }
     };
     let subject = arg_value(args, "--subject").or_else(|| grant.approved_subject.clone());
+    let cursor = arg_value(args, "--cursor");
     let request = P2ReadRequest {
         sheet_id: p2_number_i64(&value, "sheet_id").unwrap_or_default(),
-        offset: 0,
+        cursor,
         page_size: grant.page_size as usize,
     };
 

@@ -279,3 +279,27 @@ fn real_endpoint_check_reports_readiness_without_state_or_network() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(!text.contains("synthetic-real-mode-token"), "{text}");
 }
+
+#[test]
+fn check_accepts_cursor_flag_without_touching_state() {
+    let dir = temp_dir("cursor-check");
+    let grant = grant(
+        &dir,
+        "https://p2-local.test:8443/mcp",
+        "dbsheet_replica_001",
+    );
+    let state = dir.join("state.db");
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--check",
+        "--cursor",
+        "Cj",
+    ]);
+    assert!(out.status.success(), "预检应接受 --cursor：{:?}", out);
+    let value = stdout_json(&out);
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["check"], "preflight");
+    assert!(!state.exists(), "--check 不得创建状态库");
+}
