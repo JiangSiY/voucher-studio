@@ -2,7 +2,7 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
-> **2026-11-23 P2 单次执行入口（首屏绑定/动作计数/单次授权）**：`voucher-core` 测试 **509 个**（342 单元 + 167 集成；`wps_p2` 19 → **25 例**——新增非首屏与分页大小零请求、退避期间窗口到期、整场预算耗尽、完成后重复启动、越界后不可重启、最后一次额度用完不再重建会话），加壳 3 共 **512**；全量实跑 **519 passed / 0 failed / 0 ignored**（须在无文件沙箱的终端执行，见下方 OCR 说明）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **143**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 25）。**单次执行入口**：`P2Grant` 增 `page_size`/`max_total_requests`/`terminate_allowed`；入口绑定首屏 `offset=0` 与签批分页大小，单次授权预检通过即占用、完成后不可重启；每次发网前检查窗口剩余与整场预算，请求超时取 `min(窗口剩余, 传输层 timeout)`；动作计数为初始化 ≤2、通知 ≤2、读取 ≤3、终止 ≤1（合计 ≤8，无探测余量），初始化后发 `notifications/initialized`、成功读取后按开关发 `DELETE`，终止失败只做本地关闭。**真实端点/账号主体/服务端只读权限仍未取得**，P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md)。
+> **2026-11-23 P2 跨重启消费登记与越界脱敏**：`voucher-core` 测试 **516 个**（349 单元 + 167 集成；`wps_p2` 25 → **32 例**——新增重建入口/并发/发网前中断后不可再启动、状态库不可用零请求、超长窗口与超上限授权零请求、`DELETE` 失败记「未确认」且不追加请求、预算耗尽记「未发送」原因），加壳 3 共 **519**；全量实跑 **526 passed / 0 failed / 0 ignored**（须在无文件沙箱的终端执行，见下方 OCR 说明）。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **150**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 32）。**跨重启失效**：`P2Grant` 增 `grant_id`；`P2Consumption` + 隔离 SQLite `SqliteP2State`（只存授权号/登记时间/掩码副本号/窗口终点），发网前 `INSERT` 原子登记，冲突即 `P2_E_ALREADY_USED`，状态库不可用即 `P2_E_STATE` 本地停止；窗口 ≤15 分钟、整场 ≤8 次在 `preflight` 强制。**越界脱敏**：响应出现未授权字段时只给固定提示 + 错误码 + 表号，不回显字段名/值。**终止状态**：`P2Termination` 区分「已确认 / 未确认（本地已关闭）/ 未发送（原因）」。**真实端点/账号主体/服务端只读权限仍未取得**，P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md)。
 
 > **2026-11-22 P2 只读入口第二轮（HTTPS 传输 + 读取预算修正，上一轮）**：`voucher-core` 测试 **503 个**（336 单元 + 167 集成；本轮 `wps_p2` 由 13 例增至 **19 例**——新增 6 例真实 HTTPS：本机测试服务、私 CA 信任、主机名不匹配、重定向目标 0 请求、响应越界整页拒绝、错误目标/写动作零连接），加壳 3 共 **506**；全量实跑 **513 项（511 passed / 2 failed / 0 ignored）**，失败两例为 `ocr_flow` 的 Apple Vision 识别波动，**在干净 HEAD `39421fb` 上同样复现**（日志 `/tmp/vs-p2fix-test.log`、`/tmp/vs-p2fix-test2.log`），与本轮改动无关。前端 **44 文件 230 用例**。`services::wps` 过滤口径 **137**（wps 29 + pull 15 + 09 11 + index 8 + doc guard 7 + wps_w2 21 + credentials 8 + wps_w2_dev 15 + wps_http 4 + wps_p2 19）。**读取预算**：单次逻辑读取最多真实发出 3 次 `dbsheet.list_records`（含会话重建后的重发与超时），修复旧实现「发出 4 次却记 3 次、可再发第 4 次」的偏差；第 4 条成功响应不再被取用。`HttpsP2Transport` 已接线（reqwest 阻塞客户端、`.no_proxy()`、严格证书/主机名校验、不跟随重定向、Bearer 与 `Mcp-Session-Id`），**真实端点/账号主体/服务端只读权限仍未取得**，故 P2 未授权执行、A2 不签；真实副本 C1–C6 未执行，S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md`](docs/验收基线/证据/2026-11-22-P2-只读入口/入口证据.md)。
 
@@ -105,7 +105,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：342 单元 + 167 集成，共 509 用例；加 src-tauri 3 用例共 512；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：349 单元 + 167 集成，共 516 用例；加 src-tauri 3 用例共 519；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
