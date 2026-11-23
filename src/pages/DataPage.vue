@@ -567,6 +567,7 @@ watch(query, load);
               class="data-row"
               :class="{ 'is-open': expanded === r.id }"
               tabindex="0"
+              :aria-expanded="expanded === r.id"
               @click="toggle(r.id)"
               @keydown.enter="toggle(r.id)"
             >
@@ -607,6 +608,7 @@ watch(query, load);
                   :title="metaOf(r.id).booked ? '点击取消已入账' : '点击标记已入账'"
                   @click.stop="toggleBooked(r)"
                   @keydown.enter.stop
+                  @keydown.space.stop
                 >
                   {{ metaOf(r.id).booked ? "已入" : "未入" }}
                 </button>
@@ -643,6 +645,7 @@ watch(query, load);
             class="data-card"
             role="button"
             tabindex="0"
+            :aria-expanded="expanded === r.id"
             @click="toggle(r.id)"
             @keydown.enter="toggle(r.id)"
             @keydown.space.prevent="toggle(r.id)"
@@ -670,6 +673,7 @@ watch(query, load);
                 :aria-label="metaOf(r.id).booked ? '已入账，点击取消' : '未入账，点击标记已入账'"
                 @click.stop="toggleBooked(r)"
                 @keydown.enter.stop
+                @keydown.space.stop
               >
                 {{ metaOf(r.id).booked ? "已入账" : "未入账" }}
               </button>

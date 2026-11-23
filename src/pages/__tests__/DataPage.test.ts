@@ -169,4 +169,32 @@ describe("人工勾已入账（B5 遗留补收尾）", () => {
     expect(mockApi.setLedgerBooked).toHaveBeenCalledWith(1, true);
     expect(wrapper.find(".data-card-flag.is-action").text()).toBe("已入账");
   });
+
+  it("卡片入账按钮上按 Space 不展开卡片，整条链路只写一次库", async () => {
+    mockApi.setLedgerBooked.mockResolvedValue(undefined);
+    const wrapper = await mountPage();
+
+    expect(wrapper.find(".data-card").attributes("aria-expanded")).toBe("false");
+
+    // keydown 阶段：Space 必须被按钮吃掉，不能冒泡到卡片的展开处理
+    const cardFlag = wrapper.find(".data-card-flag.is-action");
+    await cardFlag.trigger("keydown", { key: " " });
+    await flushPromises();
+    expect(wrapper.find(".data-card-expand").exists()).toBe(false);
+    expect(wrapper.find(".data-expand").exists()).toBe(false);
+    expect(mockApi.getVoucher).not.toHaveBeenCalled();
+    expect(mockApi.setLedgerBooked).not.toHaveBeenCalled();
+
+    // 浏览器里按钮的 Space 在 keyup 触发 click：整条链路只写一次，仍不展开
+    await cardFlag.trigger("click");
+    await flushPromises();
+    expect(mockApi.setLedgerBooked).toHaveBeenCalledTimes(1);
+    expect(wrapper.find(".data-card-expand").exists()).toBe(false);
+    expect(wrapper.find(".data-card").attributes("aria-expanded")).toBe("false");
+
+    // 卡片本体仍可点开，并把展开态如实传给辅助技术
+    await wrapper.find(".data-card").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".data-card").attributes("aria-expanded")).toBe("true");
+  });
 });
