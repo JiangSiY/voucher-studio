@@ -1,0 +1,18 @@
+{
+  "_说明": "A2 合成专用表**第三发**授权单（第四张单）。目的：确认「字符串游标」修复后 CLI 返回 50 条 + 游标 `BF`（闭环 27 vs 50），并再次确认 `DELETE` 终止。预期输出：`record_count=50`、`cursor=\"BF\"`、`actions={init:1,notify:1,read:1,terminate:1}`、`termination=远端终止已确认`。签署：把 approved_by 的 null 改成签署人名义，并填 window_start/window_end（RFC3339 **UTC**，≤15 分钟；本地 CST 请减 8 小时）；其余参数沿用，不得放宽。执行：wps-p2-read --transport https --allow-real-endpoint --token-file <t> --state <db>；单次授权，消费后不可重放。",
+  "grant_id": "A2-SYN-20261123-04",
+  "approved_by": null,
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
+  "approved_file_id": "jcpyuq21q1ML1kbehAo6rx4wQbCN4MLtD",
+  "sheet_id": 2,
+  "fields": [
+    "code"
+  ],
+  "window_start": "【待填：签署时填写，≤15 分钟】",
+  "window_end": "【待填：签署时填写，≤15 分钟】",
+  "page_size": 50,
+  "max_total_requests": 8,
+  "terminate_allowed": true,
+  "approved_subject": "tenant-syn/reader"
+}
