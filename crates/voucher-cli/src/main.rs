@@ -37,6 +37,7 @@ fn usage() -> &'static str {
 用法：
   voucher-cli import-ledger --csv <清单.csv> --kind <shoukuan|fukuan|jiti> [--dry-run] [--data-dir <目录>]
   voucher-cli list-pending [--json] [--data-dir <目录>]
+  voucher-cli c5-fingerprint [--json] [--data-dir <目录>]   # 本地索引全字段指纹（只读，不发网）
   voucher-cli restore --zip <备份.zip> --target <空目录>
   voucher-cli wps-p2-read --grant <授权.json> [--state <状态.db>] [--check]
                           [--transport offline|loopback-tls --trust-root <ca.der>]
@@ -473,6 +474,57 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
     }
 }
 
+/// C5 辅助证据：打印本地索引的全字段指纹（只读，不发网）。
+///
+/// 这不是「源端与本地一致」的证明，只是「两次扫描之间本地索引是否逐字段不变」的比对基础；
+/// 详见 `voucher_core::services::wps_c5` 的模块注释。
+fn c5_fingerprint(args: &[String], data_dir: Option<std::path::PathBuf>) -> ExitCode {
+    let ctx = match CoreContext::init(data_dir) {
+        Ok(ctx) => ctx,
+        Err(err) => return fail(1, err),
+    };
+    let store = voucher_core::services::wps::WpsStore::new(&ctx);
+    let fingerprint = match store.c5_scan_fingerprint() {
+        Ok(fingerprint) => fingerprint,
+        Err(err) => return fail(1, err),
+    };
+    let payload = serde_json::json!({
+        "records": fingerprint.records,
+        "combined": fingerprint.combined,
+        "sheets": fingerprint
+            .sheets
+            .iter()
+            .map(|sheet| serde_json::json!({
+                "sheet_id": sheet.sheet_id,
+                "records": sheet.records,
+                "digest": sheet.digest,
+            }))
+            .collect::<Vec<_>>(),
+        "note": "本地索引逐字段指纹；不能证明源端一致，不能解除 C5 写入阻断",
+    });
+    if args.iter().any(|arg| arg == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).unwrap_or_default()
+        );
+    } else {
+        println!(
+            "记录 {} 条，全库指纹 {}",
+            fingerprint.records,
+            &fingerprint.combined[..12.min(fingerprint.combined.len())]
+        );
+        for sheet in &fingerprint.sheets {
+            println!(
+                "  表 {:>2}：{:>5} 条  {}",
+                sheet.sheet_id,
+                sheet.records,
+                &sheet.digest[..12.min(sheet.digest.len())]
+            );
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
@@ -538,6 +590,7 @@ fn main() -> ExitCode {
                 Err(e) => fail(1, e),
             }
         }
+        "c5-fingerprint" => c5_fingerprint(&args, data_dir.clone()),
         "list-pending" => {
             let ctx = match CoreContext::init(data_dir) {
                 Ok(c) => c,
