@@ -2,6 +2,8 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
+> **2026-11-23 C5 本地辅助证据（指纹；不关闭 C5）**：新增 `services/wps_c5.rs` 与 `voucher-cli c5-fingerprint`——对本地索引做**全字段指纹**（逐表按 `record_id` 排序，`fields_json` 规范化后取 `sha256`），两次比对可发现扫描期间的数据漂移，且只报表号与计数、不回显字段值。实跑（Mock 全量拉取）：`records=3 combined=1666f03db874 sheets=3 stable=true`，人工漂移后 `changed_sheets=[1]`。**边界**：无快照 token，不能证明源端一致，因此**不解除 C5 写入阻断**，真实 C5 仍按决策表 §4 三项归档。全量实跑 **550 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **530**（363 单元 + 167 集成），加壳 **533**，`services::wps` 口径 **164**；前端 44 文件 227 用例。证据：[`docs/验收基线/证据/2026-11-23-C5-指纹/证据.md`](docs/验收基线/证据/2026-11-23-C5-指纹/证据.md)。
+
 > **2026-11-23 P2 分页游标修复（27 vs 50 已定位）**：第二发 CLI 收到 27 条、插件同参数 50 条——根因是 SkillHub 的 `offset` 是**不透明字符串游标**（首屏 `""`），入口却发了数字 `0`。已改为发 `"offset": ""` 并把响应 `data.detail.offset` 作为 `cursor` 输出；新增本机 HTTPS 用例断言 `cursor` 与请求体形状，`services::wps_p2` 39 → **40 例**。全量实跑 **544 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **524**（357 单元 + 167 集成），加壳 **527**，`services::wps` 口径 **158**；前端 44 文件 227 用例。待闭环：再签一发授权单确认 CLI 返回 50 条；Q2（单副本隔离）与真实 429/400006 仍未取得。证据：[`docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md`](docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md) §4.6。
 
 > **2026-11-23 P2 首联真实调用一次 + 响应信封形状修复**：合成表授权单 `A2-SYN-20261123-02`（`fields=["code"]`）已签署并执行**一次**：预检 `ok`，执行 `exit 1` 报 `P2_E_MALFORMED`——真实端点的 `tools/call` 文本是 WPS 信封 `{code,message,data:{detail:{records,offset}}}`，旧 `validate_records` 只认顶层 `records`；该授权已在发网前登记消费，**不可重放**，`DELETE` 未发。用同一 MCP 工具的插件通道对同一合成表复核：只批 `code` 时响应只回 `code` → **Q1（服务端按 `fields` 裁剪）成立**。已修 `validate_records` 接受裸 `records` / `data.records` / `data.detail.records` 三种形状，`wps_p2` 36 → **39 例**（新增信封形状成功与越界整页拒绝）。全量实跑 **543 passed / 0 failed / 0 ignored**；Rust 静态 `voucher-core` **523**（356 单元 + 167 集成），加壳 3 共 **526**，`services::wps` 口径 **157**；前端 44 文件 227 用例。仍未验证：`DELETE` 是否被接受、Q2（单副本隔离）、C5；P2 未整体授权、A2 未重签、真实副本 C1–C6 未执行、S0/G1 未签。证据：[`docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md`](docs/验收基线/证据/2026-11-19-S0/A2授权单-合成专用表首联.md) §4.3。
@@ -119,7 +121,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：357 单元 + 167 集成，共 524 用例；加 src-tauri 3 用例共 527；另 voucher-cli 集成用例；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：363 单元 + 167 集成，共 530 用例；加 src-tauri 3 用例共 533；另 voucher-cli 集成用例；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化
