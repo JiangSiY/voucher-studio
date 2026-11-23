@@ -5,7 +5,9 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
-> **2026-11-23 P2 CLI 字段级统计（`--stats`）**：`wps-p2-read --stats` 输出逐字段非空计数 + JSON 类型分布 + 类日期计数，只统计授权列、**不回显字段值**；`voucher-cli` 用例 10 → **13**。全量 **553 passed / 0 failed / 0 ignored**；`voucher-core` 测试 **530 个**（363 + 167）、加壳 **533**、`services::wps` 口径 **164**；前端 44 文件 227 用例。
+> **2026-11-23 P2 页游标续取（`--cursor`）**：`P2ReadRequest.offset` → `cursor: Option<String>`，游标原样进入 `offset` 字段；CLI 增 `--cursor`；核心用例改为「游标透传」，`page_size` 不符仍零请求。全量 **554 passed / 0 failed / 0 ignored**；`voucher-core` **530**（363 + 167）、加壳 **533**、`services::wps` **164**；`voucher-cli` **14 例**；前端 44 文件 227 用例。
+>
+> **2026-11-23 P2 CLI 字段级统计（`--stats`）（上一轮）**：`wps-p2-read --stats` 输出逐字段非空计数 + JSON 类型分布 + 类日期计数，只统计授权列、**不回显字段值**；`voucher-cli` 用例 10 → **13**。全量 **553 passed / 0 failed / 0 ignored**；`voucher-core` 测试 **530 个**（363 + 167）、加壳 **533**、`services::wps` 口径 **164**；前端 44 文件 227 用例。
 >
 > **2026-11-23 C5 本地辅助证据（指纹）（上一轮）**：`services/wps_c5.rs` + `voucher-cli c5-fingerprint`，对本地索引做全字段指纹（规范化 `fields_json` 后 `sha256`），两次比对发现漂移；Mock 实跑 `records=3 stable=true`，人工漂移 `changed_sheets=[1]`。**不解除 C5 写入阻断**（无快照 token，不能证源端一致）。`voucher-core` 测试 **530 个**（363 单元 + 167 集成）、加壳 **533**、`services::wps` 口径 **164**；全量 **550 passed / 0 failed / 0 ignored**；前端 44 文件 227 用例。证据：[`2026-11-23-C5-指纹/证据.md`](证据/2026-11-23-C5-指纹/证据.md)。
 
