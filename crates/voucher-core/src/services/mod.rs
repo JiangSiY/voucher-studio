@@ -34,6 +34,7 @@ pub mod voucher_mgr;
 pub mod wps;
 pub mod wps_09;
 pub mod wps_c5;
+pub mod wps_create;
 pub mod wps_credentials;
 pub mod wps_doc_guard;
 pub mod wps_http;

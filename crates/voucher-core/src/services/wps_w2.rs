@@ -1232,6 +1232,30 @@ mod tests {
         Database::new(conn)
     }
 
+    /// 预检必须零写入的四张本地同步表。
+    fn sync_table_counts(store: &WpsStore<'_>) -> [i64; 4] {
+        const TABLES: [&str; 4] = [
+            "wps_write_intents",
+            "wps_links",
+            "wps_idempotency_keys",
+            "wps_sync_runs",
+        ];
+        let mut counts = [0_i64; 4];
+        store
+            .database()
+            .with_conn(|conn| {
+                for (index, table) in TABLES.iter().enumerate() {
+                    counts[index] =
+                        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                            row.get(0)
+                        })?;
+                }
+                Ok(())
+            })
+            .expect("count sync tables");
+        counts
+    }
+
     fn request(key: &str, date: &str) -> W2CreateRequest {
         let mut request =
             W2CreateRequest::new(3, "03", json!({"应收单号": key}), format!("idem-{key}"));
@@ -1401,6 +1425,7 @@ mod tests {
         let store = WpsStore::from_db(&db);
         let client = WpsClient::new(MockTransport::new("s", vec![]), "file-1");
         let sync = W2Sync::new(&client, &store);
+        let before = sync_table_counts(&store);
         for (sheet, record_type) in [(1, "01"), (5, "05"), (7, "07"), (8, "08"), (10, "10")] {
             let mut request = W2CreateRequest::new(
                 sheet,
@@ -1418,6 +1443,11 @@ mod tests {
                 err.code
             );
             assert!(client.transport().calls().is_empty());
+            assert_eq!(
+                sync_table_counts(&store),
+                before,
+                "预检拒绝不得写本地同步表（表 {record_type}）"
+            );
         }
     }
 
