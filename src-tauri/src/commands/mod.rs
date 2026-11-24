@@ -21,6 +21,7 @@ mod pack;
 mod settings;
 mod vouchers;
 mod wps_credentials;
+mod wps_status;
 
 pub use accounting::*;
 pub use backup::*;
@@ -33,6 +34,7 @@ pub use pack::*;
 pub use settings::*;
 pub use vouchers::*;
 pub use wps_credentials::*;
+pub use wps_status::*;
 
 pub(super) use std::collections::HashMap;
 pub(super) use std::path::{Path, PathBuf};

@@ -25,6 +25,7 @@ pub mod pack;
 pub mod settings;
 pub mod vouchers;
 pub mod wps_credentials;
+pub mod wps_status;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -460,6 +461,9 @@ pub fn dispatch(ctx: &CoreContext, cmd: &str, args: Value) -> ApiResult<Value> {
 
         // ---------- WPS 凭据状态（只回 token_set/token_expires_at）----------
         "wps_credentials_status" => to_value(wps_credentials::status()?)?,
+
+        // ---------- WPS 同步状态（只读本地库：最近同步/扫描时刻 + 待处理队列）----------
+        "wps_sync_status" => to_value(wps_status::wps_sync_status(ctx)?)?,
 
         // ---------- 开发态 W2 Mock（守卫在 dev_w2::run；普通/生产运行返回 dev_only）----------
         "dev_w2_mock_sync" => {

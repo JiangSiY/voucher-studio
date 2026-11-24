@@ -282,6 +282,7 @@ fn main() {
             commands::get_app_info,
             commands::dev_w2_mock_sync,
             commands::wps_credentials_status,
+            commands::wps_sync_status,
             commands::pack_build,
             commands::get_biz_fields,
             commands::save_biz_fields,
