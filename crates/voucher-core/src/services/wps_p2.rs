@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 /// 唯一允许的读取动作。
 pub const P2_ACTION_LIST_RECORDS: &str = "dbsheet.list_records";
@@ -82,6 +83,12 @@ pub enum P2Error {
     Malformed(String),
     /// 真实线协议/端点依据不足，传输未接线。
     ProtocolPending(String),
+    /// 扫描运行缺页：任一遍未覆盖授权页集。
+    Incomplete(String),
+    /// 扫描运行出现授权页集之外的新页（行数漂移）。
+    Drift(String),
+    /// 两遍扫描指纹不一致（同一次运行内不自洽）。
+    Inconsistent(String),
     /// 其他本地协议错误。
     Protocol(String),
 }
@@ -114,6 +121,9 @@ impl P2Error {
             Self::Server(_) => "P2_E_SERVER",
             Self::Malformed(_) => "P2_E_MALFORMED",
             Self::ProtocolPending(_) => "P2_E_PROTOCOL_PENDING",
+            Self::Incomplete(_) => "P2_E_INCOMPLETE",
+            Self::Drift(_) => "P2_E_DRIFT",
+            Self::Inconsistent(_) => "P2_E_INCONSISTENT",
             Self::Protocol(_) => "P2_E_PROTOCOL",
         }
     }
@@ -147,6 +157,9 @@ impl std::fmt::Display for P2Error {
             | Self::Malformed(msg)
             | Self::ProtocolPending(msg)
             | Self::Protocol(msg) => write!(f, "{}: {msg}", self.code()),
+            Self::Incomplete(msg) => write!(f, "{}: {msg}", self.code()),
+            Self::Drift(msg) => write!(f, "{}: {msg}", self.code()),
+            Self::Inconsistent(msg) => write!(f, "{}: {msg}", self.code()),
             Self::Redirect => write!(f, "{}: 服务端返回重定向，未跟随", self.code()),
             Self::AuthExpired => write!(f, "{}: WPS 授权已失效或无权访问", self.code()),
             Self::SessionExpired => write!(f, "{}: MCP 会话已过期", self.code()),
@@ -605,7 +618,7 @@ impl std::fmt::Display for P2AuditLine {
 }
 
 /// 只保留前 4 位与后 2 位，中间用省略号；过短则整体掩码。
-fn mask_id(value: &str) -> String {
+pub fn mask_id(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();
     if chars.len() <= 6 {
         return "***".into();
@@ -1210,7 +1223,7 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         let args = json!({
             "file_id": grant.file_id,
             "sheet_id": request.sheet_id,
-            "offset": request.cursor.clone().unwrap_or_else(String::new),
+            "offset": String::from(request.cursor.as_deref().unwrap_or("")),
             "page_size": request.page_size,
             "fields": fields,
         });
@@ -1487,6 +1500,456 @@ impl<T: P2Transport> P2ReadOnlyEntry<T> {
         }
         log::info!("{line}");
     }
+}
+
+// ===== 扫描运行（scan-run，2026-11-24 拟议 v0.3 的实现） =====
+//
+// 设计：`docs/验收基线/证据/2026-11-19-S0/A2扫描级授权-设计.md` §2–§8。
+// 与单页单的差别：一次授权覆盖多表、多页、两遍扫描；`grant_id` 只在运行开始登记一次；
+// 不提供外部游标；页数锁死实测值，出现新页即 `P2_E_DRIFT`。
+
+/// 扫描运行的全局请求硬上限（会话 + 读取）：设计 §3 的 80。
+pub const P2_SCAN_MAX_TOTAL_REQUESTS: u32 = 80;
+/// 扫描运行的读取硬上限：两遍必达 44 + 最多 30 次重试。
+pub const P2_SCAN_MAX_READS: u32 = 74;
+/// 会话动作硬上限（初始化/重建 + 通知 + 终止）。
+pub const P2_SCAN_MAX_SESSION_ACTIONS: u32 = 6;
+
+/// 一次扫描运行的授权规格；构造后须先 `validate()`。
+#[derive(Debug, Clone)]
+pub struct P2ScanSpec {
+    pub endpoint: P2Endpoint,
+    pub file_id: String,
+    pub grant_id: String,
+    pub approved_by: String,
+    pub sheets: BTreeMap<i64, BTreeSet<String>>,
+    /// 每表锁死的页数（签批前 24h 内实测）。
+    pub pages: BTreeMap<i64, u32>,
+    pub page_size: u32,
+    pub window_start: DateTime<Utc>,
+    pub window_end: DateTime<Utc>,
+    pub max_reads: u32,
+    pub max_total: u32,
+    pub terminate_allowed: bool,
+}
+
+impl P2ScanSpec {
+    /// 返回两遍扫描的必达读取数：`2 × Σ pages`。
+    pub fn required_reads(&self) -> u32 {
+        self.pages.values().copied().sum::<u32>().saturating_mul(2)
+    }
+
+    pub fn validate(&self) -> Result<(), P2Error> {
+        if self.grant_id.trim().is_empty() || self.approved_by.trim().is_empty() {
+            return Err(P2Error::NotApproved);
+        }
+        if self.sheets.is_empty() {
+            return Err(P2Error::Scope("扫描运行未列出任何表".into()));
+        }
+        if self.page_size == 0 {
+            return Err(P2Error::PageSize("扫描运行 page_size 不能为 0".into()));
+        }
+        let sheet_keys: BTreeSet<i64> = self.sheets.keys().copied().collect();
+        let page_keys: BTreeSet<i64> = self.pages.keys().copied().collect();
+        if sheet_keys != page_keys {
+            return Err(P2Error::Scope(
+                "页数清单与表清单不一致：每张表都必须锁死页数".into(),
+            ));
+        }
+        if self.sheets.values().any(BTreeSet::is_empty) {
+            return Err(P2Error::Scope("每张表都必须逐列批准字段".into()));
+        }
+        if self.pages.values().any(|pages| *pages == 0) {
+            return Err(P2Error::ExecLimit("页数不能为 0".into()));
+        }
+        if self.window_end <= self.window_start {
+            return Err(P2Error::Window("执行窗口终止时刻必须晚于起点".into()));
+        }
+        let window = (self.window_end - self.window_start)
+            .to_std()
+            .map_err(|_| P2Error::Window("执行窗口长度不合法".into()))?;
+        if window > P2_MAX_WINDOW {
+            return Err(P2Error::Window(format!(
+                "执行窗口超过 {:?} 上限，已拒绝",
+                P2_MAX_WINDOW
+            )));
+        }
+        let required = self.required_reads();
+        if self.max_reads < required {
+            return Err(P2Error::ExecLimit(format!(
+                "读取上限 {} 低于两遍必达页数 {}",
+                self.max_reads, required
+            )));
+        }
+        if self.max_reads > P2_SCAN_MAX_READS {
+            return Err(P2Error::ExecLimit(format!(
+                "读取上限 {} 超过 {} 上限",
+                self.max_reads, P2_SCAN_MAX_READS
+            )));
+        }
+        let session_budget = self.max_total.saturating_sub(self.max_reads);
+        if session_budget < 3 || self.max_total > P2_SCAN_MAX_TOTAL_REQUESTS {
+            return Err(P2Error::ExecLimit(format!(
+                "整场上限 {} 不成立：需 ≤{} 且为会话留 ≥3 次",
+                self.max_total, P2_SCAN_MAX_TOTAL_REQUESTS
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// 一张表一遍扫描的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct P2SheetScan {
+    pub sheet_id: i64,
+    pub pages_read: u32,
+    pub records: u64,
+    /// 逐表指纹：`sha256("id|规范化字段 JSON" 行)` 的前 16 位十六进制。
+    pub digest: String,
+}
+
+/// 扫描运行结果。
+#[derive(Debug, Clone, PartialEq)]
+pub struct P2ScanOutcome {
+    pub pass1: Vec<P2SheetScan>,
+    pub pass2: Vec<P2SheetScan>,
+    pub stable: bool,
+    pub reads: u32,
+    pub actions: P2ActionCounts,
+    pub termination: P2Termination,
+}
+
+/// 扫描运行入口：复用传输、凭据、状态库与审计，但**不复用**单页单的一次性 claim。
+/// 扫描审计的入参集合（避免超长参数列表）。
+#[derive(Debug, Clone, Copy)]
+struct ScanAuditEntry<'a, 'b> {
+    pass: u32,
+    sheet_id: i64,
+    page: u32,
+    records: u64,
+    cursor: Option<&'a str>,
+    outcome: &'b str,
+    counts: P2ActionCounts,
+}
+
+pub struct P2ScanRun<T: P2Transport> {
+    transport: T,
+    credential: Option<Arc<dyn P2Credential>>,
+    clock: Arc<dyn P2Clock>,
+    state: Option<Arc<dyn P2Consumption>>,
+    audit_sink: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+}
+
+impl<T: P2Transport> P2ScanRun<T> {
+    pub fn new(transport: T, credential: Option<Arc<dyn P2Credential>>) -> Self {
+        Self {
+            transport,
+            credential,
+            clock: Arc::new(SystemP2Clock),
+            state: None,
+            audit_sink: None,
+        }
+    }
+
+    pub fn with_clock(mut self, clock: Arc<dyn P2Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    pub fn with_state(mut self, state: Arc<dyn P2Consumption>) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    pub fn with_audit_sink(mut self, sink: Arc<std::sync::Mutex<Vec<String>>>) -> Self {
+        self.audit_sink = Some(sink);
+        self
+    }
+
+    pub fn run(&self, spec: &P2ScanSpec) -> Result<P2ScanOutcome, P2Error> {
+        spec.validate()?;
+        let now = self.clock.now();
+        if now < spec.window_start || now >= spec.window_end {
+            return Err(P2Error::Window("不在签批执行窗口内".into()));
+        }
+        // 运行级消费：只在整场开始登记一次，运行内的 44+ 次读取不再登记。
+        if let Some(state) = &self.state {
+            state.consume(
+                &spec.grant_id,
+                &mask_id(&spec.file_id),
+                spec.window_end,
+                now,
+            )?;
+        }
+        let token = match &self.credential {
+            Some(credential) => {
+                let token = credential.access_token()?;
+                if token.trim().is_empty() {
+                    return Err(P2Error::Credentials("凭据为空".into()));
+                }
+                Some(token)
+            }
+            None => None,
+        };
+
+        let mut counts = P2ActionCounts::default();
+        let mut reads = 0u32;
+        let deadline = self.remaining(spec)?;
+        counts.initialize += 1;
+        counts.total += 1;
+        let mut session = self
+            .transport
+            .initialize(&spec.endpoint, token.as_deref(), deadline)?;
+        counts.notify += 1;
+        counts.total += 1;
+        let deadline = self.remaining(spec)?;
+        self.transport
+            .notify(&spec.endpoint, &session, token.as_deref(), deadline)?;
+
+        let mut pass1 = Vec::new();
+        let mut pass2 = Vec::new();
+        for pass in 1..=2u32 {
+            let mut results = Vec::new();
+            for (sheet_id, fields) in &spec.sheets {
+                let pages = *spec
+                    .pages
+                    .get(sheet_id)
+                    .ok_or_else(|| P2Error::Scope(format!("表 {sheet_id} 缺少页数")))?;
+                let mut cursor: Option<String> = None;
+                let mut hasher = Sha256::new();
+                let mut records = 0u64;
+                for page in 1..=pages {
+                    let deadline = self.remaining(spec)?;
+                    self.check_budget(spec, reads, counts.total)?;
+                    let args = json!({
+                        "file_id": spec.file_id,
+                        "sheet_id": sheet_id,
+                        "offset": String::from(cursor.as_deref().unwrap_or("")),
+                        "page_size": spec.page_size,
+                        "fields": fields.iter().cloned().collect::<Vec<_>>(),
+                    });
+                    counts.read += 1;
+                    counts.total += 1;
+                    reads += 1;
+                    let value = self.transport.call(
+                        &spec.endpoint,
+                        &session,
+                        P2_ACTION_LIST_RECORDS,
+                        &args,
+                        token.as_deref(),
+                        deadline,
+                    )?;
+                    let (kept, next) = validate_scan_page(*sheet_id, fields, &value)?;
+                    for record in &kept {
+                        let id = record
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("row-{records}"));
+                        let fields_value = record
+                            .get("fields")
+                            .cloned()
+                            .unwrap_or_else(|| record.clone());
+                        hasher.update(id.as_bytes());
+                        hasher.update(b"|");
+                        hasher.update(canonical_json(&fields_value).as_bytes());
+                        hasher.update(b"\n");
+                        records += 1;
+                    }
+                    if page == pages {
+                        if let Some(next) = next {
+                            return Err(P2Error::Drift(format!(
+                                "表 {sheet_id} 出现授权页集之外的新页（游标 {next}）"
+                            )));
+                        }
+                    } else if next.is_none() {
+                        return Err(P2Error::Incomplete(format!(
+                            "表 {sheet_id} 第 {page} 页之后无游标，未覆盖授权页集（{pages} 页）"
+                        )));
+                    } else {
+                        cursor = next;
+                    }
+                    self.audit_line(ScanAuditEntry {
+                        pass,
+                        sheet_id: *sheet_id,
+                        page,
+                        records,
+                        cursor: cursor.as_deref(),
+                        outcome: "ok",
+                        counts,
+                    });
+                }
+                results.push(P2SheetScan {
+                    sheet_id: *sheet_id,
+                    pages_read: pages,
+                    records,
+                    digest: hex16(hasher.finalize()),
+                });
+            }
+            if pass == 1 {
+                pass1 = results;
+            } else {
+                pass2 = results;
+            }
+        }
+
+        let stable = pass1 == pass2;
+        if !stable {
+            let changed: Vec<i64> = pass1
+                .iter()
+                .zip(pass2.iter())
+                .filter(|(a, b)| a != b)
+                .map(|(a, _)| a.sheet_id)
+                .collect();
+            return Err(P2Error::Inconsistent(format!(
+                "两遍扫描指纹不一致（表 {:?}），运行标 inconsistent",
+                changed
+            )));
+        }
+
+        let mut termination = P2Termination::Skipped("授权单未允许终止动作".into());
+        if spec.terminate_allowed {
+            let deadline = self.remaining(spec)?;
+            if counts.total < spec.max_total {
+                counts.terminate += 1;
+                counts.total += 1;
+                termination = match self.transport.terminate(
+                    &spec.endpoint,
+                    &session,
+                    token.as_deref(),
+                    deadline,
+                ) {
+                    Ok(()) => P2Termination::Completed,
+                    Err(_) => P2Termination::Unconfirmed,
+                };
+            } else {
+                termination = P2Termination::Skipped(
+                    P2Error::ExecLimit("整场预算不足，未发送终止".into()).to_string(),
+                );
+            }
+        }
+        session.clear();
+
+        Ok(P2ScanOutcome {
+            pass1,
+            pass2,
+            stable,
+            reads,
+            actions: counts,
+            termination,
+        })
+    }
+
+    fn check_budget(&self, spec: &P2ScanSpec, reads: u32, total: u32) -> Result<(), P2Error> {
+        if reads >= spec.max_reads {
+            return Err(P2Error::ExecLimit(format!(
+                "读取已达上限 {} 次，已停止",
+                spec.max_reads
+            )));
+        }
+        if total >= spec.max_total {
+            return Err(P2Error::ExecLimit(format!(
+                "整场请求已达上限 {} 次，已停止",
+                spec.max_total
+            )));
+        }
+        Ok(())
+    }
+
+    fn remaining(&self, spec: &P2ScanSpec) -> Result<Duration, P2Error> {
+        let now = self.clock.now();
+        if now >= spec.window_end {
+            return Err(P2Error::Window("执行窗口已到期，拒绝继续发网".into()));
+        }
+        (spec.window_end - now)
+            .to_std()
+            .map_err(|_| P2Error::Window("执行窗口剩余时间不合法".into()))
+    }
+
+    fn audit_line(&self, entry: ScanAuditEntry<'_, '_>) {
+        let ScanAuditEntry {
+            pass,
+            sheet_id,
+            page,
+            records,
+            cursor,
+            outcome,
+            counts,
+        } = entry;
+        let cursor_hash = cursor
+            .map(|cursor| hex16(Sha256::digest(cursor.as_bytes())))
+            .unwrap_or_else(|| "-".into());
+        let line = format!(
+            "p2-scan pass={pass} sheet={sheet_id} page={page} rows={records} cursor={cursor_hash} outcome={outcome} init={} notify={} read={} term={} total={}",
+            counts.initialize, counts.notify, counts.read, counts.terminate, counts.total
+        );
+        if let Some(sink) = &self.audit_sink {
+            if let Ok(mut lines) = sink.lock() {
+                lines.push(line.clone());
+            }
+        }
+        log::info!("{line}");
+    }
+}
+
+/// 扫描页校验：返回（仅授权字段的记录、下一页游标）。记录保留 `id` 供指纹使用。
+fn validate_scan_page(
+    sheet_id: i64,
+    fields: &BTreeSet<String>,
+    value: &Value,
+) -> Result<(Vec<Value>, Option<String>), P2Error> {
+    let payload = P2ReadOnlyEntry::<UnavailableP2Transport>::records_payload(value)
+        .ok_or_else(|| P2Error::Malformed("响应缺少 records 数组".into()))?;
+    let records = payload
+        .get("records")
+        .and_then(Value::as_array)
+        .ok_or_else(|| P2Error::Malformed("响应缺少 records 数组".into()))?;
+    let mut kept = Vec::with_capacity(records.len());
+    for record in records {
+        let object = record
+            .as_object()
+            .ok_or_else(|| P2Error::Malformed("records 元素不是对象".into()))?;
+        let fields_object = object
+            .get("fields")
+            .and_then(Value::as_object)
+            .or(Some(object))
+            .ok_or_else(|| P2Error::Malformed("记录缺少 fields 对象".into()))?;
+        let mut filtered = Map::new();
+        for (key, item) in fields_object {
+            if key == "id" || key == "record_id" {
+                continue;
+            }
+            if !fields.contains(key) {
+                return Err(P2Error::Scope(format!(
+                    "响应包含未授权字段，整页已拒绝（表 {sheet_id}）"
+                )));
+            }
+            filtered.insert(key.clone(), item.clone());
+        }
+        if let Some(id) = object.get("id").cloned() {
+            filtered.insert("id".into(), id);
+        }
+        kept.push(Value::Object(filtered));
+    }
+    let cursor = payload
+        .get("offset")
+        .and_then(Value::as_str)
+        .filter(|cursor| !cursor.is_empty())
+        .map(str::to_string);
+    Ok((kept, cursor))
+}
+
+fn canonical_json(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| String::from("<invalid>"))
+}
+
+fn hex16(bytes: impl AsRef<[u8]>) -> String {
+    let digest = bytes.as_ref();
+    let mut out = String::with_capacity(16);
+    for byte in digest.iter().take(8) {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }
 
 #[cfg(test)]

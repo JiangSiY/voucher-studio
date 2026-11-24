@@ -21,8 +21,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use voucher_core::services::wps_p2::{
     HttpsP2Transport, P2Action, P2Credential, P2Endpoint, P2Error, P2Gate, P2Grant,
-    P2ReadOnlyEntry, P2ReadOutcome, P2ReadRequest, P2Transport, SqliteP2State,
-    UnavailableP2Transport,
+    P2ReadOnlyEntry, P2ReadOutcome, P2ReadRequest, P2ScanOutcome, P2ScanRun, P2ScanSpec,
+    P2SheetScan, P2Transport, SqliteP2State, UnavailableP2Transport,
 };
 use voucher_core::services::{ingestion, query};
 use voucher_core::CoreContext;
@@ -47,6 +47,7 @@ fn usage() -> &'static str {
   import-ledger  台账导出的收款/付款/计提清单 → voucher 凭证（幂等键=流水号/单据号）
   list-pending   列出已导入但还没配图的凭证
   restore        把全量备份还原到一个空目录（冷备接管用：i3 PC 上跑完指向该目录即可）
+  wps-p2-scan    扫描运行（两遍全表只读；无 --cursor/--page；必须 --state）
   wps-p2-read    P2 只读入口：--check 只校验授权单；执行时默认 offline（零发网），
                  loopback-tls 仅允许 p2-local.test/localhost/127.0.0.1 且须显式提供测试 CA；
                  https 真实端点模式另需 --allow-real-endpoint 与 --token-file（默认关闭，
@@ -486,6 +487,282 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
     }
 }
 
+/// 从扫描授权单 JSON 还原 `P2ScanSpec`；缺项一律报参数错误，不默认放行。
+fn p2_scan_spec_from_value(
+    value: &serde_json::Value,
+    allow_real_endpoint: bool,
+) -> std::result::Result<P2ScanSpec, String> {
+    let grant_id = p2_string(value, "grant_id").ok_or("授权单缺少 grant_id")?;
+    let approved_by = p2_string(value, "approved_by").ok_or("授权单缺少 approved_by（签批人）")?;
+    let endpoint_raw = p2_string(value, "endpoint").ok_or("授权单缺少 endpoint")?;
+    let endpoint = P2Endpoint::parse(&endpoint_raw).map_err(|e| e.to_string())?;
+    if !P2_CLI_LOOPBACK_HOSTS.contains(&endpoint.host()) && !allow_real_endpoint {
+        return Err(format!(
+            "CLI 默认只允许本机回环端点（{}），拒绝 {}；真实端点须显式加 --allow-real-endpoint",
+            P2_CLI_LOOPBACK_HOSTS.join("/"),
+            endpoint.host()
+        ));
+    }
+    let file_id = p2_string(value, "file_id").ok_or("授权单缺少 file_id")?;
+    let entries = value
+        .get("sheets")
+        .and_then(|v| v.as_array())
+        .ok_or("授权单缺少 sheets 数组（每项 sheet_id + fields）")?;
+    let mut sheets = BTreeMap::new();
+    let mut pages = BTreeMap::new();
+    for entry in entries {
+        let sheet_id = p2_number_i64(entry, "sheet_id").ok_or("sheets 项缺少 sheet_id")?;
+        let fields: BTreeSet<String> = entry
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if fields.is_empty() {
+            return Err(format!("表 {sheet_id} 缺少 fields（必须逐列批准）"));
+        }
+        let page_count = p2_number_u32(entry, "pages")
+            .or_else(|| {
+                value
+                    .get("pages")
+                    .and_then(|p| p.get(sheet_id.to_string()))
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok())
+            })
+            .ok_or_else(|| format!("表 {sheet_id} 缺少 pages（锁死页数）"))?;
+        sheets.insert(sheet_id, fields);
+        pages.insert(sheet_id, page_count);
+    }
+    let page_size = p2_number_u32(value, "page_size").ok_or("授权单缺少 page_size")?;
+    let window_start = p2_time(value, "window_start").ok_or("授权单缺少合法 window_start")?;
+    let window_end = p2_time(value, "window_end").ok_or("授权单缺少合法 window_end")?;
+    let required: u32 = pages.values().map(|p| p * 2).sum();
+    let max_reads = p2_number_u32(value, "max_reads").unwrap_or(required);
+    let max_total = p2_number_u32(value, "max_total_requests").unwrap_or(max_reads + 6);
+    let terminate_allowed = p2_field(value, "terminate_allowed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    Ok(P2ScanSpec {
+        endpoint,
+        file_id,
+        grant_id,
+        approved_by,
+        sheets,
+        pages,
+        page_size,
+        window_start,
+        window_end,
+        max_reads,
+        max_total,
+        terminate_allowed,
+    })
+}
+
+fn scan_outcome_json(
+    outcome: &P2ScanOutcome,
+    spec: &P2ScanSpec,
+    transport: &str,
+) -> serde_json::Value {
+    let sheets = |list: &[P2SheetScan]| {
+        list.iter()
+            .map(|s| {
+                serde_json::json!({
+                    "sheet_id": s.sheet_id,
+                    "pages_read": s.pages_read,
+                    "records": s.records,
+                    "digest": s.digest,
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    serde_json::json!({
+        "ok": true,
+        "transport": transport,
+        "real_endpoint": transport == "https",
+        "grant_id": spec.grant_id,
+        "file_id_masked": voucher_core::services::wps_p2::mask_id(&spec.file_id),
+        "stable": outcome.stable,
+        "reads": outcome.reads,
+        "pass1": sheets(&outcome.pass1),
+        "pass2": sheets(&outcome.pass2),
+        "actions": {
+            "initialize": outcome.actions.initialize,
+            "read": outcome.actions.read,
+            "notify": outcome.actions.notify,
+            "terminate": outcome.actions.terminate,
+            "total": outcome.actions.total,
+        },
+        "termination": outcome.termination.message(),
+    })
+}
+
+/// `wps-p2-scan`：扫描运行（两遍全表只读）。
+///
+/// 与 `wps-p2-read` 相同端点/凭据边界；额外约束：
+/// - 不提供 `--cursor`/`--page`：游标只在运行内使用，外部注入一律拒绝；
+/// - 必须 `--state`（运行级只登记一次）；
+/// - `--check` 只校验授权单与规格，不建状态库、不发网。
+fn wps_p2_scan(args: &[String]) -> ExitCode {
+    if args.iter().any(|a| a == "--cursor" || a == "--page") {
+        return fail(
+            2,
+            "扫描运行不允许 --cursor/--page：游标只在运行内使用，外部注入一律拒绝",
+        );
+    }
+    let Some(grant_path) = arg_value(args, "--grant") else {
+        return fail(2, "wps-p2-scan 需要 --grant <授权.json>");
+    };
+    let check_only = args.iter().any(|a| a == "--check");
+    let transport_kind = arg_value(args, "--transport").unwrap_or_else(|| "offline".into());
+    if !matches!(
+        transport_kind.as_str(),
+        "offline" | "loopback-tls" | "https"
+    ) {
+        return fail(2, format!("未知 --transport：{transport_kind}"));
+    }
+    let allow_real_endpoint = args.iter().any(|a| a == "--allow-real-endpoint");
+    if transport_kind == "https" && !allow_real_endpoint {
+        return fail(
+            2,
+            "https 真实端点模式默认关闭：须显式加 --allow-real-endpoint 才放行",
+        );
+    }
+    if !check_only && transport_kind == "loopback-tls" && arg_value(args, "--trust-root").is_none()
+    {
+        return fail(2, "loopback-tls 需要 --trust-root <测试 CA DER>");
+    }
+    if !check_only && arg_value(args, "--state").is_none() {
+        return fail(2, "执行模式需要 --state <状态.db>（运行级只登记一次）");
+    }
+    let real_token = if transport_kind == "https" {
+        let Some(path) = arg_value(args, "--token-file") else {
+            return fail(2, "https 真实端点模式需要 --token-file <凭据文件>");
+        };
+        match read_token_file(&path) {
+            Ok(token) => Some(token),
+            Err(message) => return fail(2, message),
+        }
+    } else {
+        None
+    };
+
+    let raw = match std::fs::read_to_string(&grant_path) {
+        Ok(raw) => raw,
+        Err(e) => return fail(1, format!("授权单不可读：{e}")),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(e) => return fail(2, format!("授权单不是合法 JSON：{e}")),
+    };
+    let spec = match p2_scan_spec_from_value(&value, allow_real_endpoint) {
+        Ok(spec) => spec,
+        Err(message) => {
+            println!("{}", p2_json_error("P2_E_GRANT", &message));
+            return ExitCode::from(2);
+        }
+    };
+    if check_only {
+        if let Err(err) = spec.validate() {
+            println!("{}", p2_json_error(err.code(), &err.to_string()));
+            return ExitCode::from(1);
+        }
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "check": "scan-preflight",
+                "transport": transport_kind,
+                "real_endpoint": transport_kind == "https",
+                "grant_id": spec.grant_id,
+                "host": spec.endpoint.host(),
+                "file_id_masked": voucher_core::services::wps_p2::mask_id(&spec.file_id),
+                "sheets": spec.sheets.keys().collect::<Vec<_>>(),
+                "pages": spec.pages,
+                "required_reads": spec.required_reads(),
+                "max_reads": spec.max_reads,
+                "max_total_requests": spec.max_total,
+            })
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    let state = match SqliteP2State::open(std::path::Path::new(
+        &arg_value(args, "--state").unwrap_or_default(),
+    )) {
+        Ok(state) => Arc::new(state),
+        Err(err) => {
+            println!("{}", p2_json_error(err.code(), &err.to_string()));
+            return ExitCode::from(1);
+        }
+    };
+    let endpoint = spec.endpoint.clone();
+    let host = endpoint.host().to_string();
+    let port = endpoint.port();
+    let trust_root = arg_value(args, "--trust-root");
+    let credential: Arc<dyn P2Credential> = match transport_kind.as_str() {
+        "https" => {
+            let Some(token) = real_token else {
+                return fail(2, "https 模式缺少凭据（内部状态异常）");
+            };
+            Arc::new(FileTokenCredential {
+                token,
+                subject: spec.approved_by.clone().into(),
+            })
+        }
+        _ => Arc::new(FileTokenCredential {
+            token: P2_CLI_SYNTHETIC_TOKEN.to_string(),
+            subject: None,
+        }),
+    };
+
+    let outcome = match transport_kind.as_str() {
+        "offline" => {
+            let run = P2ScanRun::new(UnavailableP2Transport, Some(credential)).with_state(state);
+            run.run(&spec)
+        }
+        _ => {
+            let mut builder = HttpsP2Transport::builder(endpoint.clone());
+            if let Some(path) = &trust_root {
+                match std::fs::read(path) {
+                    Ok(bytes) => builder = builder.trust_root_der(bytes),
+                    Err(e) => return fail(2, format!("信任根不可读：{e}")),
+                }
+            }
+            if transport_kind == "loopback-tls" {
+                let addr = format!("127.0.0.1:{port}");
+                let Ok(sock) = addr.parse() else {
+                    return fail(2, "回环地址解析失败");
+                };
+                builder = builder.resolve(&host, sock);
+            }
+            let transport = match builder.build() {
+                Ok(transport) => transport,
+                Err(err) => {
+                    println!("{}", p2_json_error(err.code(), &err.to_string()));
+                    return ExitCode::from(1);
+                }
+            };
+            let run = P2ScanRun::new(transport, Some(credential)).with_state(state);
+            run.run(&spec)
+        }
+    };
+
+    match outcome {
+        Ok(outcome) => {
+            println!("{}", scan_outcome_json(&outcome, &spec, &transport_kind));
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            println!("{}", p2_json_error(err.code(), &err.to_string()));
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// 字段级脱敏统计：只回「非空计数 + JSON 类型分布 + 类日期计数」，不回任何具体值。
 ///
 /// 目的：回答「金额是数值还是字符串」「日期是什么形状」「自增列是否可读」这类
@@ -699,6 +976,7 @@ fn main() -> ExitCode {
             }
         }
         "wps-p2-read" => wps_p2_read(&args),
+        "wps-p2-scan" => wps_p2_scan(&args),
         other => fail(2, format!("未知命令：{other}\n\n{}", usage())),
     }
 }

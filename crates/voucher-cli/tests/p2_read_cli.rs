@@ -303,3 +303,84 @@ fn check_accepts_cursor_flag_without_touching_state() {
     assert_eq!(value["check"], "preflight");
     assert!(!state.exists(), "--check 不得创建状态库");
 }
+
+/// 扫描运行授权单：7 表口径的缩小版（2 表），页数锁死。
+fn scan_grant(dir: &Path, endpoint: &str) -> PathBuf {
+    let now = Utc::now();
+    let value = json!({
+        "grant_id": format!("A2-SCAN-{}-01", std::process::id()),
+        "approved_by": "安全/运维（示例）",
+        "endpoint": endpoint,
+        "file_id": "dbsheet_replica_001",
+        "sheets": [
+            { "sheet_id": 1, "fields": ["名称"], "pages": 2 },
+            { "sheet_id": 2, "fields": ["业务类型"], "pages": 1 }
+        ],
+        "page_size": 50,
+        "max_reads": 6,
+        "max_total_requests": 12,
+        "window_start": (now - Duration::minutes(5)).to_rfc3339(),
+        "window_end": (now + Duration::minutes(10)).to_rfc3339(),
+        "terminate_allowed": true
+    });
+    let path = dir.join("scan-grant.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap()).expect("写扫描授权单");
+    path
+}
+
+#[test]
+fn scan_rejects_external_cursor_before_reading_grant() {
+    let dir = temp_dir("scan-cursor");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--cursor",
+        "Cj",
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("不允许 --cursor"), "stderr={err}");
+}
+
+#[test]
+fn scan_check_reports_spec_and_writes_no_state() {
+    let dir = temp_dir("scan-check");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(0));
+    let json = stdout_json(&out);
+    assert_eq!(json["check"], "scan-preflight");
+    assert_eq!(json["required_reads"], 6);
+    assert_eq!(json["sheets"].as_array().unwrap().len(), 2);
+    assert!(!state.exists(), "--check 不应创建状态库");
+}
+
+#[test]
+fn scan_offline_execution_fails_closed_after_registering_run() {
+    let dir = temp_dir("scan-offline");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--transport",
+        "offline",
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_PROTOCOL_PENDING");
+    assert!(state.exists(), "执行模式应先登记运行状态");
+}
