@@ -1,0 +1,21 @@
+{
+  "approved_by": "本人签署【唯一责任人】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "sheet_id": 3,
+  "fields": [
+    "单据号",
+    "日期",
+    "类型",
+    "分类",
+    "单据金额"
+  ],
+  "terminate_allowed": true,
+  "window_start": "2026-11-24T00:15:06Z",
+  "window_end": "2026-11-24T00:25:06Z",
+  "approved_subject": "tenant-a/reader",
+  "grant_id": "A2-LEDGER-20261124-04",
+  "page_size": 1000,
+  "max_total_requests": 4,
+  "_说明": "真实副本只读第四发（A：全表分布）：表 3「单据」382 行、page_size=1000 一次取完，配 --stats 取全量字段类型分布（不落值）。签批人 2026-11-23 22:31 CST 指示执行；窗口按实际执行时刻设为 2026-11-24T00:15:06Z–2026-11-24T00:25:06Z（UTC）。"
+}

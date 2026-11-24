@@ -1,0 +1,21 @@
+{
+  "approved_by": "本人签署【唯一责任人】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "sheet_id": 3,
+  "fields": [
+    "单据号",
+    "日期",
+    "类型",
+    "分类",
+    "单据金额"
+  ],
+  "terminate_allowed": true,
+  "window_start": "2026-11-24T00:15:06Z",
+  "window_end": "2026-11-24T00:25:06Z",
+  "approved_subject": "tenant-a/reader",
+  "grant_id": "A2-LEDGER-20261124-05",
+  "page_size": 50,
+  "max_total_requests": 4,
+  "_说明": "真实副本只读第五发（B：翻页续取）：同表、page_size=50，执行时用 --cursor Cj 取第二页，验证服务端游标续取语义。签批人 2026-11-23 22:31 CST 指示执行；窗口按实际执行时刻设为 2026-11-24T00:15:06Z–2026-11-24T00:25:06Z（UTC）。"
+}
