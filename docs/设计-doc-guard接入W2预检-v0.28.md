@@ -2,6 +2,7 @@
 
 - 日期：2026-11-20
 - 状态：**设计文档；本轮不实现、不接真实 HTTP、不进入 W2 写入**
+  - 2026-11-24 补：设计中的写入三段式**仍未实现**；`services/wps_create.rs` 只落地了只读干跑 `WpsCreateFlow::dry_run`（复用 `W2Sync::preflight`），不提供 `create_doc_records`，写入口仍只有 `W2Sync::execute`。
 - 依据：`crates/voucher-core/src/services/wps_doc_guard.rs`（W1 已实现）、`wps_09.rs`、`wps_pull.rs`、`wps_index.rs`、`wps.rs`（`WpsWriteSession` / `wps_links`）；实施说明 §八/§十
 - 前置：W1 已收口；#64/#65/#66 截止 W2 启动前；S0/G1 未通过，`transport` 仍 `Mock`
 

@@ -2,6 +2,8 @@
 
 凭证整理打印工具 —— Rust + Tauri 2 + Vue 3 跨平台重写版（前身为 PySide6 版 voucher-print v4.3，旧数据不保留，全新空库上线）。
 
+> **2026-11-24 W2 写入预检层（干跑）落地（Mock，零真实写入）**：新增 `crates/voucher-core/src/services/wps_create.rs` 的 `WpsCreateFlow::dry_run`，只复用既有 `W2Sync::preflight` 做请求前判定——空业务键 `WPS_E_BUSINESS_KEY_MISSING`、同批重复业务键 `WPS_E_BATCH_DUPLICATE`、05/07 查重专用 `WPS_E_DEDUPE_ONLY`、01/08/10 仅引用 `WPS_E_REFERENCE_ONLY` 均整批拒绝；不复制规则、不新增错误码、**不提供任何写入口**（C5 写入阻断维持）。新增 6 例（成功干跑、空业务键、同批重复键、05/07、01 引用、源码无写入符号静态判据），并给既有 05/07 阻断用例补四表零增量断言；全量实跑 **574 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **544**（369 单元 + 175 集成），加壳 3 共 **547**；`services::wps` 过滤口径实测 **170**；前端 46 文件 239 用例（t3 前端新增重授权条/查看范围门 2 文件 12 例）。边界：仍 `transport=mock`、未接任何生产命令或桌面入口、零真实 WPS 请求、未写生产库。
+>
 > **2026-11-24 A2 扫描运行（scan-run）实现完成（授权单待签）**：按设计 v0.3 落地 `P2ScanRun`——运行级只消费一次（`grant_id`）、单逻辑会话（`initialize` ≤2 / `notify` ≤2 / `DELETE` ≤1）、两遍独立全扫并逐表 `sha256` 互比、页数锁死（2/1/8/8/1/1/1）、`P2_E_INCOMPLETE`/`P2_E_DRIFT`/`P2_E_INCONSISTENT` 三类停止码；预算 `P2_SCAN_MAX_READS=74`、`P2_SCAN_MAX_TOTAL_REQUESTS=80`。CLI 新增 `wps-p2-scan`（**无 `--cursor`/`--page`**，外部游标一律拒绝；默认 `offline` 零发网；`https` 需 `--allow-real-endpoint` + `--token-file`；`--check` 不建库）。离线验收 8 例（规格边界/两遍一致/指纹不等/缺页/越界整页拒绝/目标越界零请求/主体缺失不烧授权/主体不符零请求）+ CLI 15 例；**2026-11-24 第二轮补 Q2 约束落码**（`approved_file_id` 目标绑定、`approved_subject` 主体绑定、`check_subject` 先于 `consume`）；全量实跑 **568 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **538**（363 单元 + 175 集成），加壳 3 共 **541**，`services::wps` 口径 **168**；前端 44 文件 227 用例。**授权单 `A2扫描级授权-01.json` 已于 2026-11-24 01:10Z 签署并消费一次**（首跑 `exit 0`，见证据 §5）；原件不含 `approved_file_id`，按 Q2 落码后的规则不可复跑，再跑须新签；扫描证据不构成 C5 ①②③、不解除写入阻断。
 >
 > **2026-11-23 P2 支持页游标续取（`--cursor`）**：`P2ReadRequest` 的数值 `offset` 换成 `cursor: Option<String>`，请求体 `offset` 原样透传服务端游标（首屏 `None` → `""`），CLI 增 `--cursor <游标>`；此前写死首屏、无法取第二页。核心用例把「非首屏拒绝」改为「游标原样进入请求体」，并补 `page_size` 不符仍零请求。全量实跑 **554 passed / 0 failed / 0 ignored**；`voucher-core` 静态 **530**（363 单元 + 167 集成），加壳 **533**，`services::wps` 口径 **164**；`voucher-cli` **14 例**（新增 `--cursor` 预检不建库）；前端 44 文件 227 用例。边界：单次授权仍只取一页，第二页需另签单并把上一页 `cursor` 传入。
@@ -127,7 +129,7 @@ npm run typecheck          # 前端类型检查
 npm run format             # 全量排版（Prettier；提交前跑一次）
 npm run format:check       # 只检查排版是否合规（门禁用，CI 同款）
 npm run test               # 前端单元测试（Vitest）
-cargo test --workspace     # 后端测试（voucher-core：363 单元 + 175 集成，共 538 用例；加 src-tauri 3 用例共 541；另 voucher-cli 集成用例；静态计数）
+cargo test --workspace     # 后端测试（voucher-core：369 单元 + 175 集成，共 544 用例；加 src-tauri 3 用例共 547；另 voucher-cli 集成用例；静态计数）
 cargo test --workspace --no-fail-fast -- --include-ignored  # 与 CI 同口径（含 #[ignore] 真跑；单目标失败不中止其余）
 cargo clippy --workspace --all-targets  # Lint
 cargo fmt --all            # 格式化

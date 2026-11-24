@@ -5,6 +5,8 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
+> **2026-11-24 W2 写入预检层（干跑）**：新增 `services/wps_create.rs`（`WpsCreateFlow::dry_run`，只调既有 `W2Sync::preflight`，无写入口、无新错误码、无重复规则）；新增 6 例（成功干跑/空业务键/同批重复键/05、07 查重专用/01 仅引用/源码无写入符号静态判据），并给 `wps_w2::preflight_blocks_reference_and_dedupe_tables` 补四表零增量断言。`voucher-core` 测试 **544 个**（369 单元 + 175 集成）、加壳 3 共 **547**、`services::wps` 过滤口径实测 **170**；全量 **574 passed / 0 failed / 0 ignored**；前端 **46 文件 239 用例**（t3 前端重授权条/查看范围门新增 2 文件 12 例）。边界：`transport=mock`、未接 CLI/桌面入口、零真实请求、未写生产库。
+>
 > **2026-11-24 A2 扫描运行（scan-run）实现**：`P2ScanRun`（运行级只消费一次、单逻辑会话、两遍独立全扫 + 逐表 `sha256` 互比、页数锁死、`P2_E_INCOMPLETE`/`P2_E_DRIFT`/`P2_E_INCONSISTENT`）与 CLI `wps-p2-scan`（无外部游标、`--check` 不建库、`https` 三重开关）。新增 `p2_scan` 集成 8 例 + CLI 15 例（2026-11-24 第二轮补 Q2 约束落码：目标绑定/主体绑定/先校验后消费 3 例 + CLI 3 例）；`voucher-core` 测试 **538 个**（363 单元 + 175 集成）。全量 **568 passed / 0 failed / 0 ignored**；`voucher-core` **538**（363 + 175）、加壳 **541**、`services::wps` **168**；授权单待签、签前零真实请求。
 >
 > **2026-11-23 P2 页游标续取（`--cursor`）**：`P2ReadRequest.offset` → `cursor: Option<String>`，游标原样进入 `offset` 字段；CLI 增 `--cursor`；核心用例改为「游标透传」，`page_size` 不符仍零请求。全量 **554 passed / 0 failed / 0 ignored**；`voucher-core` **530**（363 + 167）、加壳 **533**、`services::wps` **164**；`voucher-cli` **14 例**；前端 44 文件 227 用例。
