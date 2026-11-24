@@ -169,6 +169,8 @@ pub struct WriteOutcome {
     pub idempotency_key: String,
     pub status: WriteStatus,
     pub remote_record_id: Option<String>,
+    /// 创建成功时服务端应答的原始 JSON（文本形式，用于回填 `wps_links.remote_json`）。
+    pub remote_json: Option<String>,
     pub error: Option<WpsError>,
 }
 
@@ -1039,6 +1041,98 @@ impl<'a> WpsStore<'a> {
             )?)
         })
     }
+
+    /// 回填一条「WPS 记录 → 本地凭证」的关联骨架。
+    ///
+    /// 只写同步所需的展示字段：`origin='wps'`、`state='synced'`、`voucher_id` 留
+    /// NULL（认领/入账由后续流程处理），`base_json`/`targets_json` 写空对象。
+    /// 同一 `(sheet_id, record_id)` 重复回填按最新内容更新，保持幂等。
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_link(
+        &self,
+        sheet_id: i64,
+        record_id: &str,
+        doc_type: &str,
+        idempotency_key: &str,
+        fields: &Value,
+        remote_json: &str,
+    ) -> Result<i64> {
+        if record_id.trim().is_empty() {
+            return Err(CoreError::Invalid(
+                "WPS_E_REMOTE_ID: 回填关联时远端记录 id 为空".into(),
+            ));
+        }
+        self.db.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO wps_links
+                    (voucher_id, sheet_id, record_id, doc_type, origin, fields_json,
+                     base_json, remote_json, targets_json, idempotency_key, state,
+                     created_at, updated_at)
+                 VALUES (NULL, ?1, ?2, ?3, 'wps', ?4, '{}', ?5, '{}', ?6, 'synced',
+                         datetime('now'), datetime('now'))
+                 ON CONFLICT(sheet_id, record_id) DO UPDATE SET
+                    doc_type = excluded.doc_type,
+                    fields_json = excluded.fields_json,
+                    remote_json = excluded.remote_json,
+                    idempotency_key = excluded.idempotency_key,
+                    state = excluded.state,
+                    updated_at = datetime('now')",
+                params![
+                    sheet_id,
+                    record_id,
+                    doc_type,
+                    fields.to_string(),
+                    remote_json,
+                    idempotency_key
+                ],
+            )?;
+            Ok(conn.query_row(
+                "SELECT id FROM wps_links WHERE sheet_id = ?1 AND record_id = ?2",
+                params![sheet_id, record_id],
+                |row| row.get(0),
+            )?)
+        })
+    }
+}
+
+/// 回填 `wps_links` 的最小能力（写入路径的可注入缝）。
+///
+/// 抽 trait 的**唯一**目的是让「回填失败」这条分支能在测试里稳定触发：
+/// 生产路径由 [`WpsStore`] 实现，`WpsCreateFlow::new` 仍指向同一个 store，
+/// 行为与直接调用 [`WpsStore::insert_link`] 完全一致。
+pub trait LinkWriter {
+    /// 写入一条 `state='synced'` 的链接行并返回本地 id；失败原样上抛（不吞错）。
+    fn write_link_row(
+        &self,
+        sheet_id: i64,
+        record_id: &str,
+        doc_type: &str,
+        idempotency_key: &str,
+        fields: &Value,
+        remote_json: &str,
+    ) -> Result<i64>;
+}
+
+impl LinkWriter for WpsStore<'_> {
+    fn write_link_row(
+        &self,
+        sheet_id: i64,
+        record_id: &str,
+        doc_type: &str,
+        idempotency_key: &str,
+        fields: &Value,
+        remote_json: &str,
+    ) -> Result<i64> {
+        WpsStore::insert_link(
+            self,
+            sheet_id,
+            record_id,
+            doc_type,
+            idempotency_key,
+            fields,
+            remote_json,
+        )
+    }
 }
 
 /// 逐条写入会话：客户端 + 本地幂等键状态 + run_id。
@@ -1080,6 +1174,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                     idempotency_key: record.idempotency_key.to_string(),
                     status: WriteStatus::Rejected,
                     remote_record_id: None,
+                    remote_json: None,
                     error: Some(if record.idempotency_key.trim().is_empty() {
                         WpsError::IdempotencyMissing
                     } else {
@@ -1097,6 +1192,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                         idempotency_key: record.idempotency_key.to_string(),
                         status: WriteStatus::Succeeded,
                         remote_record_id: row.remote_record_id,
+                        remote_json: None,
                         error: None,
                     });
                     continue;
@@ -1106,6 +1202,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                         idempotency_key: record.idempotency_key.to_string(),
                         status: WriteStatus::Rejected,
                         remote_record_id: row.remote_record_id,
+                        remote_json: None,
                         error: Some(WpsError::Protocol(format!(
                             "WPS_E_IDEMPOTENCY_STATE: 幂等键状态为 {}，拒绝自动重试",
                             row.local_status
@@ -1120,6 +1217,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                         idempotency_key: record.idempotency_key.to_string(),
                         status: WriteStatus::Rejected,
                         remote_record_id: None,
+                        remote_json: None,
                         error: Some(WpsError::Protocol(format!(
                             "WPS_E_IDEMPOTENCY_STATE: 读取本地幂等键失败: {err}"
                         ))),
@@ -1137,6 +1235,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                     idempotency_key: record.idempotency_key.to_string(),
                     status: WriteStatus::Rejected,
                     remote_record_id: None,
+                    remote_json: None,
                     error: Some(WpsError::Protocol(format!(
                         "WPS_E_IDEMPOTENCY_STATE: 写入本地幂等键失败: {err}"
                     ))),
@@ -1164,6 +1263,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                                 WriteStatus::Unknown
                             },
                             remote_record_id: Some(remote_id),
+                            remote_json: Some(value.to_string()),
                             error: mark.err().map(|err| {
                                 WpsError::Protocol(format!(
                                     "WPS_E_IDEMPOTENCY_STATE: 回填成功状态失败: {err}"
@@ -1181,6 +1281,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                             idempotency_key: record.idempotency_key.to_string(),
                             status: WriteStatus::Unknown,
                             remote_record_id: None,
+                            remote_json: None,
                             error: Some(WpsError::Protocol(
                                 "WPS_E_REMOTE_ID: 创建响应缺少记录 id，无法确认成功".into(),
                             )),
@@ -1195,6 +1296,7 @@ impl<'a, T: WpsTransport> WpsWriteSession<'a, T> {
                         idempotency_key: record.idempotency_key.to_string(),
                         status: WriteStatus::Unknown,
                         remote_record_id: None,
+                        remote_json: None,
                         error: Some(err),
                     });
                 }
@@ -1217,6 +1319,7 @@ fn push_not_attempted(outcomes: &mut Vec<WriteOutcome>, records: &[KeyedRecord<'
         idempotency_key: record.idempotency_key.to_string(),
         status: WriteStatus::NotAttempted,
         remote_record_id: None,
+        remote_json: None,
         error: None,
     }));
 }
