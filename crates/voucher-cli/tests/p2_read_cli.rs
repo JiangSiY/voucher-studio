@@ -499,3 +499,88 @@ fn read_real_endpoint_grant_with_offline_transport_is_refused() {
     assert!(text.contains("--transport https"), "stderr={text}");
     assert!(!state.exists(), "状态库不应生成");
 }
+
+/// 在既有夹具上补 `transport` 字段（预期传输）。
+fn scan_grant_with_transport(dir: &Path, endpoint: &str, transport: &str) -> PathBuf {
+    let path = scan_grant(dir, endpoint);
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    value["transport"] = json!(transport);
+    std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    path
+}
+
+#[test]
+fn scan_grant_declared_transport_must_match_cli() {
+    // 签批单写 https、却没有 --transport https：必须在登记消费之前拒绝。
+    let dir = temp_dir("scan-transport-mismatch");
+    let grant = scan_grant_with_transport(&dir, "https://mcp-center.wps.cn/skill_hub/mcp", "https");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--allow-real-endpoint",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("transport=https"), "stderr={text}");
+    assert!(!state.exists(), "不一致必须在登记消费前被拒");
+}
+
+#[test]
+fn scan_grant_declared_transport_matching_passes_the_gate() {
+    // 一致就放行：offline 声明的单在 offline 传输下进入执行（随后由桩失败，非闸门问题）。
+    let dir = temp_dir("scan-transport-match");
+    let grant = scan_grant_with_transport(&dir, "https://p2-local.test/mcp", "offline");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--transport",
+        "offline",
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_PROTOCOL_PENDING");
+}
+
+#[test]
+fn scan_grant_with_invalid_transport_value_is_refused() {
+    let dir = temp_dir("scan-transport-invalid");
+    let grant = scan_grant_with_transport(&dir, "https://p2-local.test/mcp", "carrier-pigeon");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("offline/loopback-tls/https"), "stderr={text}");
+    assert!(!state.exists());
+}
+
+#[test]
+fn scan_check_reports_declared_transport_binding() {
+    let dir = temp_dir("scan-check-transport");
+    let grant = scan_grant_with_transport(&dir, "https://p2-local.test/mcp", "offline");
+    let out = run(&[
+        "wps-p2-scan",
+        "--check",
+        "--transport",
+        "offline",
+        "--grant",
+        grant.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(0));
+    let json = stdout_json(&out);
+    assert_eq!(json["declared_transport"], "offline");
+    assert_eq!(json["transport_matched"], true);
+}

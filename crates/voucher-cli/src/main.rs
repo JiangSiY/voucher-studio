@@ -326,6 +326,21 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // 预期传输：签批单写了 `transport` 就必须与 `--transport` 逐字一致。
+    let declared_transport = match p2_declared_transport(&value) {
+        Ok(value) => value,
+        Err(message) => return fail(2, format!("{message}（本次未发任何请求，也未消费授权）")),
+    };
+    if let Some(declared) = &declared_transport {
+        if *declared != transport_kind {
+            return fail(
+                2,
+                format!(
+                    "授权单声明 transport={declared}，而本次 --transport={transport_kind}；二者必须一致（本次未发任何请求，也未消费授权）"
+                ),
+            );
+        }
+    }
     // 端点与传输必须自洽：真实端点却用默认 offline 桩，会在零请求下烧掉一次性授权
     // （2026-11-24 事故）。此检查在登记消费之前，失败不留消费记录。
     if transport_kind == "offline" && !P2_CLI_LOOPBACK_HOSTS.contains(&grant.endpoint.host()) {
@@ -496,6 +511,26 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
 }
 
 /// 从扫描授权单 JSON 还原 `P2ScanSpec`；缺项一律报参数错误，不默认放行。
+/// 授权单「预期传输」字段：签批人写明这一单只能怎么发网，
+/// CLI 的 `--transport` 必须与之逐字一致，否则在登记消费之前拒绝。
+///
+/// 缺失该字段时返回 `None`（向后兼容旧授权单），由端点一致性闸门兜底。
+fn p2_declared_transport(value: &serde_json::Value) -> std::result::Result<Option<String>, String> {
+    match value.get("transport") {
+        None => Ok(None),
+        Some(serde_json::Value::String(text)) => {
+            let text = text.trim();
+            if !matches!(text, "offline" | "loopback-tls" | "https") {
+                return Err(format!(
+                    "授权单 transport 只能是 offline/loopback-tls/https，收到 {text}"
+                ));
+            }
+            Ok(Some(text.to_string()))
+        }
+        Some(_) => Err("授权单 transport 必须是字符串".to_string()),
+    }
+}
+
 fn p2_scan_spec_from_value(
     value: &serde_json::Value,
     allow_real_endpoint: bool,
@@ -684,6 +719,21 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // 预期传输：签批单写了 `transport` 就必须与 `--transport` 逐字一致。
+    let declared_transport = match p2_declared_transport(&value) {
+        Ok(value) => value,
+        Err(message) => return fail(2, format!("{message}（本次未发任何请求，也未消费授权）")),
+    };
+    if let Some(declared) = &declared_transport {
+        if *declared != transport_kind {
+            return fail(
+                2,
+                format!(
+                    "授权单声明 transport={declared}，而本次 --transport={transport_kind}；二者必须一致（本次未发任何请求，也未消费授权）"
+                ),
+            );
+        }
+    }
     // 端点与传输必须自洽：授权单写的是真实端点、却用默认 offline 桩，
     // 会让一次性授权在「零请求」下被烧掉（2026-11-24 事故）。
     // 该检查在登记消费之前，故失败不产生消费记录、不发任何请求。
@@ -724,6 +774,8 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
                 "host": spec.endpoint.host(),
                 "file_id_masked": voucher_core::services::wps_p2::mask_id(&spec.file_id),
                 "target_binding": spec.file_id == spec.approved_file_id,
+                "declared_transport": declared_transport,
+                "transport_matched": declared_transport.as_deref().map(|d| d == transport_kind),
                 "subject_state": subject_state,
                 "subject_note": "主体为签批单/本机声明值，非服务端核对",
                 "sheets": spec.sheets.keys().collect::<Vec<_>>(),
