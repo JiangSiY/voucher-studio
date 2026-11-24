@@ -176,7 +176,7 @@ impl WpsCreateFlow<'_, T> {
 
 ## 8. 干跑命令 `w2-create-dry-run`（只读预检可见化，2026-11-24）
 
-> **状态：已接线、未验收。** 命令已落在 `crates/voucher-cli/src/main.rs:1072`（`w2_create_dry_run`，分派 `:1284`；用法行 `:46`），只跑 Mock/离线路径：传输层是「恒报错」的 `OfflineDryRunTransport`（`:988-1013`），配置写死 `W2Config::mock_write()`（`:1107`）。三段式**写入**仍未接任何业务命令，写入口只有 `W2Sync::execute`。
+> **状态：已接线、未验收。** 命令已落在 `crates/voucher-cli/src/main.rs:1072`（`w2_create_dry_run`，分派 `:1284`；用法行 `:46`），只跑 Mock/离线路径：传输层是「恒报错」的 `OfflineDryRunTransport`（`:988-1013`），配置写死 `W2Config::mock_write()`（`:1107`）。三段式**写入**仍未接任何业务命令；`wps_links` 的生产写入点有两处——`WpsStore::insert_link`（`services/wps.rs:1067`，`state='synced'`，三段式回填）与 `W2Sync` 内部 `write_link`（`services/wps_w2.rs:1068`，`state=linked|unclaimed`，原 W2 路径经 `W2Sync::execute` 调用），两者均受 C5 与 G1 约束。
 > 本节 `main.rs` 行号取自落纸时的工作树；该文件同轮由后端改动，行号可能后移——检索以符号名（`w2_create_dry_run`、`OfflineDryRunTransport`、`parse_dry_run_requests`）为准。
 > 定位一句话：干跑是「第 1 段（预检）的可见化」，**不是**「写入的彩排」，也不是写入口。§1.1 记录的是 2026-11-20 设计时点现状，当前口径以本节为准。
 
