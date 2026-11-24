@@ -1,0 +1,553 @@
+{
+ "captured_at": "2026-11-24T08:28+08:00",
+ "tool": "mcp__wps__dbsheet_get_schema",
+ "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+ "file_masked": "xujZ…rW",
+ "sheets": [
+  {
+   "sheet_id": 1,
+   "name": "1 往来对象",
+   "records": 58,
+   "primary_field_id": "B",
+   "fields": [
+    {
+     "id": "B",
+     "name": "名称",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "G",
+     "name": "类型",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "H",
+     "name": "关联公司",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "J",
+     "name": "备注",
+     "type": "MultiLineText"
+    }
+   ]
+  },
+  {
+   "sheet_id": 2,
+   "name": "2 项目",
+   "records": 47,
+   "primary_field_id": "CR",
+   "fields": [
+    {
+     "id": "L",
+     "name": "业务类型",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "R",
+     "name": "签约日期",
+     "type": "Date"
+    },
+    {
+     "id": "W",
+     "name": "付款条件",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "Y",
+     "name": "备注",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "BJ",
+     "name": "客户",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "BO",
+     "name": "单据",
+     "type": "Link"
+    },
+    {
+     "id": "BU",
+     "name": "资金流水",
+     "type": "Link"
+    },
+    {
+     "id": "Bn",
+     "name": "应收合计",
+     "type": "Lookup"
+    },
+    {
+     "id": "Bo",
+     "name": "成本合计",
+     "type": "Lookup"
+    },
+    {
+     "id": "Bp",
+     "name": "已收合计",
+     "type": "Lookup"
+    },
+    {
+     "id": "Bq",
+     "name": "电费回款累计",
+     "type": "Lookup"
+    },
+    {
+     "id": "CA",
+     "name": "施工队",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "CH",
+     "name": "回本进度",
+     "type": "Formula"
+    },
+    {
+     "id": "CR",
+     "name": "项目名称",
+     "type": "Formula"
+    },
+    {
+     "id": "CS",
+     "name": "组件规格",
+     "type": "MultipleSelect"
+    },
+    {
+     "id": "DD",
+     "name": "合同编号",
+     "type": "Number"
+    },
+    {
+     "id": "DE",
+     "name": "合同名称",
+     "type": "Formula"
+    },
+    {
+     "id": "DO",
+     "name": "投资比例",
+     "type": "Percentage"
+    },
+    {
+     "id": "DS",
+     "name": "关联单位",
+     "type": "Lookup"
+    },
+    {
+     "id": "DT",
+     "name": "组件数量",
+     "type": "Number"
+    },
+    {
+     "id": "DU",
+     "name": "装机容量",
+     "type": "Formula"
+    },
+    {
+     "id": "DV",
+     "name": "地址",
+     "type": "Address"
+    },
+    {
+     "id": "DW",
+     "name": "业务员",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "Db",
+     "name": "组件明细",
+     "type": "Link"
+    }
+   ]
+  },
+  {
+   "sheet_id": 3,
+   "name": "3 单据",
+   "records": 382,
+   "primary_field_id": "Z",
+   "fields": [
+    {
+     "id": "Z",
+     "name": "单据号",
+     "type": "AutoNumber"
+    },
+    {
+     "id": "b",
+     "name": "日期",
+     "type": "Date"
+    },
+    {
+     "id": "c",
+     "name": "类型",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "d",
+     "name": "分类",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "e",
+     "name": "去向",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "f",
+     "name": "单据金额",
+     "type": "Currency"
+    },
+    {
+     "id": "g",
+     "name": "摘要",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "h",
+     "name": "物料名称",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "i",
+     "name": "数量",
+     "type": "Number"
+    },
+    {
+     "id": "j",
+     "name": "单位",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "k",
+     "name": "票据类型",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "l",
+     "name": "发票号",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "m",
+     "name": "开票日期",
+     "type": "Date"
+    },
+    {
+     "id": "q",
+     "name": "调整额",
+     "type": "Number"
+    },
+    {
+     "id": "r",
+     "name": "调整原因",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "s",
+     "name": "记账状态",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "t",
+     "name": "凭证号",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "u",
+     "name": "备注",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "BN",
+     "name": "项目",
+     "type": "Link"
+    },
+    {
+     "id": "BP",
+     "name": "对方",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "BY",
+     "name": "4 资金流水",
+     "type": "Link"
+    },
+    {
+     "id": "Bl",
+     "name": "应收额",
+     "type": "Formula"
+    },
+    {
+     "id": "Bm",
+     "name": "成本额",
+     "type": "Formula"
+    },
+    {
+     "id": "Br",
+     "name": "已收金额",
+     "type": "Lookup"
+    },
+    {
+     "id": "Bs",
+     "name": "已付金额",
+     "type": "Lookup"
+    },
+    {
+     "id": "CI",
+     "name": "已结金额",
+     "type": "Formula"
+    },
+    {
+     "id": "CJ",
+     "name": "未结",
+     "type": "Formula"
+    },
+    {
+     "id": "CK",
+     "name": "状态",
+     "type": "Formula"
+    },
+    {
+     "id": "DF",
+     "name": "单据",
+     "type": "Formula"
+    }
+   ]
+  },
+  {
+   "sheet_id": 4,
+   "name": "4 资金流水",
+   "records": 360,
+   "primary_field_id": "DG",
+   "fields": [
+    {
+     "id": "w",
+     "name": "原单号",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "x",
+     "name": "日期",
+     "type": "Date"
+    },
+    {
+     "id": "y",
+     "name": "方向",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "z",
+     "name": "金额",
+     "type": "Currency"
+    },
+    {
+     "id": "0",
+     "name": "账户",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "6",
+     "name": "备注",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "7",
+     "name": "记账状态",
+     "type": "SingleSelect"
+    },
+    {
+     "id": "8",
+     "name": "凭证号",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "BR",
+     "name": "对方",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "BT",
+     "name": "项目",
+     "type": "Link"
+    },
+    {
+     "id": "BX",
+     "name": "对应单据",
+     "type": "Link"
+    },
+    {
+     "id": "DG",
+     "name": "流水号",
+     "type": "Formula"
+    },
+    {
+     "id": "DX",
+     "name": "对应电费单",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "DY",
+     "name": "流水序号",
+     "type": "AutoNumber"
+    }
+   ]
+  },
+  {
+   "sheet_id": 5,
+   "name": "5 电表",
+   "records": 19,
+   "primary_field_id": "9",
+   "fields": [
+    {
+     "id": "9",
+     "name": "表号",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "-",
+     "name": "并网日期",
+     "type": "Date"
+    },
+    {
+     "id": "_",
+     "name": "电价",
+     "type": "Number"
+    },
+    {
+     "id": "BB",
+     "name": "倍率",
+     "type": "Number"
+    },
+    {
+     "id": "BZ",
+     "name": "项目",
+     "type": "OneWayLink"
+    }
+   ]
+  },
+  {
+   "sheet_id": 6,
+   "name": "6 电费",
+   "records": 44,
+   "primary_field_id": "BD",
+   "fields": [
+    {
+     "id": "BD",
+     "name": "编号",
+     "type": "AutoNumber"
+    },
+    {
+     "id": "BE",
+     "name": "期间",
+     "type": "Date"
+    },
+    {
+     "id": "BF",
+     "name": "上期读数",
+     "type": "Number"
+    },
+    {
+     "id": "BG",
+     "name": "本期读数",
+     "type": "Number"
+    },
+    {
+     "id": "BH",
+     "name": "已收金额",
+     "type": "Currency"
+    },
+    {
+     "id": "Bd",
+     "name": "电表",
+     "type": "OneWayLink"
+    },
+    {
+     "id": "B7",
+     "name": "倍率",
+     "type": "Lookup"
+    },
+    {
+     "id": "B8",
+     "name": "电价",
+     "type": "Lookup"
+    },
+    {
+     "id": "B9",
+     "name": "电量",
+     "type": "Formula"
+    },
+    {
+     "id": "B-",
+     "name": "电费",
+     "type": "Formula"
+    },
+    {
+     "id": "B_",
+     "name": "未收",
+     "type": "Formula"
+    },
+    {
+     "id": "CP",
+     "name": "电费分成",
+     "type": "Formula"
+    },
+    {
+     "id": "CQ",
+     "name": "分成倍率",
+     "type": "Number"
+    },
+    {
+     "id": "DK",
+     "name": "电费月度",
+     "type": "Date"
+    },
+    {
+     "id": "DL",
+     "name": "附件名称",
+     "type": "Formula"
+    }
+   ]
+  },
+  {
+   "sheet_id": 14,
+   "name": "7 组件明细",
+   "records": 1,
+   "primary_field_id": "DZ",
+   "fields": [
+    {
+     "id": "DZ",
+     "name": "明细",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "Da",
+     "name": "项目",
+     "type": "Link"
+    },
+    {
+     "id": "Dc",
+     "name": "组件规格",
+     "type": "Number"
+    },
+    {
+     "id": "Dd",
+     "name": "组件数量",
+     "type": "Number"
+    },
+    {
+     "id": "De",
+     "name": "备注",
+     "type": "MultiLineText"
+    },
+    {
+     "id": "Df",
+     "name": "装机容量kW",
+     "type": "Formula"
+    }
+   ]
+  }
+ ],
+ "totals": {
+  "sheets": 7,
+  "records": 911
+ }
+}
