@@ -1,0 +1,119 @@
+{
+  "_说明": "A2 扫描运行授权单 v2-01（待签，2026-11-24）。相对 v1 的四处必改已落实：approved_file_id 单列且与 file_id 逐字一致、approved_subject 作为签批必备、输出带 target_binding/subject_state、主体不再用 approved_by 冒充。签前必须：①由签批人填 approved_subject（账号/租户标识）与执行窗口（UTC，≤15 分钟）；②按冻结后的 HEAD 重算 build_commit 与 binary_sha256；③跑一次 --check 确认 target_binding=true、subject_state=declared-grant、零请求、不建库。**本文件未签前不得执行。**",
+  "_依据": [
+    "docs/验收基线/证据/2026-11-24-扫描运行/A2扫描级授权-v2-模板.md",
+    "docs/验收基线/证据/2026-11-19-S0/A2扫描级授权-设计.md §11/§13.2",
+    "docs/验收基线/证据/2026-11-19-S0/检查表.md §3.0.1 C1–C5"
+  ],
+  "grant_id": "A2-SCAN-20261124-02",
+  "approved_by": "本人（唯一责任人）",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "approved_file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
+  "approved_subject": "jsy1355889573@outlook.com",
+  "file_label": "项目管理台账系统v5_备份_20261113.dbt（真实副本，非生产库）",
+  "sheets": [
+    {
+      "sheet_id": 1,
+      "fields": [
+        "名称",
+        "类型"
+      ],
+      "pages": 2
+    },
+    {
+      "sheet_id": 2,
+      "fields": [
+        "业务类型",
+        "签约日期",
+        "付款条件"
+      ],
+      "pages": 1
+    },
+    {
+      "sheet_id": 3,
+      "fields": [
+        "单据号",
+        "日期",
+        "类型",
+        "分类",
+        "单据金额"
+      ],
+      "pages": 8
+    },
+    {
+      "sheet_id": 4,
+      "fields": [
+        "日期",
+        "方向",
+        "金额"
+      ],
+      "pages": 8
+    },
+    {
+      "sheet_id": 5,
+      "fields": [
+        "表号",
+        "电价",
+        "倍率"
+      ],
+      "pages": 1
+    },
+    {
+      "sheet_id": 6,
+      "fields": [
+        "编号",
+        "期间",
+        "上期读数",
+        "本期读数",
+        "已收金额"
+      ],
+      "pages": 1
+    },
+    {
+      "sheet_id": 14,
+      "fields": [
+        "明细",
+        "组件规格",
+        "组件数量"
+      ],
+      "pages": 1
+    }
+  ],
+  "page_size": 50,
+  "max_reads": 74,
+  "max_total_requests": 80,
+  "terminate_allowed": true,
+  "window_start": "【待补：UTC 起始，窗口 ≤15 分钟】",
+  "window_end": "【待补：UTC 结束】",
+  "build_commit": "【待补：签前由冻结的 HEAD 填入】",
+  "binary_sha256": "【待补：签前 cargo build 产物实测 sha256】",
+  "expected_rows": 911,
+  "expected_pages_per_pass": 22,
+  "required_reads": 44,
+  "isolation_state_db": "/tmp/a2-scan-<grant_id>.db（必须是尚不存在的新库）",
+  "evidence_dir": "docs/验收基线/证据/2026-11-24-扫描运行/",
+  "signature": "【待补：签批人签署 + UTC 时刻】",
+  "_签前必查": [
+    "target_binding=true",
+    "subject_state=declared-grant",
+    "required_reads=2×Σpages=44 ≤ max_reads=74 ≤ max_total=80",
+    "行数 911 为签前 24h 内实测",
+    "--check 零请求、不建库",
+    "窗口 ≤15 分钟且距执行留足准备时间"
+  ],
+  "_禁止": [
+    "不得夹带任何写入动作（C5 未解、G1 未放行）",
+    "不得复用已消费的 A2-SCAN-20261124-01",
+    "不得把本次运行与 Q1/Q2 收口混为一谈",
+    "失败或停止即结束，不重试、不续跑"
+  ],
+  "_执行结果": "未执行（待签）",
+  "_窗口口径": "用户 2026-11-24 决定窗口维持 ≤15 分钟（不放宽到 1 小时）：硬闸门在 crates/voucher-core/src/services/wps_p2.rs:28 `P2_MAX_WINDOW=15min`，两处校验 :381/:1582；实际扫描 1–2 分钟即完成。窗口起止由签批人在执行前指定。",
+  "_待补说明": {
+    "approved_subject": "已填（2026-11-24 用户提供）：jsy1355889573@outlook.com；仍为自述值，输出记 subject_state=declared-grant",
+    "window_start / window_end": "由签批人在代码冻结后、执行前指定（UTC，≤15 分钟）",
+    "build_commit / binary_sha256": "由队长在 t6/t7/t8 收口、门禁全绿后重算并填入",
+    "signature": "签批人签署 + UTC 时刻"
+  }
+}
