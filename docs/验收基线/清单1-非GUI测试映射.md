@@ -5,6 +5,8 @@
 > migration 类测试（test_migration / test_migrate_ledger）随旧数据路径退役，不迁移。
 > 基线（**G1 固化时点**，2026-08-20）：**45 个测试全绿**（lib 18 + core_flow 23 + spike_a_print 4）。**截至 v0.14.0（2026-09-17）实为 212 个**（121 单元 + 91 集成）——见下方修订注记。
 
+> **2026-11-24 干跑两道门 + CLI 库路径守卫 + restore 覆盖守卫**：`w2-create-dry-run` 增 `required_refs`/`required_ref_ids`/`target_voucher_id` 与 `outcomes[].gate`（新增 4 例，共 12）；CLI `existing_db_path()` 前置守卫（新增 `db_path_guard.rs` 5 例）；`restore --target` 覆盖守卫含 WAL 一并落备份（新增 `restore_guard.rs` 6 例）。`voucher-core` 测试 **551 个**（376 单元 + 175 集成）、加壳 3 共 **554**、`services::wps` 过滤口径实测 **177**；`voucher-cli` **50 例**；全量 **620 passed / 0 failed / 0 ignored**；前端未改，沿用 **47 文件 247 用例**。边界：`transport=mock`、零真实请求、未写生产库。
+
 > **2026-11-24 W2 三段式写入 + 只读状态命令**：`WpsCreateFlow::create_doc_records`（守卫 → 逐条写 → 回填 `wps_links`；新增 `WpsStore::insert_link`；并列 `create_meter_records` 走 09 门）与 `create_doc_records_marks_pending_backfill_when_link_write_fails`（`LinkWriter` 注入缝，不删表/不动 schema）；新增只读命令 `wps_sync_status`（`voucher-api` 纯函数 + Tauri 壳命令 + invoke 注册，只读本地库、零网络）。`voucher-core` 测试 **551 个**（376 单元 + 175 集成）、加壳 3 共 **554**、`services::wps` 过滤口径实测 **177**；全量 **590 passed / 0 failed / 0 ignored**；前端 **47 文件 247 用例**（新增 `w2SyncStatus.test.ts` 8 例）。边界：`transport=mock`、零真实请求、未写生产库。
 
 > **2026-11-24 W2 写入预检层（干跑）**：新增 `services/wps_create.rs`（`WpsCreateFlow::dry_run`，只调既有 `W2Sync::preflight`，无写入口、无新错误码、无重复规则）；新增 6 例（成功干跑/空业务键/同批重复键/05、07 查重专用/01 仅引用/源码无写入符号静态判据），并给 `wps_w2::preflight_blocks_reference_and_dedupe_tables` 补四表零增量断言。`voucher-core` 测试 **544 个**（369 单元 + 175 集成）、加壳 3 共 **547**、`services::wps` 过滤口径实测 **170**；全量 **574 passed / 0 failed / 0 ignored**；前端 **46 文件 239 用例**（t3 前端重授权条/查看范围门新增 2 文件 12 例）。边界：`transport=mock`、未接 CLI/桌面入口、零真实请求、未写生产库。

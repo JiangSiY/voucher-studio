@@ -205,7 +205,7 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 
 ### 8.3 输入 JSON 契约（单表一批）
 
-根对象固定两个键（`main.rs:1014-1063`）：
+根对象固定两个键（`main.rs:1061-1135`）：
 
 ```json
 { "sheet_id": 3,
@@ -223,13 +223,18 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 | `records[].business_date` | 02/03/04/06/11 必填 | 显式给出、不猜录入日；缺失 → `WPS_E_DATE_MISSING`；早于 2026-11-01 → `WPS_E_LEGACY_READONLY`；非法 → `WPS_E_DATE_INVALID` |
 | `records[].period` | 09 必填 | `YYYY-MM`；缺失时按 `fields["期间"]` 兜底（`wps_w2.rs:253-261`） |
 | `record_type` | — | **不可由输入指定**：由 `doc_spec_for_sheet(sheet_id)` 推导，其余表按两位数字兜底（`main.rs:1031-1034`） |
-| `required_refs` / `required_ref_ids` / `target_voucher_id` | — | **不解析**，恒为空。因此干跑**测不到** 01/08/10 引用门（`WPS_E_REF_MISSING`/`WPS_E_REF_STALE`）与目标凭证门（`WPS_E_TARGET_MISSING`） |
+| `records[].required_refs` | 否 | `[{"sheet_id": 3, "business_key": "…"}]`，核心按**业务键**查本地索引（`main.rs:1110-1115`）。引用不存在 → `WPS_E_REF_MISSING`；索引过期 → `WPS_E_REF_STALE`；表号不是 01/08/10 → `WPS_E_REF_INVALID`。形状错 → exit 2：「第 N 条记录 required_refs 必须是数组（每项 {"sheet_id": 整数, "business_key": 字符串}）」 |
+| `records[].required_ref_ids` | 否 | `[{"sheet_id": 1, "record_id": "…"}]`，按 WPS **原记录 ID** 查（#63 B 方案，`main.rs:1116-1121`）。失败码同上；键名是 `record_id` 不是 `business_key`，用错键即「缺少非空 record_id」exit 2 |
+| `records[].target_voucher_id` | 否 | 整数或 `null`（`main.rs:1122-1129`）；其他类型 exit 2「第 N 条记录 target_voucher_id 必须是整数或 null」。本地凭证不存在 → `WPS_E_TARGET_MISSING`；缺省 `null` 时该门不开 |
+
+三个键都可缺省，**缺省行为与扩展前的旧输入逐字等价**：`parse_ref_pairs` 对 `None` 直接返回空数组（`main.rs:1138-1140`），不带这三键的旧输入解析结果与 t15 之前完全一致，旧脚本无需改动；只有「填了但形状错」才新增 exit 2 分支。
 
 ### 8.4 输出 JSON 契约（单行）
 
 ```json
 {"ok":true,"command":"w2-create-dry-run","transport":"offline","accepted":false,"sheet_id":3,
- "outcomes":[{"idempotency_key":"idem-1","status":"rejected","code":"WPS_E_DEDUPE_ONLY","message":"…"}]}
+ "outcomes":[{"idempotency_key":"idem-ref-1","status":"rejected","code":"WPS_E_REF_MISSING",
+              "gate":"reference","message":"引用不存在: 表 1 / KH-NOT-EXIST"}]}
 ```
 
 | 字段 | 类型 | 语义 |
@@ -242,9 +247,11 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 | `outcomes[].idempotency_key` | string | 回显输入条目 |
 | `outcomes[].status` | string | `would_create` 或 `rejected`（**snake_case**，勿按 DTO 的 camelCase 反推） |
 | `outcomes[].code` / `message` | string? | 仅 `rejected` 有值 |
+| `outcomes[].gate` | string? | 拒绝所属守卫：`reference`（`WPS_E_REF_*`）、`target_voucher`（`WPS_E_TARGET_MISSING`），其他拒绝原因为 `null`；`would_create` 时恒 `null`。纯展示映射，不改判定（`dry_run_gate`，`main.rs:1175-1183`） |
 
-- `accepted=true` ⇒ 每条 `would_create`、`code/message` 为 `null`；条数与顺序等于输入。
-- `accepted=false` ⇒ **每条都是同一个** `code`/`message`（`wps_create.rs:126-140` 整批复制预检结论）——**看不到哪一条先触发**，`W2Reject.index`（`wps_w2.rs:264-279`）未进入输出。
+- `accepted=true` ⇒ 每条 `would_create`、`code/message/gate` 为 `null`；条数与顺序等于输入。
+- `accepted=false` ⇒ **每条都是同一个** `code`/`message`（`wps_create.rs:130-141` 整批复制预检结论）——**看不到哪一条先触发**，`W2Reject.index`（`wps_w2.rs:264-279`）未进入输出。
+- `gate` 只映射两类码：`WPS_E_REF_*` → `reference`，`WPS_E_TARGET_MISSING` → `target_voucher`；重复/日期/入口权限等拒绝仍为 `null`，**不要**把 `gate=null` 读成「没有守卫触发」。
 - 不含业务键、行号、远端记录 ID、链接 ID（干跑没有这些产物）。
 
 ### 8.5 退出码语义
@@ -252,7 +259,7 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 | 退出码 | 含义 | 触发点（`main.rs`） |
 |---|---|---|
 | `0` | 干跑执行完成：`accepted=true` **或** `accepted=false` | `:1135`——「拒绝是业务结果，仍 exit 0」；判定必须读 `accepted`/`code`，不得用退出码区分放行与拒绝 |
-| `1` | 业务/IO 失败：打开数据库失败、初始化表结构失败、预检返回 `Err` | `:1097`、`:1100`、`:1109` |
+| `1` | 业务/IO 失败：打开数据库失败、既有库缺表、初始化表结构失败、预检返回 `Err` | `:1227-1230`、`:1234-1241`、`:1245-1248` |
 | `2` | 参数或输入形状错：缺 `--db`/`--input`、读文件失败、JSON 非法、`sheet_id`/`records`/`fields`/`idempotency_key` 不合格、**`--db` 指向既有非空库且未给 `--allow-existing-db`** | `w2_create_dry_run` 内的路径判定与输入解析分支 |
 
 退出码口径与 CLI 顶部约定一致（`main.rs:14`：0 成功／1 业务错误／2 参数错误）。
@@ -265,7 +272,7 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 
 可验证判据（四条同时成立才叫「零写入」）：
 
-1. `OfflineDryRunTransport` 被调用即失败；源码级静态测试禁止命令段出现 `reqwest`/`ureq`/`https://`/`http://`/`HttpsP2Transport`/`P2Transport`（`main.rs:1145-1176`）；
+1. `OfflineDryRunTransport` 被调用即失败；源码级静态测试禁止命令段出现 `reqwest`/`ureq`/`https://`/`http://`/`HttpsP2Transport`/`P2Transport`（`main.rs:1283-1317`）；
 2. `wps_write_intents`/`wps_links`/`wps_sync_runs`/`wps_idempotency_keys` 四表行数前后不变；
 3. 命令段静态无业务表 `INSERT`/`UPDATE`、无 `start_run`/`set_rate_limit_cooldown`。注意 `--db` 不存在时会建库建表（DDL 属初始化，**不**算写入业务数据），所以判据只能断言业务表零增量，不能主张「零 DDL」；
 4. 拒绝分支先于任何写入准备：预检在任何写表动作之前返回。
@@ -279,14 +286,14 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 | 写入阻断与字段一致性（C5） | 无快照、无 create 轨迹、无一致性判定；C5 不在 S0 签署范围内 |
 | 写入会成功 | 放行只是必要条件；提交时重新预检且远端可变 |
 | 哪一条先触发拒绝 | 整批同一码（§8.4） |
-| 引用门与目标凭证门 | 输入不解析 `required_refs`/`required_ref_ids`/`target_voucher_id`（§8.3），这几道守卫在干跑里恒为空 |
+| 引用对象与目标凭证在**远端**真实存在、且指向正确 | 已可表达，但只是**本地**预检判定：`required_refs`/`required_ref_ids` 查本地索引（`wps_record_index`/`wps_master`），`target_voucher_id` 查本地凭证表；既不刷新远端索引、也不校验远端那条记录是否还在，更不写回 |
 | 入口权限门的拒绝文案 | 配置写死 `mock_write()`，`pull-only` 分支不可达 |
 
 ### 8.8 与三段式全链路的关系
 
 | 段 | 内容 | 干跑命令覆盖 | G1 前可达性 |
 |---|---|---|---|
-| 第 1 段 预检 | 入口权限、日期分界、业务键、批内/历史重复、必填引用、目标凭证、冷却 | ✅ 主体可见（引用门/目标门见 §8.3 限制） | 可达（只读） |
+| 第 1 段 预检 | 入口权限、日期分界、业务键、批内/历史重复、必填引用、目标凭证、冷却 | ✅ 全部可见（引用门/目标门需输入携带 §8.3 三个可选键） | 可达（只读） |
 | 第 2 段 写入 | `create_doc_records`/`create_meter_records` → `WpsWriteSession` 逐条（无批量） | ❌ 不触及 | 不可达：无业务命令 + G1 未放行 |
 | 第 3 段 回填 | `wps_links`、`PendingBackfill`、`recover_link` | ❌ 不触及 | 不可达：依赖第 2 段产物 |
 
@@ -297,7 +304,7 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 - 只在临时或 Mock SQLite、合成数据下运行。生产库保护已补（2026-11-24 t14）：默认拒绝既有非空库且不打开它；`--allow-existing-db` 只放行 open、不建表。故「指向生产库」的误用不再可能悄悄发生，但仍**不得**主动把 `--db` 指向生产库。
 - 只在离线路径使用；不得为它增加端点/token/传输参数，也不得把 `OfflineDryRunTransport` 换成真实传输。
 - 输出仅用于开发自检与走查；**不得**写入验收证据当作「写入已验证」，也不得据此改签任何 S0/G1 结论。
-- 用例数不以本文为准：见 `docs/开发日志.md` 第一百四十五笔。
+- 用例数不以本文为准：命令本体见 `docs/开发日志.md` 第一百四十五笔；输入契约扩展（引用门/目标门）与 CLI 库路径守卫见第一百四十六笔。
 
 ### 8.10 本地形状实测（2026-11-24，临时库，非验收）
 
@@ -310,4 +317,15 @@ voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allo
 | 05 表（只查重） | `sheet_id 5` | `accepted=false`、`rejected`、`WPS_E_DEDUPE_ONLY`（「表 5 首批仅全表查重，不生成业务行」） | `0` |
 | 非法 JSON | `not-json` | stderr「输入不是合法 JSON」 | `2` |
 
-同一轮跑完查临时库：`wps_write_intents`/`wps_links`/`wps_sync_runs`/`wps_idempotency_keys` 四表均 `0` 行，与 §8.6 判据 2 一致。**这是形状自检，不是验收证据**：不构成写入验证、不涉及真实端点与 C5。
+2026-11-24 第二轮实测（`/tmp/w2dry2/`，同上离线条件，补 §8.3 三键与库路径守卫）：
+
+| 场景 | 输入要点 | 结果 | 退出码 |
+|---|---|---|---|
+| 引用门 | `required_refs:[{"sheet_id":1,"business_key":"KH-NOT-EXIST"}]` | `WPS_E_REF_MISSING`、`gate:"reference"`、message「引用不存在: 表 1 / KH-NOT-EXIST」 | `0` |
+| 目标凭证门 | `target_voucher_id:999999` | `WPS_E_TARGET_MISSING`、`gate:"target_voucher"`、message「目标凭证 #999999 不存在」 | `0` |
+| 既有非空库（默认） | 同一 `--db` 再跑一次 | stderr「干跑只接受新建库：./a.db 已存在且非空；确需对既有库试跑请显式加 --allow-existing-db」 | `2` |
+| 既有非空库（放行） | 加 `--allow-existing-db` | 正常出结果，未建表 | `0` |
+| 0 字节库 | 空文件作 `--db` | 按新建库处理，正常出结果 | `0` |
+| `required_refs` 形状错 | `"required_refs":"oops"` | stderr「第 1 条记录 required_refs 必须是数组…」 | `2` |
+
+两轮跑完查临时库（含第二轮 `a.db`/`b.db`）：`wps_write_intents`/`wps_links`/`wps_sync_runs`/`wps_idempotency_keys` 四表均 `0` 行，与 §8.6 判据 2 一致。**这是形状自检，不是验收证据**：不构成写入验证、不涉及真实端点与 C5。
