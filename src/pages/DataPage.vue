@@ -27,6 +27,9 @@ import { toast, toastError } from "../stores/toast";
 import { useModalRoute } from "../composables/useModalRoute";
 import NewRecordDialog from "../components/dialogs/NewRecordDialog.vue";
 import LedgerImportDialog from "../components/ledger/LedgerImportDialog.vue";
+import ReauthBanner from "../components/wps/ReauthBanner.vue";
+import ViewScopeDialog from "../components/wps/ViewScopeDialog.vue";
+import { fmtWpsMessage } from "../utils/wpsTime";
 
 type View = "all" | "missing" | "legacy" | "booked" | "draft" | "month" | "batches";
 
@@ -71,6 +74,13 @@ const isDev = import.meta.env.DEV && isTauri;
 const w2Busy = ref(false);
 const w2Error = ref("");
 const w2Result = ref<DevW2Result | null>(null);
+// W2 面板的失效/冷却/待处理状态（S0-07/S0-08）：批次结束后保留，恢复后仍能看见待处理项。
+const lastSyncedAt = ref<string | null>(null);
+const pendingOutcomes = ref<DevW2Outcome[]>([]);
+const cooldownUntil = ref<string | null>(null);
+const scopeDialogOpen = ref(false);
+const SCOPE_CONFIRMED_KEY = "voucher.w2.scopeConfirmed";
+const scopeConfirmed = ref(readScopeConfirmed());
 // 台账 CSV 导入向导（B5 清场后原「台账」页退役，向导接到「导入批次」视图）
 const ledgerImportOpen = ref(false);
 // 逐行「已入账」在途标记：同一行只允许一个请求，防连点重复写库
@@ -84,11 +94,48 @@ const w2StatusLabel: Record<string, string> = {
   not_attempted: "未尝试",
 };
 
+function readScopeConfirmed(): boolean {
+  try {
+    return sessionStorage.getItem(SCOPE_CONFIRMED_KEY) === "1";
+  } catch {
+    // 隐私模式 / 会话存储不可用：退化为仅内存态，本次会话内仍只弹一次。
+    return false;
+  }
+}
+
+function isPendingOutcome(o: DevW2Outcome): boolean {
+  return o.status === "unknown" || o.status === "pending_backfill";
+}
+
+/** 查看范围二次确认：只记住本会话已确认，不发任何请求（S0-07 口径）。 */
+function confirmScope() {
+  scopeConfirmed.value = true;
+  scopeDialogOpen.value = false;
+  try {
+    sessionStorage.setItem(SCOPE_CONFIRMED_KEY, "1");
+  } catch {
+    // 同上：存储不可用不阻断只读浏览。
+  }
+}
+
+/** 「重新授权」：仅调用既有本地合成 auth_recover，真实 OAuth 未实现。 */
+function onReauth() {
+  void runDevW2("auth_recover");
+}
+
 async function runDevW2(action: "pull" | "write" | "auth_recover", scenario?: string) {
   w2Busy.value = true;
   w2Error.value = "";
   try {
-    w2Result.value = await api.devW2MockSync(action, scenario);
+    const result = await api.devW2MockSync(action, scenario);
+    w2Result.value = result;
+    if (result.batch) {
+      pendingOutcomes.value = result.batch.outcomes.filter(isPendingOutcome);
+      // 新批次自带冷却状态：有则更新，无则清掉旧提示，避免过期横幅长期驻留。
+      cooldownUntil.value = result.batch.cooldownUntil;
+    }
+    // 授权失效且本会话尚未确认查看范围：先确认「只能看本机缓存」，再继续。
+    if (result.batch?.authRequired && !scopeConfirmed.value) scopeDialogOpen.value = true;
   } catch (e) {
     w2Error.value = String(e);
   } finally {
@@ -401,9 +448,24 @@ watch(query, load);
     </div>
 
     <section v-if="isDev" class="dev-w2" aria-label="开发本地模拟同步">
+      <ViewScopeDialog
+        :visible="scopeDialogOpen"
+        :last-synced-at="lastSyncedAt"
+        @confirm="confirmScope"
+        @cancel="scopeDialogOpen = false"
+      />
       <div class="dev-w2-head">
         <div>
-          <strong>开发本地模拟同步（W2 Mock）</strong>
+          <strong class="dev-w2-title">
+            开发本地模拟同步（W2 Mock）
+            <span
+              v-if="pendingOutcomes.length"
+              class="dev-w2-badge"
+              data-testid="w2-pending-badge"
+              :aria-label="`待处理 ${pendingOutcomes.length} 项`"
+              >{{ pendingOutcomes.length }}</span
+            >
+          </strong>
           <p>仅在 debug + VOUCHER_W2_MOCK=1 + 临时数据目录可用；不连接真实 WPS。</p>
         </div>
         <div class="dev-w2-actions">
@@ -468,13 +530,14 @@ watch(query, load);
           </button>
         </div>
       </div>
-      <p v-if="w2Error" class="dev-w2-error">{{ w2Error }}</p>
-      <p v-if="w2Result?.batch?.authRequired" class="dev-w2-warn">
-        WPS 授权已失效：请重新授权。当前待处理项已保留，恢复后不会自动重发。
-      </p>
-      <p v-if="w2Result?.batch?.cooldownUntil" class="dev-w2-warn">
-        WPS 限流：冷却至 {{ w2Result.batch.cooldownUntil }}，冷却结束前不会发起新批次。
-      </p>
+      <p v-if="w2Error" class="dev-w2-error">{{ fmtWpsMessage(w2Error) }}</p>
+      <ReauthBanner
+        :auth-required="w2Result?.batch?.authRequired ?? false"
+        :last-synced-at="lastSyncedAt"
+        :pending-outcomes="pendingOutcomes"
+        :cooldown-until="cooldownUntil"
+        @reauth="onReauth"
+      />
       <template v-if="w2Result">
         <p class="dev-w2-meta">
           {{ w2Result.mode }} · 数据目录 {{ w2Result.dataDir }} · 拉取
@@ -520,7 +583,7 @@ watch(query, load);
                 <td>{{ o.remoteRecordId ?? "—" }}</td>
                 <td>{{ w2LinkText(o) }}</td>
                 <td>{{ o.posted ? "已入账" : "未入账" }}</td>
-                <td class="dev-w2-err">{{ o.error ?? "—" }}</td>
+                <td class="dev-w2-err">{{ o.error ? fmtWpsMessage(o.error) : "—" }}</td>
               </tr>
             </tbody>
           </table>
@@ -757,6 +820,25 @@ watch(query, load);
   margin: var(--s-2) 0 0;
   color: var(--warning);
   font-size: var(--fs-caption);
+}
+
+.dev-w2-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.dev-w2-badge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
 }
 
 .dev-w2-tablewrap {
