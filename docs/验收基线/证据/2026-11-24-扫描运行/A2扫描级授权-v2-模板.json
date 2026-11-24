@@ -14,6 +14,7 @@
   "grant_id": "【待补：唯一编号，如 A2-SCAN-YYYYMMDD-02；不得复用 A2-SCAN-20261124-01】",
   "approved_by": "【待补：本人签署（唯一责任人）+ 签署 UTC 时刻】",
   "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "transport": "https",
   "file_id": "【待补：唯一非生产副本 file_id】",
   "approved_file_id": "【待补：必须与 file_id 逐字相同（签批目标，不得用请求侧 file_id 自证）】",
   "approved_subject": "【待补：签批授权主体（账号/租户标识）；自述值，非服务端核对】",
@@ -21,7 +22,9 @@
   "sheets": [
     {
       "sheet_id": "【待补：签前 24h 内 get_schema 实测】",
-      "fields": ["【待补：逐列批准字段】"],
+      "fields": [
+        "【待补：逐列批准字段】"
+      ],
       "pages": "【待补：锁死页数】"
     }
   ],
