@@ -39,7 +39,7 @@ fn usage() -> &'static str {
   voucher-cli import-ledger --csv <清单.csv> --kind <shoukuan|fukuan|jiti> [--dry-run] [--data-dir <目录>]
   voucher-cli list-pending [--json] [--data-dir <目录>]
   voucher-cli c5-fingerprint [--json] [--data-dir <目录>]   # 本地索引全字段指纹（只读，不发网）
-  voucher-cli restore --zip <备份.zip> --target <空目录>
+  voucher-cli restore --zip <备份.zip> --target <目录> [--allow-overwrite]
   voucher-cli wps-p2-read --grant <授权.json> [--state <状态.db>] [--check]
                           [--transport offline|loopback-tls --trust-root <ca.der>]
                           [--transport https --allow-real-endpoint --token-file <t>]
@@ -48,7 +48,9 @@ fn usage() -> &'static str {
 说明：
   import-ledger  台账导出的收款/付款/计提清单 → voucher 凭证（幂等键=流水号/单据号）
   list-pending   列出已导入但还没配图的凭证
-  restore        把全量备份还原到一个空目录（冷备接管用：i3 PC 上跑完指向该目录即可）
+  restore        把全量备份还原到一个目录（冷备接管用：i3 PC 上跑完指向该目录即可）；
+                目标已有非空 voucher.db 时默认 exit 2，确认不是生产库后加 --allow-overwrite，
+                覆盖前会先在同目录留一份 voucher-pre-restore-<UTC>.db；目录里已有该副本时同样要求该标志
   wps-p2-scan    扫描运行（两遍全表只读；无 --cursor/--page；必须 --state）
   wps-p2-read    P2 只读入口：--check 只校验授权单；执行时默认 offline（零发网），
                  loopback-tls 仅允许 p2-local.test/localhost/127.0.0.1 且须显式提供测试 CA；
@@ -60,6 +62,11 @@ fn usage() -> &'static str {
                 此时只读自检（不建表、缺表即 exit 1），再调 W2 预检判断这批新单
                 「会被接受还是被哪道守卫拒绝」；不发任何远端请求、
                 不写 wps_links/幂等表/同步表（C5 写入阻断不变）
+                每条记录可选 required_refs（sheet_id + business_key）、required_ref_ids
+                （sheet_id + record_id）、target_voucher_id（整数或 null）
+  库路径守卫     list-pending / c5-fingerprint / import-ledger 只处理既有库：数据目录里没有
+                voucher.db 时直接 exit 1（不建目录、不建库、不迁移）；初始化请走桌面端
+                首次启动或 restore --target；import-ledger 与 c5-fingerprint 的 JSON 带 database
   --data-dir     指定数据目录（默认 ~/Library/Application Support/VoucherStudio）
 "
 }
@@ -74,6 +81,176 @@ fn arg_value(args: &[String], key: &str) -> Option<String> {
 fn fail(code: u8, msg: impl std::fmt::Display) -> ExitCode {
     eprintln!("错误：{msg}");
     ExitCode::from(code)
+}
+
+/// CLI 专用库路径守卫：先纯解析库文件绝对路径（不建目录、不建库），再判定存在性。
+///
+/// `CoreContext::init` 会 `ensure_all()` 建目录、open 建库、跑迁移——只读命令点一下
+/// 也会在生产目录留下库，所以「碰库之前」必须先把不存在的情况挡掉。只供本文件使用，
+/// 不改变 `CoreContext::init` 对桌面端与其它 crate 的既有语义。
+fn existing_db_path(
+    command: &str,
+    data_dir: &Option<PathBuf>,
+    read_only: bool,
+) -> std::result::Result<PathBuf, ExitCode> {
+    let paths = match voucher_core::AppPaths::resolve(data_dir.clone()) {
+        Ok(paths) => paths,
+        Err(err) => return Err(fail(1, format!("{command}：无法解析数据目录：{err}"))),
+    };
+    let db = paths.db_file();
+    if !db.is_file() {
+        let what = if read_only {
+            "只读命令不会新建库"
+        } else {
+            "写命令不会隐式建库"
+        };
+        return Err(fail(
+            1,
+            format!(
+                "{command}：{what}：{} 不存在；如确需初始化请先运行既有初始化路径（桌面端首次启动，或 restore --target <空目录>）",
+                db.display()
+            ),
+        ));
+    }
+    Ok(db)
+}
+
+/// restore 的覆盖守卫：动手之前判，判不过一个字都不写。
+///
+/// 三个要点：
+/// 1. 判定只用 `std::fs::metadata`，**排在 `restore_into` 的 `create_dir_all` / `CoreContext::init` 之前**——
+///    init 会在目标目录建库并跑迁移，先 init 再判等于生产库已经被改写过一遍。
+/// 2. `voucher.db-wal` 与库同权：残留 WAL 若留在原地，覆盖 db 后 SQLite 会把旧 WAL 回放到新库上（数据错乱），
+///    所以放行分支把 `voucher.db` / `-wal` / `-shm` 一起**移入**备份目录。
+/// 3. 备份落 `target/backups/pre-restore-<UTC 时间戳>/`，与既有 `backups/` 里 `pre-wps-*`、`pre-s0-*` 的先例一致。
+fn restore_overwrite_guard(
+    target: &std::path::Path,
+    allow_overwrite: bool,
+) -> Result<Option<PathBuf>, ExitCode> {
+    let db = target.join("voucher.db");
+    let wal = target.join("voucher.db-wal");
+    let shm = target.join("voucher.db-shm");
+    let db_size = file_len(&db);
+    // 非空库或任何残留 WAL 都算「目标已有数据」：只覆盖 db 会踩 WAL 回放。
+    let wal_size = file_len(&wal).max(file_len(&shm));
+    let previous = pre_restore_backups(target);
+
+    if db_size == 0 && wal_size == 0 && previous.is_empty() {
+        // 空目录 / 不存在：与旧行为完全一致，不建任何东西、不加任何提示。
+        return Ok(None);
+    }
+
+    if !allow_overwrite {
+        if db_size > 0 {
+            return Err(fail(
+                2,
+                format!(
+                    "restore 的目标库已存在：{}（{} 字节）；恢复会覆盖该库；确认目标不是生产库后加 --allow-overwrite",
+                    db.display(),
+                    db_size
+                ),
+            ));
+        }
+        if wal_size > 0 {
+            return Err(fail(
+                2,
+                format!(
+                    "restore 的目标目录有残留 WAL：{}（{} 字节）；直接恢复会把旧 WAL 回放到新库上；确认后加 --allow-overwrite（会先把 WAL 一并移入备份）",
+                    wal.display(),
+                    wal_size
+                ),
+            ));
+        }
+        if let Some(path) = previous.first() {
+            return Err(fail(
+                2,
+                format!(
+                    "restore 的目标已有覆盖前副本：{}；恢复会覆盖该备份产物；确认后可加 --allow-overwrite",
+                    path.display()
+                ),
+            ));
+        }
+    }
+
+    if db_size == 0 && wal_size == 0 {
+        // 只剩「已有覆盖前副本」这一条：给了标志就放行，没有新东西要备份。
+        return Ok(None);
+    }
+
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+    let mut dir = target.join("backups").join(format!("pre-restore-{stamp}"));
+    let mut seq = 1;
+    while dir.exists() {
+        // 同一秒内重复恢复也不能互相覆盖：序号递增直到空位。
+        dir = target
+            .join("backups")
+            .join(format!("pre-restore-{stamp}-{seq}"));
+        seq += 1;
+    }
+    std::fs::create_dir_all(&dir).map_err(|err| fail(1, format!("建覆盖前备份目录失败：{err}")))?;
+    // 移动而不是复制：覆盖后原地不得再留旧 WAL，否则 SQLite 会把它回放到新库上。
+    for (path, name) in [
+        (&db, "voucher.db"),
+        (&wal, "voucher.db-wal"),
+        (&shm, "voucher.db-shm"),
+    ] {
+        if path.is_file() {
+            std::fs::rename(path, dir.join(name))
+                .map_err(|err| fail(1, format!("移走 {} 失败：{err}", path.display())))?;
+        }
+    }
+    println!(
+        "覆盖前副本：{}（voucher.db {} 字节，WAL/SHM {} 字节）",
+        dir.display(),
+        db_size,
+        wal_size
+    );
+    Ok(Some(dir))
+}
+
+/// 文件字节数；不存在或不是普通文件记 0（守卫只用纯路径判定）。
+fn file_len(path: &std::path::Path) -> u64 {
+    std::fs::metadata(path)
+        .ok()
+        .filter(|meta| meta.is_file())
+        .map(|meta| meta.len())
+        .unwrap_or(0)
+}
+
+/// 目标里已有的覆盖前备份：`target/backups/pre-restore-*` 目录，以及早期根目录下的
+/// `voucher-pre-restore-*.db` 文件（两种都要拦，别让旧命名绕过守卫）。
+fn pre_restore_backups(target: &std::path::Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(target.join("backups")) {
+        paths.extend(
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("pre-restore-"))
+                }),
+        );
+    }
+    if let Ok(entries) = std::fs::read_dir(target) {
+        paths.extend(
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_file()
+                        && path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(|name| {
+                                name.starts_with("voucher-pre-restore-") && name.ends_with(".db")
+                            })
+                }),
+        );
+    }
+    paths.sort();
+    paths
 }
 
 /// 把全量备份还原到目标目录（冷备接管）。
@@ -937,6 +1114,10 @@ fn is_date_like(value: &serde_json::Value) -> bool {
 /// 这不是「源端与本地一致」的证明，只是「两次扫描之间本地索引是否逐字段不变」的比对基础；
 /// 详见 `voucher_core::services::wps_c5` 的模块注释。
 fn c5_fingerprint(args: &[String], data_dir: Option<std::path::PathBuf>) -> ExitCode {
+    let db_path = match existing_db_path("c5-fingerprint", &data_dir, true) {
+        Ok(path) => path,
+        Err(code) => return code,
+    };
     let ctx = match CoreContext::init(data_dir) {
         Ok(ctx) => ctx,
         Err(err) => return fail(1, err),
@@ -947,6 +1128,7 @@ fn c5_fingerprint(args: &[String], data_dir: Option<std::path::PathBuf>) -> Exit
         Err(err) => return fail(1, err),
     };
     let payload = serde_json::json!({
+        "database": db_path.display().to_string(),
         "records": fingerprint.records,
         "combined": fingerprint.combined,
         "sheets": fingerprint
@@ -1013,6 +1195,10 @@ impl voucher_core::services::wps::WpsTransport for OfflineDryRunTransport {
 }
 
 /// 把输入 JSON 解析成干跑请求；任何形状问题都返回人话错误（调用方按 exit 2 处理）。
+/// 每条记录可选的引用/目标字段，形状以核心 `W2CreateRequest` 为准：
+/// `required_refs: [{"sheet_id": int, "business_key": "..."}]`（核心按业务键查索引）、
+/// `required_ref_ids: [{"sheet_id": int, "record_id": "..."}]`（核心按原记录 ID 查索引）、
+/// `target_voucher_id: int | null`。
 fn parse_dry_run_requests(
     raw: &serde_json::Value,
 ) -> std::result::Result<(i64, Vec<voucher_core::services::wps_w2::W2CreateRequest>), String> {
@@ -1061,9 +1247,77 @@ fn parse_dry_run_requests(
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string);
         }
+        request.required_refs = parse_ref_pairs(
+            record.get("required_refs"),
+            index,
+            "required_refs",
+            "business_key",
+        )?;
+        request.required_ref_ids = parse_ref_pairs(
+            record.get("required_ref_ids"),
+            index,
+            "required_ref_ids",
+            "record_id",
+        )?;
+        request.target_voucher_id = match record.get("target_voucher_id") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(value.as_i64().ok_or_else(|| {
+                format!(
+                    "第 {} 条记录 target_voucher_id 必须是整数或 null",
+                    index + 1
+                )
+            })?),
+        };
         requests.push(request);
     }
     Ok((sheet_id, requests))
+}
+
+/// 解析「(sheet_id, 字符串键)」数组；缺省与空数组等价，形状错误精确到第几条第几项。
+fn parse_ref_pairs(
+    raw: Option<&serde_json::Value>,
+    index: usize,
+    field: &str,
+    key: &str,
+) -> std::result::Result<Vec<(i64, String)>, String> {
+    let Some(value) = raw else {
+        return Ok(Vec::new());
+    };
+    let items = value.as_array().ok_or_else(|| {
+        format!(
+            "第 {} 条记录 {field} 必须是数组（每项 {{\"sheet_id\": 整数, \"{key}\": 字符串}}）",
+            index + 1
+        )
+    })?;
+    let mut pairs = Vec::with_capacity(items.len());
+    for (position, item) in items.iter().enumerate() {
+        let sheet_id = item
+            .get("sheet_id")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| {
+                format!(
+                    "第 {} 条记录 {field}[{position}] 缺少整数 sheet_id",
+                    index + 1
+                )
+            })?;
+        let text = item
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .ok_or_else(|| format!("第 {} 条记录 {field}[{position}] 缺少非空 {key}", index + 1))?;
+        pairs.push((sheet_id, text.to_string()));
+    }
+    Ok(pairs)
+}
+
+/// 拒绝码 → 人读的守卫名；只做展示映射，不新增也不改写任何判定规则。
+fn dry_run_gate(code: Option<&str>) -> Option<&'static str> {
+    match code {
+        Some(code) if code.starts_with("WPS_E_REF_") => Some("reference"),
+        Some("WPS_E_TARGET_MISSING") => Some("target_voucher"),
+        _ => None,
+    }
 }
 
 /// `w2-create-dry-run`：离线干跑一批新单，只回答「会被接受还是被哪道守卫拒绝」。
@@ -1146,6 +1400,7 @@ fn w2_create_dry_run(args: &[String]) -> ExitCode {
                 "status": status,
                 "code": outcome.code,
                 "message": outcome.message,
+                "gate": dry_run_gate(outcome.code),
             })
         })
         .collect::<Vec<_>>();
@@ -1233,13 +1488,29 @@ fn main() -> ExitCode {
                 return fail(1, format!("CSV 不存在：{}", csv.display()));
             }
             let dry_run = args.iter().any(|a| a == "--dry-run");
-            let ctx = match CoreContext::init(data_dir) {
+            let db_path = match existing_db_path("import-ledger", &data_dir, false) {
+                Ok(path) => path,
+                Err(code) => return code,
+            };
+            let ctx = match CoreContext::init(data_dir.clone()) {
                 Ok(c) => c,
                 Err(e) => return fail(1, e),
             };
             match ingestion::import_ledger_csv(&ctx, &csv, kind, dry_run) {
                 Ok(sum) => {
-                    println!("{}", serde_json::to_string_pretty(&sum).unwrap_or_default());
+                    // `database` 让每份导入日志都能看出这次碰的是哪个库。
+                    let mut value = serde_json::to_value(&sum)
+                        .unwrap_or_else(|_| serde_json::json!({ "summary": null }));
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert(
+                            "database".into(),
+                            serde_json::json!(db_path.display().to_string()),
+                        );
+                    }
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&value).unwrap_or_default()
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => fail(1, e),
@@ -1256,6 +1527,11 @@ fn main() -> ExitCode {
                 return fail(1, format!("备份不存在：{}", zip.display()));
             }
             let target = PathBuf::from(target);
+            let allow_overwrite = args.iter().any(|arg| arg == "--allow-overwrite");
+            // 判定必须早于 restore_into：它会 create_dir_all + CoreContext::init（建库+迁移）。
+            if let Err(code) = restore_overwrite_guard(&target, allow_overwrite) {
+                return code;
+            }
             match restore_into(&zip, &target) {
                 Ok(summary) => {
                     println!(
@@ -1269,7 +1545,10 @@ fn main() -> ExitCode {
         }
         "c5-fingerprint" => c5_fingerprint(&args, data_dir.clone()),
         "list-pending" => {
-            let ctx = match CoreContext::init(data_dir) {
+            if let Err(code) = existing_db_path("list-pending", &data_dir, true) {
+                return code;
+            }
+            let ctx = match CoreContext::init(data_dir.clone()) {
                 Ok(c) => c,
                 Err(e) => return fail(1, e),
             };

@@ -346,3 +346,192 @@ fn allow_existing_db_reads_a_valid_database_without_writing() {
     assert_eq!(table_names(&db), before_tables, "不得新增表");
     assert_eq!(sync_table_counts(&db), before_counts, "四张同步表不得变化");
 }
+
+#[test]
+fn required_refs_pointing_at_missing_record_is_rejected_by_reference_gate() {
+    let dir = temp_dir("ref-missing");
+    let db = dir.join("w2.db");
+    {
+        let conn = voucher_core::db::connection::open(&db).expect("建库");
+        voucher_core::db::schema::init(&conn).expect("建表");
+    }
+    let before = sync_table_counts(&db);
+    let input = write_input(
+        &dir,
+        &json!({
+            "sheet_id": 3,
+            "records": [{
+                "fields": {"应收单号": "AR-9301"},
+                "idempotency_key": "idem-AR-9301",
+                "business_date": "2026-11-20",
+                "required_refs": [{"sheet_id": 1, "business_key": "根本不存在的客户"}]
+            }]
+        }),
+    );
+
+    let out = run(&[
+        "w2-create-dry-run",
+        "--db",
+        db.to_str().unwrap(),
+        "--input",
+        input.to_str().unwrap(),
+        "--allow-existing-db",
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let payload = stdout_json(&out);
+    assert_eq!(payload["accepted"], json!(false));
+    assert_eq!(payload["outcomes"][0]["status"], json!("rejected"));
+    assert_eq!(payload["outcomes"][0]["code"], json!("WPS_E_REF_MISSING"));
+    assert_eq!(payload["outcomes"][0]["gate"], json!("reference"));
+    assert_eq!(sync_table_counts(&db), before, "引用门拒绝同样零写入");
+}
+
+#[test]
+fn missing_target_voucher_is_rejected_by_target_voucher_gate() {
+    let dir = temp_dir("target-missing");
+    let db = dir.join("w2.db");
+    {
+        let conn = voucher_core::db::connection::open(&db).expect("建库");
+        voucher_core::db::schema::init(&conn).expect("建表");
+    }
+    let before = sync_table_counts(&db);
+    let input = write_input(
+        &dir,
+        &json!({
+            "sheet_id": 3,
+            "records": [{
+                "fields": {"应收单号": "AR-9401"},
+                "idempotency_key": "idem-AR-9401",
+                "business_date": "2026-11-20",
+                "target_voucher_id": 999_999
+            }]
+        }),
+    );
+
+    let out = run(&[
+        "w2-create-dry-run",
+        "--db",
+        db.to_str().unwrap(),
+        "--input",
+        input.to_str().unwrap(),
+        "--allow-existing-db",
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let payload = stdout_json(&out);
+    assert_eq!(payload["accepted"], json!(false));
+    assert_eq!(
+        payload["outcomes"][0]["code"],
+        json!("WPS_E_TARGET_MISSING")
+    );
+    assert_eq!(payload["outcomes"][0]["gate"], json!("target_voucher"));
+    assert_eq!(sync_table_counts(&db), before, "目标凭证门拒绝同样零写入");
+}
+
+#[test]
+fn omitting_the_new_optional_fields_keeps_the_previous_output_shape() {
+    let dir = temp_dir("regression");
+    let db = dir.join("w2.db");
+    let input = write_input(
+        &dir,
+        &json!({
+            "sheet_id": 3,
+            "records": [{
+                "fields": {"应收单号": "AR-9501"},
+                "idempotency_key": "idem-AR-9501",
+                "business_date": "2026-11-20"
+            }]
+        }),
+    );
+
+    let out = run(&[
+        "w2-create-dry-run",
+        "--db",
+        db.to_str().unwrap(),
+        "--input",
+        input.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let payload = stdout_json(&out);
+    assert_eq!(payload["accepted"], json!(true));
+    let outcome = &payload["outcomes"][0];
+    assert_eq!(outcome["status"], json!("would_create"));
+    assert_eq!(outcome["code"], json!(null));
+    assert_eq!(outcome["gate"], json!(null), "无门拒绝时 gate 必须为 null");
+    // 顶层与单条结果的键集合必须与扩展前一致（gate 是唯一新增，且固定出现）。
+    let top_keys = payload
+        .as_object()
+        .expect("对象")
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        top_keys,
+        vec![
+            "accepted",
+            "command",
+            "ok",
+            "outcomes",
+            "sheet_id",
+            "transport"
+        ]
+    );
+    let outcome_keys = outcome
+        .as_object()
+        .expect("对象")
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outcome_keys,
+        vec!["code", "gate", "idempotency_key", "message", "status"]
+    );
+}
+
+#[test]
+fn malformed_required_refs_shape_is_a_usage_error_and_creates_no_db() {
+    let dir = temp_dir("ref-shape");
+    let db = dir.join("w2.db");
+    let input = write_input(
+        &dir,
+        &json!({
+            "sheet_id": 3,
+            "records": [{
+                "fields": {"应收单号": "AR-9601"},
+                "idempotency_key": "idem-AR-9601",
+                "business_date": "2026-11-20",
+                "required_refs": "不是数组"
+            }]
+        }),
+    );
+
+    let out = run(&[
+        "w2-create-dry-run",
+        "--db",
+        db.to_str().unwrap(),
+        "--input",
+        input.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("第 1 条记录 required_refs"),
+        "stderr：{stderr}"
+    );
+    assert!(stderr.contains("必须是数组"), "stderr：{stderr}");
+    assert!(!db.exists(), "形状错误必须在建库之前拒绝");
+}
