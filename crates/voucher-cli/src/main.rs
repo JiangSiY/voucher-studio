@@ -326,6 +326,14 @@ fn wps_p2_read(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // 端点与传输必须自洽：真实端点却用默认 offline 桩，会在零请求下烧掉一次性授权
+    // （2026-11-24 事故）。此检查在登记消费之前，失败不留消费记录。
+    if transport_kind == "offline" && !P2_CLI_LOOPBACK_HOSTS.contains(&grant.endpoint.host()) {
+        return fail(
+            2,
+            "授权单端点为真实端点，须显式 --transport https（本次未发任何请求，也未消费授权）",
+        );
+    }
     let subject = arg_value(args, "--subject").or_else(|| grant.approved_subject.clone());
     let cursor = arg_value(args, "--cursor");
     let request = P2ReadRequest {
@@ -676,6 +684,15 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // 端点与传输必须自洽：授权单写的是真实端点、却用默认 offline 桩，
+    // 会让一次性授权在「零请求」下被烧掉（2026-11-24 事故）。
+    // 该检查在登记消费之前，故失败不产生消费记录、不发任何请求。
+    if transport_kind == "offline" && !P2_CLI_LOOPBACK_HOSTS.contains(&spec.endpoint.host()) {
+        return fail(
+            2,
+            "授权单端点为真实端点，须显式 --transport https（本次未发任何请求，也未消费授权）",
+        );
+    }
     // Q2 约束⑤：主体可由签批单 `approved_subject` 给出，或由本机 `--subject` 显式声明。
     // `--subject` 属操作者自述，**不构成服务端核对**；凭据文件不含账号标识，故此格只能标注自述。
     let subject_arg = arg_value(args, "--subject");

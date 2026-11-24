@@ -452,3 +452,50 @@ fn scan_offline_execution_fails_closed_after_registering_run() {
     assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_PROTOCOL_PENDING");
     assert!(state.exists(), "执行模式应先登记运行状态");
 }
+
+#[test]
+fn scan_real_endpoint_grant_with_offline_transport_is_refused_before_consuming() {
+    // 2026-11-24 事故回归：授权单写真实端点、却用默认 offline 桩 → 零请求失败仍烧掉一次性授权。
+    // 现在这种不一致必须在登记消费**之前**被拒绝：退出码 2、状态库不产生。
+    let dir = temp_dir("scan-real-endpoint-offline");
+    let grant = scan_grant(&dir, "https://mcp-center.wps.cn/skill_hub/mcp");
+    let state = dir.join("scan-state.db");
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--allow-real-endpoint",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("--transport https"), "stderr={text}");
+    assert!(
+        !state.exists(),
+        "不一致的传输必须在登记消费之前被拒，状态库不应生成"
+    );
+}
+
+#[test]
+fn read_real_endpoint_grant_with_offline_transport_is_refused() {
+    let dir = temp_dir("read-real-endpoint-offline");
+    let grant = grant(
+        &dir,
+        "https://mcp-center.wps.cn/skill_hub/mcp",
+        "dbsheet_replica_001",
+    );
+    let state = dir.join("state.db");
+    let out = run(&[
+        "wps-p2-read",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--state",
+        state.to_str().unwrap(),
+        "--allow-real-endpoint",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("--transport https"), "stderr={text}");
+    assert!(!state.exists(), "状态库不应生成");
+}
