@@ -1,7 +1,7 @@
 {
   "_说明": "A2 扫描运行授权单（v0.3 实现合同）。待签：填 approved_by 与真实执行窗口（UTC，≤15 分钟），并按设计 §11 记录构建 commit 与二进制 sha256。签前不得发任何真实请求。",
   "grant_id": "A2-SCAN-20261124-01",
-  "approved_by": null,
+  "approved_by": "本人签署（唯一责任人）",
   "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
   "file_id": "xujZ3ohx3rMo8oaAVPvY1xdmmZc9iiWrW",
   "file_label": "项目管理台账系统v5_备份_20261113.dbt（真实副本，非生产库）",
@@ -77,13 +77,15 @@
   "max_reads": 74,
   "max_total_requests": 80,
   "terminate_allowed": true,
-  "window_start": "【待补：签批时填 UTC，起点不早于实现验收完成时刻】",
-  "window_end": "【待补：签批时填 UTC，窗口 ≤15 分钟】",
-  "approved_subject": null,
+  "window_start": "2026-11-24T01:10:00Z",
+  "window_end": "2026-11-24T01:20:00Z",
+  "approved_subject": "本人签署（唯一责任人）",
   "build_commit": "3725c2c",
   "binary_sha256": "f2b7bdb18acc932f8ddf4a0c76066bfd652de331d3a00e9ca8f5e5bbf189ba8e",
   "expected_rows": 911,
   "expected_pages_per_pass": 22,
   "required_reads": 44,
-  "signature": "【待补：签批人签署】"
+  "signature": "【待补：签批人签署】",
+  "_签名整理": "签批时窗口被写成「【2026-11-24T01:10:00Z】/【2026-11-24T01:20:00Z」，仅去除排版括号，时刻与 10 分钟窗口未改。",
+  "_执行结果": "2026-11-24T01:10:06Z 执行一次 exit 0：actions={initialize:1,notify:1,read:44,terminate:1,total:47}；两遍各 22 页；stable=true；行数 911；termination=远端终止已确认。授权已消费，不可重放。"
 }
