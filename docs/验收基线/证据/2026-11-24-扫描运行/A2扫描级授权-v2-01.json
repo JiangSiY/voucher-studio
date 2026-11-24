@@ -84,10 +84,10 @@
   "max_reads": 74,
   "max_total_requests": 80,
   "terminate_allowed": true,
-  "window_start": "【待补：UTC 起始，窗口 ≤15 分钟】",
-  "window_end": "【待补：UTC 结束】",
-  "build_commit": "【待补：签前由冻结的 HEAD 填入】",
-  "binary_sha256": "【待补：签前 cargo build 产物实测 sha256】",
+  "window_start": "2026-11-24T14:00:00Z",
+  "window_end": "2026-11-24T14:15:00Z",
+  "build_commit": "ffcb4eb",
+  "binary_sha256": "a2e6785515294a8206ea1adb35187aec7bde7f4841483b271723dc041a397fda",
   "expected_rows": 911,
   "expected_pages_per_pass": 22,
   "required_reads": 44,
@@ -109,7 +109,7 @@
     "失败或停止即结束，不重试、不续跑"
   ],
   "_执行结果": "未执行（待签）",
-  "_窗口口径": "用户 2026-11-24 决定窗口维持 ≤15 分钟（不放宽到 1 小时）：硬闸门在 crates/voucher-core/src/services/wps_p2.rs:28 `P2_MAX_WINDOW=15min`，两处校验 :381/:1582；实际扫描 1–2 分钟即完成。窗口起止由签批人在执行前指定。",
+  "_窗口口径": "用户 2026-11-24 决定窗口维持 ≤15 分钟（不放宽到 1 小时）：硬闸门在 crates/voucher-core/src/services/wps_p2.rs:28 `P2_MAX_WINDOW=15min`，两处校验 :381/:1582；实际扫描 1–2 分钟即完成。窗口起止由签批人在执行前指定。 当前填的是**拟议窗口（北京时间 22:00–22:15）**，待签批人确认或改时刻；确认后即为唯一可执行窗口。",
   "_待补说明": {
     "approved_subject": "已填（2026-11-24 用户提供）：jsy1355889573@outlook.com；仍为自述值，输出记 subject_state=declared-grant",
     "window_start / window_end": "由签批人在代码冻结后、执行前指定（UTC，≤15 分钟）",
