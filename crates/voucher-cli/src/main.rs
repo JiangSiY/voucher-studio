@@ -5,6 +5,7 @@
 //! - `list-pending`：列出「台账已导、缺附件」的凭证，供打印待归档清单
 //! - `wps-p2-read`：P2 只读入口的最小 CLI（离线默认；回环 TLS 用于离线验收；
 //!   `https` 真实端点模式须显式三重开关，见 `wps_p2_read` 的文档注释）
+//! - `w2-create-dry-run`：离线干跑一批新单（只调本地预检，不发网、不写业务表）
 //!
 //! 设计约定：
 //! - 不开新依赖（本仓库运行环境无法下载 crate），参数手写解析；
@@ -42,6 +43,7 @@ fn usage() -> &'static str {
   voucher-cli wps-p2-read --grant <授权.json> [--state <状态.db>] [--check]
                           [--transport offline|loopback-tls --trust-root <ca.der>]
                           [--transport https --allow-real-endpoint --token-file <t>]
+  voucher-cli w2-create-dry-run --db <sqlite 路径> --input <输入.json> [--allow-existing-db]
 
 说明：
   import-ledger  台账导出的收款/付款/计提清单 → voucher 凭证（幂等键=流水号/单据号）
@@ -50,8 +52,14 @@ fn usage() -> &'static str {
   wps-p2-scan    扫描运行（两遍全表只读；无 --cursor/--page；必须 --state）
   wps-p2-read    P2 只读入口：--check 只校验授权单；执行时默认 offline（零发网），
                  loopback-tls 仅允许 p2-local.test/localhost/127.0.0.1 且须显式提供测试 CA；
-                 https 真实端点模式另需 --allow-real-endpoint 与 --token-file（默认关闭，
+                https 真实端点模式另需 --allow-real-endpoint 与 --token-file（默认关闭，
                  缺任一项即拒绝）；offline/loopback-tls 用合成 token，不读钥匙串
+  w2-create-dry-run
+                离线干跑：--db 只接受「不存在或 0 字节」的路径（新建库并建表）；
+                既有非空库默认直接 exit 2，确需试跑须显式 --allow-existing-db，
+                此时只读自检（不建表、缺表即 exit 1），再调 W2 预检判断这批新单
+                「会被接受还是被哪道守卫拒绝」；不发任何远端请求、
+                不写 wps_links/幂等表/同步表（C5 写入阻断不变）
   --data-dir     指定数据目录（默认 ~/Library/Application Support/VoucherStudio）
 "
 }
@@ -975,6 +983,225 @@ fn c5_fingerprint(args: &[String], data_dir: Option<std::path::PathBuf>) -> Exit
     ExitCode::SUCCESS
 }
 
+/// 离线干跑传输：任何初始化或调用都直接报错。
+///
+/// 干跑只走本地预检，本来不会碰传输层；这个实现是「即便将来有人把预检改成发网，
+/// 也发不出去」的硬边界——没有 URL、没有凭据、没有 HTTP 客户端。
+struct OfflineDryRunTransport;
+
+impl voucher_core::services::wps::WpsTransport for OfflineDryRunTransport {
+    fn initialize(
+        &self,
+        _auth: Option<&str>,
+    ) -> std::result::Result<String, voucher_core::services::wps::WpsError> {
+        Err(voucher_core::services::wps::WpsError::Protocol(
+            "离线干跑：拒绝建立远端会话".into(),
+        ))
+    }
+
+    fn call(
+        &self,
+        _session_id: &str,
+        action: &str,
+        _args: &serde_json::Value,
+        _auth: Option<&str>,
+    ) -> std::result::Result<serde_json::Value, voucher_core::services::wps::WpsError> {
+        Err(voucher_core::services::wps::WpsError::Protocol(format!(
+            "离线干跑：拒绝远端调用 {action}"
+        )))
+    }
+}
+
+/// 把输入 JSON 解析成干跑请求；任何形状问题都返回人话错误（调用方按 exit 2 处理）。
+fn parse_dry_run_requests(
+    raw: &serde_json::Value,
+) -> std::result::Result<(i64, Vec<voucher_core::services::wps_w2::W2CreateRequest>), String> {
+    use voucher_core::services::wps_doc_guard::doc_spec_for_sheet;
+    use voucher_core::services::wps_w2::W2CreateRequest;
+
+    let sheet_id = raw
+        .get("sheet_id")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| "输入缺少整数 sheet_id".to_string())?;
+    let records = raw
+        .get("records")
+        .and_then(serde_json::Value::as_array)
+        .filter(|records| !records.is_empty())
+        .ok_or_else(|| "输入 records 缺失或为空".to_string())?;
+    // 只有 doc guard 覆盖的单号表才有固定 record_type；其余表按两位数字兜底，
+    // 保证 05/07 这类「只查重」表也能把表号带进拒绝文案。
+    let record_type = doc_spec_for_sheet(sheet_id)
+        .map(|spec| spec.record_type.to_string())
+        .unwrap_or_else(|| format!("{sheet_id:02}"));
+
+    let mut requests = Vec::with_capacity(records.len());
+    for (index, record) in records.iter().enumerate() {
+        let fields = record
+            .get("fields")
+            .filter(|fields| fields.is_object())
+            .ok_or_else(|| format!("第 {} 条记录缺少对象字段 fields", index + 1))?;
+        let idempotency_key = record
+            .get("idempotency_key")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .ok_or_else(|| format!("第 {} 条记录缺少非空 idempotency_key", index + 1))?;
+
+        let mut request =
+            W2CreateRequest::new(sheet_id, &record_type, fields.clone(), idempotency_key);
+        if sheet_id == 9 {
+            request.period = record
+                .get("period")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+        } else {
+            // 业务日期必须显式给出：预检拒绝「拿录入日兜底」，CLI 也不猜。
+            request.business_date = record
+                .get("business_date")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+        }
+        requests.push(request);
+    }
+    Ok((sheet_id, requests))
+}
+
+/// `w2-create-dry-run`：离线干跑一批新单，只回答「会被接受还是被哪道守卫拒绝」。
+///
+/// 只打开 `--db` 指向的本地 SQLite（不存在则新建并跑既有迁移），
+/// 然后调 [`voucher_core::services::wps_create::WpsCreateFlow::dry_run`]——
+/// 它在内部只走 `W2Sync::preflight`，不发网、不写业务表。C5 写入阻断不变。
+fn w2_create_dry_run(args: &[String]) -> ExitCode {
+    use voucher_core::services::wps::{WpsClient, WpsStore};
+    use voucher_core::services::wps_create::WpsCreateFlow;
+    use voucher_core::services::wps_w2::W2Config;
+
+    let (Some(db), Some(input)) = (arg_value(args, "--db"), arg_value(args, "--input")) else {
+        return fail(2, "w2-create-dry-run 需要 --db 与 --input");
+    };
+    let input_path = std::path::PathBuf::from(&input);
+    let raw = match std::fs::read_to_string(&input_path) {
+        Ok(text) => text,
+        Err(err) => return fail(2, format!("读取输入文件失败：{err}")),
+    };
+    let raw: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(err) => return fail(2, format!("输入不是合法 JSON：{err}")),
+    };
+    let (sheet_id, requests) = match parse_dry_run_requests(&raw) {
+        Ok(parsed) => parsed,
+        Err(err) => return fail(2, err),
+    };
+
+    let db_path = std::path::PathBuf::from(&db);
+    let allow_existing_db = args.iter().any(|arg| arg == "--allow-existing-db");
+    // 路径守卫必须在 open 之前：open 本身就会改写 journal 模式，碰一下就是副作用。
+    // 默认只接受「不存在或 0 字节」的路径；既有非空库一律拒绝，除非显式放行。
+    let existing_non_empty = match std::fs::metadata(&db_path) {
+        Ok(meta) => meta.is_file() && meta.len() > 0,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Err(err) => return fail(2, format!("检查数据库路径失败：{err}")),
+    };
+    if existing_non_empty && !allow_existing_db {
+        return fail(
+            2,
+            format!(
+                "干跑只接受新建库：{} 已存在且非空；确需对既有库试跑请显式加 --allow-existing-db",
+                db_path.display()
+            ),
+        );
+    }
+    let conn = match voucher_core::db::connection::open(&db_path) {
+        Ok(conn) => conn,
+        Err(err) => return fail(1, format!("打开数据库失败：{err}")),
+    };
+    let database = voucher_core::Database::new(conn);
+    if existing_non_empty {
+        // 既有库的结构由使用者负责：只读自检，缺表就报错，绝不自动补建。
+        let store = WpsStore::from_db(&database);
+        if let Err(err) = store.ensure_schema() {
+            return fail(1, format!("既有库缺少 WPS 同步表：{err}；干跑不会自动建表"));
+        }
+    } else if let Err(err) = database.with_conn(voucher_core::db::schema::init) {
+        return fail(1, format!("初始化数据库结构失败：{err}"));
+    }
+    let store = WpsStore::from_db(&database);
+    let client = WpsClient::new(OfflineDryRunTransport, "offline-dry-run");
+    let flow = WpsCreateFlow::new(&client, &store);
+
+    let dry_run = match flow.dry_run(&W2Config::mock_write(), &requests) {
+        Ok(dry_run) => dry_run,
+        Err(err) => return fail(1, format!("干跑预检失败：{err}")),
+    };
+    let outcomes = dry_run
+        .outcomes
+        .iter()
+        .map(|outcome| {
+            let status = match outcome.status {
+                voucher_core::services::wps_create::WpsCreateStatus::WouldCreate => "would_create",
+                voucher_core::services::wps_create::WpsCreateStatus::Rejected => "rejected",
+            };
+            serde_json::json!({
+                "idempotency_key": outcome.idempotency_key,
+                "status": status,
+                "code": outcome.code,
+                "message": outcome.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload = serde_json::json!({
+        "ok": true,
+        "command": "w2-create-dry-run",
+        "transport": "offline",
+        "accepted": dry_run.accepted,
+        "sheet_id": sheet_id,
+        "outcomes": outcomes,
+    });
+    // 单行 JSON：脚本直接 `| jq` 即可；拒绝是业务结果，仍 exit 0。
+    println!("{}", serde_json::to_string(&payload).unwrap_or_default());
+    ExitCode::SUCCESS
+}
+
+/// 干跑命令的静态判据：构造路径里没有真实网络符号。
+///
+/// 这是「命令层不可能发网」的第一道静态闸门，和第二道运行期闸门
+/// （`OfflineDryRunTransport` 永远返回错误）互补。
+#[cfg(test)]
+mod w2_dry_run_source_tests {
+    fn command_region() -> &'static str {
+        let source = include_str!("main.rs");
+        let start = source
+            .find("/// 离线干跑传输")
+            .expect("干跑命令的注释块存在");
+        // 扫描到静态判据自己的注释为止：判据里的黑名单字面量不属于命令路径。
+        let end = source[start..]
+            .find("\n/// 干跑命令的静态判据")
+            .map(|offset| start + offset)
+            .expect("静态判据在命令之后");
+        &source[start..end]
+    }
+
+    #[test]
+    fn dry_run_command_path_has_no_real_network_symbols() {
+        let region = command_region();
+        for banned in [
+            "reqwest",
+            "HttpsP2Transport",
+            "P2Transport",
+            "https://",
+            "http://",
+            "ureq",
+        ] {
+            assert!(
+                !region.contains(banned),
+                "干跑命令构造路径不得出现真实网络符号：{banned}"
+            );
+        }
+        assert!(region.contains("struct OfflineDryRunTransport"));
+        assert!(region.contains(".dry_run(&W2Config::mock_write()"));
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
@@ -1079,6 +1306,7 @@ fn main() -> ExitCode {
         }
         "wps-p2-read" => wps_p2_read(&args),
         "wps-p2-scan" => wps_p2_scan(&args),
+        "w2-create-dry-run" => w2_create_dry_run(&args),
         other => fail(2, format!("未知命令：{other}\n\n{}", usage())),
     }
 }
