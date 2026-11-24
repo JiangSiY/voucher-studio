@@ -84,8 +84,8 @@
   "max_reads": 74,
   "max_total_requests": 80,
   "terminate_allowed": true,
-  "window_start": "2026-11-24T14:00:00Z",
-  "window_end": "2026-11-24T14:15:00Z",
+  "window_start": "2026-11-24T05:29:20Z",
+  "window_end": "2026-11-24T05:44:20Z",
   "build_commit": "ffcb4eb",
   "binary_sha256": "a2e6785515294a8206ea1adb35187aec7bde7f4841483b271723dc041a397fda",
   "expected_rows": 911,
@@ -93,7 +93,7 @@
   "required_reads": 44,
   "isolation_state_db": "/tmp/a2-scan-<grant_id>.db（必须是尚不存在的新库）",
   "evidence_dir": "docs/验收基线/证据/2026-11-24-扫描运行/",
-  "signature": "【待补：签批人签署 + UTC 时刻】",
+  "signature": "本人签署（唯一责任人）｜2026-11-24 13:29 (+08:00) 会话内指令「现在签名进行扫描，窗口定为现在」，助手据指令代录",
   "_签前必查": [
     "target_binding=true",
     "subject_state=declared-grant",
@@ -109,7 +109,7 @@
     "失败或停止即结束，不重试、不续跑"
   ],
   "_执行结果": "未执行（待签）",
-  "_窗口口径": "用户 2026-11-24 决定窗口维持 ≤15 分钟（不放宽到 1 小时）：硬闸门在 crates/voucher-core/src/services/wps_p2.rs:28 `P2_MAX_WINDOW=15min`，两处校验 :381/:1582；实际扫描 1–2 分钟即完成。窗口起止由签批人在执行前指定。 当前填的是**拟议窗口（北京时间 22:00–22:15）**，待签批人确认或改时刻；确认后即为唯一可执行窗口。",
+  "_窗口口径": "窗口由签批人 2026-11-24 13:29 (+08:00) 指定为「现在」：2026-11-24T05:29:20Z–2026-11-24T05:44:20Z（UTC，15 分钟硬上限），过期即失效、不补签。",
   "_待补说明": {
     "approved_subject": "已填（2026-11-24 用户提供）：jsy1355889573@outlook.com；仍为自述值，输出记 subject_state=declared-grant",
     "window_start / window_end": "由签批人在代码冻结后、执行前指定（UTC，≤15 分钟）",
