@@ -22,6 +22,7 @@ import {
   type VoucherRowMeta,
   type VoucherStatus,
   type VoucherThumb,
+  type WpsSyncStatus,
 } from "../api/client";
 import { toast, toastError } from "../stores/toast";
 import { useModalRoute } from "../composables/useModalRoute";
@@ -75,8 +76,9 @@ const w2Busy = ref(false);
 const w2Error = ref("");
 const w2Result = ref<DevW2Result | null>(null);
 // W2 面板的失效/冷却/待处理状态（S0-07/S0-08）：批次结束后保留，恢复后仍能看见待处理项。
-const lastSyncedAt = ref<string | null>(null);
-const pendingOutcomes = ref<DevW2Outcome[]>([]);
+// 最后同步时间与待处理队列来自只读命令 wps_sync_status（本机 SQLite，零网络）。
+const syncStatus = ref<WpsSyncStatus | null>(null);
+const syncStatusUnavailable = ref(false);
 const cooldownUntil = ref<string | null>(null);
 const scopeDialogOpen = ref(false);
 const SCOPE_CONFIRMED_KEY = "voucher.w2.scopeConfirmed";
@@ -103,9 +105,30 @@ function readScopeConfirmed(): boolean {
   }
 }
 
-function isPendingOutcome(o: DevW2Outcome): boolean {
-  return o.status === "unknown" || o.status === "pending_backfill";
+/**
+ * 只读状态：本机最近同步时刻与待处理队列（`wps_sync_status`）。
+ *
+ * 只在挂载时调用一次，之后不因任何批次结果自动重查——拿到状态不得触发同步、重试或
+ * 任何 WPS 请求。命令不可用（旧版桌面壳 / 裁剪的 api mock / 查询报错）时安静降级：
+ * 时间显示「—（状态不可用）」、徽标隐藏，页面其余部分照常。
+ */
+async function loadWpsSyncStatus() {
+  const call = api.wpsSyncStatus;
+  if (typeof call !== "function") return;
+  try {
+    syncStatus.value = await call();
+    syncStatusUnavailable.value = false;
+  } catch {
+    syncStatus.value = null;
+    syncStatusUnavailable.value = true;
+  }
 }
+
+/** 徽标只显示待回填条数（`pendingCount`）；结果不明（`unknownCount`）在横幅里单独成句。 */
+const pendingBadge = computed(() => {
+  if (syncStatusUnavailable.value || !syncStatus.value) return 0;
+  return syncStatus.value.pendingCount;
+});
 
 /** 查看范围二次确认：只记住本会话已确认，不发任何请求（S0-07 口径）。 */
 function confirmScope() {
@@ -130,7 +153,6 @@ async function runDevW2(action: "pull" | "write" | "auth_recover", scenario?: st
     const result = await api.devW2MockSync(action, scenario);
     w2Result.value = result;
     if (result.batch) {
-      pendingOutcomes.value = result.batch.outcomes.filter(isPendingOutcome);
       // 新批次自带冷却状态：有则更新，无则清掉旧提示，避免过期横幅长期驻留。
       cooldownUntil.value = result.batch.cooldownUntil;
     }
@@ -392,7 +414,11 @@ watch(
   },
 );
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  // 同步状态只查一次（只读本地库）；查询失败由 loadWpsSyncStatus 内部降级，不影响列表。
+  void loadWpsSyncStatus();
+});
 watch(query, load);
 </script>
 
@@ -450,7 +476,8 @@ watch(query, load);
     <section v-if="isDev" class="dev-w2" aria-label="开发本地模拟同步">
       <ViewScopeDialog
         :visible="scopeDialogOpen"
-        :last-synced-at="lastSyncedAt"
+        :last-synced-at="syncStatus?.lastSyncAt ?? null"
+        :status-unavailable="syncStatusUnavailable"
         @confirm="confirmScope"
         @cancel="scopeDialogOpen = false"
       />
@@ -459,11 +486,11 @@ watch(query, load);
           <strong class="dev-w2-title">
             开发本地模拟同步（W2 Mock）
             <span
-              v-if="pendingOutcomes.length"
+              v-if="pendingBadge > 0"
               class="dev-w2-badge"
               data-testid="w2-pending-badge"
-              :aria-label="`待处理 ${pendingOutcomes.length} 项`"
-              >{{ pendingOutcomes.length }}</span
+              :aria-label="`待处理 ${pendingBadge} 项`"
+              >{{ pendingBadge }}</span
             >
           </strong>
           <p>仅在 debug + VOUCHER_W2_MOCK=1 + 临时数据目录可用；不连接真实 WPS。</p>
@@ -533,8 +560,11 @@ watch(query, load);
       <p v-if="w2Error" class="dev-w2-error">{{ fmtWpsMessage(w2Error) }}</p>
       <ReauthBanner
         :auth-required="w2Result?.batch?.authRequired ?? false"
-        :last-synced-at="lastSyncedAt"
-        :pending-outcomes="pendingOutcomes"
+        :last-sync-at="syncStatus?.lastSyncAt ?? null"
+        :pending-count="syncStatus?.pendingCount ?? 0"
+        :unknown-count="syncStatus?.unknownCount ?? 0"
+        :pending-items="syncStatus?.pendingItems ?? []"
+        :status-unavailable="syncStatusUnavailable"
         :cooldown-until="cooldownUntil"
         @reauth="onReauth"
       />

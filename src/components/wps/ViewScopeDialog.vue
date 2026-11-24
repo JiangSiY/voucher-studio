@@ -9,14 +9,20 @@ import { computed } from "vue";
 import ConfirmDialog from "../ConfirmDialog.vue";
 import { fmtUtcSecs } from "../../utils/wpsTime";
 
-const props = defineProps<{ visible: boolean; lastSyncedAt: string | null }>();
+const props = defineProps<{
+  visible: boolean;
+  /** 只读命令 `wps_sync_status` 的 `lastSyncAt`；无记录为 null。 */
+  lastSyncedAt: string | null;
+  /** 状态查询失败/旧壳无此命令：时间降级为「状态不可用」，仍不阻断本机浏览。 */
+  statusUnavailable?: boolean;
+}>();
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
 
-/** 最后同步时间当前没有只读命令暴露（`wps_sync_runs` 最近一条），未知就照实标待补充。 */
-const lastSyncedText = computed(() =>
-  props.lastSyncedAt ? fmtUtcSecs(props.lastSyncedAt) : "—（数据源待补充）",
-);
+const lastSyncedText = computed(() => {
+  if (props.statusUnavailable) return "—（状态不可用）";
+  return props.lastSyncedAt ? fmtUtcSecs(props.lastSyncedAt) : "—（尚无同步记录）";
+});
 
 const body = computed(
   () =>

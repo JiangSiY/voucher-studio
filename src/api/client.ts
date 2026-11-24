@@ -1258,9 +1258,38 @@ export interface WpsTokenStatus {
   tokenExpiresAt?: string | null;
 }
 
+/** 待处理队列的一条：只有码与状态，不含字段值/远端 payload（`wps_status.rs` 同形）。 */
+export interface WpsPendingItem {
+  sheetId: number;
+  idempotencyKey: string;
+  /** 稳定错误码，如 `WPS_E_LINK_BACKFILL`。 */
+  code: string;
+  /** 本地状态：`pending_backfill`（待回填）或 `unknown`（结果不明）。 */
+  state: string;
+}
+
+/**
+ * WPS 同步状态（只读命令 `wps_sync_status`）：最近同步/扫描时刻 + 待处理队列。
+ * 后端只查本地 SQLite，不构造 WPS 客户端、不读凭据、零网络。
+ */
+export interface WpsSyncStatus {
+  /** 最近一次 `status='ok'` 的同步运行完成时刻；无记录为 null。时间已按 `…Z` 归一。 */
+  lastSyncAt: string | null;
+  /** 最近一次完整扫描（`complete=1`）的完成时刻；无记录为 null。 */
+  lastScanComplete: string | null;
+  /** `wps_links.state='pending_backfill'` 条数（徽标口径，不含结果不明）。 */
+  pendingCount: number;
+  /** `wps_write_intents.state='unknown'` 条数：需人工核对，不会自动重发。 */
+  unknownCount: number;
+  /** 两源合并、按更新时间倒序、最多 20 条。 */
+  pendingItems: WpsPendingItem[];
+}
+
 export const api = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
   wpsCredentialsStatus: () => invoke<WpsTokenStatus>("wps_credentials_status"),
+  /** 只读：本机同步状态与待处理队列；零网络、不触发任何同步或重试。 */
+  wpsSyncStatus: () => invoke<WpsSyncStatus>("wps_sync_status"),
   devW2MockSync: (action: "pull" | "write" | "auth_recover", scenario?: string) =>
     invoke<DevW2Result>("dev_w2_mock_sync", { action, scenario }),
   openPath: (path: string) => (isTauri ? invoke<void>("open_path", { path }) : openInBrowser(path)),

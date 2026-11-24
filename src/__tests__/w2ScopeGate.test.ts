@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import type { DevW2Outcome, DevW2Result } from "../api/client";
+import type { DevW2Outcome, DevW2Result, WpsSyncStatus } from "../api/client";
 import DataPage from "../pages/DataPage.vue";
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   listImportBatches: vi.fn(),
   setLedgerBooked: vi.fn(),
   devW2MockSync: vi.fn(),
+  wpsSyncStatus: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ api: mocks, isTauri: true }));
@@ -37,6 +38,18 @@ vi.mock("vue-router", () => ({
 
 const fetchSpy = vi.fn();
 let wrapper: VueWrapper | null = null;
+
+/** 只读状态命令的默认空态（无同步记录、无待处理项）。 */
+function syncStatus(over: Partial<WpsSyncStatus> = {}): WpsSyncStatus {
+  return {
+    lastSyncAt: null,
+    lastScanComplete: null,
+    pendingCount: 0,
+    unknownCount: 0,
+    pendingItems: [],
+    ...over,
+  };
+}
 
 function outcome(over: Partial<DevW2Outcome> = {}): DevW2Outcome {
   return {
@@ -155,6 +168,7 @@ beforeEach(() => {
   mocks.getVoucher.mockResolvedValue(null);
   mocks.listImportBatches.mockResolvedValue([]);
   mocks.devW2MockSync.mockResolvedValue(result());
+  mocks.wpsSyncStatus.mockResolvedValue(syncStatus());
 });
 
 afterEach(() => {
@@ -168,6 +182,20 @@ afterEach(() => {
 describe("重授权 UI 与查看范围二次确认（S0-07）", () => {
   it("400006 后出现提示条 / 待处理队列 / 红点，并先弹只读范围确认", async () => {
     mocks.devW2MockSync.mockResolvedValue(authExpired());
+    mocks.wpsSyncStatus.mockResolvedValue(
+      syncStatus({
+        pendingCount: 1,
+        unknownCount: 1,
+        pendingItems: [
+          {
+            sheetId: 5,
+            idempotencyKey: "2026-11-24::凭证::记-001",
+            code: "WPS_E_AUTH",
+            state: "unknown",
+          },
+        ],
+      }),
+    );
     await mountPage();
     await clickText("模拟创建（授权失效 400006）");
 
@@ -175,14 +203,19 @@ describe("重授权 UI 与查看范围二次确认（S0-07）", () => {
     expect(banner.exists()).toBe(true);
     const text = banner.text();
     expect(text).toContain("需重新授权");
-    expect(text).toContain("待处理 1 项");
-    expect(text).toContain("最后同步时间：—（数据源待补充）");
+    expect(text).toContain("待处理 1 项已保留");
+    expect(text).toContain("最后同步时间：—（尚无同步记录）");
     expect(text).toContain("未实现（待 A2/真实凭据）");
+    // 结果不明单独成句，不并入徽标口径
+    expect(banner.find('[data-testid="unknown-note"]').text()).toContain("有 1 项结果不明");
 
-    const queue = wrapper!.findAll('[data-testid="reauth-queue"] li');
+    // 队列四列：表 / 幂等键 / 错误码 / 状态（只有码与状态，无业务描述）
+    const queue = wrapper!.findAll('[data-testid="reauth-queue"] tbody tr');
     expect(queue).toHaveLength(1);
+    expect(queue[0].text()).toContain("5");
     expect(queue[0].text()).toContain("2026-11-24::凭证::记-001");
     expect(queue[0].text()).toContain("WPS_E_AUTH");
+    expect(queue[0].text()).toContain("unknown");
 
     // 行内错误列也在（不只横幅），供逐条核对
     expect(wrapper!.find(".dev-w2-err").text()).toContain("400006");
@@ -198,6 +231,7 @@ describe("重授权 UI 与查看范围二次确认（S0-07）", () => {
 
     // 弹确认本身不发任何请求：只发生了用户点击的那一次本地合成调用
     expect(mocks.devW2MockSync).toHaveBeenCalledTimes(1);
+    expect(mocks.wpsSyncStatus).toHaveBeenCalledTimes(1);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -231,6 +265,7 @@ describe("重授权 UI 与查看范围二次确认（S0-07）", () => {
 
   it("「重新授权」二次确认后只调既有本地合成 auth_recover，待处理项保留", async () => {
     mocks.devW2MockSync.mockResolvedValueOnce(authExpired());
+    mocks.wpsSyncStatus.mockResolvedValue(syncStatus({ pendingCount: 1 }));
     await mountPage();
     await clickText("模拟创建（授权失效 400006）");
     await clickDialog("确认，仅查看本机缓存");
