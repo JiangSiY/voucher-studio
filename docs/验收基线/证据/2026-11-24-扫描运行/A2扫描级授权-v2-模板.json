@@ -1,0 +1,57 @@
+{
+  "_说明": "A2 扫描级授权单 v2 模板（未签，2026-11-24）。所有【待补】必须由签批人/开发逐格填实后才可另存为正式件；本文件本身不可执行，`--check` 预期报 P2_E_GRANT（exit 2）、零请求、不建状态库。字段契约与签前检查见同目录 A2扫描级授权-v2-模板.md。",
+  "_依据": [
+    "docs/验收基线/证据/2026-11-19-S0/A2扫描级授权-设计.md §11（:144-158）与 §13.2（:191-209）",
+    "docs/验收基线/证据/2026-11-24-扫描运行/实现证据.md §6（:65-82）",
+    "docs/验收基线/证据/2026-11-19-S0/检查表.md §3.0.1 附条件 C1–C5（:64-68）"
+  ],
+  "_v2必改": [
+    "approved_file_id：必填键，且必须与 file_id 逐字一致（缺键 P2_E_GRANT，不一致 P2_E_TARGET）",
+    "approved_subject：签批必备，缺失 P2_E_SCOPE_PENDING、不一致 P2_E_SCOPE，二者均发生在消费授权之前",
+    "输出新增 target_binding 与 subject_state（declared-grant|declared-cli|missing）",
+    "主体不得再用 approved_by 冒充账号"
+  ],
+  "grant_id": "【待补：唯一编号，如 A2-SCAN-YYYYMMDD-02；不得复用 A2-SCAN-20261124-01】",
+  "approved_by": "【待补：本人签署（唯一责任人）+ 签署 UTC 时刻】",
+  "endpoint": "https://mcp-center.wps.cn/skill_hub/mcp",
+  "file_id": "【待补：唯一非生产副本 file_id】",
+  "approved_file_id": "【待补：必须与 file_id 逐字相同（签批目标，不得用请求侧 file_id 自证）】",
+  "approved_subject": "【待补：签批授权主体（账号/租户标识）；自述值，非服务端核对】",
+  "file_label": "【待补：副本名称与来源，须写明非生产库】",
+  "sheets": [
+    {
+      "sheet_id": "【待补：签前 24h 内 get_schema 实测】",
+      "fields": ["【待补：逐列批准字段】"],
+      "pages": "【待补：锁死页数】"
+    }
+  ],
+  "page_size": "【待补：建议 50】",
+  "max_reads": "【待补：≥2×Σpages 且 ≤74】",
+  "max_total_requests": "【待补：≤80，且为会话留 ≥3 次】",
+  "terminate_allowed": true,
+  "window_start": "【待补：UTC，窗口 ≤15 分钟】",
+  "window_end": "【待补：UTC，晚于 window_start】",
+  "build_commit": "【待补：签前锁定，代码不校验但签前检查表要求】",
+  "binary_sha256": "【待补：签前 cargo build 产物实测】",
+  "expected_rows": "【待补：签前 24h 内实测行数】",
+  "expected_pages_per_pass": "【待补：签前 24h 内实测页数】",
+  "required_reads": "【待补：2×Σpages】",
+  "isolation_state_db": "【待补：隔离状态库路径，必须是新库】",
+  "evidence_dir": "docs/验收基线/证据/【待补：本次运行归档目录】/",
+  "signature": "【待补：签批人签署；本文件未签】",
+  "_签前必查": [
+    "target_binding=true",
+    "subject_state=declared-grant",
+    "required_reads/max_reads/max_total_requests 与设计 §3 预算自洽",
+    "行数为签前 24h 内实测",
+    "`--check` 零请求、不建库",
+    "窗口 ≤15 分钟且距执行留足准备时间"
+  ],
+  "_禁止": [
+    "不得以本模板发起真实请求",
+    "不得夹带任何写入动作（C5 未解）",
+    "不得复用已消费 grant_id",
+    "不得把 --check 通过与 Q1/Q2 收口混为一谈"
+  ],
+  "_执行结果": "未执行（模板，未签，本轮零请求）"
+}
