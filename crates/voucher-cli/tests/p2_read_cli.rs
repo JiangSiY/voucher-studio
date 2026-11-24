@@ -312,6 +312,8 @@ fn scan_grant(dir: &Path, endpoint: &str) -> PathBuf {
         "approved_by": "安全/运维（示例）",
         "endpoint": endpoint,
         "file_id": "dbsheet_replica_001",
+        "approved_file_id": "dbsheet_replica_001",
+        "approved_subject": "tenant-a/reader",
         "sheets": [
             { "sheet_id": 1, "fields": ["名称"], "pages": 2 },
             { "sheet_id": 2, "fields": ["业务类型"], "pages": 1 }
@@ -326,6 +328,72 @@ fn scan_grant(dir: &Path, endpoint: &str) -> PathBuf {
     let path = dir.join("scan-grant.json");
     std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap()).expect("写扫描授权单");
     path
+}
+
+#[test]
+fn scan_grant_without_approved_file_id_is_refused() {
+    let dir = temp_dir("scan-no-target");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("approved_file_id");
+    std::fs::write(&grant, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    let out = run(&["wps-p2-scan", "--grant", grant.to_str().unwrap(), "--check"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_GRANT");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("approved_file_id"),
+        "stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn scan_without_approved_subject_is_refused_at_check() {
+    let dir = temp_dir("scan-no-subject");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("approved_subject");
+    std::fs::write(&grant, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    let out = run(&["wps-p2-scan", "--grant", grant.to_str().unwrap(), "--check"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_SCOPE_PENDING");
+
+    // 签批单未声明主体时，本机 `--subject` 不能替它签字：仍拒。
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--subject",
+        "tenant-a/reader",
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_SCOPE_PENDING");
+}
+
+#[test]
+fn scan_declared_subject_must_match_grant_and_is_labelled_declared() {
+    let dir = temp_dir("scan-subject-match");
+    let grant = scan_grant(&dir, "https://p2-local.test/mcp");
+
+    let out = run(&["wps-p2-scan", "--grant", grant.to_str().unwrap(), "--check"]);
+    assert_eq!(out.status.code(), Some(0));
+    let value = stdout_json(&out);
+    assert_eq!(value["subject_state"], "declared-grant");
+    assert_eq!(value["target_binding"], true);
+
+    let out = run(&[
+        "wps-p2-scan",
+        "--grant",
+        grant.to_str().unwrap(),
+        "--subject",
+        "tenant-b/reader",
+        "--check",
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout_json(&out)["error"]["code"], "P2_E_SCOPE");
 }
 
 #[test]

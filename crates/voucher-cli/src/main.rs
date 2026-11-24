@@ -504,6 +504,12 @@ fn p2_scan_spec_from_value(
         ));
     }
     let file_id = p2_string(value, "file_id").ok_or("授权单缺少 file_id")?;
+    // Q2 约束①：签批目标必须单独写明，不能用请求侧的 file_id 自证。
+    let approved_file_id = p2_string(value, "approved_file_id")
+        .ok_or("授权单缺少 approved_file_id（签批目标；不得只写 file_id 自证）")?;
+    // Q2 约束⑤：签批主体。缺失不报错（由 `check_subject` 在执行前拒绝），
+    // 但 `--check` 会明确标出 `subject_state=missing`。
+    let approved_subject = p2_string(value, "approved_subject");
     let entries = value
         .get("sheets")
         .and_then(|v| v.as_array())
@@ -549,8 +555,10 @@ fn p2_scan_spec_from_value(
     Ok(P2ScanSpec {
         endpoint,
         file_id,
+        approved_file_id,
         grant_id,
         approved_by,
+        approved_subject,
         sheets,
         pages,
         page_size,
@@ -566,6 +574,7 @@ fn scan_outcome_json(
     outcome: &P2ScanOutcome,
     spec: &P2ScanSpec,
     transport: &str,
+    subject_state: &str,
 ) -> serde_json::Value {
     let sheets = |list: &[P2SheetScan]| {
         list.iter()
@@ -585,6 +594,8 @@ fn scan_outcome_json(
         "real_endpoint": transport == "https",
         "grant_id": spec.grant_id,
         "file_id_masked": voucher_core::services::wps_p2::mask_id(&spec.file_id),
+        "target_binding": spec.file_id == spec.approved_file_id,
+        "subject_state": subject_state,
         "stable": outcome.stable,
         "reads": outcome.reads,
         "pass1": sheets(&outcome.pass1),
@@ -665,8 +676,23 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // Q2 约束⑤：主体可由签批单 `approved_subject` 给出，或由本机 `--subject` 显式声明。
+    // `--subject` 属操作者自述，**不构成服务端核对**；凭据文件不含账号标识，故此格只能标注自述。
+    let subject_arg = arg_value(args, "--subject");
+    let subject = subject_arg
+        .clone()
+        .or_else(|| spec.approved_subject.clone());
+    let subject_state = match subject_arg.as_deref() {
+        Some(_) => "declared-cli",
+        None if subject.is_some() => "declared-grant",
+        None => "missing",
+    };
     if check_only {
         if let Err(err) = spec.validate() {
+            println!("{}", p2_json_error(err.code(), &err.to_string()));
+            return ExitCode::from(1);
+        }
+        if let Err(err) = spec.check_subject(subject.as_deref()) {
             println!("{}", p2_json_error(err.code(), &err.to_string()));
             return ExitCode::from(1);
         }
@@ -680,6 +706,9 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
                 "grant_id": spec.grant_id,
                 "host": spec.endpoint.host(),
                 "file_id_masked": voucher_core::services::wps_p2::mask_id(&spec.file_id),
+                "target_binding": spec.file_id == spec.approved_file_id,
+                "subject_state": subject_state,
+                "subject_note": "主体为签批单/本机声明值，非服务端核对",
                 "sheets": spec.sheets.keys().collect::<Vec<_>>(),
                 "pages": spec.pages,
                 "required_reads": spec.required_reads(),
@@ -710,12 +739,13 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
             };
             Arc::new(FileTokenCredential {
                 token,
-                subject: spec.approved_by.clone().into(),
+                // 不再用签批人姓名冒充账号主体：主体只能来自签批单或 `--subject`。
+                subject: subject.clone(),
             })
         }
         _ => Arc::new(FileTokenCredential {
             token: P2_CLI_SYNTHETIC_TOKEN.to_string(),
-            subject: None,
+            subject: subject.clone(),
         }),
     };
 
@@ -753,7 +783,10 @@ fn wps_p2_scan(args: &[String]) -> ExitCode {
 
     match outcome {
         Ok(outcome) => {
-            println!("{}", scan_outcome_json(&outcome, &spec, &transport_kind));
+            println!(
+                "{}",
+                scan_outcome_json(&outcome, &spec, &transport_kind, subject_state)
+            );
             ExitCode::SUCCESS
         }
         Err(err) => {

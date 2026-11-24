@@ -20,7 +20,7 @@ enum Mode {
 }
 
 struct Scripted {
-    calls: AtomicUsize,
+    calls: Arc<AtomicUsize>,
     mode: Mode,
     bodies: Mutex<Vec<Value>>,
 }
@@ -28,10 +28,15 @@ struct Scripted {
 impl Scripted {
     fn new(mode: Mode) -> Self {
         Self {
-            calls: AtomicUsize::new(0),
+            calls: Arc::new(AtomicUsize::new(0)),
             mode,
             bodies: Mutex::new(Vec::new()),
         }
+    }
+
+    /// 传输被移进 `P2ScanRun` 后仍可观察调用次数：零请求断言靠它。
+    fn handle(&self) -> Arc<AtomicUsize> {
+        self.calls.clone()
     }
 }
 
@@ -117,8 +122,10 @@ fn spec(pages: &[(i64, u32)], max_reads: u32, max_total: u32) -> P2ScanSpec {
     P2ScanSpec {
         endpoint: P2Endpoint::parse("https://mcp-center.wps.cn/skill_hub/mcp").unwrap(),
         file_id: "file_scan_fixture".into(),
+        approved_file_id: "file_scan_fixture".into(),
         grant_id: "A2-SCAN-TEST-01".into(),
         approved_by: "测试签批人".into(),
+        approved_subject: Some("tenant-a/reader".into()),
         sheets,
         pages: page_map,
         page_size: 50,
@@ -196,6 +203,59 @@ fn scan_rejects_unapproved_field_before_counting_records() {
     assert_eq!(err.code(), "P2_E_SCOPE");
     assert!(err.to_string().contains("表 1"));
     assert!(!err.to_string().contains("未批准"));
+}
+
+#[test]
+fn scan_rejects_file_id_outside_approved_target() {
+    let mut spec = spec(&[(1, 1)], 2, 12);
+    spec.file_id = "another_copy".into();
+    assert!(matches!(spec.validate(), Err(P2Error::Target(_))));
+
+    let transport = Scripted::new(Mode::Stable);
+    let calls = transport.handle();
+    let run = P2ScanRun::new(transport, Some(Arc::new(Tok)))
+        .with_state(Arc::new(MemoryConsumption::default()))
+        .with_clock(Arc::new(FixedClock(at(1))));
+    let err = run.run(&spec).unwrap_err();
+    assert_eq!(err.code(), "P2_E_TARGET");
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "目标越界不得产生任何请求");
+}
+
+#[test]
+fn scan_without_approved_subject_refuses_before_consuming_grant() {
+    let mut missing = spec(&[(1, 2)], 4, 12);
+    missing.approved_subject = None;
+    let consumption = Arc::new(MemoryConsumption::default());
+    let run = P2ScanRun::new(Scripted::new(Mode::Stable), Some(Arc::new(Tok)))
+        .with_state(consumption)
+        .with_clock(Arc::new(FixedClock(at(1))));
+    let err = run.run(&missing).unwrap_err();
+    assert_eq!(err.code(), "P2_E_SCOPE_PENDING");
+
+    // 关键：主体缺失属「本地可判」的拒绝，不得烧掉一次性授权。
+    let outcome = run.run(&spec(&[(1, 2)], 4, 12)).unwrap();
+    assert!(outcome.stable, "补正主体后同一 grant 仍可执行一次");
+}
+
+#[test]
+fn scan_rejects_subject_mismatch_before_any_request() {
+    struct OtherSubject;
+    impl P2Credential for OtherSubject {
+        fn access_token(&self) -> Result<String, P2Error> {
+            Ok("synthetic-scan-token".into())
+        }
+        fn subject(&self) -> Option<String> {
+            Some("tenant-b/reader".into())
+        }
+    }
+    let transport = Scripted::new(Mode::Stable);
+    let calls = transport.handle();
+    let run = P2ScanRun::new(transport, Some(Arc::new(OtherSubject)))
+        .with_state(Arc::new(MemoryConsumption::default()))
+        .with_clock(Arc::new(FixedClock(at(1))));
+    let err = run.run(&spec(&[(1, 1)], 2, 12)).unwrap_err();
+    assert_eq!(err.code(), "P2_E_SCOPE");
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "主体不符不得发网");
 }
 
 struct FixedClock(DateTime<Utc>);

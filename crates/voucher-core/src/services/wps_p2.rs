@@ -1520,8 +1520,14 @@ pub const P2_SCAN_MAX_SESSION_ACTIONS: u32 = 6;
 pub struct P2ScanSpec {
     pub endpoint: P2Endpoint,
     pub file_id: String,
+    /// 签批目标：请求的 `file_id` 必须与它**完全一致**（Q2 约束①，零请求拒绝）。
+    /// 与 `P2Grant::approved_file_id` 同义；扫描单不得只写一个 `file_id` 自证。
+    pub approved_file_id: String,
     pub grant_id: String,
     pub approved_by: String,
+    /// 签批授权主体（账号/租户）。缺失即 `P2_E_SCOPE_PENDING`，不一致即 `P2_E_SCOPE`；
+    /// 与单页单 `P2Grant::preflight` 同规则，且在运行级消费**之前**核对（Q2 约束⑤）。
+    pub approved_subject: Option<String>,
     pub sheets: BTreeMap<i64, BTreeSet<String>>,
     /// 每表锁死的页数（签批前 24h 内实测）。
     pub pages: BTreeMap<i64, u32>,
@@ -1542,6 +1548,11 @@ impl P2ScanSpec {
     pub fn validate(&self) -> Result<(), P2Error> {
         if self.grant_id.trim().is_empty() || self.approved_by.trim().is_empty() {
             return Err(P2Error::NotApproved);
+        }
+        if self.file_id != self.approved_file_id {
+            return Err(P2Error::Target(
+                "扫描目标 file_id 与签批不一致，已拒绝".into(),
+            ));
         }
         if self.sheets.is_empty() {
             return Err(P2Error::Scope("扫描运行未列出任何表".into()));
@@ -1595,6 +1606,30 @@ impl P2ScanSpec {
             )));
         }
         Ok(())
+    }
+
+    /// Q2 主体约束：签批主体必须已声明，且凭据主体必须与之一致。
+    ///
+    /// 与 `P2Grant::preflight` 的判定同源，差别只在于扫描运行没有单表概念。
+    /// **必须在 `P2Consumption::consume` 之前调用**：本地可判的拒绝不得烧掉一次性授权。
+    pub fn check_subject(&self, credential_subject: Option<&str>) -> Result<(), P2Error> {
+        let approved_subject = self
+            .approved_subject
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                P2Error::ScopePending("扫描授权主体（账号/租户）待补，不能视为已授权".into())
+            })?;
+        match credential_subject.map(str::trim) {
+            Some(subject) if subject == approved_subject => Ok(()),
+            Some(_) => Err(P2Error::Scope(
+                "凭据主体与扫描签批主体不一致，已拒绝".into(),
+            )),
+            None => Err(P2Error::ScopePending(
+                "凭据未提供可核对的主体，已拒绝".into(),
+            )),
+        }
     }
 }
 
@@ -1672,6 +1707,14 @@ impl<T: P2Transport> P2ScanRun<T> {
         if now < spec.window_start || now >= spec.window_end {
             return Err(P2Error::Window("不在签批执行窗口内".into()));
         }
+        // Q2 约束①⑤：目标绑定与主体核对全部在本地做完，**再**登记一次性消费。
+        // 顺序即证据：被拒的运行（目标/主体/窗口不成立）不产生消费记录，也不发网。
+        let credential_subject = self
+            .credential
+            .as_ref()
+            .and_then(|credential| credential.subject());
+        spec.check_subject(credential_subject.as_deref())?;
+        self.audit_bind(spec, credential_subject.as_deref());
         // 运行级消费：只在整场开始登记一次，运行内的 44+ 次读取不再登记。
         if let Some(state) = &self.state {
             state.consume(
@@ -1864,6 +1907,29 @@ impl<T: P2Transport> P2ScanRun<T> {
         (spec.window_end - now)
             .to_std()
             .map_err(|_| P2Error::Window("执行窗口剩余时间不合法".into()))
+    }
+
+    /// 绑定审计：目标与主体在发网前定稿，供卷宗复核「这一次运行绑定到了什么」。
+    fn audit_bind(&self, spec: &P2ScanSpec, credential_subject: Option<&str>) {
+        let line = format!(
+            "p2-scan-bind grant={} target={} subject={} subject_state={}",
+            spec.grant_id,
+            mask_id(&spec.file_id),
+            credential_subject
+                .map(mask_id)
+                .unwrap_or_else(|| "-".to_string()),
+            if credential_subject.is_some() {
+                "matched"
+            } else {
+                "missing"
+            },
+        );
+        if let Some(sink) = &self.audit_sink {
+            if let Ok(mut lines) = sink.lock() {
+                lines.push(line.clone());
+            }
+        }
+        log::info!("{line}");
     }
 
     fn audit_line(&self, entry: ScanAuditEntry<'_, '_>) {
